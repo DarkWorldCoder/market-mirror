@@ -17,6 +17,18 @@ def is_gpt5_family(model: Optional[str]) -> bool:
     return model.strip().lower().startswith("gpt-5")
 
 
+# Claude (Anthropic) is reached through its OpenAI-compatible endpoint.
+# Anthropic requires an explicit max_tokens and does not use OpenAI's
+# response_format, so both are normalised here for every caller.
+CLAUDE_DEFAULT_MAX_TOKENS = 8192
+
+
+def is_claude_target(client: Any, model: Optional[str]) -> bool:
+    """Return True when the request goes to Anthropic / a Claude model."""
+    base_url = str(getattr(client, "base_url", "") or "").lower()
+    return "anthropic.com" in base_url or (model or "").strip().lower().startswith("claude")
+
+
 def create_chat_completion(
     client: Any,
     *,
@@ -40,8 +52,19 @@ def create_chat_completion(
         "messages": messages,
     }
 
-    if response_format is not None:
+    claude = is_claude_target(client, model)
+
+    if response_format is not None and not claude:
         kwargs["response_format"] = response_format
+    elif response_format is not None and claude:
+        # Ask for JSON in the prompt instead of response_format.
+        kwargs["messages"] = list(messages) + [{
+            "role": "user",
+            "content": "Respond with a single valid JSON object only. No markdown fences, no extra text.",
+        }]
+
+    if claude and max_tokens is None:
+        max_tokens = CLAUDE_DEFAULT_MAX_TOKENS
 
     gpt5_family = is_gpt5_family(model)
 

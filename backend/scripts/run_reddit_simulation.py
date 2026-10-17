@@ -461,9 +461,34 @@ class RedditSimulationRunner:
         
         print(f"LLM配置: model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
         
+        # Claude: Anthropic's OpenAI-compatible endpoint needs explicit max_tokens
+        
+        _provider = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
+        
+        _base = os.environ.get('OPENAI_API_BASE_URL', '')
+        
+        if _provider == 'claude' and not _base:
+        
+            os.environ['OPENAI_API_BASE_URL'] = 'https://api.anthropic.com/v1/'
+        
+        if _provider == 'claude' and not llm_model.startswith('claude'):
+        
+            llm_model = os.environ.get('LLM_MODEL_NAME') or 'claude-haiku-4-5'
+        
+        _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
+        
         return ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI,
+        
+            model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _cfg else ModelPlatformType.OPENAI,
+        
             model_type=llm_model,
+        
+            model_config_dict=_cfg,
+        
+            url=os.environ.get('OPENAI_API_BASE_URL') if _cfg else None,
+        
+            api_key=os.environ.get('OPENAI_API_KEY') if _cfg else None,
+        
         )
     
     def _get_active_agents_for_round(
