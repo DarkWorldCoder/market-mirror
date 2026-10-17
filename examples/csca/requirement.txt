@@ -1,0 +1,6 @@
+Simulate students (17–22) and parents (40–55) in Nepal, Bangladesh and Indonesia scrolling Facebook and Instagram and seeing the CSCA.ai ads above. Agents should comment, share, ask questions, and decide whether to click and sign up for the free mock test. Predict:
+1. Which of the ten new concepts gets the most sign-ups, and which gets clicks but no sign-ups
+2. The main objections and trust concerns raised in comments, by country and by student vs parent
+3. Whether parents or students are the better audience for driving sign-ups
+4. What message would beat the original "Take Free Mock CSCA Test" ad
+Keep the simulation under 30 rounds.
