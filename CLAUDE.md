@@ -14,10 +14,10 @@ Set these in `MiroFish/.env` (it is loaded by `backend/app/config.py`):
 LLM_PROVIDER=claude          # Anthropic OpenAI-compatible endpoint (default)
 LLM_API_KEY=<Anthropic API key>   # or export ANTHROPIC_API_KEY
 LLM_MODEL_NAME=claude-haiku-4-5   # cheap and fast; use a Sonnet model for better reports
-MEMORY_BACKEND=local         # local SQLite graph, so no Zep key is needed
+MEMORY_BACKEND=local         # local SQLite graph + local embeddings, so no Zep key is needed
 ```
 
-Install the Python deps with `cd backend && uv sync`. The CLI itself needs only the stdlib and `requests`. Offline `export --run-dir` needs only the stdlib.
+Install the Python deps with `cd backend && uv sync` (this includes `fastembed`; the ~220 MB multilingual embedding model is downloaded on first use into `backend/uploads/models`). See section 6 for the memory backends. The CLI itself needs only the stdlib and `requests`. Offline `export --run-dir` needs only the stdlib.
 
 ## 2. Start / stop the backend
 
@@ -74,10 +74,37 @@ The output is one HTML file with inline CSS, inline SVG and no external requests
 - Agent count equals the number of graph entities. Use `--entity-types` (on `run` or `prepare`) to limit which types become agents.
 - `claude-haiku-4-5` is fine for exploration. Switch `LLM_MODEL_NAME` only for the final run.
 - Reports are cached per simulation, so `report` reuses the existing one unless you pass `--force`.
-- `--no-graph-memory` skips writing agent activity back into the graph. With `MEMORY_BACKEND=local` that write is cheap anyway.
+- `--no-graph-memory` skips writing agent activity back into the graph. With `MEMORY_BACKEND=local` or `cognee` that write is cheap anyway, because activity is stored and searchable without LLM extraction unless `MEMORY_EXTRACT_ACTIVITY=true`.
+- The local backend makes one Claude call per unique chunk. Re-building a graph from the same document with the same ontology and model reuses the cached extractions for free.
 
-## 6. Code map / rules
+## 6. Memory backends (knowledge graph)
+
+All three backends expose the same `zep_cloud`-shaped client (`get_zep_client()` in `backend/app/utils/zep.py`), so graph building, entity reading, ReportAgent tools and simulation memory work the same on each.
+
+- **`local` (default)**: `backend/app/utils/local_graph.py`, a SQLite file at `backend/uploads/local_graph.db`. The configured LLM (Claude) extracts entities and relationships per chunk with a compact prompt, 4 workers in parallel. Identical chunks reuse a cached extraction, and chunks are capped at `LOCAL_GRAPH_MAX_EPISODE_CHARS`. Search is **hybrid**: BM25 fused with cosine similarity over local `fastembed` embeddings (reciprocal rank fusion). The default model is `paraphrase-multilingual-MiniLM-L12-v2` (multilingual, 384 dims, CPU only), and vectors are cached in the same SQLite file. Entity resolution merges exact names, declared aliases, safe variants (`Acme Inc.` = `Acme`, `WHO` = `World Health Organization`, an unambiguous `Alice` = `Alice Smith`) and same-type names with embedding cosine >= `MEMORY_ENTITY_SIMILARITY` (0.9). If fastembed or the model is unavailable, search falls back to BM25 with no error. Set `MEMORY_EMBEDDINGS=false` to skip embeddings entirely.
+- **`cognee` (optional)**: `backend/app/utils/cognee_graph.py` plus a sidecar. Cognee cannot share `backend/.venv`: every Cognee release needs `tiktoken>=0.8` and `openai>=2`, while `camel-ai==0.2.78` (required by `camel-oasis`) pins `tiktoken<0.8` and `openai<2`. So Cognee runs in `backend/memory_sidecar/.venv` (about 1.3 GB) behind a small localhost JSON API:
+  ```bash
+  backend/memory_sidecar/cognee_sidecar.sh setup    # once
+  backend/memory_sidecar/cognee_sidecar.sh start    # before start_server.sh; also: status | stop
+  # .env: MEMORY_BACKEND=cognee
+  ```
+  Cognee uses the same Claude key and model (its `anthropic` provider), fastembed embeddings and local stores (SQLite, LanceDB, Ladybug/Kuzu) under `backend/uploads/cognee`. The ontology is passed as Cognee's `custom_prompt`. After each `cognify` run, the Cognee graph is read back and mirrored as `EntityNode`/`EntityEdge` rows. Search fuses Cognee's vector hits with the local hybrid ranking, and falls back to the local ranking if the sidecar is down.
+- **`zep` (legacy)**: hosted Zep Cloud, requires `ZEP_API_KEY`.
+
+| Option | License / cost | Runs where | Fit for MiroFish | Decision |
+|---|---|---|---|---|
+| **local hybrid** (this repo) | AGPL (repo), free | in-process SQLite + ONNX | Typed ontology, episodes/batches and the Zep shapes the services expect; one Claude call per unique chunk | **Default** |
+| **Cognee** | Apache-2.0, free | sidecar venv, local stores | Mature extraction/cognify pipeline and vector retrieval; dependency conflict with camel-ai | **Optional** (`cognee`) |
+| **Zep Cloud** | hosted, paid tiers | SaaS | Original upstream backend | **Legacy** (`zep`) |
+| Graphiti (Zep OSS) | Apache-2.0 | needs a graph DB (Neo4j/FalkorDB/Kuzu) + embedding provider | Strong temporal graph, but several LLM calls per episode and extra infrastructure | Not used |
+| Mem0 | Apache-2.0 | vector store (+ optional graph) | Built for user/agent conversational memory, not ontology-typed document graphs | Not used |
+| LightRAG | MIT | file/DB storage + embedding function | Good graph-RAG question answering, but no episode/batch model or typed ontology contract | Not used |
+
+Choice: the local backend keeps the "no extra service, no extra key" path and the exact Zep data model, so it is the default. Cognee is the drop-in upgrade for richer extraction when you can run a second process. Every backend uses Claude for extraction, and embeddings are always local and free (Anthropic has no embeddings API).
+
+## 7. Code map / rules
 
 - `backend/app/api/{graph,simulation,report}.py` contains the REST endpoints, and `backend/app/services/` the logic (graph builder, OASIS runner, ReportAgent). Runtime data is under `backend/uploads/` (projects, simulations, reports).
+- Memory: `backend/app/utils/{local_graph,embeddings,cognee_graph,zep}.py` and `backend/memory_sidecar/` (Cognee sidecar). Backend tests: `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`.
 - `backend/claude_cli/` holds the CLI (`mirofish.py`), the dashboard exporter (`exporter.py`, stdlib only), the server scripts and the tests (`python -m unittest discover -s backend/claude_cli/tests`).
 - Never commit `.env` or anything under `backend/uploads/` or `mirofish_runs/`.

@@ -10,16 +10,27 @@ working unchanged.
 Knowledge extraction (entities + relationships from episode text) is done by
 the project's own LLM (``LLMClient.chat_json``) in a small background worker
 pool, so ``episode.processed`` and batch statuses transition asynchronously
-just like Zep Cloud. Search is a pure-Python BM25 ranking over facts, node
-names/summaries and episode text.
+just like Zep Cloud. Identical episode texts reuse a cached extraction (no
+second LLM call).
 
-Not implemented compared to Zep Cloud: embeddings / semantic search, temporal
-contradiction resolution (old facts are never auto-invalidated), cross-encoder
-reranking (``reranker`` is accepted and ignored), user/thread memory.
+Search is hybrid: a pure-Python BM25 ranking fused (reciprocal rank fusion)
+with cosine similarity over local fastembed embeddings of facts, node
+names/summaries and episode text. Embeddings are optional: without
+``fastembed`` (or when the model cannot be loaded) search is BM25 only.
+
+Entity resolution merges an extracted entity into an existing node on exact
+normalised name, a declared alias, a safe name variant ("Acme Inc." / "Acme",
+"WHO" / "World Health Organization", "Alice" / "Alice Smith" when unambiguous)
+or, for the same type, name-embedding cosine >= ``entity_similarity``.
+
+Not implemented compared to Zep Cloud: temporal contradiction resolution (old
+facts are never auto-invalidated), cross-encoder reranking (``reranker`` is
+accepted and ignored), user/thread memory.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -32,6 +43,8 @@ import queue
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+
+import numpy as np
 
 from zep_cloud import (
     BadRequestError,
@@ -49,6 +62,13 @@ from zep_cloud import (
 from zep_cloud.types import EpisodeResponse, Graph, GraphListResponse, SuccessResponse
 from zep_cloud.types.api_error import ApiError as ApiErrorBody
 
+from .embeddings import (
+    cosine_rank,
+    from_blob,
+    reciprocal_rank_fusion,
+    text_hash,
+    to_blob,
+)
 from .logger import get_logger
 
 logger = get_logger("mirofish.local_graph")
@@ -58,6 +78,15 @@ SIMULATION_ACTIVITY_SOURCE = "mirofish_simulation"
 ACTIVITY_EDGE_NAME = "SIMULATION_ACTIVITY"
 _MAX_SUMMARY_CHARS = 1200
 _EXTRACTION_ATTEMPTS = 3
+_EXTRACTION_MAX_TOKENS = 3000
+# Bump when the extraction prompt/format changes to invalidate cached results.
+_EXTRACTION_PROMPT_VERSION = "2"
+_DEFAULT_MAX_EPISODE_CHARS = 6000
+_EMBED_TEXT_CHARS = 1000
+# Missing vectors computed lazily during one search (e.g. a DB created before
+# embeddings were enabled); the rest stay BM25-only until ingested again.
+_SEARCH_BACKFILL_LIMIT = 512
+_VECTOR_CACHE_MAX = 200_000
 
 
 def _now() -> str:
@@ -89,6 +118,87 @@ def _json_load(value: Optional[str], default: Any) -> Any:
         return json.loads(value)
     except (TypeError, ValueError):
         return default
+
+
+# --------------------------------------------------------------------------
+# Entity name variants (deterministic, conservative)
+# --------------------------------------------------------------------------
+
+_HAS_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
+_LEGAL_SUFFIXES = {
+    "inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited",
+    "llc", "plc", "gmbh", "ag", "sa", "nv", "bv", "pte", "pvt", "tbk", "bhd", "sdn",
+}
+_CJK_SUFFIXES = ("股份有限公司", "有限责任公司", "有限公司", "集团", "公司")
+_ACRONYM_STOPWORDS = {"of", "the", "and", "for", "&", "de", "du", "la", "le", "der", "und"}
+
+
+def _name_tokens(norm: str) -> List[str]:
+    return [t for t in re.split(r"[^0-9a-z\u0080-￿]+", norm) if t]
+
+
+def _name_core(norm: str) -> str:
+    """Name without articles, punctuation and legal-form suffixes."""
+
+    if _HAS_CJK_RE.search(norm):
+        core = re.sub(r"\s+", "", norm)
+        for suffix in _CJK_SUFFIXES:
+            if core.endswith(suffix) and len(core) - len(suffix) >= 2:
+                core = core[: -len(suffix)]
+                break
+        return core
+    tokens = _name_tokens(norm)
+    if tokens and tokens[0] == "the" and len(tokens) > 1:
+        tokens = tokens[1:]
+    while len(tokens) > 1 and tokens[-1] in _LEGAL_SUFFIXES:
+        tokens = tokens[:-1]
+    return " ".join(tokens)
+
+
+def _acronym_of(short_raw: str, long_norm: str) -> bool:
+    short = re.sub(r"[^A-Za-z]", "", short_raw)
+    if not (2 <= len(short) <= 6) or not short.isupper() or short_raw.strip() != short_raw.strip().upper():
+        return False
+    tokens = [t for t in _name_tokens(long_norm) if t not in _ACRONYM_STOPWORDS and t not in _LEGAL_SUFFIXES]
+    return len(tokens) == len(short) and "".join(t[0] for t in tokens) == short.lower()
+
+
+NAME_MATCH_NONE, NAME_MATCH_WEAK, NAME_MATCH_STRONG = 0, 1, 2
+
+
+def name_match_strength(name_a: str, name_b: str) -> int:
+    """How safely two entity names denote the same entity (deterministic).
+
+    STRONG: equal cores ("Acme Inc." / "Acme", "澜舟科技有限公司" / "澜舟科技")
+    or an acronym of the other name ("WHO" / "World Health Organization").
+    WEAK: a single token of >= 4 letters that is the first or last word of a
+    short (2-3 word) name ("Alice" / "Alice Smith"); only used for two nodes
+    of the same concrete type and only when exactly one candidate matches.
+    """
+
+    norm_a, norm_b = _normalize_name(name_a), _normalize_name(name_b)
+    if not norm_a or not norm_b:
+        return NAME_MATCH_NONE
+    if norm_a == norm_b:
+        return NAME_MATCH_STRONG
+    core_a, core_b = _name_core(norm_a), _name_core(norm_b)
+    if core_a and core_a == core_b and len(core_a) >= 2:
+        return NAME_MATCH_STRONG
+    if _acronym_of(name_a, norm_b) or _acronym_of(name_b, norm_a):
+        return NAME_MATCH_STRONG
+    if _HAS_CJK_RE.search(core_a) or _HAS_CJK_RE.search(core_b):
+        return NAME_MATCH_NONE
+    short, long_ = sorted((core_a, core_b), key=len)
+    short_tokens, long_tokens = _name_tokens(short), _name_tokens(long_)
+    if (
+        len(short_tokens) == 1
+        and len(short) >= 4
+        and short.isalpha()
+        and 2 <= len(long_tokens) <= 3
+        and short in (long_tokens[0], long_tokens[-1])
+    ):
+        return NAME_MATCH_WEAK
+    return NAME_MATCH_NONE
 
 
 # --------------------------------------------------------------------------
@@ -204,55 +314,42 @@ def serialize_ontology(
 # Extraction prompt
 # --------------------------------------------------------------------------
 
-_EXTRACTION_SYSTEM_PROMPT = """You are a knowledge-graph extraction engine.
-Read the episode text and extract the entities and relationships it states.
-Return ONLY a JSON object of the form:
-{
-  "entities": [
-    {"name": "...", "type": "<one of the entity types or Entity>",
-     "summary": "<one or two sentences about this entity based on the text>",
-     "attributes": {"<attribute name>": "<value>"}}
-  ],
-  "relationships": [
-    {"type": "<one of the relationship types, UPPER_SNAKE_CASE>",
-     "source": "<entity name>", "target": "<entity name>",
-     "fact": "<a self-contained sentence stating the relationship>",
-     "valid_at": "<ISO-8601 date if the text says when it became true, else null>",
-     "invalid_at": "<ISO-8601 date if the text says when it stopped being true, else null>"}
-  ]
-}
-Rules:
-- Use the canonical, fully-qualified name of each entity; reuse exactly the same name for the same entity.
-- Prefer the provided entity and relationship types. Use "Entity" only when no type fits.
-- Only include attributes defined for that entity type; omit unknown values.
-- Every relationship source and target must also appear in "entities".
-- Write summaries and facts in the same language as the episode text.
-- Do not invent information that is not in the text."""
+_EXTRACTION_SYSTEM_PROMPT = """Extract a knowledge graph from the text. Reply with JSON only:
+{"entities":[{"name":"","type":"","summary":"","aliases":[],"attributes":{}}],
+"relationships":[{"type":"","source":"","target":"","fact":"","valid_at":null,"invalid_at":null}]}
+Rules: canonical full names, same name for the same entity; other names/abbreviations in the text go in "aliases" (omit if none).
+Use the listed types ("Entity" if none fits) and only their attributes. summary: 1 sentence from the text.
+fact: one self-contained sentence. valid_at/invalid_at: ISO date only if stated.
+Every relationship endpoint must be an entity. Write in the text's language. Never invent facts."""
+
+
+def _clip(text: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _ontology_prompt(ontology: Dict[str, Any]) -> str:
+    """Compact one-line-per-type ontology description for the extraction prompt."""
+
     entity_types = ontology.get("entity_types") or {}
     edge_types = ontology.get("edge_types") or {}
     lines: List[str] = []
     if entity_types:
         lines.append("Entity types:")
         for name, spec in entity_types.items():
-            attrs = ", ".join(
-                f"{attr} ({desc})" if desc else attr
-                for attr, desc in (spec.get("attributes") or {}).items()
-            )
-            line = f"- {name}: {spec.get('description', '')}"
+            attrs = ",".join((spec.get("attributes") or {}).keys())
+            line = f"- {name}: {_clip(spec.get('description', ''), 140)}"
             if attrs:
-                line += f" Attributes: {attrs}"
+                line += f" [{attrs}]"
             lines.append(line)
     if edge_types:
         lines.append("Relationship types:")
         for name, spec in edge_types.items():
-            pairs = ", ".join(
+            pairs = ",".join(
                 f"{st.get('source')}->{st.get('target')}"
                 for st in spec.get("source_targets") or []
             )
-            line = f"- {name}: {spec.get('description', '')}"
+            line = f"- {name}: {_clip(spec.get('description', ''), 120)}"
             if pairs:
                 line += f" ({pairs})"
             lines.append(line)
@@ -341,7 +438,24 @@ CREATE TABLE IF NOT EXISTS batch_items (
     updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_batch_items ON batch_items(batch_id, sequence_index);
+CREATE TABLE IF NOT EXISTS embeddings (
+    model TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    PRIMARY KEY (model, text_hash)
+);
+CREATE TABLE IF NOT EXISTS extraction_cache (
+    cache_key TEXT PRIMARY KEY,
+    result TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
+
+# Columns added after the first release; created on open for older databases.
+_MIGRATIONS = (
+    ("nodes", "aliases", "ALTER TABLE nodes ADD COLUMN aliases TEXT"),
+)
 
 
 class _Store:
@@ -360,6 +474,10 @@ class _Store:
                 self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
             self.conn.executescript(_SCHEMA)
+            for table, column, ddl in _MIGRATIONS:
+                columns = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if column not in columns:
+                    self.conn.execute(ddl)
             row = self.conn.execute(
                 "SELECT MAX(m) FROM (SELECT MAX(seq) m FROM nodes UNION ALL "
                 "SELECT MAX(seq) FROM edges UNION ALL SELECT MAX(seq) FROM episodes "
@@ -676,6 +794,7 @@ class LocalGraphClient:
         with self._owner._store.transaction() as store:
             for table in ("edges", "nodes", "episodes", "graphs"):
                 store.conn.execute(f"DELETE FROM {table} WHERE graph_id = ?", (graph_id,))
+        self._owner._on_graph_deleted(graph_id)
         return SuccessResponse(message="graph deleted")
 
     # -- ontology --------------------------------------------------------
@@ -734,6 +853,8 @@ class LocalGraphClient:
         )
         if extract:
             self._owner._submit_episode(episode_uuid)
+        else:
+            self._owner._submit_embedding(episode_uuid)
         return self.episode.get(episode_uuid)
 
     # -- search ----------------------------------------------------------
@@ -978,15 +1099,50 @@ class LocalZep:
         llm_client: Any = None,
         extract_activity: bool = False,
         max_workers: int = 4,
+        embedder: Any = None,
+        entity_similarity: float = 0.9,
+        min_similarity: float = 0.3,
+        max_episode_chars: int = _DEFAULT_MAX_EPISODE_CHARS,
     ):
+        """
+        ``embedder``: object with ``model_name`` and ``embed(texts, query=False)``
+        returning normalised vectors or ``None`` (see ``app.utils.embeddings``).
+        ``None`` (the default for direct construction) means BM25-only search;
+        ``get_local_zep_client()`` passes the configured fastembed embedder.
+        """
+
         self.db_path = db_path
         self.extract_activity = extract_activity
+        self.entity_similarity = float(entity_similarity)
+        self.min_similarity = float(min_similarity)
+        self.max_episode_chars = max(500, int(max_episode_chars))
+        self.embedder = embedder
+        self.stats: Counter[str] = Counter()
         self._store = _Store(db_path)
         self._llm_client = llm_client
         self._llm_lock = threading.Lock()
+        self._vector_cache: Dict[str, np.ndarray] = {}
+        self._query_cache: Dict[str, Optional[np.ndarray]] = {}
+        self._vector_lock = threading.Lock()
+        self._inflight: Dict[str, threading.Event] = {}
+        self._inflight_lock = threading.Lock()
+        self._pending_jobs = 0
+        self._pending_lock = threading.Lock()
+        # Post-merge document embeddings are batched across episodes by one
+        # background thread (far fewer ONNX calls than one per episode).
+        self._embed_backlog: List[str] = []
+        self._embed_busy = False
+        self._embed_cond = threading.Condition()
+        self._closed = False
+        self._embed_thread: Optional[threading.Thread] = None
+        if self.embeddings_enabled:
+            self._embed_thread = threading.Thread(
+                target=self._embed_loop, name="local-graph-embed", daemon=True
+            )
+            self._embed_thread.start()
         # Daemon workers: an interrupted extraction is simply re-queued by
         # _resume_unprocessed() on the next start, so shutdown never blocks.
-        self._queue: "queue.Queue[Optional[tuple[str, Optional[str]]]]" = queue.Queue()
+        self._queue: "queue.Queue[Optional[tuple[str, str, Optional[str]]]]" = queue.Queue()
         self._workers = [
             threading.Thread(target=self._worker_loop, name=f"local-graph-{i}", daemon=True)
             for i in range(max(1, int(max_workers)))
@@ -1013,6 +1169,11 @@ class LocalZep:
             self._queue.put(None)
         for worker in self._workers:
             worker.join(timeout)
+        with self._embed_cond:
+            self._closed = True
+            self._embed_cond.notify_all()
+        if self._embed_thread is not None:
+            self._embed_thread.join(timeout)
         self._store.close()
 
     def _worker_loop(self) -> None:
@@ -1020,13 +1181,17 @@ class LocalZep:
             job = self._queue.get()
             if job is None:
                 return
+            _kind, episode_uuid, batch_item_id = job
             try:
-                self._process_episode_safely(*job)
+                self._process_episode_safely(episode_uuid, batch_item_id)
             except Exception:  # noqa: BLE001 - store may be closed during shutdown
                 logger.exception("Local graph worker failed")
+            finally:
+                with self._pending_lock:
+                    self._pending_jobs -= 1
 
     def wait_idle(self, timeout: float = 30.0) -> bool:
-        """Block until every queued extraction has finished (tests/scripts)."""
+        """Block until every queued extraction/embedding job has finished."""
 
         import time
 
@@ -1038,7 +1203,11 @@ class LocalZep:
                 "LEFT JOIN batches b ON b.batch_id = bi.batch_id "
                 "WHERE e.processed = 0 AND (bi.item_id IS NULL OR b.status != 'draft')"
             )[0]
-            if not pending:
+            with self._pending_lock:
+                jobs = self._pending_jobs
+            with self._embed_cond:
+                embedding = bool(self._embed_backlog) or self._embed_busy
+            if not pending and not jobs and not embedding:
                 return True
             time.sleep(0.02)
         return False
@@ -1083,6 +1252,130 @@ class LocalZep:
         for row in rows:
             self._submit_episode(row["uuid"], batch_item_id=row["item_id"])
 
+    # -- embeddings ------------------------------------------------------
+
+    @property
+    def embeddings_enabled(self) -> bool:
+        return self.embedder is not None and bool(getattr(self.embedder, "available", True))
+
+    @property
+    def _embed_model(self) -> str:
+        return str(getattr(self.embedder, "model_name", "") or "default")
+
+    def _remember_vectors(self, vectors: Dict[str, np.ndarray]) -> None:
+        with self._vector_lock:
+            if len(self._vector_cache) + len(vectors) > _VECTOR_CACHE_MAX:
+                self._vector_cache.clear()
+            self._vector_cache.update(vectors)
+
+    def _vectors_for(self, texts: Sequence[str], *,
+                     compute_limit: Optional[int] = None) -> List[Optional[np.ndarray]]:
+        """Vectors for ``texts`` from memory, then SQLite, then the embedder.
+
+        ``compute_limit`` caps how many missing vectors are computed now
+        (``0`` = lookup only). Returns ``None`` entries for unavailable ones.
+        """
+
+        if not texts or not self.embeddings_enabled:
+            return [None] * len(texts)
+        clipped = [str(text or "").strip()[:_EMBED_TEXT_CHARS] for text in texts]
+        hashes = [text_hash(text) if text else "" for text in clipped]
+        found: Dict[str, np.ndarray] = {}
+        with self._vector_lock:
+            for digest in hashes:
+                if digest and digest in self._vector_cache:
+                    found[digest] = self._vector_cache[digest]
+        missing = [d for d in dict.fromkeys(hashes) if d and d not in found]
+        loaded: Dict[str, np.ndarray] = {}
+        model = self._embed_model
+        for start in range(0, len(missing), 500):
+            chunk = missing[start:start + 500]
+            rows = self._store.query(
+                f"SELECT text_hash, vector FROM embeddings WHERE model = ? AND text_hash IN "
+                f"({','.join('?' * len(chunk))})",
+                [model, *chunk],
+            )
+            for row in rows:
+                loaded[row["text_hash"]] = from_blob(row["vector"])
+        found.update(loaded)
+
+        pending: Dict[str, str] = {}
+        for digest, text in zip(hashes, clipped):
+            if digest and digest not in found and digest not in pending:
+                pending[digest] = text
+        todo = list(pending.items())
+        if compute_limit is not None:
+            todo = todo[:max(0, compute_limit)]
+        computed: Dict[str, np.ndarray] = {}
+        if todo:
+            vectors = self.embedder.embed([text for _digest, text in todo])
+            if vectors and len(vectors) == len(todo):
+                for (digest, _text), vector in zip(todo, vectors):
+                    computed[digest] = np.asarray(vector, dtype=np.float32)
+                self.stats["embedded_texts"] += len(computed)
+                with self._store.transaction() as store:
+                    store.conn.executemany(
+                        "INSERT OR REPLACE INTO embeddings(model, text_hash, dim, vector) VALUES (?, ?, ?, ?)",
+                        [(model, d, int(v.shape[0]), to_blob(v)) for d, v in computed.items()],
+                    )
+        found.update(computed)
+        self._remember_vectors({**loaded, **computed})
+        return [found.get(digest) if digest else None for digest in hashes]
+
+    def _query_vector(self, query: str) -> Optional[np.ndarray]:
+        key = query.strip()
+        with self._vector_lock:
+            if key in self._query_cache:
+                return self._query_cache[key]
+        vectors = self.embedder.embed([key], query=True) if self.embeddings_enabled else None
+        vector = np.asarray(vectors[0], dtype=np.float32) if vectors else None
+        with self._vector_lock:
+            if len(self._query_cache) > 2048:
+                self._query_cache.clear()
+            self._query_cache[key] = vector
+        return vector
+
+    @staticmethod
+    def _node_text(name: str, summary: str) -> str:
+        return f"{name}: {summary}" if summary else str(name)
+
+    def _queue_embeddings(self, texts: Iterable[str]) -> None:
+        texts = [t for t in texts if t and str(t).strip()]
+        if not texts or self._embed_thread is None:
+            return
+        with self._embed_cond:
+            self._embed_backlog.extend(texts)
+            self._embed_cond.notify()
+
+    def _embed_loop(self) -> None:
+        while True:
+            with self._embed_cond:
+                while not self._embed_backlog and not self._closed:
+                    self._embed_cond.wait()
+                if self._closed:
+                    return
+                batch = list(dict.fromkeys(self._embed_backlog[:256]))
+                del self._embed_backlog[:256]
+                self._embed_busy = True
+            try:
+                self._vectors_for(batch)
+            except Exception:  # noqa: BLE001 - store closed during shutdown, etc.
+                logger.exception("Background embedding failed")
+            finally:
+                with self._embed_cond:
+                    self._embed_busy = False
+
+    def _embed_episode(self, episode_uuid: str) -> None:
+        """Queue an unextracted (activity) episode and each of its lines."""
+
+        if not self.embeddings_enabled:
+            return
+        row = self._store.one("SELECT content FROM episodes WHERE uuid = ?", (episode_uuid,))
+        if row is None:
+            return
+        lines = [line.strip() for line in row["content"].splitlines() if line.strip()]
+        self._queue_embeddings([row["content"], *lines])
+
     # -- episodes --------------------------------------------------------
 
     def _insert_episode(self, *, graph_id: str, content: str, source: Optional[str],
@@ -1107,8 +1400,16 @@ class LocalZep:
         )
         return episode_uuid
 
+    def _enqueue(self, kind: str, episode_uuid: str, batch_item_id: Optional[str] = None) -> None:
+        with self._pending_lock:
+            self._pending_jobs += 1
+        self._queue.put((kind, episode_uuid, batch_item_id))
+
     def _submit_episode(self, episode_uuid: str, batch_item_id: Optional[str] = None) -> None:
-        self._queue.put((episode_uuid, batch_item_id))
+        self._enqueue("extract", episode_uuid, batch_item_id)
+
+    def _submit_embedding(self, episode_uuid: str) -> None:
+        self._embed_episode(episode_uuid)
 
     def _set_item_status(self, item_id: Optional[str], status: str, error: Any = None) -> None:
         if not item_id:
@@ -1143,35 +1444,174 @@ class LocalZep:
             return
         graph_id = row["graph_id"]
         ontology = self._ontology(graph_id)
-        extraction = self._extract(row["content"], ontology)
-        self._merge_extraction(graph_id, row, ontology, extraction)
+        extraction = self._extract_cached(row["content"], ontology)
+        name_vectors = self._entity_name_vectors(extraction)
+        touched = self._merge_extraction(graph_id, row, ontology, extraction, name_vectors)
+        self._embed_touched(touched, row["content"])
+
+    def _extraction_key(self, text: str, ontology: Dict[str, Any]) -> str:
+        model = str(getattr(self.llm, "model", "") or "")
+        payload = json.dumps(
+            [_EXTRACTION_PROMPT_VERSION, model, ontology, text], ensure_ascii=False, sort_keys=True
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _extract_cached(self, text: str, ontology: Dict[str, Any]) -> Dict[str, Any]:
+        """LLM extraction, reusing results for identical (text, ontology, model).
+
+        Concurrent workers given the same chunk wait for the first one instead
+        of paying for a second LLM call.
+        """
+
+        text = str(text or "")
+        if len(text) > self.max_episode_chars:
+            text = text[: self.max_episode_chars]
+        key = self._extraction_key(text, ontology)
+        while True:
+            cached = self._store.one("SELECT result FROM extraction_cache WHERE cache_key = ?", (key,))
+            if cached is not None:
+                result = _json_load(cached["result"], None)
+                if isinstance(result, dict):
+                    self.stats["extraction_cache_hits"] += 1
+                    return result
+            with self._inflight_lock:
+                event = self._inflight.get(key)
+                owner = event is None
+                if owner:
+                    event = threading.Event()
+                    self._inflight[key] = event
+            if not owner:
+                event.wait(timeout=900)
+                continue
+            try:
+                result = self._extract(text, ontology)
+                self._store.execute(
+                    "INSERT OR REPLACE INTO extraction_cache(cache_key, result, created_at) VALUES (?, ?, ?)",
+                    (key, json.dumps(result, ensure_ascii=False), _now()),
+                )
+                return result
+            finally:
+                with self._inflight_lock:
+                    self._inflight.pop(key, None)
+                event.set()
 
     def _extract(self, text: str, ontology: Dict[str, Any]) -> Dict[str, Any]:
+        self.stats["llm_calls"] += 1
         messages = [
             {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"{_ontology_prompt(ontology)}\n\nEpisode text:\n<<<\n{text}\n>>>",
+                "content": f"{_ontology_prompt(ontology)}\n\nText:\n<<<\n{text}\n>>>",
             },
         ]
         result = self.llm.chat_json(
             messages=messages,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=_EXTRACTION_MAX_TOKENS,
             max_attempts=_EXTRACTION_ATTEMPTS,
         )
         if not isinstance(result, dict):
             raise ValueError("extraction response must be a JSON object")
         return result
 
+    def _entity_name_vectors(self, extraction: Dict[str, Any]) -> Dict[str, np.ndarray]:
+        """Embed every entity / endpoint name of one extraction in one batch."""
+
+        if not self.embeddings_enabled or not isinstance(extraction, dict):
+            return {}
+        names: List[str] = []
+        for entity in extraction.get("entities") or []:
+            if isinstance(entity, dict) and str(entity.get("name") or "").strip():
+                names.append(str(entity["name"]).strip())
+        for rel in extraction.get("relationships") or extraction.get("edges") or []:
+            if isinstance(rel, dict):
+                names.extend(str(rel.get(k) or "").strip() for k in ("source", "target"))
+        names = [n for n in dict.fromkeys(names) if n]
+        vectors = self._vectors_for(names)
+        return {_normalize_name(n): v for n, v in zip(names, vectors) if v is not None}
+
+    def _embed_touched(self, touched: Dict[str, Any], episode_text: str) -> None:
+        if not self.embeddings_enabled:
+            return
+        texts = [episode_text]
+        node_ids = sorted(touched.get("nodes") or ())
+        for start in range(0, len(node_ids), 500):
+            chunk = node_ids[start:start + 500]
+            rows = self._store.query(
+                f"SELECT name, summary FROM nodes WHERE uuid IN ({','.join('?' * len(chunk))})", chunk
+            )
+            texts.extend(self._node_text(r["name"], r["summary"]) for r in rows)
+        texts.extend(touched.get("facts") or ())
+        self._queue_embeddings(texts)
+
+    # -- entity resolution ------------------------------------------------
+
+    def _resolve_entity(self, known: List[Dict[str, Any]], name: str, label: str,
+                        aliases: Sequence[str], name_vectors: Dict[str, np.ndarray]) -> Optional[Dict[str, Any]]:
+        """Pick the existing node an extracted entity refers to (or ``None``).
+
+        Order: exact name, declared alias, strong name variant, unique weak
+        variant of the same concrete type, then same-type name-embedding
+        cosine >= ``entity_similarity``. Ties prefer the same label, then the
+        oldest node, so the result is deterministic for a given graph state.
+        """
+
+        norm = _normalize_name(name)
+        alias_norms = {_normalize_name(a) for a in aliases or () if a} - {"", norm}
+
+        def compatible(cand: Dict[str, Any]) -> bool:
+            return cand["label"] == label or cand["label"] == "Entity" or label == "Entity"
+
+        def best(cands: List[Dict[str, Any]]) -> Dict[str, Any]:
+            return sorted(cands, key=lambda c: (c["label"] != label, c["seq"] or 0))[0]
+
+        pool = [c for c in known if compatible(c)]
+        exact = [c for c in pool if c["norm"] == norm]
+        if exact:
+            return best(exact)
+        aliased = [c for c in pool if norm in c["aliases"] or c["norm"] in alias_norms]
+        if aliased:
+            return best(aliased)
+        strong = [c for c in pool if name_match_strength(name, c["name"]) == NAME_MATCH_STRONG]
+        if strong:
+            return best(strong)
+        if label == "Entity":
+            return None
+        same_type = [c for c in known if c["label"] == label]
+        weak = [c for c in same_type if name_match_strength(name, c["name"]) == NAME_MATCH_WEAK]
+        if len(weak) == 1:
+            return weak[0]
+        vector = name_vectors.get(norm)
+        if vector is None or not same_type:
+            return None
+        missing = [c for c in same_type if c["norm"] not in name_vectors]
+        if missing:
+            looked_up = self._vectors_for([c["name"] for c in missing], compute_limit=0)
+            for cand, cand_vector in zip(missing, looked_up):
+                if cand_vector is not None:
+                    name_vectors[cand["norm"]] = cand_vector
+        scored = []
+        for cand in same_type:
+            cand_vector = name_vectors.get(cand["norm"])
+            if cand_vector is None or cand_vector.shape != vector.shape:
+                continue
+            scored.append((float(cand_vector @ vector), cand))
+        if not scored:
+            return None
+        score, cand = sorted(scored, key=lambda pair: (-pair[0], pair[1]["seq"] or 0))[0]
+        return cand if score >= self.entity_similarity else None
+
     def _merge_extraction(self, graph_id: str, episode_row: sqlite3.Row,
-                          ontology: Dict[str, Any], extraction: Dict[str, Any]) -> None:
+                          ontology: Dict[str, Any], extraction: Dict[str, Any],
+                          name_vectors: Optional[Dict[str, np.ndarray]] = None) -> Dict[str, Any]:
         entity_specs = ontology.get("entity_types") or {}
         edge_specs = ontology.get("edge_types") or {}
         type_lookup = {name.lower(): name for name in entity_specs}
         edge_lookup = {name.upper(): name for name in edge_specs}
         episode_uuid = episode_row["uuid"]
         episode_time = episode_row["created_at"]
+        name_vectors = dict(name_vectors or {})
+        touched: Dict[str, Any] = {"nodes": set(), "facts": []}
 
         raw_entities = extraction.get("entities") or []
         raw_edges = extraction.get("relationships") or extraction.get("edges") or []
@@ -1181,41 +1621,55 @@ class LocalZep:
         with self._store.transaction() as store:
             conn = store.conn
             if conn.execute("SELECT 1 FROM graphs WHERE graph_id = ?", (graph_id,)).fetchone() is None:
-                return  # deleted concurrently
+                return touched  # deleted concurrently
+            known: List[Dict[str, Any]] = [
+                {
+                    "uuid": r["uuid"], "name": r["name"], "norm": r["norm_name"], "label": r["label"],
+                    "aliases": list(_json_load(r["aliases"], []) or []), "seq": r["seq"],
+                }
+                for r in conn.execute(
+                    "SELECT uuid, name, norm_name, label, aliases, seq FROM nodes "
+                    "WHERE graph_id = ? ORDER BY seq",
+                    (graph_id,),
+                )
+            ]
             name_to_uuid: Dict[str, str] = {}
 
-            def upsert_node(name: str, label: str, summary: str, attributes: Dict[str, Any]) -> str:
+            def upsert_node(name: str, label: str, summary: str, attributes: Dict[str, Any],
+                            aliases: Sequence[str] = ()) -> str:
+                name = name.strip()
                 norm = _normalize_name(name)
-                existing = conn.execute(
-                    "SELECT * FROM nodes WHERE graph_id = ? AND norm_name = ? AND label = ?",
-                    (graph_id, norm, label),
-                ).fetchone()
-                if existing is None and label == "Entity":
-                    # An untyped mention of an already typed entity reuses it.
-                    existing = conn.execute(
-                        "SELECT * FROM nodes WHERE graph_id = ? AND norm_name = ? ORDER BY seq LIMIT 1",
-                        (graph_id, norm),
-                    ).fetchone()
-                elif existing is None:
-                    # Upgrade a previously untyped node instead of duplicating it.
-                    untyped = conn.execute(
-                        "SELECT * FROM nodes WHERE graph_id = ? AND norm_name = ? AND label = 'Entity'",
-                        (graph_id, norm),
-                    ).fetchone()
-                    if untyped is not None:
-                        conn.execute("UPDATE nodes SET label = ? WHERE uuid = ?", (label, untyped["uuid"]))
-                        existing = conn.execute(
-                            "SELECT * FROM nodes WHERE uuid = ?", (untyped["uuid"],)
-                        ).fetchone()
-                if existing is None:
+                match = self._resolve_entity(known, name, label, aliases, name_vectors)
+                if match is None:
                     node_uuid = str(uuid.uuid4())
+                    alias_list = sorted({_normalize_name(a) for a in aliases if a} - {"", norm})
+                    seq = store.next_seq()
                     conn.execute(
                         "INSERT INTO nodes(uuid, graph_id, name, norm_name, label, summary, attributes, "
-                        "created_at, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (node_uuid, graph_id, name.strip(), norm, label, summary[:_MAX_SUMMARY_CHARS],
-                         json.dumps(attributes, ensure_ascii=False), _now(), store.next_seq()),
+                        "created_at, seq, aliases) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (node_uuid, graph_id, name, norm, label, summary[:_MAX_SUMMARY_CHARS],
+                         json.dumps(attributes, ensure_ascii=False), _now(), seq,
+                         json.dumps(alias_list, ensure_ascii=False)),
                     )
+                    known.append({"uuid": node_uuid, "name": name, "norm": norm, "label": label,
+                                  "aliases": alias_list, "seq": seq})
+                    touched["nodes"].add(node_uuid)
                     return node_uuid
+
+                existing = conn.execute("SELECT * FROM nodes WHERE uuid = ?", (match["uuid"],)).fetchone()
+                new_label = existing["label"]
+                if new_label == "Entity" and label != "Entity":
+                    # Upgrade a previously untyped node instead of duplicating it.
+                    clash = conn.execute(
+                        "SELECT 1 FROM nodes WHERE graph_id = ? AND norm_name = ? AND label = ?",
+                        (graph_id, existing["norm_name"], label),
+                    ).fetchone()
+                    if clash is None:
+                        new_label = label
+                alias_set = set(match["aliases"])
+                alias_set.update(_normalize_name(a) for a in [name, *aliases] if a)
+                alias_set.discard(existing["norm_name"])
+                alias_set.discard("")
                 merged_summary = existing["summary"] or ""
                 if summary and summary not in merged_summary:
                     merged_summary = f"{merged_summary} {summary}".strip() if merged_summary else summary
@@ -1224,9 +1678,13 @@ class LocalZep:
                 merged_attrs = _json_load(existing["attributes"], {}) or {}
                 merged_attrs.update({k: v for k, v in attributes.items() if v not in (None, "")})
                 conn.execute(
-                    "UPDATE nodes SET summary = ?, attributes = ? WHERE uuid = ?",
-                    (merged_summary, json.dumps(merged_attrs, ensure_ascii=False), existing["uuid"]),
+                    "UPDATE nodes SET label = ?, summary = ?, attributes = ?, aliases = ? WHERE uuid = ?",
+                    (new_label, merged_summary, json.dumps(merged_attrs, ensure_ascii=False),
+                     json.dumps(sorted(alias_set), ensure_ascii=False), existing["uuid"]),
                 )
+                match["label"] = new_label
+                match["aliases"] = sorted(alias_set)
+                touched["nodes"].add(existing["uuid"])
                 return existing["uuid"]
 
             for entity in raw_entities:
@@ -1243,20 +1701,19 @@ class LocalZep:
                     str(k): v for k, v in raw_attrs.items()
                     if (not allowed or k in allowed) and isinstance(v, (str, int, float, bool))
                 }
+                raw_aliases = entity.get("aliases") if isinstance(entity.get("aliases"), list) else []
+                aliases = [str(a).strip() for a in raw_aliases if isinstance(a, str) and a.strip()][:10]
                 summary = str(entity.get("summary") or "").strip()
-                name_to_uuid[_normalize_name(name)] = upsert_node(name, label, summary, attributes)
+                node_uuid = upsert_node(name, label, summary, attributes, aliases)
+                name_to_uuid[_normalize_name(name)] = node_uuid
+                for alias in aliases:
+                    name_to_uuid.setdefault(_normalize_name(alias), node_uuid)
 
             def resolve(name: str) -> str:
                 norm = _normalize_name(name)
-                if norm in name_to_uuid:
-                    return name_to_uuid[norm]
-                existing = conn.execute(
-                    "SELECT uuid FROM nodes WHERE graph_id = ? AND norm_name = ? ORDER BY seq LIMIT 1",
-                    (graph_id, norm),
-                ).fetchone()
-                node_uuid = existing["uuid"] if existing else upsert_node(name, "Entity", "", {})
-                name_to_uuid[norm] = node_uuid
-                return node_uuid
+                if norm not in name_to_uuid:
+                    name_to_uuid[norm] = upsert_node(name, "Entity", "", {})
+                return name_to_uuid[norm]
 
             for rel in raw_edges:
                 if not isinstance(rel, dict):
@@ -1303,10 +1760,12 @@ class LocalZep:
                      _now(), str(valid_at), str(invalid_at) if invalid_at else None,
                      store.next_seq()),
                 )
+                touched["facts"].append(fact)
 
             conn.execute(
                 "UPDATE episodes SET processed = 1, error = NULL WHERE uuid = ?", (episode_uuid,)
             )
+        return touched
 
     # -- search ----------------------------------------------------------
 
@@ -1319,6 +1778,45 @@ class LocalZep:
         else:
             value = getattr(search_filters, name, None)
         return list(value) if value else None
+
+    def _on_graph_deleted(self, graph_id: str) -> None:
+        """Hook for subclasses that mirror graphs elsewhere (Cognee)."""
+
+    def _external_rankings(self, kind: str, graph_id: str, query: str,
+                           rows: Sequence[Any], limit: int) -> List[List[int]]:
+        """Extra best-first index rankings over ``rows`` fused into search.
+
+        ``kind`` is ``"edges"``, ``"nodes"`` or ``"episodes"``. The local
+        backend has none; ``CogneeZep`` adds Cognee's vector search here.
+        """
+
+        return []
+
+    def _hybrid_rank(self, query: str, documents: Sequence[str], vector_texts: Sequence[str],
+                     limit: int, extra: Optional[Sequence[Sequence[int]]] = None) -> List[tuple[int, float]]:
+        """BM25 ranking fused with embedding cosine ranking (RRF).
+
+        Without usable embeddings (and no ``extra`` rankings) this is exactly
+        the BM25 ranking/scores.
+        """
+
+        keyword = bm25_rank(query, documents)
+        semantic: List[tuple[int, float]] = []
+        if self.embeddings_enabled and documents:
+            query_vector = self._query_vector(query)
+            if query_vector is not None:
+                vectors = self._vectors_for(vector_texts, compute_limit=_SEARCH_BACKFILL_LIMIT)
+                semantic = cosine_rank(
+                    query_vector, vectors, min_score=self.min_similarity, top_k=max(limit * 4, 50)
+                )
+        extra = [list(r) for r in (extra or []) if r]
+        if not semantic and not extra:
+            return keyword[:limit]
+        rankings = [[i for i, _ in keyword]]
+        if semantic:
+            rankings.append([i for i, _ in semantic])
+        fused = reciprocal_rank_fusion(rankings + extra)
+        return fused[:limit]
 
     def _search_edges(self, graph_id: str, query: str, limit: int,
                       search_filters: Any = None) -> List[EntityEdge]:
@@ -1335,21 +1833,25 @@ class LocalZep:
             f"{node_names.get(r['source_node_uuid'], '')} {node_names.get(r['target_node_uuid'], '')}"
             for r in rows
         ]
-        candidates: List[tuple[float, EntityEdge]] = []
-        for index, score in bm25_rank(query, documents):
-            candidates.append((score, _edge_from_row(rows[index], score)))
+        vector_texts = [r["fact"] for r in rows]
 
         # Episodes stored without LLM extraction (simulation activity by
         # default) stay searchable as line-level pseudo-facts.
-        if not include or ACTIVITY_EDGE_NAME in include:
+        line_edges: List[EntityEdge] = []
+        if (not include or ACTIVITY_EDGE_NAME in include) and ACTIVITY_EDGE_NAME not in exclude:
             line_edges = self._unextracted_episode_lines(graph_id)
-            line_docs = [edge.fact for edge in line_edges]
-            for index, score in bm25_rank(query, line_docs):
-                edge = line_edges[index].model_copy(update={"score": score, "relevance": score})
-                candidates.append((score, edge))
+            documents.extend(edge.fact for edge in line_edges)
+            vector_texts.extend(edge.fact for edge in line_edges)
 
-        candidates.sort(key=lambda pair: -pair[0])
-        return [edge for _score, edge in candidates[:limit]]
+        extra = self._external_rankings("edges", graph_id, query, rows, limit)
+        results: List[EntityEdge] = []
+        for index, score in self._hybrid_rank(query, documents, vector_texts, limit, extra):
+            if index < len(rows):
+                results.append(_edge_from_row(rows[index], score))
+            else:
+                edge = line_edges[index - len(rows)]
+                results.append(edge.model_copy(update={"score": score, "relevance": score}))
+        return results
 
     def _unextracted_episode_lines(self, graph_id: str) -> List[EntityEdge]:
         rows = self._store.query(
@@ -1382,18 +1884,24 @@ class LocalZep:
         include = self._filter_values(search_filters, "node_labels")
         exclude = self._filter_values(search_filters, "exclude_node_labels") or []
         rows = [r for r in rows if (not include or r["label"] in include) and r["label"] not in exclude]
-        documents = [f"{r['name']} {r['name']} {r['label']} {r['summary']}" for r in rows]
+        documents = [
+            f"{r['name']} {r['name']} {' '.join(_json_load(r['aliases'], []) or [])} {r['label']} {r['summary']}"
+            for r in rows
+        ]
+        vector_texts = [self._node_text(r["name"], r["summary"]) for r in rows]
+        extra = self._external_rankings("nodes", graph_id, query, rows, limit)
         return [
             _node_from_row(rows[index], score)
-            for index, score in bm25_rank(query, documents)[:limit]
+            for index, score in self._hybrid_rank(query, documents, vector_texts, limit, extra)
         ]
 
     def _search_episodes(self, graph_id: str, query: str, limit: int) -> List[Episode]:
         rows = self._store.query("SELECT * FROM episodes WHERE graph_id = ? ORDER BY seq", (graph_id,))
         documents = [r["content"] for r in rows]
+        extra = self._external_rankings("episodes", graph_id, query, rows, limit)
         return [
             _episode_from_row(rows[index], score)
-            for index, score in bm25_rank(query, documents)[:limit]
+            for index, score in self._hybrid_rank(query, documents, documents, limit, extra)
         ]
 
 
@@ -1409,6 +1917,7 @@ def get_local_zep_client(db_path: Optional[str] = None) -> LocalZep:
     """Return the process-shared ``LocalZep`` for ``db_path`` (or config)."""
 
     from ..config import Config
+    from .embeddings import get_default_embedder
 
     path = db_path or Config.LOCAL_GRAPH_DB
     with _instances_lock:
@@ -1418,6 +1927,10 @@ def get_local_zep_client(db_path: Optional[str] = None) -> LocalZep:
                 path,
                 extract_activity=Config.MEMORY_EXTRACT_ACTIVITY,
                 max_workers=Config.LOCAL_GRAPH_EXTRACT_WORKERS,
+                embedder=get_default_embedder(),
+                entity_similarity=Config.MEMORY_ENTITY_SIMILARITY,
+                min_similarity=Config.MEMORY_MIN_SIMILARITY,
+                max_episode_chars=Config.LOCAL_GRAPH_MAX_EPISODE_CHARS,
             )
             _instances[path] = client
         return client

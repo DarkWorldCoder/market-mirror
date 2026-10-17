@@ -33,6 +33,9 @@ dependencies = [
     # 工具库
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+
+    # Local embeddings for the default memory backend (ONNX, CPU, no API key)
+    "fastembed>=0.7",
 ]
 
 [project.optional-dependencies]

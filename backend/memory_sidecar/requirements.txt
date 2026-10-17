@@ -1,0 +1,6 @@
+# Cognee sidecar (MEMORY_BACKEND=cognee). Installed into backend/memory_sidecar/.venv,
+# NOT into backend/.venv: cognee needs tiktoken>=0.8 / openai>=2, camel-ai 0.2.78 needs
+# tiktoken<0.8 / openai<2. Tested with cognee 1.6.5.
+cognee==1.6.5
+fastembed>=0.7
+anthropic>=0.40

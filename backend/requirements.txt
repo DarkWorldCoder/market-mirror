@@ -34,3 +34,6 @@ python-dotenv>=1.0.0
 
 # 数据验证
 pydantic>=2.0.0
+
+# 本地记忆后端的向量嵌入 (ONNX, CPU, 无需 API key)
+fastembed>=0.7

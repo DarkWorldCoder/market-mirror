@@ -67,9 +67,15 @@ def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> 
 
     With ``MEMORY_BACKEND=local`` (the default) this is a ``LocalZep`` that
     implements the same ``graph``/``batch`` surface on SQLite; ``api_key`` and
-    ``timeout`` are ignored. With ``MEMORY_BACKEND=zep`` it is an explicitly
-    configured Zep Cloud client.
+    ``timeout`` are ignored. ``MEMORY_BACKEND=cognee`` returns a ``CogneeZep``
+    (same surface, extraction/search by the Cognee sidecar). With
+    ``MEMORY_BACKEND=zep`` it is an explicitly configured Zep Cloud client.
     """
+
+    if Config.is_cognee_memory():
+        from .cognee_graph import get_cognee_zep_client
+
+        return get_cognee_zep_client()  # type: ignore[return-value]
 
     if Config.is_local_memory():
         from .local_graph import get_local_zep_client
