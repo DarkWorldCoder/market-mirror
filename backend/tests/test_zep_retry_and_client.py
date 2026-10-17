@@ -56,6 +56,7 @@ def test_zep_client_is_shared_and_uses_an_explicit_timeout(monkeypatch):
         created.append(kwargs)
         return SimpleNamespace(kwargs=kwargs)
 
+    monkeypatch.setattr(zep.Config, "MEMORY_BACKEND", "zep")
     monkeypatch.delenv("ZEP_API_URL", raising=False)
     monkeypatch.setattr(zep, "Zep", fake_zep)
     zep.clear_zep_client_cache()
@@ -73,6 +74,7 @@ def test_zep_client_is_shared_and_uses_an_explicit_timeout(monkeypatch):
 
 
 def test_zep_client_rejects_self_hosted_endpoint_override(monkeypatch):
+    monkeypatch.setattr(zep.Config, "MEMORY_BACKEND", "zep")
     monkeypatch.setenv("ZEP_API_URL", "https://example.invalid")
 
     with pytest.raises(ValueError, match="ZEP_API_URL"):
@@ -86,6 +88,7 @@ def test_zep_client_uses_internal_timeout_and_ignores_env_overrides(monkeypatch)
         created.append(kwargs)
         return SimpleNamespace(kwargs=kwargs)
 
+    monkeypatch.setattr(zep.Config, "MEMORY_BACKEND", "zep")
     monkeypatch.delenv("ZEP_API_URL", raising=False)
     monkeypatch.setenv("ZEP_REQUEST_TIMEOUT_SECONDS", "1")
     monkeypatch.setenv("ZEP_INGESTION_TIMEOUT_SECONDS", "1")

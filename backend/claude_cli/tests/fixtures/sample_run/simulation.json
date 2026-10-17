@@ -1,0 +1,25 @@
+{
+ "success": true,
+ "data": {
+  "simulation_id": "sim_demo123",
+  "project_id": "proj_demo123",
+  "graph_id": "mirofish_demo123",
+  "enable_twitter": true,
+  "enable_reddit": true,
+  "status": "completed",
+  "entities_count": 24,
+  "profiles_count": 24,
+  "entity_types": [
+   "University",
+   "Student",
+   "Professor",
+   "MediaOutlet",
+   "GovernmentAgency",
+   "Alumni",
+   "PublicFigure",
+   "NGO",
+   "Company",
+   "Parent"
+  ]
+ }
+}

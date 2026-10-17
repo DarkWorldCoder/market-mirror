@@ -1,0 +1,3862 @@
+{
+ "success": true,
+ "data": {
+  "count": 332,
+  "actions": [
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "twitter",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 1,
+    "timestamp": "2026-10-16T10:01:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 2,
+    "timestamp": "2026-10-16T10:02:00",
+    "platform": "reddit",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 3,
+    "timestamp": "2026-10-16T10:03:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 4,
+    "timestamp": "2026-10-16T10:04:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 5,
+    "timestamp": "2026-10-16T10:05:00",
+    "platform": "twitter",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 6,
+    "timestamp": "2026-10-16T10:06:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 7,
+    "timestamp": "2026-10-16T10:07:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "twitter",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 8,
+    "timestamp": "2026-10-16T10:08:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 9,
+    "timestamp": "2026-10-16T10:09:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 12,
+    "agent_name": "Campus Daily",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 14,
+    "agent_name": "EduWatch",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 1,
+    "agent_name": "Northgate College",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Our reporters are tracking reactions across campus — share your story."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "reddit",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 10,
+    "timestamp": "2026-10-16T10:10:00",
+    "platform": "twitter",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "This tuition hike is going to price out half my classmates."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 16,
+    "agent_name": "City Council",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 5,
+    "agent_name": "Tom Becker",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 21,
+    "agent_name": "Open Campus Coalition",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 19,
+    "agent_name": "Senator Ava Cole",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 8,
+    "agent_name": "Ana Souza",
+    "action_type": "DISLIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "reddit",
+    "agent_id": 7,
+    "agent_name": "Jonas Weber",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 11,
+    "timestamp": "2026-10-16T10:11:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "The ministry will review the proposal before approval."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Scholarships must scale with the increase or this is unfair."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 17,
+    "agent_name": "Riverside Alumni Assoc.",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "As an alumnus I'm pausing donations until there's a plan for aid."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 23,
+    "agent_name": "Parents Forum",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 0,
+    "agent_name": "Riverside University",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Can someone explain where the extra money actually goes?"
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 22,
+    "agent_name": "TechNova Inc.",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 13,
+    "agent_name": "Metro News",
+    "action_type": "CREATE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "FOLLOW",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 2,
+    "agent_name": "Lena Park",
+    "action_type": "LIKE_COMMENT",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 9,
+    "agent_name": "Prof. Hannah Ruiz",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 10,
+    "agent_name": "Prof. Ken Ito",
+    "action_type": "CREATE_COMMENT",
+    "action_args": {
+     "content": "Rally at the main quad Friday 5pm. Bring signs."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 20,
+    "agent_name": "Dr. Rafael Ortiz",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 11,
+    "agent_name": "Prof. Laila Ahmed",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 3,
+    "agent_name": "Omar Haddad",
+    "action_type": "LIKE_POST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 6,
+    "agent_name": "Mei Chen",
+    "action_type": "REPOST",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 4,
+    "agent_name": "Priya Nair",
+    "action_type": "QUOTE_POST",
+    "action_args": {
+     "content": "Universities face real cost pressure; the board should publish its numbers."
+    },
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "twitter",
+    "agent_id": 15,
+    "agent_name": "Ministry of Education",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "DO_NOTHING",
+    "action_args": {},
+    "result": null,
+    "success": true
+   },
+   {
+    "round_num": 12,
+    "timestamp": "2026-10-16T10:12:00",
+    "platform": "reddit",
+    "agent_id": 18,
+    "agent_name": "Carlos Mendes",
+    "action_type": "SEARCH_POSTS",
+    "action_args": {},
+    "result": null,
+    "success": true
+   }
+  ]
+ }
+}

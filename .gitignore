@@ -58,3 +58,7 @@ backend/uploads/
 
 # Docker 数据
 data/
+# Claude edition
+mirofish_runs/
+backend/uploads/local_graph.db*
+backend/logs/

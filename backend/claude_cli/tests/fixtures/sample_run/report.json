@@ -1,0 +1,19 @@
+{
+ "success": true,
+ "data": {
+  "report_id": "report_demo123",
+  "simulation_id": "sim_demo123",
+  "graph_id": "mirofish_demo123",
+  "simulation_requirement": "If Riverside University announces a 25% tuition increase next semester, how will students, faculty, media and government react over the following 3 days?",
+  "status": "completed",
+  "outline": {
+   "title": "Predicted Reaction to the Riverside Tuition Increase",
+   "summary": "Opposition consolidates quickly.",
+   "sections": []
+  },
+  "markdown_content": "# Predicted Reaction to the Riverside Tuition Increase\n\n> **Bottom line:** Opposition consolidates within 24 simulated hours and peaks in rounds 3–4, driven by students and alumni; the ministry signals a review.\n\n## 1. How the debate unfolds\n\n- **Hours 0–12:** Campus Daily breaks the story; students amplify it on both platforms.\n- **Hours 12–36:** A rally is organised; *alumni* threaten to pause donations.\n  - Faculty split: some defend cost pressures, others call for transparency.\n- **Hours 36–72:** Attention decays but sentiment stays negative.\n\n## 2. Key actors\n\n| Actor | Stance | Influence |\n|---|---|---|\n| Lena Park | opposing | high |\n| Ministry of Education | neutral | high |\n| Prof. Ken Ito | supportive | medium |\n\n## 3. Recommendations\n\n1. Publish a cost breakdown before the next board meeting.\n2. Pair the increase with an expanded need-based aid package.\n3. Hold an open forum with student representatives.\n\n---\n\nModel confidence is moderate; see `actions.json` for raw evidence and [MiroFish](https://github.com/666ghj/MiroFish) for method.\n",
+  "created_at": "2026-10-16T11:00:00",
+  "completed_at": "2026-10-16T11:08:00",
+  "error": null
+ }
+}

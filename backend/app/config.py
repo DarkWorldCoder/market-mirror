@@ -40,7 +40,20 @@ class Config:
         'claude-haiku-4-5' if LLM_PROVIDER == 'claude' else 'gpt-4o-mini',
     )
     
-    # Zep配置
+    # Memory / knowledge-graph backend
+    # MEMORY_BACKEND=local (default): free SQLite graph built with the configured LLM.
+    # MEMORY_BACKEND=zep: hosted Zep Cloud (requires ZEP_API_KEY).
+    MEMORY_BACKEND = (os.environ.get('MEMORY_BACKEND') or 'local').strip().lower()
+    LOCAL_GRAPH_DB = os.environ.get('LOCAL_GRAPH_DB') or os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../uploads/local_graph.db')
+    )
+    # Run LLM entity extraction on simulation activity episodes (costly; off by default).
+    MEMORY_EXTRACT_ACTIVITY = os.environ.get('MEMORY_EXTRACT_ACTIVITY', 'false').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    LOCAL_GRAPH_EXTRACT_WORKERS = int(os.environ.get('LOCAL_GRAPH_EXTRACT_WORKERS', '4'))
+
+    # Zep配置 (only used when MEMORY_BACKEND=zep)
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
     
     # 文件上传配置
@@ -72,14 +85,26 @@ class Config:
     REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
     
     @classmethod
+    def is_local_memory(cls) -> bool:
+        """True when the free local SQLite graph backend is selected."""
+        return cls.MEMORY_BACKEND != 'zep'
+
+    @classmethod
+    def memory_backend_configured(cls) -> bool:
+        """True when the selected memory backend has everything it needs."""
+        return cls.is_local_memory() or bool(cls.ZEP_API_KEY)
+
+    @classmethod
     def validate(cls) -> list[str]:
         """验证必要配置"""
         errors: list[str] = []
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY 未配置")
-        if not cls.ZEP_API_KEY:
-            errors.append("ZEP_API_KEY 未配置")
-        if os.environ.get("ZEP_API_URL"):
+        if cls.MEMORY_BACKEND not in {'local', 'zep'}:
+            errors.append(f"MEMORY_BACKEND must be 'local' or 'zep' (got {cls.MEMORY_BACKEND!r})")
+        if cls.MEMORY_BACKEND == 'zep' and not cls.ZEP_API_KEY:
+            errors.append("ZEP_API_KEY 未配置 (required when MEMORY_BACKEND=zep)")
+        if cls.MEMORY_BACKEND == 'zep' and os.environ.get("ZEP_API_URL"):
             errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
         if cls.DEBUG:
             import warnings

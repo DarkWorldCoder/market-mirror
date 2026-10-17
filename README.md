@@ -24,6 +24,17 @@
 
 </div>
 
+## 🤖 Claude Edition
+
+This branch can run MiroFish **headless**, driven by Claude or any agent with a shell. It runs on Claude models and needs no Zep account.
+
+- **Config** (`.env`): `LLM_PROVIDER=claude`, `LLM_API_KEY=<Anthropic key>`, `LLM_MODEL_NAME=claude-haiku-4-5`, `MEMORY_BACKEND=local` (a local SQLite knowledge graph, so no Zep key).
+- **Server**: `backend/claude_cli/start_server.sh` starts the Flask API on :5001 in the background and waits for `/health`. `stop_server.sh` stops it.
+- **CLI**: `python backend/claude_cli/mirofish.py run --seed brief.md --requirement "What happens if ...?" --max-rounds 5` runs the whole pipeline: ontology, graph, agents, simulation, report. Each step is also a subcommand: `upload`, `build-graph`, `create-sim`, `prepare`, `start`, `status`, `report`, `chat`, `interview`, `list`, `export`. Output is JSON.
+- **Dashboard**: `mirofish.py export --simulation sim_x --out dashboard.html` writes one self-contained HTML file with no JavaScript dependencies and light/dark support. It contains the knowledge graph, agent personas, the activity timeline, top posts and the rendered report, and can be shared or published as-is.
+
+See [CLAUDE.md](./CLAUDE.md) for the full agent operating guide and cost tips.
+
 ## ⚡ Overview
 
 **MiroFish** is a next-generation AI prediction engine powered by multi-agent technology. By extracting seed information from the real world (such as breaking news, policy drafts, or financial signals), it automatically constructs a high-fidelity parallel digital world. Within this space, thousands of intelligent agents with independent personalities, long-term memory, and behavioral logic freely interact and undergo social evolution. You can inject variables dynamically from a "God's-eye view" to precisely deduce future trajectories — **rehearse the future in a digital sandbox, and win decisions after countless simulations**.

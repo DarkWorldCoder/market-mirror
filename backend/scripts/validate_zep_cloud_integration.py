@@ -466,6 +466,11 @@ def _activities() -> Iterable[AgentActivity]:
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     api_key = _require_process_api_key()
+    # This script validates hosted Zep Cloud specifically, regardless of the
+    # MEMORY_BACKEND selected for normal runs (which defaults to "local").
+    from app.config import Config
+
+    Config.MEMORY_BACKEND = "zep"
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     graph_id = args.graph_id or f"mirofish_zep_deep_{stamp}"

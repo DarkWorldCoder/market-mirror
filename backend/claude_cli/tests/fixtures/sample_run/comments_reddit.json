@@ -1,0 +1,278 @@
+{
+ "success": true,
+ "data": {
+  "count": 30,
+  "comments": [
+   {
+    "comment_id": 1,
+    "post_id": 20,
+    "user_id": 11,
+    "content": "Source?",
+    "created_at": "1",
+    "num_likes": 13,
+    "num_dislikes": 1
+   },
+   {
+    "comment_id": 2,
+    "post_id": 22,
+    "user_id": 21,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "2",
+    "num_likes": 11,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 3,
+    "post_id": 17,
+    "user_id": 17,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "3",
+    "num_likes": 12,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 4,
+    "post_id": 2,
+    "user_id": 20,
+    "content": "Not surprised at all.",
+    "created_at": "4",
+    "num_likes": 11,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 5,
+    "post_id": 24,
+    "user_id": 0,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "5",
+    "num_likes": 2,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 6,
+    "post_id": 8,
+    "user_id": 23,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "6",
+    "num_likes": 10,
+    "num_dislikes": 1
+   },
+   {
+    "comment_id": 7,
+    "post_id": 2,
+    "user_id": 11,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "7",
+    "num_likes": 5,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 8,
+    "post_id": 23,
+    "user_id": 15,
+    "content": "Source?",
+    "created_at": "8",
+    "num_likes": 4,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 9,
+    "post_id": 23,
+    "user_id": 14,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "9",
+    "num_likes": 9,
+    "num_dislikes": 1
+   },
+   {
+    "comment_id": 10,
+    "post_id": 2,
+    "user_id": 6,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "10",
+    "num_likes": 10,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 11,
+    "post_id": 17,
+    "user_id": 12,
+    "content": "Not surprised at all.",
+    "created_at": "11",
+    "num_likes": 8,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 12,
+    "post_id": 25,
+    "user_id": 20,
+    "content": "Source?",
+    "created_at": "12",
+    "num_likes": 9,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 13,
+    "post_id": 25,
+    "user_id": 1,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "13",
+    "num_likes": 8,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 14,
+    "post_id": 12,
+    "user_id": 13,
+    "content": "Not surprised at all.",
+    "created_at": "14",
+    "num_likes": 14,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 15,
+    "post_id": 11,
+    "user_id": 5,
+    "content": "Not surprised at all.",
+    "created_at": "15",
+    "num_likes": 15,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 16,
+    "post_id": 17,
+    "user_id": 8,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "16",
+    "num_likes": 13,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 17,
+    "post_id": 14,
+    "user_id": 19,
+    "content": "Source?",
+    "created_at": "17",
+    "num_likes": 9,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 18,
+    "post_id": 4,
+    "user_id": 2,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "18",
+    "num_likes": 9,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 19,
+    "post_id": 15,
+    "user_id": 19,
+    "content": "Not surprised at all.",
+    "created_at": "19",
+    "num_likes": 5,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 20,
+    "post_id": 12,
+    "user_id": 14,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "20",
+    "num_likes": 11,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 21,
+    "post_id": 9,
+    "user_id": 20,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "21",
+    "num_likes": 2,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 22,
+    "post_id": 12,
+    "user_id": 16,
+    "content": "Source?",
+    "created_at": "22",
+    "num_likes": 0,
+    "num_dislikes": 1
+   },
+   {
+    "comment_id": 23,
+    "post_id": 20,
+    "user_id": 21,
+    "content": "Not surprised at all.",
+    "created_at": "23",
+    "num_likes": 1,
+    "num_dislikes": 1
+   },
+   {
+    "comment_id": 24,
+    "post_id": 3,
+    "user_id": 7,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "24",
+    "num_likes": 11,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 25,
+    "post_id": 19,
+    "user_id": 1,
+    "content": "Source?",
+    "created_at": "25",
+    "num_likes": 14,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 26,
+    "post_id": 12,
+    "user_id": 14,
+    "content": "Agreed, this needs a vote.",
+    "created_at": "26",
+    "num_likes": 4,
+    "num_dislikes": 2
+   },
+   {
+    "comment_id": 27,
+    "post_id": 13,
+    "user_id": 10,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "27",
+    "num_likes": 7,
+    "num_dislikes": 0
+   },
+   {
+    "comment_id": 28,
+    "post_id": 1,
+    "user_id": 23,
+    "content": "Source?",
+    "created_at": "28",
+    "num_likes": 15,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 29,
+    "post_id": 18,
+    "user_id": 3,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "29",
+    "num_likes": 8,
+    "num_dislikes": 3
+   },
+   {
+    "comment_id": 30,
+    "post_id": 7,
+    "user_id": 19,
+    "content": "The aid office already said they'd expand grants.",
+    "created_at": "30",
+    "num_likes": 15,
+    "num_dislikes": 1
+   }
+  ]
+ }
+}

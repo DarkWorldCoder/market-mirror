@@ -22,6 +22,7 @@ from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
 from ..utils.zep import (
     call_zep_read_with_retry,
     get_zep_client,
+    resolve_memory_api_key,
     normalize_zep_search_limit,
     normalize_zep_search_query,
 )
@@ -428,9 +429,7 @@ class ZepToolsService:
     RETRY_DELAY = 2.0
     
     def __init__(self, api_key: Optional[str] = None, llm_client: Optional[LLMClient] = None):
-        self.api_key = api_key or Config.ZEP_API_KEY
-        if not self.api_key:
-            raise ValueError("ZEP_API_KEY 未配置")
+        self.api_key = resolve_memory_api_key(api_key)
         
         self.client = get_zep_client(self.api_key)
         # LLM客户端用于InsightForge生成子问题

@@ -1,0 +1,13 @@
+{
+ "success": true,
+ "data": {
+  "simulation_id": "sim_demo123",
+  "runner_status": "completed",
+  "current_round": 12,
+  "total_rounds": 12,
+  "progress_percent": 100.0,
+  "total_actions_count": 332,
+  "twitter_actions_count": 140,
+  "reddit_actions_count": 192
+ }
+}

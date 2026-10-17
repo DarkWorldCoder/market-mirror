@@ -1,0 +1,1116 @@
+{
+ "success": true,
+ "data": {
+  "graph_id": "mirofish_demo123",
+  "nodes": [
+   {
+    "uuid": "n0",
+    "name": "Riverside University",
+    "labels": [
+     "Entity",
+     "University"
+    ],
+    "summary": "Riverside University is a University involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n1",
+    "name": "Northgate College",
+    "labels": [
+     "Entity",
+     "University"
+    ],
+    "summary": "Northgate College is a University involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n2",
+    "name": "Lena Park",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Lena Park is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n3",
+    "name": "Omar Haddad",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Omar Haddad is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n4",
+    "name": "Priya Nair",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Priya Nair is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n5",
+    "name": "Tom Becker",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Tom Becker is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n6",
+    "name": "Mei Chen",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Mei Chen is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n7",
+    "name": "Jonas Weber",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Jonas Weber is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n8",
+    "name": "Ana Souza",
+    "labels": [
+     "Entity",
+     "Student"
+    ],
+    "summary": "Ana Souza is a Student involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n9",
+    "name": "Prof. Hannah Ruiz",
+    "labels": [
+     "Entity",
+     "Professor"
+    ],
+    "summary": "Prof. Hannah Ruiz is a Professor involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n10",
+    "name": "Prof. Ken Ito",
+    "labels": [
+     "Entity",
+     "Professor"
+    ],
+    "summary": "Prof. Ken Ito is a Professor involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n11",
+    "name": "Prof. Laila Ahmed",
+    "labels": [
+     "Entity",
+     "Professor"
+    ],
+    "summary": "Prof. Laila Ahmed is a Professor involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n12",
+    "name": "Campus Daily",
+    "labels": [
+     "Entity",
+     "MediaOutlet"
+    ],
+    "summary": "Campus Daily is a MediaOutlet involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n13",
+    "name": "Metro News",
+    "labels": [
+     "Entity",
+     "MediaOutlet"
+    ],
+    "summary": "Metro News is a MediaOutlet involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n14",
+    "name": "EduWatch",
+    "labels": [
+     "Entity",
+     "MediaOutlet"
+    ],
+    "summary": "EduWatch is a MediaOutlet involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n15",
+    "name": "Ministry of Education",
+    "labels": [
+     "Entity",
+     "GovernmentAgency"
+    ],
+    "summary": "Ministry of Education is a GovernmentAgency involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n16",
+    "name": "City Council",
+    "labels": [
+     "Entity",
+     "GovernmentAgency"
+    ],
+    "summary": "City Council is a GovernmentAgency involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n17",
+    "name": "Riverside Alumni Assoc.",
+    "labels": [
+     "Entity",
+     "Alumni"
+    ],
+    "summary": "Riverside Alumni Assoc. is a Alumni involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n18",
+    "name": "Carlos Mendes",
+    "labels": [
+     "Entity",
+     "Alumni"
+    ],
+    "summary": "Carlos Mendes is a Alumni involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n19",
+    "name": "Senator Ava Cole",
+    "labels": [
+     "Entity",
+     "PublicFigure"
+    ],
+    "summary": "Senator Ava Cole is a PublicFigure involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n20",
+    "name": "Dr. Rafael Ortiz",
+    "labels": [
+     "Entity",
+     "PublicFigure"
+    ],
+    "summary": "Dr. Rafael Ortiz is a PublicFigure involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n21",
+    "name": "Open Campus Coalition",
+    "labels": [
+     "Entity",
+     "NGO"
+    ],
+    "summary": "Open Campus Coalition is a NGO involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n22",
+    "name": "TechNova Inc.",
+    "labels": [
+     "Entity",
+     "Company"
+    ],
+    "summary": "TechNova Inc. is a Company involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   },
+   {
+    "uuid": "n23",
+    "name": "Parents Forum",
+    "labels": [
+     "Entity",
+     "Parent"
+    ],
+    "summary": "Parents Forum is a Parent involved in the tuition-policy debate.",
+    "attributes": {},
+    "created_at": "2026-10-01T10:00:00"
+   }
+  ],
+  "edges": [
+   {
+    "uuid": "e0",
+    "name": "STUDIES_AT",
+    "fact": "Dr. Rafael Ortiz studies at Omar Haddad.",
+    "fact_type": "STUDIES_AT",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n3",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "Omar Haddad",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e1",
+    "name": "REGULATES",
+    "fact": "Parents Forum regulates Ana Souza.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n23",
+    "target_node_uuid": "n8",
+    "source_node_name": "Parents Forum",
+    "target_node_name": "Ana Souza",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e2",
+    "name": "TEACHES_AT",
+    "fact": "Jonas Weber teaches at Priya Nair.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n7",
+    "target_node_uuid": "n4",
+    "source_node_name": "Jonas Weber",
+    "target_node_name": "Priya Nair",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e3",
+    "name": "QUOTES",
+    "fact": "Open Campus Coalition quotes Parents Forum.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n21",
+    "target_node_uuid": "n23",
+    "source_node_name": "Open Campus Coalition",
+    "target_node_name": "Parents Forum",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e4",
+    "name": "FUNDS",
+    "fact": "Lena Park funds Carlos Mendes.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n18",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Carlos Mendes",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e5",
+    "name": "TEACHES_AT",
+    "fact": "Northgate College teaches at Riverside University.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n0",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Riverside University",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e6",
+    "name": "QUOTES",
+    "fact": "Mei Chen quotes Jonas Weber.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n7",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "Jonas Weber",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e7",
+    "name": "QUOTES",
+    "fact": "Senator Ava Cole quotes Riverside University.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n19",
+    "target_node_uuid": "n0",
+    "source_node_name": "Senator Ava Cole",
+    "target_node_name": "Riverside University",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e8",
+    "name": "QUOTES",
+    "fact": "Mei Chen quotes TechNova Inc..",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n22",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "TechNova Inc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e9",
+    "name": "ALUMNUS_OF",
+    "fact": "Metro News alumnus of Jonas Weber.",
+    "fact_type": "ALUMNUS_OF",
+    "source_node_uuid": "n13",
+    "target_node_uuid": "n7",
+    "source_node_name": "Metro News",
+    "target_node_name": "Jonas Weber",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e10",
+    "name": "STUDIES_AT",
+    "fact": "Carlos Mendes studies at Ana Souza.",
+    "fact_type": "STUDIES_AT",
+    "source_node_uuid": "n18",
+    "target_node_uuid": "n8",
+    "source_node_name": "Carlos Mendes",
+    "target_node_name": "Ana Souza",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e11",
+    "name": "FUNDS",
+    "fact": "Tom Becker funds TechNova Inc..",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n5",
+    "target_node_uuid": "n22",
+    "source_node_name": "Tom Becker",
+    "target_node_name": "TechNova Inc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e12",
+    "name": "REPORTS_ON",
+    "fact": "Prof. Ken Ito reports on Ana Souza.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n10",
+    "target_node_uuid": "n8",
+    "source_node_name": "Prof. Ken Ito",
+    "target_node_name": "Ana Souza",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e13",
+    "name": "TEACHES_AT",
+    "fact": "Mei Chen teaches at Prof. Ken Ito.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n10",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "Prof. Ken Ito",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e14",
+    "name": "TEACHES_AT",
+    "fact": "Lena Park teaches at Campus Daily.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n12",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Campus Daily",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e15",
+    "name": "CRITICIZES",
+    "fact": "Prof. Laila Ahmed criticizes Senator Ava Cole.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n11",
+    "target_node_uuid": "n19",
+    "source_node_name": "Prof. Laila Ahmed",
+    "target_node_name": "Senator Ava Cole",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e16",
+    "name": "ALUMNUS_OF",
+    "fact": "Northgate College alumnus of Parents Forum.",
+    "fact_type": "ALUMNUS_OF",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n23",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Parents Forum",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e17",
+    "name": "FUNDS",
+    "fact": "Riverside Alumni Assoc. funds Omar Haddad.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n17",
+    "target_node_uuid": "n3",
+    "source_node_name": "Riverside Alumni Assoc.",
+    "target_node_name": "Omar Haddad",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e18",
+    "name": "CRITICIZES",
+    "fact": "Lena Park criticizes Riverside Alumni Assoc..",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n17",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e19",
+    "name": "SUPPORTS",
+    "fact": "Dr. Rafael Ortiz supports Senator Ava Cole.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n19",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "Senator Ava Cole",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e20",
+    "name": "TEACHES_AT",
+    "fact": "Carlos Mendes teaches at Mei Chen.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n18",
+    "target_node_uuid": "n6",
+    "source_node_name": "Carlos Mendes",
+    "target_node_name": "Mei Chen",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e21",
+    "name": "REGULATES",
+    "fact": "Northgate College regulates Open Campus Coalition.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n21",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e22",
+    "name": "REGULATES",
+    "fact": "Prof. Hannah Ruiz regulates Lena Park.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n9",
+    "target_node_uuid": "n2",
+    "source_node_name": "Prof. Hannah Ruiz",
+    "target_node_name": "Lena Park",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e23",
+    "name": "CRITICIZES",
+    "fact": "Omar Haddad criticizes Campus Daily.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n3",
+    "target_node_uuid": "n12",
+    "source_node_name": "Omar Haddad",
+    "target_node_name": "Campus Daily",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e24",
+    "name": "SUPPORTS",
+    "fact": "EduWatch supports Dr. Rafael Ortiz.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n14",
+    "target_node_uuid": "n20",
+    "source_node_name": "EduWatch",
+    "target_node_name": "Dr. Rafael Ortiz",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e25",
+    "name": "SUPPORTS",
+    "fact": "Tom Becker supports Prof. Laila Ahmed.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n5",
+    "target_node_uuid": "n11",
+    "source_node_name": "Tom Becker",
+    "target_node_name": "Prof. Laila Ahmed",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e26",
+    "name": "CRITICIZES",
+    "fact": "Mei Chen criticizes Open Campus Coalition.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n21",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e27",
+    "name": "TEACHES_AT",
+    "fact": "TechNova Inc. teaches at Open Campus Coalition.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n22",
+    "target_node_uuid": "n21",
+    "source_node_name": "TechNova Inc.",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e28",
+    "name": "REPORTS_ON",
+    "fact": "Senator Ava Cole reports on Dr. Rafael Ortiz.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n19",
+    "target_node_uuid": "n20",
+    "source_node_name": "Senator Ava Cole",
+    "target_node_name": "Dr. Rafael Ortiz",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e29",
+    "name": "REGULATES",
+    "fact": "Riverside Alumni Assoc. regulates Parents Forum.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n17",
+    "target_node_uuid": "n23",
+    "source_node_name": "Riverside Alumni Assoc.",
+    "target_node_name": "Parents Forum",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e30",
+    "name": "FUNDS",
+    "fact": "Tom Becker funds EduWatch.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n5",
+    "target_node_uuid": "n14",
+    "source_node_name": "Tom Becker",
+    "target_node_name": "EduWatch",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e31",
+    "name": "QUOTES",
+    "fact": "Ana Souza quotes Dr. Rafael Ortiz.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n8",
+    "target_node_uuid": "n20",
+    "source_node_name": "Ana Souza",
+    "target_node_name": "Dr. Rafael Ortiz",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e32",
+    "name": "SUPPORTS",
+    "fact": "Jonas Weber supports Open Campus Coalition.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n7",
+    "target_node_uuid": "n21",
+    "source_node_name": "Jonas Weber",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e33",
+    "name": "STUDIES_AT",
+    "fact": "Northgate College studies at Jonas Weber.",
+    "fact_type": "STUDIES_AT",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n7",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Jonas Weber",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e34",
+    "name": "CRITICIZES",
+    "fact": "Prof. Ken Ito criticizes Campus Daily.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n10",
+    "target_node_uuid": "n12",
+    "source_node_name": "Prof. Ken Ito",
+    "target_node_name": "Campus Daily",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e35",
+    "name": "PARTNERS_WITH",
+    "fact": "Lena Park partners with Mei Chen.",
+    "fact_type": "PARTNERS_WITH",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n6",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Mei Chen",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e36",
+    "name": "REGULATES",
+    "fact": "TechNova Inc. regulates Prof. Ken Ito.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n22",
+    "target_node_uuid": "n10",
+    "source_node_name": "TechNova Inc.",
+    "target_node_name": "Prof. Ken Ito",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e37",
+    "name": "FUNDS",
+    "fact": "Dr. Rafael Ortiz funds Ministry of Education.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n15",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "Ministry of Education",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e38",
+    "name": "REPORTS_ON",
+    "fact": "Dr. Rafael Ortiz reports on EduWatch.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n14",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "EduWatch",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e39",
+    "name": "REGULATES",
+    "fact": "Ana Souza regulates Priya Nair.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n8",
+    "target_node_uuid": "n4",
+    "source_node_name": "Ana Souza",
+    "target_node_name": "Priya Nair",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e40",
+    "name": "QUOTES",
+    "fact": "Parents Forum quotes Riverside Alumni Assoc..",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n23",
+    "target_node_uuid": "n17",
+    "source_node_name": "Parents Forum",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e41",
+    "name": "PARTNERS_WITH",
+    "fact": "Ana Souza partners with Parents Forum.",
+    "fact_type": "PARTNERS_WITH",
+    "source_node_uuid": "n8",
+    "target_node_uuid": "n23",
+    "source_node_name": "Ana Souza",
+    "target_node_name": "Parents Forum",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e42",
+    "name": "FUNDS",
+    "fact": "Metro News funds Carlos Mendes.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n13",
+    "target_node_uuid": "n18",
+    "source_node_name": "Metro News",
+    "target_node_name": "Carlos Mendes",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e43",
+    "name": "REPORTS_ON",
+    "fact": "Prof. Laila Ahmed reports on Jonas Weber.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n11",
+    "target_node_uuid": "n7",
+    "source_node_name": "Prof. Laila Ahmed",
+    "target_node_name": "Jonas Weber",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e44",
+    "name": "TEACHES_AT",
+    "fact": "City Council teaches at Ministry of Education.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n16",
+    "target_node_uuid": "n15",
+    "source_node_name": "City Council",
+    "target_node_name": "Ministry of Education",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e45",
+    "name": "REPORTS_ON",
+    "fact": "Northgate College reports on Omar Haddad.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n3",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Omar Haddad",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e46",
+    "name": "FUNDS",
+    "fact": "Dr. Rafael Ortiz funds Tom Becker.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n5",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "Tom Becker",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e47",
+    "name": "FUNDS",
+    "fact": "Senator Ava Cole funds Lena Park.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n19",
+    "target_node_uuid": "n2",
+    "source_node_name": "Senator Ava Cole",
+    "target_node_name": "Lena Park",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e48",
+    "name": "ALUMNUS_OF",
+    "fact": "Campus Daily alumnus of Senator Ava Cole.",
+    "fact_type": "ALUMNUS_OF",
+    "source_node_uuid": "n12",
+    "target_node_uuid": "n19",
+    "source_node_name": "Campus Daily",
+    "target_node_name": "Senator Ava Cole",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e49",
+    "name": "QUOTES",
+    "fact": "City Council quotes Ana Souza.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n16",
+    "target_node_uuid": "n8",
+    "source_node_name": "City Council",
+    "target_node_name": "Ana Souza",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e50",
+    "name": "TEACHES_AT",
+    "fact": "Riverside University teaches at Open Campus Coalition.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n0",
+    "target_node_uuid": "n21",
+    "source_node_name": "Riverside University",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e51",
+    "name": "CRITICIZES",
+    "fact": "Open Campus Coalition criticizes Riverside Alumni Assoc..",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n21",
+    "target_node_uuid": "n17",
+    "source_node_name": "Open Campus Coalition",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e52",
+    "name": "TEACHES_AT",
+    "fact": "Dr. Rafael Ortiz teaches at Prof. Ken Ito.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n10",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "Prof. Ken Ito",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e53",
+    "name": "REPORTS_ON",
+    "fact": "Prof. Hannah Ruiz reports on Metro News.",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n9",
+    "target_node_uuid": "n13",
+    "source_node_name": "Prof. Hannah Ruiz",
+    "target_node_name": "Metro News",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e54",
+    "name": "CRITICIZES",
+    "fact": "EduWatch criticizes Riverside University.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n14",
+    "target_node_uuid": "n0",
+    "source_node_name": "EduWatch",
+    "target_node_name": "Riverside University",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e55",
+    "name": "QUOTES",
+    "fact": "City Council quotes Tom Becker.",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n16",
+    "target_node_uuid": "n5",
+    "source_node_name": "City Council",
+    "target_node_name": "Tom Becker",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e56",
+    "name": "CRITICIZES",
+    "fact": "Omar Haddad criticizes Dr. Rafael Ortiz.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n3",
+    "target_node_uuid": "n20",
+    "source_node_name": "Omar Haddad",
+    "target_node_name": "Dr. Rafael Ortiz",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e57",
+    "name": "PARTNERS_WITH",
+    "fact": "Dr. Rafael Ortiz partners with City Council.",
+    "fact_type": "PARTNERS_WITH",
+    "source_node_uuid": "n20",
+    "target_node_uuid": "n16",
+    "source_node_name": "Dr. Rafael Ortiz",
+    "target_node_name": "City Council",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e58",
+    "name": "SUPPORTS",
+    "fact": "Mei Chen supports Priya Nair.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n4",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "Priya Nair",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e59",
+    "name": "QUOTES",
+    "fact": "Tom Becker quotes Riverside Alumni Assoc..",
+    "fact_type": "QUOTES",
+    "source_node_uuid": "n5",
+    "target_node_uuid": "n17",
+    "source_node_name": "Tom Becker",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e60",
+    "name": "SUPPORTS",
+    "fact": "Riverside University supports Senator Ava Cole.",
+    "fact_type": "SUPPORTS",
+    "source_node_uuid": "n0",
+    "target_node_uuid": "n19",
+    "source_node_name": "Riverside University",
+    "target_node_name": "Senator Ava Cole",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e61",
+    "name": "TEACHES_AT",
+    "fact": "Ministry of Education teaches at Riverside University.",
+    "fact_type": "TEACHES_AT",
+    "source_node_uuid": "n15",
+    "target_node_uuid": "n0",
+    "source_node_name": "Ministry of Education",
+    "target_node_name": "Riverside University",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e62",
+    "name": "REGULATES",
+    "fact": "Prof. Laila Ahmed regulates Prof. Hannah Ruiz.",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n11",
+    "target_node_uuid": "n9",
+    "source_node_name": "Prof. Laila Ahmed",
+    "target_node_name": "Prof. Hannah Ruiz",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e63",
+    "name": "PARTNERS_WITH",
+    "fact": "Northgate College partners with Jonas Weber.",
+    "fact_type": "PARTNERS_WITH",
+    "source_node_uuid": "n1",
+    "target_node_uuid": "n7",
+    "source_node_name": "Northgate College",
+    "target_node_name": "Jonas Weber",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e64",
+    "name": "ALUMNUS_OF",
+    "fact": "Lena Park alumnus of Parents Forum.",
+    "fact_type": "ALUMNUS_OF",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n23",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Parents Forum",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e65",
+    "name": "REPORTS_ON",
+    "fact": "Lena Park reports on Riverside Alumni Assoc..",
+    "fact_type": "REPORTS_ON",
+    "source_node_uuid": "n2",
+    "target_node_uuid": "n17",
+    "source_node_name": "Lena Park",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e66",
+    "name": "ALUMNUS_OF",
+    "fact": "Priya Nair alumnus of Open Campus Coalition.",
+    "fact_type": "ALUMNUS_OF",
+    "source_node_uuid": "n4",
+    "target_node_uuid": "n21",
+    "source_node_name": "Priya Nair",
+    "target_node_name": "Open Campus Coalition",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e67",
+    "name": "CRITICIZES",
+    "fact": "Riverside Alumni Assoc. criticizes Tom Becker.",
+    "fact_type": "CRITICIZES",
+    "source_node_uuid": "n17",
+    "target_node_uuid": "n5",
+    "source_node_name": "Riverside Alumni Assoc.",
+    "target_node_name": "Tom Becker",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e68",
+    "name": "FUNDS",
+    "fact": "City Council funds Senator Ava Cole.",
+    "fact_type": "FUNDS",
+    "source_node_uuid": "n16",
+    "target_node_uuid": "n19",
+    "source_node_name": "City Council",
+    "target_node_name": "Senator Ava Cole",
+    "attributes": {},
+    "episodes": []
+   },
+   {
+    "uuid": "e69",
+    "name": "REGULATES",
+    "fact": "Mei Chen regulates Riverside Alumni Assoc..",
+    "fact_type": "REGULATES",
+    "source_node_uuid": "n6",
+    "target_node_uuid": "n17",
+    "source_node_name": "Mei Chen",
+    "target_node_name": "Riverside Alumni Assoc.",
+    "attributes": {},
+    "episodes": []
+   }
+  ],
+  "node_count": 24,
+  "edge_count": 70
+ }
+}

@@ -1,4 +1,4 @@
-"""Shared Zep Cloud client, request limits, and retry policy."""
+"""Shared memory-graph client (local SQLite or Zep Cloud), limits, and retry policy."""
 
 from __future__ import annotations
 
@@ -63,7 +63,18 @@ def _cached_zep_client(api_key: str, timeout: float) -> Zep:
 
 
 def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> Zep:
-    """Return a process-shared, explicitly configured Zep Cloud client."""
+    """Return the process-shared memory-graph client.
+
+    With ``MEMORY_BACKEND=local`` (the default) this is a ``LocalZep`` that
+    implements the same ``graph``/``batch`` surface on SQLite; ``api_key`` and
+    ``timeout`` are ignored. With ``MEMORY_BACKEND=zep`` it is an explicitly
+    configured Zep Cloud client.
+    """
+
+    if Config.is_local_memory():
+        from .local_graph import get_local_zep_client
+
+        return get_local_zep_client()  # type: ignore[return-value]
 
     # zep-cloud gives ZEP_API_URL precedence even when base_url is explicit.
     # Reject it so this Cloud-only integration cannot silently target a
@@ -81,6 +92,18 @@ def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> 
     if request_timeout <= 0:
         raise ValueError("Zep request timeout must be greater than 0")
     return _cached_zep_client(normalized_key, request_timeout)
+
+
+def resolve_memory_api_key(api_key: str | None = None) -> str | None:
+    """Return the Zep key to use, raising if the selected backend needs one.
+
+    The local backend needs no key, so ``None`` is a valid result there.
+    """
+
+    key = api_key or Config.ZEP_API_KEY
+    if not key and not Config.is_local_memory():
+        raise ValueError("ZEP_API_KEY 未配置")
+    return key
 
 
 def clear_zep_client_cache() -> None:
