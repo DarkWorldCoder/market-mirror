@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -143,6 +144,17 @@ class SectionTests(unittest.TestCase):
             self.assertIn(frag, html)
         self.assertNotIn("<b>in</b>", html)
         self.assertIsNone(report_view.pitch_section({}))
+        self.assertIn('<div class="kpis auto"><div class="kpi"><div class="v">3</div><div class="k">People pitched</div></div>', html)
+        self.assertIn('<div class="kpi hl"><div class="v">83/100</div>', html)
+        self.assertNotIn("tile-v", html)
+        self.assertIn('<div class="mixbars">', html)
+        self.assertNotIn('class="grid2"', html)
+        self.assertIn('<span class="yes" style="width:66.7%"></span><span class="maybe" style="width:33.3%"></span>', html)
+        self.assertIn('<i class="i-yes"></i>yes', html)
+        self.assertIn('<blockquote class="voice">', html)
+        self.assertIn('<div class="section-head">', html)
+        _, _, with_insight = report_view.pitch_section(PITCH, insight="Pitch score 83/100")
+        self.assertIn('<div class="callout insight" role="note">Pitch score 83/100</div>', with_insight)
 
     def test_ideas_section(self):
         a, label, html = report_view.ideas_section(IDEAS)
@@ -151,6 +163,8 @@ class SectionTests(unittest.TestCase):
         self.assertIn("S1 text", html)
         self.assertIn("feedtest", html)
         self.assertIsNone(report_view.ideas_section({"ideas": []}))
+        self.assertTrue(html.startswith('<div class="section-head">'))
+        self.assertIn("1 next tests proposed from 1 pieces of evidence (ads)", html)
 
     def test_exporter_wires_pitch_and_ideas(self):
         d = tempfile.mkdtemp()
@@ -168,6 +182,10 @@ class SectionTests(unittest.TestCase):
         self.assertIn('data-dl="pitch.json"', html)
         self.assertIn('data-dl="ideas.md"', html)
         self.assertTrue(os.path.exists(paths["download:pitch.json"]))
+        pitch = re.search(r'<section id="pitch">(.*?)</section>', html, re.S).group(1)
+        self.assertIn('class="callout insight" role="note">Pitch score 83/100: 66.7% say yes (from 33.3% before the rebuttals), 1 hot leads.', pitch)
+        ideas = re.search(r'<section id="ideas">(.*?)</section>', html, re.S).group(1)
+        self.assertIn("1 tests proposed; first: Proof &lt;ad&gt;.", ideas)
 
 
 if __name__ == "__main__":

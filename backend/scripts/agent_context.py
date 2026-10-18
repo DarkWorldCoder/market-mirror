@@ -1,5 +1,5 @@
 """
-MarketMirror: per-round persona cards for OASIS agents.
+MarketMirror: per-round persona cards for OASIS agents, plus the runtime speed knobs.
 
 OASIS gives every agent the same generic instruction each round ("pick an action, don't just like").
 That makes personas drift toward generic English and over-engagement. This module prepends a compact
@@ -10,26 +10,61 @@ action budget and a mood, so activity varies the way it does for real people.
 Install once per platform after the agent graph is built:
 
     from agent_context import install, begin_round
-    install(agent_graph, config, seed=7)      # patches SocialEnvironment.to_text_prompt (idempotent)
+    install(agent_graph, config, seed=7, platform="twitter")   # patches SocialEnvironment.to_text_prompt (idempotent)
     ...
-    begin_round(round_num, simulated_hour)    # before env.step(...) each round
+    begin_round(round_num, simulated_hour, platform="twitter")  # before env.step(...) each round
+
+State is kept per platform (hour, budgets, moods), so a parallel Twitter + Reddit run does not have one
+platform's begin_round overwrite the other's. Calls without a platform use the shared "default" slot,
+which is what the single-platform scripts and the tests use.
 
 Cards come from simulation_config.json: persona_index (name, segment, country, city, languages,
 platform_habits, communities), agent_configs[].activity_level and community_config.
+
+Speed knobs (environment variables, all optional):
+    OASIS_MEMORY_WINDOW  messages of chat history each agent keeps in context (default 10). Without a
+                         window camel re-tokenises the whole history before every call and then truncates
+                         it to the model's max_tokens, which is what made long runs crawl.
+    OASIS_TOKEN_LIMIT    context budget for that window, independent of max_tokens (default 32000).
+    OASIS_SEMAPHORE      concurrent LLM calls per platform (default 50).
+    OASIS_RECSYS         Twitter recommender: random (default, cheap) | twitter | twhin-bert (CPU model).
+    MODEL_TIMEOUT        camel's per-call timeout in seconds (default 60 here; camel's own default is 180).
 """
 
 from __future__ import annotations
 
+import os
 import random
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
-
-_STATE: Dict[str, Any] = {"cards": {}, "budgets": {}, "moods": {}, "round": 0, "hour": 12, "rng": random.Random(7),
-                          "activity": {}, "installed": False}
 
 MOODS = ["relaxed", "bored", "in a hurry", "tired after work", "curious", "irritated by something earlier",
          "happy", "stressed about money", "distracted", "chatty"]
 COMMENT_RATE = {0.0: "almost never", 0.3: "a few times a year", 0.5: "about once a month",
                 0.7: "about once a week", 0.85: "a few times a week"}
+
+DEFAULT_MEMORY_WINDOW = 10
+DEFAULT_TOKEN_LIMIT = 32000
+DEFAULT_SEMAPHORE = 50
+DEFAULT_RECSYS = "random"
+DEFAULT_MODEL_TIMEOUT = 60
+
+
+def _fresh(seed: int = 7) -> Dict[str, Any]:
+    return {"cards": {}, "budgets": {}, "moods": {}, "round": 0, "hour": 12, "rng": random.Random(seed),
+            "activity": {}}
+
+
+# One state dict per platform. "default" also carries the (global) environment-patch flag.
+_PLATFORMS: Dict[str, Dict[str, Any]] = {"default": {**_fresh(), "installed": False}}
+_STATE: Dict[str, Any] = _PLATFORMS["default"]
+
+
+def _state(platform: Optional[str] = None) -> Dict[str, Any]:
+    key = (platform or "default").lower()
+    if key not in _PLATFORMS:
+        _PLATFORMS[key] = _fresh()
+    return _PLATFORMS[key]
 
 
 def _rate_label(activity: float) -> str:
@@ -40,12 +75,17 @@ def _rate_label(activity: float) -> str:
     return label
 
 
+def activity_levels(config: Dict[str, Any]) -> Dict[int, float]:
+    """agent_id -> activity_level from agent_configs (0.5 when missing)."""
+    return {int(a.get("agent_id")): float(a.get("activity_level") or 0.5)
+            for a in (config or {}).get("agent_configs") or [] if isinstance(a, dict) and a.get("agent_id") is not None}
+
+
 def persona_cards(config: Dict[str, Any]) -> Dict[int, str]:
     """agent_id -> card text. Graph actors (brand, companies) get a short organisation card."""
     cfg = config or {}
     index = [r for r in cfg.get("persona_index") or [] if isinstance(r, dict) and r.get("agent_id") is not None]
-    activity = {int(a.get("agent_id")): float(a.get("activity_level") or 0.5)
-                for a in cfg.get("agent_configs") or [] if isinstance(a, dict) and a.get("agent_id") is not None}
+    activity = activity_levels(cfg)
     communities = {}
     for c in (cfg.get("community_config") or {}).get("communities") or []:
         for m in c.get("member_ids") or []:
@@ -87,7 +127,7 @@ def persona_cards(config: Dict[str, Any]) -> Dict[int, str]:
 def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
                   activity: Optional[Dict[int, float]] = None) -> Tuple[int, str]:
     """(action budget 1-3, mood) for one agent this round. More active people and evening hours get bigger budgets."""
-    act = (activity or _STATE["activity"]).get(agent_id, 0.5)
+    act = (activity if activity is not None else _STATE["activity"]).get(agent_id, 0.5)
     peak = 1.0 if 18 <= hour <= 23 or 12 <= hour <= 13 else 0.7 if 7 <= hour <= 17 else 0.4
     x = rng.random() * act * peak
     budget = 3 if x > 0.55 else 2 if x > 0.25 else 1
@@ -97,45 +137,181 @@ def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
     return budget, mood
 
 
-def begin_round(round_num: int, hour: int) -> None:
-    """Refresh every agent's budget and mood for the coming round (deterministic for a seed)."""
-    rng = _STATE["rng"]
-    _STATE["round"], _STATE["hour"] = round_num, hour
-    for aid in list(_STATE["cards"]):
-        _STATE["budgets"][aid], _STATE["moods"][aid] = round_flavour(aid, round_num, hour, rng)
+def begin_round(round_num: int, hour: int, platform: Optional[str] = None) -> None:
+    """Refresh every agent's budget and mood for the coming round on this platform (deterministic for a seed)."""
+    st = _state(platform)
+    rng = st["rng"]
+    st["round"], st["hour"] = round_num, hour
+    for aid in list(st["cards"]):
+        st["budgets"][aid], st["moods"][aid] = round_flavour(aid, round_num, hour, rng, st["activity"])
 
 
-def session_line(agent_id: int) -> str:
-    budget = _STATE["budgets"].get(agent_id, 1)
-    mood = _STATE["moods"].get(agent_id, "relaxed")
-    hour = _STATE["hour"]
+def session_line(agent_id: int, platform: Optional[str] = None) -> str:
+    st = _state(platform)
+    budget = st["budgets"].get(agent_id, 1)
+    mood = st["moods"].get(agent_id, "relaxed")
+    hour = st["hour"]
     return (f"Right now it is about {hour:02d}:00 and you feel {mood}. You have time for at most {budget} "
             f"action(s) this session. If nothing deserves a reply, do_nothing.")
 
 
-def card_for(agent_id: int) -> str:
-    return _STATE["cards"].get(agent_id, "")
+def card_for(agent_id: int, platform: Optional[str] = None) -> str:
+    return _state(platform)["cards"].get(agent_id, "")
 
 
-def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7) -> int:
-    """Attach cards to the agents in `agent_graph` and patch SocialEnvironment.to_text_prompt once.
-    Returns the number of agents that got a card."""
-    _STATE["cards"] = persona_cards(config)
-    _STATE["rng"] = random.Random(seed)
-    begin_round(0, 12)
-    n = 0
+def _agents_of(agent_graph: Any) -> List[Any]:
     try:
         agents = list(agent_graph.get_agents()) if hasattr(agent_graph, "get_agents") else []
     except Exception:  # noqa: BLE001 - graph shapes differ between OASIS versions
         agents = []
-    for item in agents:
-        agent = item[1] if isinstance(item, tuple) else item
+    return [item[1] if isinstance(item, tuple) else item for item in agents]
+
+
+def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: Optional[str] = None,
+            memory_window: Optional[int] = None, token_limit: Optional[int] = None) -> int:
+    """Attach cards to the agents in `agent_graph`, tag them with their platform, bound their chat memory
+    and patch SocialEnvironment.to_text_prompt once. Returns the number of agents that got a card."""
+    st = _state(platform)
+    st["cards"] = persona_cards(config)
+    st["activity"] = activity_levels(config)
+    st["rng"] = random.Random(seed)
+    begin_round(0, 12, platform)
+    n = 0
+    for agent in _agents_of(agent_graph):
         aid = getattr(agent, "social_agent_id", None)
-        if aid in _STATE["cards"]:
+        if aid in st["cards"]:
             n += 1
+        env = getattr(agent, "env", None)
+        if platform and env is not None:
+            try:
+                env.mm_platform = platform
+            except Exception:  # noqa: BLE001
+                pass
+    memory_window_for(agent_graph, memory_window, token_limit)
     _patch_environment()
     return n
 
+
+# ---------------------------------------------------------------------------------------------------
+# Speed knobs
+# ---------------------------------------------------------------------------------------------------
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        v = int(os.environ.get(name, "") or default)
+    except ValueError:
+        v = default
+    return v if v > 0 else default
+
+
+def window_records(records: List[Any]) -> List[Any]:
+    """Make a windowed chat history valid for the API: camel's window keeps the last N messages, which can
+    start in the middle of a tool-call group. The Anthropic endpoint then rejects the request
+    ("tool_call_id ... not found in tool_calls of previous message"). Keep the system message, start the
+    window at the first user message after it, and drop tool results whose call is no longer there."""
+    def role_of(r):
+        mr = getattr(r, "memory_record", r)
+        role = getattr(mr, "role_at_backend", None)
+        return getattr(role, "value", role), getattr(getattr(mr, "message", None), "tool_call_id", None)
+
+    out: List[Any] = []
+    seen_calls = set()
+    started = False
+    for r in records:
+        role, call_id = role_of(r)
+        if role in ("system", "developer") and not out:
+            out.append(r)
+            continue
+        if not started:
+            if role != "user":
+                continue
+            started = True
+        if role == "assistant" and call_id:
+            seen_calls.add(call_id)
+        elif role in ("function", "tool") and call_id and call_id not in seen_calls:
+            continue
+        out.append(r)
+    return out if started else list(records)
+
+
+def _patch_memory_window() -> None:
+    """Wrap ChatHistoryMemory.retrieve once so windowed histories go through window_records."""
+    if _STATE.get("window_patched"):
+        return
+    try:
+        from camel.memories.agent_memories import ChatHistoryMemory
+    except ImportError:  # pragma: no cover - only when camel is absent (tests)
+        return
+    original = ChatHistoryMemory.retrieve
+
+    def retrieve(self):
+        records = original(self)
+        if getattr(self, "_window_size", None) is None:
+            return records
+        return window_records(records)
+
+    ChatHistoryMemory.retrieve = retrieve
+    _STATE["window_patched"] = True
+
+
+def memory_window_for(agent_graph: Any, window: Optional[int] = None, token_limit: Optional[int] = None) -> int:
+    """Give every agent's ChatHistoryMemory a sliding window and its context creator a token budget that
+    does not depend on max_tokens. Returns the number of agents touched. Safe on graphs without camel agents."""
+    window = window if window is not None else _env_int("OASIS_MEMORY_WINDOW", DEFAULT_MEMORY_WINDOW)
+    token_limit = token_limit if token_limit is not None else _env_int("OASIS_TOKEN_LIMIT", DEFAULT_TOKEN_LIMIT)
+    warnings.filterwarnings("ignore", message="Chat history window size limit")
+    _patch_memory_window()
+    n = 0
+    for agent in _agents_of(agent_graph):
+        mem = getattr(agent, "memory", None)
+        if mem is None:
+            continue
+        touched = False
+        if hasattr(mem, "_window_size"):
+            mem._window_size = int(window)
+            touched = True
+        creator = mem.get_context_creator() if hasattr(mem, "get_context_creator") else None
+        if creator is not None and hasattr(creator, "_token_limit"):
+            creator._token_limit = int(token_limit)
+            touched = True
+        n += 1 if touched else 0
+    return n
+
+
+def semaphore_size() -> int:
+    """Concurrent LLM calls per platform (OASIS_SEMAPHORE, default 50)."""
+    return _env_int("OASIS_SEMAPHORE", DEFAULT_SEMAPHORE)
+
+
+def model_timeout() -> float:
+    """Set camel's MODEL_TIMEOUT default (60 s) unless the environment already chose one; returns the value."""
+    os.environ.setdefault("MODEL_TIMEOUT", str(DEFAULT_MODEL_TIMEOUT))
+    try:
+        return float(os.environ["MODEL_TIMEOUT"])
+    except ValueError:
+        os.environ["MODEL_TIMEOUT"] = str(DEFAULT_MODEL_TIMEOUT)
+        return float(DEFAULT_MODEL_TIMEOUT)
+
+
+def recsys_type() -> str:
+    """Twitter recommender name (OASIS_RECSYS): random (default), twitter or twhin-bert."""
+    v = (os.environ.get("OASIS_RECSYS") or DEFAULT_RECSYS).strip().lower()
+    return v if v in ("random", "twitter", "twhin-bert") else DEFAULT_RECSYS
+
+
+def twitter_platform(db_path: str) -> Any:
+    """A Twitter Platform like oasis.make(DefaultPlatformType.TWITTER) builds, but with the recommender
+    chosen by OASIS_RECSYS instead of the hard-coded twhin-bert. Returns None when OASIS is absent."""
+    try:
+        from oasis.social_platform.channel import Channel
+        from oasis.social_platform.platform import Platform
+    except ImportError:  # pragma: no cover - only when OASIS is absent (tests)
+        return None
+    return Platform(db_path=db_path, channel=Channel(), recsys_type=recsys_type(),
+                    refresh_rec_post_count=2, max_rec_post_len=2, following_post_count=3)
+
+
+# ---------------------------------------------------------------------------------------------------
 
 def _patch_environment() -> None:
     if _STATE["installed"]:
@@ -148,7 +324,8 @@ def _patch_environment() -> None:
 
     async def to_text_prompt(self, *args, **kwargs):
         base = await original(self, *args, **kwargs)
-        return compose_prompt(getattr(getattr(self, "action", None), "agent_id", None), base)
+        return compose_prompt(getattr(getattr(self, "action", None), "agent_id", None), base,
+                              getattr(self, "mm_platform", None))
 
     SocialEnvironment.to_text_prompt = to_text_prompt
     try:
@@ -162,14 +339,17 @@ def _patch_environment() -> None:
     _STATE["installed"] = True
 
 
-def compose_prompt(agent_id: Optional[int], base: str) -> str:
+def compose_prompt(agent_id: Optional[int], base: str, platform: Optional[str] = None) -> str:
     """Card + original observation + session line. Pure, so it is unit-testable without OASIS."""
-    if agent_id is None or agent_id not in _STATE["cards"]:
+    st = _state(platform)
+    if agent_id is None or agent_id not in st["cards"]:
         return base
-    return f"{_STATE['cards'][agent_id]}\n\n{base}\n\n{session_line(agent_id)}"
+    return f"{st['cards'][agent_id]}\n\n{base}\n\n{session_line(agent_id, platform)}"
 
 
 def reset() -> None:
-    """Test helper."""
-    _STATE.update({"cards": {}, "budgets": {}, "moods": {}, "round": 0, "hour": 12, "rng": random.Random(7),
-                   "activity": {}})
+    """Test helper: forget every platform's cards, budgets and moods (keeps the patch flag)."""
+    for key in list(_PLATFORMS):
+        if key != "default":
+            del _PLATFORMS[key]
+    _STATE.update(_fresh())

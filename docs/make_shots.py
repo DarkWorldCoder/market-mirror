@@ -15,7 +15,7 @@ for name, spec in shots:
     # spec: comma list of section ids to keep; "header" keeps the page header
     keep = spec.split(",")
     width = 1280
-    css = ["nav.toc,#tip,footer,h2.divider{display:none!important}", "section{display:none!important}",
+    css = ["nav.toc,#tip,footer,h2.divider,.theme-btn{display:none!important}", "section{display:none!important}",
            ".wrap{padding-top:24px!important}", "html,body{background:#eeeeea!important}"]
     if "header" not in keep:
         css.append("header.top{display:none!important}")

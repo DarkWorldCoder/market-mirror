@@ -885,7 +885,8 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
     seed, and the seeds run concurrently (FEED_TEST_SEED_WORKERS, default 4). Every run logs its Claude calls
     and tokens; the shared pool calls are counted in the first seed's usage."""
     seeds = list(seeds or [5])
-    meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
+    # seeds run concurrently, so each gets its own meter on the raw client: per-seed counts stay exact
+    base = client._client if isinstance(client, UsageMeter) else client
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     shared = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
     if len(seeds) > 1:
@@ -894,10 +895,9 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
         for sd in seeds:
             _, plan = _plan(creatives, people, sd)
             keys |= {(platform, by_id[aid].get("country", "")) for (aid, platform) in plan}
-        before = meter.snapshot()
-        organic_pools(meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools)
-        after = meter.snapshot()
-        shared = {k: after[k] - before[k] for k in after}
+        pool_meter = UsageMeter(base)
+        organic_pools(pool_meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools)
+        shared = pool_meter.snapshot()
     lock = threading.Lock()
     done_by_seed: Dict[int, int] = {}
     total_by_seed: Dict[int, int] = {}
@@ -911,8 +911,8 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
                 known = sum(total_by_seed.values())
                 est_total = known + (len(seeds) - len(total_by_seed)) * (known // max(1, len(total_by_seed)))
                 progress(sum(done_by_seed.values()), max(est_total, 1))
-        r = run_feed_test(meter, model, creatives, people, seed=sd, progress=prog, benchmarks=benchmarks,
-                          pools=pools, **kw)
+        r = run_feed_test(UsageMeter(base), model, creatives, people, seed=sd, progress=prog,
+                          benchmarks=benchmarks, pools=pools, **kw)
         u = r["usage"]
         logger.info(f"feed test seed {sd} ({i + 1}/{len(seeds)}): {u['calls']} Claude calls, "
                     f"{u['input_tokens']} input / {u['output_tokens']} output tokens")

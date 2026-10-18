@@ -476,6 +476,8 @@ class RedditSimulationRunner:
             llm_model = os.environ.get('LLM_MODEL_NAME') or 'claude-haiku-4-5'
         
         _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
+        import agent_context  # MarketMirror speed knobs
+        agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s
         
         return ModelFactory.create(
         
@@ -594,7 +596,7 @@ class RedditSimulationRunner:
         )
         import agent_context  # MarketMirror: per-round persona cards
         from event_schedule import events_by_round, inject_scheduled
-        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7))
+        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7), platform="reddit")
         self._scheduled_by_round = events_by_round(self.config, "reddit")
         
         db_path = self._get_db_path()
@@ -607,7 +609,7 @@ class RedditSimulationRunner:
             agent_graph=self.agent_graph,
             platform=oasis.DefaultPlatformType.REDDIT,
             database_path=db_path,
-            semaphore=30,  # 限制最大并发 LLM 请求数，防止 API 过载
+            semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
         )
         
         await self.env.reset()
@@ -675,7 +677,7 @@ class RedditSimulationRunner:
                 for _, agent in active_agents
             }
             
-            agent_context.begin_round(round_num + 1, simulated_hour)
+            agent_context.begin_round(round_num + 1, simulated_hour, platform="reddit")
             inject_scheduled(actions, self.env, round_num + 1, self._scheduled_by_round, ManualAction, ActionType, print)
             await self.env.step(actions)
             

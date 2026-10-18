@@ -93,7 +93,7 @@ code,pre,kbd{font-family:var(--font-mono)}
 .card .kpi.hl{background:var(--mm-accent)}
 /* pills */
 .pill{display:inline-block;font-size:var(--fs-xs);font-weight:500;line-height:1.5;border-radius:var(--r-pill);padding:3px 10px;
-background:var(--surface-2);color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+background:var(--surface-2);color:var(--text-2);font-variant-numeric:tabular-nums}
 .pill.neutral{background:var(--surface-2);color:var(--text-2)}
 .pill.mint{background:var(--mm-mint);color:var(--mm-mint-ink)}
 .pill.accent{background:var(--mm-accent);color:var(--mm-accent-ink)}

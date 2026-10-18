@@ -317,6 +317,18 @@ class ParallelIPCHandler:
         else:
             return None, None, None
     
+    async def _interview_direct(self, env, agent, prompt: str) -> Optional[str]:
+        """Run one interview through the environment's LLM semaphore without env.step (so no recommendation
+        refresh, no clock tick). Returns an error string or None."""
+        try:
+            if hasattr(env, "_perform_interview_action"):
+                await env._perform_interview_action(agent, prompt)
+            else:  # older OASIS without the helper: same thing without the semaphore
+                await agent.perform_interview(prompt)
+            return None
+        except Exception as e:  # noqa: BLE001 - one failed interview must not sink the batch
+            return str(e)
+
     async def _interview_single_platform(self, agent_id: int, prompt: str, platform: str) -> Dict[str, Any]:
         """
         在单个平台上执行Interview
@@ -331,12 +343,9 @@ class ParallelIPCHandler:
         
         try:
             agent = agent_graph.get_agent(agent_id)
-            interview_action = ManualAction(
-                action_type=ActionType.INTERVIEW,
-                action_args={"prompt": prompt}
-            )
-            actions = {agent: interview_action}
-            await env.step(actions)
+            err = await self._interview_direct(env, agent, prompt)
+            if err:
+                return {"platform": platform, "error": err}
             
             result = self._get_interview_result(agent_id, actual_platform)
             result["platform"] = actual_platform
@@ -416,6 +425,36 @@ class ParallelIPCHandler:
             print(f"  Interview失败: agent_id={agent_id}, 所有平台都失败")
             return False
     
+    async def _interview_platform_batch(self, platform: str, interviews: List[Dict]) -> Dict[str, Dict[str, Any]]:
+        """Interview every agent of one platform concurrently (bounded by the env semaphore), then read the
+        answers back from the trace table. Result keys are "<platform>_<agent_id>" as before."""
+        env, agent_graph, _ = self._get_env_and_graph(platform)
+        out: Dict[str, Dict[str, Any]] = {}
+        if not env or not agent_graph:
+            return out
+        tasks = []
+        agent_ids = []
+        for interview in interviews:
+            agent_id = interview.get("agent_id")
+            prompt = interview.get("prompt", "")
+            try:
+                agent = agent_graph.get_agent(agent_id)
+            except Exception as e:
+                print(f"  警告: 无法获取{platform} Agent {agent_id}: {e}")
+                continue
+            tasks.append(self._interview_direct(env, agent, prompt))
+            agent_ids.append(agent_id)
+        if not tasks:
+            return out
+        errors = await asyncio.gather(*tasks)
+        for agent_id, err in zip(agent_ids, errors):
+            if err:
+                print(f"  警告: {platform} Agent {agent_id} interview failed: {err}")
+            result = self._get_interview_result(agent_id, platform)
+            result["platform"] = platform
+            out[f"{platform}_{agent_id}"] = result
+        return out
+
     async def handle_batch_interview(self, command_id: str, interviews: List[Dict], platform: str = None) -> bool:
         """
         处理批量采访命令
@@ -427,6 +466,9 @@ class ParallelIPCHandler:
                 - "twitter": 只采访Twitter平台
                 - "reddit": 只采访Reddit平台
                 - None/不指定: 每个Agent同时采访两个平台
+
+        MarketMirror: interviews run directly through the agents (no env.step, so no recommendation refresh
+        per batch) and the Twitter and Reddit halves run at the same time.
         """
         # 按平台分组
         twitter_interviews = []
@@ -450,68 +492,25 @@ class ParallelIPCHandler:
             if self.reddit_env:
                 reddit_interviews.extend(both_platforms_interviews)
         
-        results = {}
-        
-        # 处理Twitter平台的采访
+        results: Dict[str, Dict[str, Any]] = {}
+        jobs = []
         if twitter_interviews and self.twitter_env:
-            try:
-                twitter_actions = {}
-                for interview in twitter_interviews:
-                    agent_id = interview.get("agent_id")
-                    prompt = interview.get("prompt", "")
-                    try:
-                        agent = self.twitter_agent_graph.get_agent(agent_id)
-                        twitter_actions[agent] = ManualAction(
-                            action_type=ActionType.INTERVIEW,
-                            action_args={"prompt": prompt}
-                        )
-                    except Exception as e:
-                        print(f"  警告: 无法获取Twitter Agent {agent_id}: {e}")
-                
-                if twitter_actions:
-                    await self.twitter_env.step(twitter_actions)
-                    
-                    for interview in twitter_interviews:
-                        agent_id = interview.get("agent_id")
-                        result = self._get_interview_result(agent_id, "twitter")
-                        result["platform"] = "twitter"
-                        results[f"twitter_{agent_id}"] = result
-            except Exception as e:
-                print(f"  Twitter批量Interview失败: {e}")
-        
-        # 处理Reddit平台的采访
+            jobs.append(self._interview_platform_batch("twitter", twitter_interviews))
         if reddit_interviews and self.reddit_env:
-            try:
-                reddit_actions = {}
-                for interview in reddit_interviews:
-                    agent_id = interview.get("agent_id")
-                    prompt = interview.get("prompt", "")
-                    try:
-                        agent = self.reddit_agent_graph.get_agent(agent_id)
-                        reddit_actions[agent] = ManualAction(
-                            action_type=ActionType.INTERVIEW,
-                            action_args={"prompt": prompt}
-                        )
-                    except Exception as e:
-                        print(f"  警告: 无法获取Reddit Agent {agent_id}: {e}")
-                
-                if reddit_actions:
-                    await self.reddit_env.step(reddit_actions)
-                    
-                    for interview in reddit_interviews:
-                        agent_id = interview.get("agent_id")
-                        result = self._get_interview_result(agent_id, "reddit")
-                        result["platform"] = "reddit"
-                        results[f"reddit_{agent_id}"] = result
-            except Exception as e:
-                print(f"  Reddit批量Interview失败: {e}")
+            jobs.append(self._interview_platform_batch("reddit", reddit_interviews))
+        started = datetime.now()
+        for part in await asyncio.gather(*jobs, return_exceptions=True):
+            if isinstance(part, Exception):
+                print(f"  批量Interview失败: {part}")
+                continue
+            results.update(part)
         
         if results:
             self.send_response(command_id, "completed", result={
                 "interviews_count": len(results),
                 "results": results
             })
-            print(f"  批量Interview完成: {len(results)} 个Agent")
+            print(f"  批量Interview完成: {len(results)} 个Agent, {(datetime.now() - started).total_seconds():.1f}s")
             return True
         else:
             self.send_response(command_id, "failed", error="没有成功的采访")
@@ -1050,6 +1049,8 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
     
+    agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s (camel's own default is 180 s)
+    
     return ModelFactory.create(
     
         model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _cfg else ModelPlatformType.OPENAI,
@@ -1168,7 +1169,7 @@ async def run_twitter_simulation(
         model=model,
         available_actions=TWITTER_ACTIONS,
     )
-    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7))
+    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="twitter")
     scheduled_by_round = events_by_round(config, "twitter")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1184,9 +1185,9 @@ async def run_twitter_simulation(
     
     result.env = oasis.make(
         agent_graph=result.agent_graph,
-        platform=oasis.DefaultPlatformType.TWITTER,
+        platform=agent_context.twitter_platform(db_path) or oasis.DefaultPlatformType.TWITTER,  # OASIS_RECSYS
         database_path=db_path,
-        semaphore=30,  # 限制最大并发 LLM 请求数，防止 API 过载
+        semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
     )
     
     await result.env.reset()
@@ -1287,7 +1288,7 @@ async def run_twitter_simulation(
             continue
 
         actions = {agent: LLMAction() for _, agent in active_agents}
-        agent_context.begin_round(round_num + 1, simulated_hour)
+        agent_context.begin_round(round_num + 1, simulated_hour, platform="twitter")
         inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
         await result.env.step(actions)
         
@@ -1369,7 +1370,7 @@ async def run_reddit_simulation(
         model=model,
         available_actions=REDDIT_ACTIONS,
     )
-    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7))
+    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="reddit")
     scheduled_by_round = events_by_round(config, "reddit")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1387,7 +1388,7 @@ async def run_reddit_simulation(
         agent_graph=result.agent_graph,
         platform=oasis.DefaultPlatformType.REDDIT,
         database_path=db_path,
-        semaphore=30,  # 限制最大并发 LLM 请求数，防止 API 过载
+        semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
     )
     
     await result.env.reset()
@@ -1496,7 +1497,7 @@ async def run_reddit_simulation(
             continue
 
         actions = {agent: LLMAction() for _, agent in active_agents}
-        agent_context.begin_round(round_num + 1, simulated_hour)
+        agent_context.begin_round(round_num + 1, simulated_hour, platform="reddit")
         inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
         await result.env.step(actions)
         

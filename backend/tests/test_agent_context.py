@@ -231,3 +231,53 @@ def test_twitter_platform_uses_chosen_recommender(monkeypatch, tmp_path):
     monkeypatch.delenv("OASIS_RECSYS", raising=False)
     p = ac.twitter_platform(str(tmp_path / "tw.db"))
     assert p is not None and p.recsys_type == RecsysType.RANDOM and p.max_rec_post_len == 2
+
+
+def test_window_records_keeps_tool_call_groups_whole():
+    def rec(role, call_id=None):
+        return SimpleNamespace(memory_record=SimpleNamespace(role_at_backend=SimpleNamespace(value=role),
+                                                             message=SimpleNamespace(tool_call_id=call_id)))
+    # the window cut in the middle of round 1: its assistant call is gone, its two results are orphans
+    records = [rec("system"), rec("function", "c1"), rec("function", "c2"), rec("user"),
+               rec("assistant", "c3"), rec("function", "c3"), rec("user"), rec("assistant", "c4"), rec("function", "c4")]
+    out = ac.window_records(records)
+    roles = [(r.memory_record.role_at_backend.value, r.memory_record.message.tool_call_id) for r in out]
+    assert roles == [("system", None), ("user", None), ("assistant", "c3"), ("function", "c3"), ("user", None),
+                     ("assistant", "c4"), ("function", "c4")]
+    # a window that starts with an assistant text reply also waits for the first user message
+    out = ac.window_records([rec("system"), rec("assistant"), rec("user"), rec("assistant")])
+    assert [r.memory_record.role_at_backend.value for r in out] == ["system", "user", "assistant"]
+    # nothing but the system message so far: untouched
+    only_sys = [rec("system")]
+    assert ac.window_records(only_sys) == only_sys
+
+
+def test_memory_window_patch_applies_to_camel_memory():
+    pytest.importorskip("camel")
+    from camel.memories import ChatHistoryMemory, MemoryRecord, ScoreBasedContextCreator
+    from camel.messages import BaseMessage, FunctionCallingMessage
+    from camel.types import ModelType, OpenAIBackendRole, RoleType
+    from camel.utils import OpenAITokenCounter
+
+    def call(i):
+        return FunctionCallingMessage(role_name="a", role_type=RoleType.ASSISTANT, meta_dict=None, content="",
+                                      func_name="like_post", args={"post_id": i}, tool_call_id=f"c{i}")
+
+    def result(i):
+        return FunctionCallingMessage(role_name="a", role_type=RoleType.ASSISTANT, meta_dict=None, content="",
+                                      func_name="like_post", result={"ok": True}, tool_call_id=f"c{i}")
+
+    mem = ChatHistoryMemory(ScoreBasedContextCreator(OpenAITokenCounter(ModelType.GPT_4O_MINI), 32000), window_size=4)
+    mem.write_record(MemoryRecord(message=BaseMessage.make_assistant_message("system", "sys"),
+                                  role_at_backend=OpenAIBackendRole.SYSTEM))
+    for i in range(3):
+        mem.write_record(MemoryRecord(message=BaseMessage.make_user_message("u", f"obs {i}"), role_at_backend=OpenAIBackendRole.USER))
+        mem.write_record(MemoryRecord(message=call(i), role_at_backend=OpenAIBackendRole.ASSISTANT))
+        mem.write_record(MemoryRecord(message=result(i), role_at_backend=OpenAIBackendRole.FUNCTION))
+    ac._patch_memory_window()
+    roles = [(r.memory_record.role_at_backend.value, getattr(r.memory_record.message, "tool_call_id", None))
+             for r in mem.retrieve()]
+    # the raw window of 4 is [result c1, user, call c2, result c2]: the orphan result c1 must be gone
+    assert roles == [("system", None), ("user", None), ("assistant", "c2"), ("function", "c2")]
+    msgs, _ = mem.get_context()
+    assert [m["role"] for m in msgs][:3] == ["system", "user", "assistant"] and len(msgs) == 4

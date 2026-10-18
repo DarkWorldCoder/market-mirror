@@ -469,6 +469,8 @@ class TwitterSimulationRunner:
             llm_model = os.environ.get('LLM_MODEL_NAME') or 'claude-haiku-4-5'
         
         _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
+        import agent_context  # MarketMirror speed knobs
+        agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s
         
         return ModelFactory.create(
         
@@ -607,7 +609,7 @@ class TwitterSimulationRunner:
         )
         import agent_context  # MarketMirror: per-round persona cards
         from event_schedule import events_by_round, inject_scheduled
-        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7))
+        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7), platform="twitter")
         self._scheduled_by_round = events_by_round(self.config, "twitter")
         
         # 数据库路径
@@ -620,9 +622,9 @@ class TwitterSimulationRunner:
         print("创建OASIS环境...")
         self.env = oasis.make(
             agent_graph=self.agent_graph,
-            platform=oasis.DefaultPlatformType.TWITTER,
+            platform=agent_context.twitter_platform(db_path) or oasis.DefaultPlatformType.TWITTER,  # OASIS_RECSYS
             database_path=db_path,
-            semaphore=30,  # 限制最大并发 LLM 请求数，防止 API 过载
+            semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
         )
         
         await self.env.reset()
@@ -686,7 +688,7 @@ class TwitterSimulationRunner:
             }
             
             # 执行动作
-            agent_context.begin_round(round_num + 1, simulated_hour)
+            agent_context.begin_round(round_num + 1, simulated_hour, platform="twitter")
             inject_scheduled(actions, self.env, round_num + 1, self._scheduled_by_round, ManualAction, ActionType, print)
             await self.env.step(actions)
             

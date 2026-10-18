@@ -26,7 +26,8 @@ PRIOR_SPREAD = {"ctr": 0.6, "would_convert": 0.7, "open_rate": 0.5, "click_rate"
 # Store
 # --------------------------------------------------------------------------
 
-def load_store(path: str = STORE) -> Dict[str, Any]:
+def load_store(path: Optional[str] = None) -> Dict[str, Any]:
+    path = path or STORE
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -34,13 +35,14 @@ def load_store(path: str = STORE) -> Dict[str, Any]:
         return {"pairs": []}
 
 
-def save_store(store: Dict[str, Any], path: str = STORE) -> None:
+def save_store(store: Dict[str, Any], path: Optional[str] = None) -> None:
+    path = path or STORE
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
 
 
-def add_pairs(brand: str, metric: str, pairs: List[Dict[str, Any]], source: str, path: str = STORE) -> int:
+def add_pairs(brand: str, metric: str, pairs: List[Dict[str, Any]], source: str, path: Optional[str] = None) -> int:
     """pairs: [{"sim": x, "real": y, "label": "..."}] -> stored with brand, metric, source and time."""
     store = load_store(path)
     n = 0
@@ -60,7 +62,7 @@ def add_pairs(brand: str, metric: str, pairs: List[Dict[str, Any]], source: str,
 # Fit and predict
 # --------------------------------------------------------------------------
 
-def fit(brand: str, metric: str, store: Optional[Dict[str, Any]] = None, path: str = STORE) -> Dict[str, Any]:
+def fit(brand: str, metric: str, store: Optional[Dict[str, Any]] = None, path: Optional[str] = None) -> Dict[str, Any]:
     """Scale factor real/sim for a brand+metric (falls back to every brand for that metric), with its spread."""
     store = store or load_store(path)
     own = [p for p in store.get("pairs") or [] if p.get("metric") == metric and p.get("brand") == brand and p.get("sim")]
@@ -81,7 +83,7 @@ def fit(brand: str, metric: str, store: Optional[Dict[str, Any]] = None, path: s
 
 
 def predict(sim_value: float, metric: str, brand: str, target: Optional[float] = None, higher_is_better: bool = True,
-            store: Optional[Dict[str, Any]] = None, path: str = STORE) -> Dict[str, Any]:
+            store: Optional[Dict[str, Any]] = None, path: Optional[str] = None) -> Dict[str, Any]:
     """Point estimate = sim x factor; interval = log-normal with the fitted spread; P(beats target)."""
     f = fit(brand, metric, store, path)
     point = sim_value * f["factor"]
@@ -101,7 +103,7 @@ def _phi(z: float) -> float:
 
 
 def predict_run(summary: Dict[str, Any], feed_test: Dict[str, Any], brand: str, targets: Optional[Dict[str, float]] = None,
-                email_test: Optional[Dict[str, Any]] = None, store: Optional[Dict[str, Any]] = None, path: str = STORE) -> Dict[str, Any]:
+                email_test: Optional[Dict[str, Any]] = None, store: Optional[Dict[str, Any]] = None, path: Optional[str] = None) -> Dict[str, Any]:
     """Predictions for the headline numbers of a run: CTR per ad, CPL, would-convert, email click rate."""
     targets = targets or {}
     out: Dict[str, Any] = {"brand": brand, "predictions": []}

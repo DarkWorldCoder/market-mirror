@@ -50,10 +50,25 @@ class SocialFeedSectionTests(unittest.TestCase):
         self.assertEqual(len(cards), 4)                               # 3 twitter + 1 reddit
         self.assertEqual([c[0] for c in cards], ["pm-x", "pm-x", "pm-x", "pm-rd"])
         attrs = cards[1][1]
-        for frag in ['data-platform="twitter"', 'data-round="1"', 'data-segment="Students"', 'data-country="Brazil"',
+        for frag in ['data-item', 'data-platform="twitter"', 'data-round="1"', 'data-segment="Students"', 'data-country="Brazil"',
                      'data-brand="0"', 'data-score="3"', 'data-id="2"']:
             self.assertIn(frag, attrs)
         self.assertIn('data-brand="1"', cards[0][1])
+
+    def test_generic_filter_root(self):
+        h = self.html
+        self.assertIn('<div class="sf" data-sf-root data-filter-root data-filter-noun="posts">', h)
+        self.assertIn('data-tab="twitter" data-filter="platform" data-value="twitter" aria-pressed="true"', h)
+        self.assertIn('data-filter="round" data-filter-any="-1"', h)
+        self.assertIn('<select data-segment data-filter="segment"', h)
+        self.assertIn('<select data-country data-filter="country"', h)
+        self.assertIn('data-brand data-filter="brand"', h)
+        self.assertIn('data-sort data-filter-sort="score"', h)
+        self.assertIn("data-count data-filter-count", h)
+        self.assertIn('<div class="section-head">', h)
+        self.assertIn('<table class="sf-brand-t sortable">', h)
+        _, _, with_insight = social_feed.feed_story_section(self.story, marketing.chart, "Brand posts drew 3 likes")
+        self.assertIn('<div class="callout insight" role="note">Brand posts drew 3 likes</div>', with_insight)
 
     def test_card_content_round_quote_and_counts(self):
         h = self.html
