@@ -44,6 +44,22 @@ PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
 MAX_PER_CALL = 8
 MAX_TOTAL_PERSONAS = 2000
+# Traits spread evenly across each segment (like ages and genders) so personas do not collapse
+# toward one "typical" respondent. Override per spec ("diversity") or per segment.
+DEFAULT_DIVERSITY: Dict[str, List[str]] = {
+    "upbringing": ["big-city", "small town", "rural village", "suburban", "migrant or diaspora family",
+                   "moved from village to city"],
+    "education": ["secondary school or less", "vocational or diploma", "some university", "bachelor's degree",
+                  "postgraduate degree"],
+    "income": ["low", "lower-middle", "middle", "upper-middle", "high"],
+    "thinking_style": ["analytical, wants evidence", "intuitive, goes with gut feeling", "sceptical, expects a catch",
+                       "early adopter, loves trying new things", "traditional, trusts family and elders",
+                       "price-hunter, compares everything", "risk-averse, avoids commitments",
+                       "status-driven, cares what others think", "busy and distracted, skims everything"],
+    "tech_comfort": ["low", "medium", "high"],
+    "media_diet": ["mostly short video", "mostly Facebook groups and family chats", "news sites and YouTube",
+                   "Reddit and forums", "Instagram and creators", "barely uses social media"],
+}
 MBTI = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
         "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
 
@@ -93,6 +109,7 @@ class PersonaSegment:
     platforms: List[str] = field(default_factory=list)
     gender_mix: str = "balanced"          # balanced | female | male | share of women 0-1
     notes: str = ""                        # real data, attitudes, what is known about this group
+    diversity: Dict[str, List[str]] = field(default_factory=dict)   # per-segment trait overrides
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "PersonaSegment":
@@ -114,7 +131,14 @@ class PersonaSegment:
             platforms=_str_list(d.get("platforms")),
             gender_mix=str(d.get("gender_mix") or "balanced").strip().lower(),
             notes=str(d.get("notes") or "").strip(),
+            diversity=_diversity(d.get("diversity")),
         )
+
+
+def _diversity(v: Any) -> Dict[str, List[str]]:
+    if not isinstance(v, dict):
+        return {}
+    return {str(k): _str_list(vals) for k, vals in v.items() if _str_list(vals)}
 
 
 @dataclass
@@ -156,6 +180,7 @@ class PersonaSpec:
     bridge_rate: float = 0.05          # chance of also following someone outside one's communities
     graph_agents: str = "auto"         # all | none | auto (drop places/platforms/campaigns/group labels)
     keep_entities: List[str] = field(default_factory=list)   # graph entity names to always keep
+    diversity: Dict[str, List[str]] = field(default_factory=dict)   # trait overrides for every segment
     seed: int = 7
 
     @classmethod
@@ -179,6 +204,7 @@ class PersonaSpec:
             bridge_rate=max(0.0, min(1.0, _float(d.get("bridge_rate", 0.05), 0.05))),
             graph_agents=mode,
             keep_entities=_str_list(d.get("keep_entities")),
+            diversity=_diversity(d.get("diversity")),
             seed=_int(d.get("seed"), 7),
         )
         total = sum(s.count for s in spec.segments)
@@ -204,8 +230,10 @@ def _female_share(mix: str) -> float:
     return max(0.0, min(1.0, _float(mix, 0.5)))
 
 
-def demographic_slots(seg: PersonaSegment, rng: random.Random) -> List[Dict[str, Any]]:
-    """Ages spread evenly over [age_min, age_max], genders by gender_mix, cities round-robin."""
+def demographic_slots(seg: PersonaSegment, rng: random.Random,
+                      diversity: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    """Ages spread evenly over [age_min, age_max], genders by gender_mix, cities round-robin,
+    and every diversity trait spread evenly (balanced, shuffled) across the segment."""
     n = seg.count
     span = seg.age_max - seg.age_min
     ages = [seg.age_min + round(span * (i + 0.5) / n) for i in range(n)]
@@ -215,8 +243,15 @@ def demographic_slots(seg: PersonaSegment, rng: random.Random) -> List[Dict[str,
     rng.shuffle(ages)
     cities = seg.cities or [""]
     offset = rng.randrange(len(cities))
+    traits = {**DEFAULT_DIVERSITY, **(diversity or {}), **seg.diversity}
+    spread: Dict[str, List[str]] = {}
+    for name, values in traits.items():
+        vals = list(values)
+        cycle = (vals * (n // len(vals) + 1))[:n] if vals else []
+        rng.shuffle(cycle)
+        spread[name] = cycle
     return [{"age": ages[i], "gender": genders[i], "city": cities[(i + offset) % len(cities)],
-             "mbti": rng.choice(MBTI)} for i in range(n)]
+             "mbti": rng.choice(MBTI), "traits": {k: v[i] for k, v in spread.items() if v}} for i in range(n)]
 
 
 # --------------------------------------------------------------------------
@@ -370,7 +405,8 @@ def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requiremen
                     avoid_names: Sequence[str], communities: Sequence[CommunitySpec] = ()) -> str:
     people = "\n".join(
         f"{i + 1}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
-        + f", MBTI {s['mbti']}" for i, s in enumerate(slots))
+        + f", MBTI {s['mbti']}" + "".join(f"; {k.replace('_', ' ')}: {v}" for k, v in (s.get("traits") or {}).items())
+        for i, s in enumerate(slots))
     groups = ""
     if communities:
         groups = "\nCommunities people in this segment may belong to:\n" + "\n".join(
@@ -397,16 +433,18 @@ Rules:
 - Invent a realistic full name for each person: given name and family name common for their country,
   region, religion mix and generation. Do not reuse or resemble these names: {", ".join(list(avoid_names)[-60:]) or "none"}.
 - Never use a real, famous or public person's name or biography.
-- Make them genuinely different: income, family situation, education, goals, how much they trust ads,
-  what they already know about the topic, and how they would react (some enthusiastic, some sceptical,
-  some indifferent or busy).
+- Make them genuinely different: let the fixed traits (upbringing, education, income, thinking style,
+  tech comfort, media diet) shape their goals, family situation, trust in ads, what they already know
+  about the topic, and how they would react (some enthusiastic, some sceptical, some indifferent or busy).
+- Give each person one believable contradiction (e.g. a price-hunter who splurges on one thing, a sceptic
+  who trusts one particular source) so nobody reads like a stereotype.
 - Write their voice the way they actually post: language mix, slang or formality, typical length.
 
 Return JSON: {{"personas": [{{
   "name": "...", "age": N, "gender": "male|female", "city": "...", "country": "...",
   "occupation": "...", "education": "...", "household": "...", "income_level": "low|lower-middle|middle|upper-middle|high",
   "languages": ["..."], "platform_habits": "...", "decision_role": "...",
-  "attitude": "...", "concerns": ["..."], "what_persuades_them": "...", "voice": "...",
+  "attitude": "...", "concerns": ["..."], "what_persuades_them": "...", "contradiction": "...", "voice": "...",
   "example_post": "...", "interested_topics": ["..."],
   "bio": "one-line social media bio",
   "persona": "a 150-250 word description combining all of the above and how they relate to the topic"
@@ -439,7 +477,7 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
 
     jobs = []
     for seg in spec.segments:
-        slots = demographic_slots(seg, rng)
+        slots = demographic_slots(seg, rng, spec.diversity)
         seg_comms = [c for c in spec.communities if _matches(c, seg.label, seg.country)]
         for start in range(0, len(slots), MAX_PER_CALL):
             jobs.append((seg, slots[start:start + MAX_PER_CALL], seg_comms))
@@ -488,7 +526,8 @@ def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], t
         "platform_habits": row.get("platform_habits"), "decision_role": row.get("decision_role"),
         "attitude": row.get("attitude"), "concerns": row.get("concerns"),
         "what_persuades_them": row.get("what_persuades_them"), "voice": row.get("voice"),
-        "example_post": row.get("example_post"),
+        "example_post": row.get("example_post"), "contradiction": row.get("contradiction"),
+        **(slot.get("traits") or {}),
     }
     details = {k: v for k, v in details.items() if v not in (None, "", [])}
     if not persona:
@@ -500,6 +539,11 @@ def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], t
             extras.append(f"Writes like this: {details['voice']}")
         if isinstance(details.get("concerns"), list):
             extras.append(f"Concerns: {', '.join(map(str, details['concerns']))}.")
+        tr = slot.get("traits") or {}
+        if tr:
+            extras.append("Background: " + "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in tr.items()) + ".")
+        if details.get("contradiction"):
+            extras.append(f"Contradiction: {details['contradiction']}")
         persona = " ".join([persona] + extras)
     profile = {
         "bio": str(row.get("bio") or f"{occupation}, {city or country}")[:280],
@@ -630,5 +674,6 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "city": attrs.get("city"), "age": prof.get("age"), "gender": prof.get("gender"),
             "occupation": attrs.get("occupation"), "income_level": attrs.get("income_level"),
             "decision_role": attrs.get("decision_role"), "communities": attrs.get("communities") or [],
+            **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out

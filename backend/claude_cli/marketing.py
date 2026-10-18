@@ -722,6 +722,14 @@ var B={
     return {value:c,label:{color:light?'#111111':'#ffffff'}};}),itemStyle:{borderColor:t.card,borderWidth:3,borderRadius:8},
    label:{show:true,fontSize:12,formatter:function(p){return p.value[2]+'%';}},
    emphasis:{itemStyle:{borderColor:t.ink,borderWidth:2}}}]});},
+ scatter:function(s,t){var mx=Math.max.apply(null,s.points.map(function(p){return Math.max(p[0],p[1]);}).concat([1]))*1.15;
+  return Object.assign(base(t),{grid:{left:8,right:24,top:16,bottom:8,containLabel:true},
+  tooltip:Object.assign(base(t).tooltip,{trigger:'item',formatter:function(p){return p.data[2]+'<br>real '+p.data[0]+'% · simulated '+p.data[1]+'%';}}),
+  xAxis:valAxis(t,{name:'Real CTR %',nameLocation:'middle',nameGap:26,max:mx,splitLine:{show:false},axisLine:{show:true,lineStyle:{color:t.axis}}}),
+  yAxis:valAxis(t,{name:'Simulated CTR %',max:mx}),
+  series:[{type:'scatter',symbolSize:14,data:s.points,itemStyle:{color:t.bar,borderColor:t.card,borderWidth:2},
+   label:{show:true,position:'right',color:t.ink2,formatter:function(p){return p.data[2];}},
+   markLine:{silent:true,symbol:'none',lineStyle:{color:t.muted,type:'dashed'},data:[[{coord:[0,0]},{coord:[mx,mx]}]]}}]});},
  price:function(s,t){var c=s.curves,mk=function(name,key,col,dash){return {name:name,type:'line',symbol:'none',smooth:false,
    data:c.prices.map(function(p,i){return [p,c[key][i]];}),lineStyle:{width:2,color:col,type:dash?'dashed':'solid'},itemStyle:{color:col},
    endLabel:{show:true,color:t.ink2,fontSize:11,formatter:name}};};
@@ -779,8 +787,8 @@ def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
     ch = chart("intent", spec, 64 + 34 * len(rows), f"Would convert by {label.lower()}")
     best = max((r["convert_yes"] or 0) for r in rows)
     body = "".join(
-        f'<tr><td class="{"best" if (r["convert_yes"] or 0) == best and best > 0 else ""}">{_e(r["key"])}</td>'
-        f'<td class="num">{r["n"]}</td><td class="num">{_fmt_pct(r["convert_yes"])}</td>'
+        f'<tr><td class="{"best" if (r["convert_yes"] or 0) == best and best > 0 else ""}">{_e(r["key"])}{_low_n(r["n"])}</td>'
+        f'<td class="num">{r["n"]}</td><td class="num">{_pct_ci(r["convert_yes"], r["n"])}</td>'
         f'<td class="num">{_fmt_pct(r["convert_maybe"])}</td><td class="num">{_fmt_pct(r["click_yes"])}</td>'
         f'<td class="num">{_num(r["interest"])}</td><td class="num">{_num(r["trust"])}</td>'
         f'<td>{_e(OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"))}</td>'
@@ -790,6 +798,19 @@ def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
              '<th class="num">Interest</th><th class="num">Trust</th><th>Top objection</th><th>Best message</th>'
              f'</tr></thead><tbody>{body}</tbody></table></div>')
     return ch + table
+
+
+def _pct_ci(p: Optional[float], n: int) -> str:
+    if p is None:
+        return "–"
+    import math
+    q = max(min(p / 100, 1), 0)
+    m = 100 * 1.96 * math.sqrt(max(q * (1 - q), 0.25 / n) / n) if n else None
+    return f"{p:.0f}%" + (f" ±{m:.0f}" if m is not None else "")
+
+
+def _low_n(n: int) -> str:
+    return (f' <span class="pill orchid" title="Small sample: a direction, not a result">low n={n}</span>' if n < 10 else "")
 
 
 def hero_stats(a: Dict[str, Any]) -> str:

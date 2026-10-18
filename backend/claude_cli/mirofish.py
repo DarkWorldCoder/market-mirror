@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import exporter  # noqa: E402
 import marketing  # noqa: E402
+import market_cli  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
@@ -460,6 +461,10 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
             rep = _try("report", lambda: c.data("GET", f"/api/report/by-simulation/{sid}"))
             if rep:
                 put("report", rep)
+    if simulation_id:
+        for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel")):
+            if not os.path.exists(os.path.join(out_dir, f"{name}.json")):
+                put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
     if report_id:
         put("report", _try("report", lambda: c.data("GET", f"/api/report/{report_id}")))
     return saved
@@ -851,6 +856,60 @@ def cmd_survey(c: Client, a) -> Any:
     return res
 
 
+def _run_dir_for(a) -> str:
+    return a.run_dir or os.path.join("mirofish_runs", a.simulation)
+
+
+def _reexport(c: Optional[Client], a, out_dir: str, res: Dict[str, Any]) -> Dict[str, Any]:
+    if not getattr(a, "no_export", False):
+        if c is not None:
+            collect(c, out_dir, simulation_id=a.simulation)
+        res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
+
+
+def cmd_feedtest(c: Client, a) -> Any:
+    out_dir = _run_dir_for(a)
+    try:
+        res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
+                                  a.organic, a.limit, a.parallel)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    return _reexport(c, a, out_dir, res)
+
+
+def cmd_panel(c: Client, a) -> Any:
+    out_dir = _run_dir_for(a)
+    try:
+        res = market_cli.panel(c, a.simulation, out_dir, log, a.analysts, read_text_arg(a.brief) or "",
+                               load_bundle=exporter.load_run_dir)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    return _reexport(c, a, out_dir, res)
+
+
+def cmd_ads_import(c: Optional[Client], a) -> Any:
+    try:
+        return market_cli.ads_import(a.file, a.out, a.json, a.title or "Past ad results")
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
+
+
+def cmd_backtest(c: Optional[Client], a) -> Any:
+    try:
+        with open(os.path.join(a.run_dir, "feed_test.json"), encoding="utf-8") as f:
+            feed = json.load(f)
+        with open(a.actuals, encoding="utf-8") as f:
+            actual = json.load(f)
+    except (OSError, ValueError) as e:
+        raise CLIError(f"backtest: {e}")
+    mapping = dict(m.split("=", 1) for m in (a.map or []) if "=" in m)
+    res = market_cli.backtest(feed, actual, mapping)
+    save_json(a.run_dir, "backtest", res)
+    res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
+    return res
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas)  # fail fast on a bad spec file
@@ -1083,6 +1142,38 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-export", action="store_true", help="don't re-collect and re-export the dashboard")
     s.add_argument("--title")
 
+    s = sub.add_parser("feedtest", help="put ads into simulated Facebook/Instagram/Reddit/TikTok/LinkedIn/X feeds")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--creatives", required=True, help="@ads.json: list of ads, or {creatives, landing, benchmarks}")
+    s.add_argument("--landing", help="@landing.json: page model {load_seconds, language, shows, form_fields, price}")
+    s.add_argument("--benchmarks", help="@past_ads.json from ads-import, or {platform: {cpm, ctr, budget, currency}}")
+    s.add_argument("--waves", type=int, default=3, help="later waves see earlier reactions and comments (default %(default)s)")
+    s.add_argument("--organic", type=int, default=5, help="organic posts around each ad (default %(default)s)")
+    s.add_argument("--limit", type=int, help="only the first N personas (quick, cheap check)")
+    s.add_argument("--parallel", type=int, default=8)
+    s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("panel", help="independent, anonymized analyst panel over posts, comments, feed test and survey")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--analysts", type=int, default=5, help="2-9 analysts, each with a different lens")
+    s.add_argument("--brief", help="what you want to decide (text or @file)")
+    s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("ads-import", help="turn a Meta/Google Ads export (CSV/JSON) into a seed file + benchmarks")
+    s.add_argument("file", help="ads export: CSV from Ads Manager / Google Ads, or JSON rows")
+    s.add_argument("--out", required=True, help="seed markdown to write, e.g. scenarios/x/past_ads.md")
+    s.add_argument("--json", help="summary + benchmarks JSON (default next to --out)")
+    s.add_argument("--title")
+
+    s = sub.add_parser("backtest", help="compare simulated creative rankings with real ad results")
+    s.add_argument("--run-dir", required=True, help="run folder with feed_test.json")
+    s.add_argument("--actuals", required=True, help="JSON written by ads-import")
+    s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
+
     s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
     s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")
     s.add_argument("--runs-root", default="mirofish_runs", help="where runs live (default %(default)s)")
@@ -1101,7 +1192,8 @@ COMMANDS = {
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
-    "export": cmd_export, "live": cmd_live, "survey": cmd_survey,
+    "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
+    "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest,
 }
 
 
@@ -1110,7 +1202,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        c = None if (offline_export or offline_live) else Client(a.base_url, lang=a.lang)
+        offline = offline_export or offline_live or a.cmd in ("ads-import", "backtest")
+        c = None if offline else Client(a.base_url, lang=a.lang)
         result = COMMANDS[a.cmd](c, a)
     except CLIError as e:
         print(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False), flush=True)

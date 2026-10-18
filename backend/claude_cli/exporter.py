@@ -44,8 +44,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:  # marketing layer (stdlib only)
     import marketing  # type: ignore
+    import feed_view  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import marketing  # type: ignore
+    from . import feed_view  # type: ignore
 
 VENDOR_ECHARTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "echarts.min.js")
 
@@ -63,7 +65,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey",
+    "report", "survey", "feed_test", "analyst_panel", "backtest",
 ]
 
 
@@ -1011,6 +1013,18 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     mk = marketing.analyze(bundle)
     summary["marketing"] = marketing.summary_block(mk)
     mk_sections = marketing.render_sections(mk)
+    # MarketMirror extras: feed test after the playbook; panel, backtest and downloads after the voices
+    fs = feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart)
+    if fs:
+        at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), 1)
+        mk_sections.insert(at, fs)
+    for extra in (feed_view.panel_section(bundle.get("analyst_panel") or {}),
+                  feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart)):
+        if extra:
+            mk_sections.append(extra)
+    files = feed_view.export_files(bundle, mk, md)
+    files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
+    mk_sections.append(feed_view.downloads_section(files))
 
     req = summary.get("simulation_requirement") or ""
     page_title = title or (summary.get("report_title") or project.get("name") or "MiroFish simulation")
@@ -1111,10 +1125,10 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{esc(page_title)}</title>\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
-        f"<style>{CSS}{marketing.MARKETING_CSS}</style>\n</head>\n<body>\n"
+        f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
-        + f"\n<script>{JS}{marketing.MARKETING_JS}</script>\n</body>\n</html>\n"
+        + f"\n<script>{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary
 
@@ -1132,6 +1146,12 @@ def export_run_dir(run_dir: str, out_html: Optional[str] = None, title: Optional
         f.write(md or "")
     summary_path = os.path.join(out_dir, "summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, ensure_ascii=False, indent=2)
+        json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
+    # every downloadable report file, next to the dashboard
+    mk = marketing.analyze(bundle)
+    for name, text in feed_view.export_files(bundle, mk, md).items():
+        if name.endswith((".csv", ".json")) and name != "summary.json":
+            with open(os.path.join(out_dir, name), "w", encoding="utf-8", newline="") as f:
+                f.write(text)
     return {"html": os.path.abspath(out_html), "report_md": os.path.abspath(md_path),
             "summary_json": os.path.abspath(summary_path)}
