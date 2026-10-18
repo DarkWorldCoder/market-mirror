@@ -31,7 +31,7 @@ from ..utils.logger import get_logger
 logger = get_logger('mirofish.api.market')
 
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
-                "market-report": "market_report.json", "pitch": "pitch.json"}
+                "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json"}
 
 
 def _client():
@@ -244,6 +244,44 @@ def start_pitch():
                                               "rebuttals": sorted(rebuttals)}})
 
 
+@simulation_bp.route('/email-test', methods=['POST'])
+def start_email_test():
+    """POST {simulation_id, emails: [...] | {emails, list_size, benchmarks, familiarity}, seed?, parallel?, max_personas?}
+    -> task writing email_test.json (GET /<sid>/email-test). Subject lines, senders, send times and sequences
+    tested on the simulated people's inboxes."""
+    from ..services import email_test
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        emails, opts = email_test.normalize_emails(data.get("emails"))
+        people, cfg = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not people:
+        return jsonify({"success": False, "error": "no personas yet: prepare the simulation first"}), 400
+    limit = data.get("max_personas")
+    if isinstance(limit, int) and limit > 0:
+        people = people[:limit]
+    seed = int(data.get("seed") or 5)
+    parallel = max(1, min(int(data.get("parallel") or 8), 32))
+    list_size = data.get("list_size") or opts.get("list_size")
+    bench = data.get("benchmarks") or opts.get("benchmarks")
+    fam = float(data.get("familiarity") if data.get("familiarity") is not None else opts.get("familiarity", 0.2))
+    prof = _profile(sid)
+    product = ((prof or {}).get("one_liner") or (prof or {}).get("name") or "")
+
+    def work(progress):
+        return email_test.run_email_test(_client(), Config.LLM_MODEL_NAME, emails, people, product=product, seed=seed,
+                                         parallel=parallel, list_size=int(list_size) if list_size else None,
+                                         benchmarks=bench, familiarity=fam, progress=progress)
+
+    task_id = _start("email-test", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "emails": len(emails), "people": len(people)}})
+
+
 @simulation_bp.route('/calibrate', methods=['POST'])
 def calibrate_panel():
     """POST {synthetic: [rows], real: [rows], key?} rows = {segment, country, gender, age, y in [0,1]}
@@ -335,6 +373,7 @@ def market_task_status():
 @simulation_bp.route('/<simulation_id>/feed-test', methods=['GET'], defaults={"kind": "feed-test"})
 @simulation_bp.route('/<simulation_id>/analyst-panel', methods=['GET'], defaults={"kind": "analyst-panel"})
 @simulation_bp.route('/<simulation_id>/pitch', methods=['GET'], defaults={"kind": "pitch"})
+@simulation_bp.route('/<simulation_id>/email-test', methods=['GET'], defaults={"kind": "email-test"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
         return jsonify({"success": False, "error": "not found"}), 404

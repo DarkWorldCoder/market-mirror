@@ -551,3 +551,29 @@ def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_ro
     return {"ideas": os.path.abspath(out_json), "markdown": os.path.abspath(out_md), "method": data.get("method"),
             "count": len(data.get("ideas") or []),
             "titles": [f"{i.get('title')} ({i.get('type')}, {i.get('priority')})" for i in data.get("ideas") or []]}
+
+
+# --------------------------------------------------------------------------
+# emailtest
+# --------------------------------------------------------------------------
+
+def emailtest(c, simulation_id: str, spec_arg: str, run_dir: str, log, seed: int = 5, parallel: int = 8,
+              list_size: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+    """Subject lines, senders, send times and sequences in the simulated people's inboxes."""
+    spec = _load_json_arg(spec_arg)
+    body: Dict[str, Any] = {"simulation_id": simulation_id, "emails": spec, "seed": seed, "parallel": parallel}
+    if list_size:
+        body["list_size"] = list_size
+    if limit:
+        body["max_personas"] = limit
+    started = c.data("POST", "/api/simulation/email-test", json=body, timeout=120)
+    log(f"emailtest: {started.get('emails')} emails to {started.get('people')} inboxes; only opened mail calls Claude")
+    wait_task(c, started["task_id"], "emailtest", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/email-test")
+    with open(os.path.join(run_dir, "email_test.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    summ = result.get("summary") or {}
+    log_cost(result, log)
+    return {"email_test": os.path.join(os.path.abspath(run_dir), "email_test.json"), "ranked": summ.get("ranked"),
+            "subject_lines": summ.get("subject_lines"), "lost_to_unsubscribe_or_spam": summ.get("lost_to_unsubscribe_or_spam"),
+            "warnings": {k: v.get("warnings") for k, v in (summ.get("per_email") or {}).items() if v.get("warnings")}}

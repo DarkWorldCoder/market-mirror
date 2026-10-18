@@ -77,8 +77,16 @@ GOOD = {
                              "budget": "300 USD", "duration": "7 days", "why": "best CTR"}],
                     "fixes": ["Remove the card step from the trial"], "messages_to_use": ["Less than one gym visit"],
                     "retest": {"when": "in 2 weeks", "what": "same ads without the card step", "success_looks_like": "a firm yes from 2 in 10"}},
-    "limits": {"confidence": "low", "caveats": ["Simulated people"], "what_would_raise_confidence": ["A 300 USD real test"]},
+    "limits": {"confidence": "low", "caveats": ["Simulated people"], "what_would_raise_confidence": ["A 300 USD real test"],
+               "reliability_note": "ad winner agreed in 67% of seeds"},
+    "budget_plan": {"total": "300 USD", "lines": [{"where": "ig_price to India young professionals", "share_pct": 60, "amount": "180 USD",
+                                                   "expected_cpl": "24 USD", "why": "cheapest leads"}], "hold_back": "20% for the retest"},
+    "thirty_day_plan": [{"week": 1, "do": "Remove the card step", "owner": "product", "measure": "trial starts"}],
+    "what_would_change_the_decision": ["A firm yes from 2 in 10 after the card fix"],
+    "risks": [{"risk": "Card fix slips", "likelihood": "medium", "mitigation": "Ship email-only trial first"}],
 }
+GOOD["ad_results"]["so_what"] = "Run ig_price first."
+GOOD["ad_results"]["confidence"] = "medium"
 
 
 class FakeClient:
@@ -105,6 +113,8 @@ def test_compact_material_collects_every_source():
     assert m["objections"][0]["examples"][0]["quote"].startswith("Bakit")
     assert m["social"]["brand_posts"][0]["comments"] == 1 and m["social"]["top_posts"][0]["platform"] == "reddit"
     assert m["panel"]["verdict"] == "iterate" and m["who"][0]["examples"][0]["summary"].startswith("I am Priya")
+    assert m["budget"]["per_ad"][0]["projected_cpl"] == 24.0
+    assert m["budget"]["total_benchmark_budget"] == 300.0
 
 
 def test_generate_renders_markdown_with_all_sections():
@@ -117,6 +127,9 @@ def test_generate_renders_markdown_with_all_sections():
               "## Pricing", "## Sales notes", "## Action plan", "## Limits and confidence"):
         assert h in md, h
     assert "| ig_price | India young professionals | instagram | 300 USD | 7 days |" in md
+    for h in ("## Budget plan", "## The next 30 days", "## What would change the decision", "## Risks", "**So what:** Run ig_price first.",
+              "_Confidence: medium_", "Reliability: ad winner agreed in 67% of seeds", "| 1 | Remove the card step | product | trial starts |"):
+        assert h in md, h
     assert "Answer with: *No card needed for the first 7 days.*" in md
     assert out["action_plan"]["fixes"] == ["Remove the card step from the trial"]
     assert "FACTS" in client.prompts[0] and "Fitloop" in client.prompts[0]
@@ -134,6 +147,8 @@ def test_fallback_on_bad_json():
     assert out["method"] == "fallback"
     assert "**Decision: ITERATE.**" in out["markdown"] and "## Sales notes" in out["markdown"]
     assert out["action_plan"]["fixes"] == ["Trust / looks like a scam"]
+    assert "## The next 30 days" in out["markdown"] and "## Budget plan" in out["markdown"]   # from the projections
+    assert out["sections"]["budget_plan"]["lines"][0]["expected_cpl"].startswith("24.0")
 
 
 def test_market_report_api(tmp_path, monkeypatch):

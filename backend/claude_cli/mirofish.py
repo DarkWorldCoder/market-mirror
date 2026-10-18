@@ -532,7 +532,7 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
                 put("report", rep)
     if simulation_id:
         for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel"),
-                           ("market-report", "market_report"), ("feed-story", "feed_story"), ("pitch", "pitch")):
+                           ("market-report", "market_report"), ("feed-story", "feed_story"), ("pitch", "pitch"), ("email-test", "email_test")):
             # the feed story grows with every round, so it is always refetched; the others are written once
             if name == "feed_story" or not os.path.exists(os.path.join(out_dir, f"{name}.json")):
                 put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
@@ -1133,6 +1133,17 @@ def cmd_market_test(c: Client, a) -> Any:
                                                  int(cfg.get("seeds_n") or 1))
         steps.append("feed_test")
         checkpoint()
+    emails = cfg.get("emails")
+    if emails:
+        epath = _cfg_path(base, emails)
+        earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
+        try:
+            state["email_test"] = market_cli.emailtest(c, sid, earg, out_dir, log, 5, int(cfg.get("parallel") or DEFAULT_PARALLEL),
+                                                       cfg.get("list_size"))
+            steps.append("email_test")
+        except (ValueError, RuntimeError, CLIError) as e:
+            log(f"email test skipped: {e}")
+        checkpoint()
     survey = cfg.get("survey")
     rounds = int(cfg.get("rounds") or 0)
     if survey and rounds < 1:
@@ -1387,6 +1398,15 @@ def cmd_calibrate(c: Client, a) -> Any:
     return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
             "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
+
+
+def cmd_emailtest(c: Client, a) -> Any:
+    out_dir = _run_dir_for(a)
+    try:
+        res = market_cli.emailtest(c, a.simulation, a.emails, out_dir, log, a.seed, a.parallel, a.list_size, a.limit)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    return _reexport(c, a, out_dir, res)
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -1712,6 +1732,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("emailtest", help="email campaign test: subject lines, senders, send times, sequences in simulated inboxes")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--emails", required=True, help="@emails.json: {emails:[{id, from_name, subject, preheader, body, cta, send_time, sequence:[...]}], list_size, benchmarks}")
+    s.add_argument("--seed", type=int, default=5)
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
+    s.add_argument("--list-size", type=int, help="real list size for the projection (opens, clicks, leads)")
+    s.add_argument("--limit", type=int, help="only the first N people (quick check)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
     s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away and a corrected rate")
     s.add_argument("--run-dir", required=True)
     s.add_argument("--real", required=True, help="CSV with columns segment,country,gender,age,y (yes/maybe/no or 0-1)")
@@ -1756,7 +1787,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest,
 }
 
 

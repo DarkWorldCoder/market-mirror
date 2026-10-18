@@ -202,6 +202,16 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "email_test", "description": (
+        "Email campaign test on the simulated people's inboxes: pass emails [{id, from_name, subject, preheader, body, cta, "
+        "send_time (morning|midday|evening|night), segments?, sequence?: [{delay_days, subject, body}]}] plus optional list_size and "
+        "benchmarks {cost_per_send, lead_value, close_rate, deal_value}. Each person gets a realistic inbox for the day; an "
+        "attention gate decides opens, Claude decides skim/read/click/reply/unsubscribe/spam with honest odds. Returns open, click, "
+        "click-to-open, unsubscribe and spam rates per variant and audience, subject-line ranking, sequence funnel, projection from "
+        "list size to leads and revenue, spam-word warnings. Needs a prepared simulation (simulation_id). Background job."),
+     "inputSchema": {"type": "object", "properties": {"simulation_id": {"type": "string"}, "run": {"type": "string"},
+                                                      "emails": {"type": "array", "items": {"type": "object"}}, "list_size": {"type": "integer"},
+                                                      "benchmarks": {"type": "object"}}, "required": ["simulation_id", "emails"]}},
     {"name": "calibrate", "description": (
         "Check a run's simulated survey against real answers (absolute path to a CSV with segment,country,gender,age,y where y is "
         "yes/maybe/no or 0-1; 50-300 rows is enough): covariate overlap, per-audience calibration, a trust / correct / walk-away "
@@ -307,6 +317,19 @@ def call(name: str, a: Dict[str, Any]) -> Any:
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
         return r["stdout"].strip() or r["stderr"].strip()
+    if name == "email_test":
+        run_dir = a.get("run")
+        run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
+        d = os.path.join(home(), "scenarios", "_emails")
+        os.makedirs(d, exist_ok=True)
+        ep = os.path.join(d, f"emails_{uuid.uuid4().hex[:6]}.json")
+        json.dump({"emails": a["emails"], "list_size": a.get("list_size"), "benchmarks": a.get("benchmarks")}, open(ep, "w", encoding="utf-8"), ensure_ascii=False)
+        args = ["cli", "emailtest", "--simulation", a["simulation_id"], "--emails", "@" + ep]
+        if a.get("list_size"):
+            args += ["--list-size", str(int(a["list_size"]))]
+        if run_dir:
+            args += ["--run-dir", run_dir]
+        return job(args, "email-test")
     if name == "calibrate":
         run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
         args = ["cli", "calibrate", "--run-dir", run_dir, "--real", a["real_csv"]]
