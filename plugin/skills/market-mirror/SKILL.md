@@ -58,7 +58,13 @@ Write `<scenario>/personas.json`. Each segment gets real people with ages spread
 
 No spec? `--auto-personas 30` lets Claude plan segments and communities from the question. Up to 500 per segment and 2,000 in total are allowed; start with 20-40 and scale once the setup is right. `diversity` (top level or per segment) overrides the trait lists.
 
-## 4. Pick a recipe
+## 4. All in one (fastest)
+
+Write `<scenario>/market_test.json` (keys: name, title, seeds, requirement, personas or auto_personas, creatives, rounds, survey {offer, goal, messages, split, pricing}, panel {analysts, brief}, report, approve_spend) and run `bash "$MM" cli market-test <scenario>/market_test.json`. The first run stops after creating the people and prints them: show them to the user. Then add the printed `simulation_id` and `"approve_spend": true` and run again. If the MCP tools are available (`market_test`, `job_status`, `results`), use those instead of the shell.
+
+The dashboard opens with a **go / iterate / no-go decision** combining every signal. Report it with its confidence and the "fix first" list.
+
+## 5. Pick a recipe
 
 Run stage one for every recipe, then show the personas (`cli profiles --simulation <id> --brief`) before spending more:
 
@@ -96,13 +102,13 @@ Then `bash "$MM" cli feedtest --simulation <id> --creatives @<scenario>/creative
 
 **H. Second opinion.** `cli panel --simulation <id> --analysts 5 --brief "what we need to decide"`: independent analysts (performance marketer, brand strategist, sales lead, psychologist, sceptical data analyst, ...) each read the anonymized posts, comments, feed reactions and survey answers alone. Report the consensus and where they disagree.
 
-## 5. Show the results
+## 6. Show the results
 
 - Live: the browser pane at `http://127.0.0.1:5050/` updates as steps finish.
 - Final: `<engine>/mirofish_runs/<name>/dashboard.html` (one offline file). Publish it as an Artifact if available, otherwise send the file. Its Downloads section exports the report (Markdown), every survey answer and feed session (CSV), metrics (JSON) and print-to-PDF; the same files sit next to it.
 - In chat: lead with the decision (which audience, which message, what to fix first, expected cost per lead), then the evidence and its limits. Quote real comments from personas, labelled as simulated.
 
-## 6. Costs and cleanup
+## 7. Costs and cleanup
 
 Feed tests call Claude only for exposures that catch someone's eye (most do not), plus one call per click for the landing page. Rounds cost one call per active agent per round; surveys one per person; the panel one per analyst. `claude-haiku-4-5` is the cheap default; use a Sonnet model for final reports. `bash "$MM" stop` stops everything.
 

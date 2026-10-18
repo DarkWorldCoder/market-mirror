@@ -90,6 +90,7 @@ def _prompt(lens: str, focus: str, brief: str, material: Dict[str, Any]) -> str:
         f"What the client wants to decide:\n{brief or 'Which audience and message to invest in, and what is blocking conversion.'}\n\n"
         + (f"Background:\n{material['context']}\n\n" if material.get("context") else "")
         + _render(material) + "\n\n"
+        "Be concise: every list item under 20 words, at most 5 themes, 4 objections, 4 opportunities, 3 risks.\n"
         "Return JSON: {\"headline\": \"your single most important conclusion\", \"sentiment\": -100..100, "
         "\"purchase_intent_signal\": 0-10, \"best_audience\": \"segment name or 'unclear'\", "
         "\"best_message\": \"which message/ad/angle wins, or 'unclear'\", "
@@ -189,16 +190,22 @@ def run_panel(client, model: str, material: Dict[str, Any], brief: str = "", n: 
 
     def one(i_lens):
         i, (lens, focus) = i_lens
-        try:
-            resp = create_chat_completion(client, model=model, temperature=0.6, max_tokens=2500,
-                                          messages=[{"role": "system", "content": SYSTEM},
-                                                    {"role": "user", "content": _prompt(lens, focus, brief, material)}])
-            data = parse_json_block(extract_chat_completion_text(resp))
-            result = _clean(data if isinstance(data, dict) else {})
-            err = None
-        except Exception as e:  # noqa: BLE001 - one analyst failing is reported, not fatal
-            logger.warning(f"analyst {lens} failed: {e}")
-            result, err = None, str(e)[:200]
+        result, err = None, None
+        prompt = _prompt(lens, focus, brief, material)
+        for attempt in range(2):
+            try:
+                extra = "" if attempt == 0 else (
+                    "\n\nYour previous answer was cut off. Answer again in under 350 words: at most 4 themes, "
+                    "3 objections, 3 opportunities and 2 risks, each under 20 words.")
+                resp = create_chat_completion(client, model=model, temperature=0.6, max_tokens=4000,
+                                              messages=[{"role": "system", "content": SYSTEM},
+                                                        {"role": "user", "content": prompt + extra}])
+                data = parse_json_block(extract_chat_completion_text(resp))
+                result, err = _clean(data if isinstance(data, dict) else {}), None
+                break
+            except Exception as e:  # noqa: BLE001 - one analyst failing is reported, not fatal
+                logger.warning(f"analyst {lens} failed (attempt {attempt + 1}): {e}")
+                err = str(e)[:200]
         done[0] += 1
         if progress:
             progress(done[0], len(lenses))

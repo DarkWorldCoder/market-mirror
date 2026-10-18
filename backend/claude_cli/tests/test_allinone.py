@@ -57,6 +57,16 @@ class GraphOverlayTest(unittest.TestCase):
         self.assertEqual(feed_view.augment_graph(graph, {}), graph)
 
 
+class RoundsDoneTest(unittest.TestCase):
+    def test_interview_mode_counts_as_done(self):
+        import mirofish
+        self.assertTrue(mirofish.rounds_done({"runner_status": "running", "twitter_completed": True,
+                                              "reddit_completed": True, "twitter_running": False, "reddit_running": False}))
+        self.assertFalse(mirofish.rounds_done({"runner_status": "running", "twitter_completed": True,
+                                               "reddit_completed": False, "reddit_running": True}))
+        self.assertTrue(mirofish.rounds_done({"runner_status": "completed"}))
+
+
 class MCPServerTest(unittest.TestCase):
     def test_protocol_and_tools(self):
         home = tempfile.mkdtemp()

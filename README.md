@@ -25,6 +25,7 @@ Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · 
 | Can we trust the simulation for this market? | Rank correlation and winner match against real ad results | **`backtest`** |
 | What do the objections sound like, and how do we answer them? | Objections by audience in the buyers' own words, "what would change my mind", a sales playbook per audience | **Survey + playbook + interviews** |
 | Does a second opinion agree? | Independent analysts (performance, brand, sales, psychology, data, local market) each read the anonymized evidence alone | **Analyst panel** |
+| So, launch it or not? | **Go / iterate / no-go**, with confidence, the signal behind each vote and what to fix first | **Decision card** combining every test |
 
 ## See it
 
@@ -35,11 +36,20 @@ Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · 
 </tr>
 <tr>
 <td><img src="docs/images/audiences.png" alt="Would-convert chart by segment with margins of error"/><br><b>Audiences.</b> Would-convert, maybe and no by segment, country, community, age and gender, with 95% margins and small-sample flags.</td>
+<td><img src="docs/images/analysts.png" alt="Independent analyst panel with themes and multilingual evidence"/><br><b>Analyst panel.</b> Five analysts work alone on the anonymized evidence. Themes are backed by quotes, here in Bangla, Nepali and Bahasa.</td>
+</tr>
+<tr>
+<td><img src="docs/images/objections.png" alt="Objections chart and quotes"/><br><b>Objections.</b> What stops people, how often, in their own words, and what would change their mind.</td>
 <td><img src="docs/images/personas.png" alt="Table of simulated people with names, ages, countries and roles"/><br><b>People.</b> Every simulated person: realistic local name, age, city, upbringing, education, income, thinking style, communities.</td>
 </tr>
 </table>
 
-Screenshots are from a real run: a free exam-prep offer tested on students and parents in Bangladesh, Nepal and Indonesia, seeded with that brand's real Meta ad results.
+**From a real run.** A free exam-prep offer (CSCA.ai) was tested on 30 students and parents in Bangladesh, Nepal and Indonesia, seeded with the brand's real Meta ad results:
+- **Decision:** iterate, low confidence. All three signals agreed.
+- **Survey:** nobody committed and 48% said maybe.
+- **Biggest blocker:** trust and scam fears, raised by 69%.
+- **Analysts:** all five said iterate, with an average success chance of 28%.
+- **Landing page:** the simulated drop-offs matched the real account. A slow page lost people, an English-only page lost Indonesian students, and a phone-number field read as a scam signal.
 
 ## How it works
 
@@ -78,6 +88,35 @@ In Claude Code:
 Then just ask, for example: *"Test these three Facebook ads on parents in Jakarta and Surabaya; here is our landing page and last month's Ads Manager export."* The skill downloads the engine, sets it up, asks for your Anthropic key, plans personas, stops to show them to you before spending, runs the tests and opens the live dashboard. It also pulls real data from tools you have connected (Meta Ads, Google Ads, Semrush, web search, your CRM exports).
 
 You can also copy `plugin/skills/market-mirror/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/).
+
+### As agent tools (MCP)
+
+The plugin also starts an MCP server, so Claude Desktop, Claude Code or any MCP client gets these tools: `doctor`, `setup`, `start_backend`, `market_test` (everything in one call), `job_status`, `results`, `list_runs`, `start_live`, `ads_import`, `backtest` and `cli`. To add it by hand:
+
+```bash
+claude mcp add market-mirror -- python3 /path/to/market-mirror/plugin/skills/market-mirror/scripts/mcp_server.py
+```
+
+### One command for everything
+
+```json
+{
+  "name": "acme_launch", "title": "Acme Pro launch test",
+  "seeds": ["brief.md", "past_ads.md", "landing_page.md"],
+  "requirement": "question.txt",
+  "personas": "personas.json",
+  "creatives": "creatives.json",
+  "rounds": 3,
+  "survey": {"offer": "Acme Pro trial", "goal": "start a free trial", "messages": "messages.txt", "split": true, "pricing": "USD"},
+  "panel": {"analysts": 5, "brief": "Which audience and message get the budget, and should we launch?"},
+  "approve_spend": false
+}
+```
+
+```bash
+mm market-test scenarios/acme/market_test.json   # 1st run: builds the people, then stops so you can check them
+# add "simulation_id" from the output and "approve_spend": true, run again: feed test, rounds, survey, panel, dashboard
+```
 
 ### By hand
 
@@ -170,7 +209,7 @@ Platforms: `facebook`, `instagram`, `reddit`, `tiktok`, `linkedin`, `x`. Several
 
 ## The dashboard
 
-Sections, in order: **Results** (plain-language verdicts and headline numbers), **Playbook**, **Feed test** (post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph and run details.
+Sections, in order: **Decision** (go / iterate / no-go), **Results** (plain-language verdicts and headline numbers), **Playbook**, **Feed test** (post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph (documents, people, segments, communities and countries, all connected) and run details.
 
 **Downloads:** the dashboard (HTML), print or save as PDF, the analyst report (Markdown), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), and all key numbers (JSON). The same files are written next to `dashboard.html`.
 
@@ -212,6 +251,8 @@ Always stop after `prepare` and look at the people before spending on the rest.
 | CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
 | Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
 | Dashboard | `backend/claude_cli/exporter.py`, `feed_view.py`, `vendor/echarts.min.js` |
+| All-in-one command | `mirofish.py market-test` |
+| MCP server (agent tools) | `plugin/skills/market-mirror/scripts/mcp_server.py` |
 | Claude skill | `plugin/skills/market-mirror/` |
 
 Claude runs through Anthropic's OpenAI-compatible endpoint. Memory is a free local knowledge graph (SQLite with BM25 and local multilingual embeddings), so no Zep account is needed. `CLAUDE.md` is the full operating guide for agents, and `HANDOFF.md` lists known gaps. Run the tests with `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`.

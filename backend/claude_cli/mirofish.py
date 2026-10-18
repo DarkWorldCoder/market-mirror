@@ -274,9 +274,18 @@ def wait_run(c: Client, simulation_id: str, timeout: float, interval: float) -> 
                 f"({s.get('progress_percent', 0)}%) actions={s.get('total_actions_count', 0)} "
                 f"[tw r{s.get('twitter_current_round', 0)} / rd r{s.get('reddit_current_round', 0)}]")
     return poll(lambda: c.data("GET", f"/api/simulation/{simulation_id}/run-status"),
-                lambda s: s.get("runner_status") in ("completed", "stopped"),
+                rounds_done,
                 lambda s: s.get("runner_status") == "failed",
                 describe, "run", interval, timeout)
+
+
+def rounds_done(s: Dict[str, Any]) -> bool:
+    """Finished when the runner says so, or when every platform logged simulation_end and none is running:
+    the process stays up afterwards on purpose (interview mode), so runner_status can stay 'running'."""
+    if s.get("runner_status") in ("completed", "stopped"):
+        return True
+    done = [s.get("twitter_completed"), s.get("reddit_completed")]
+    return any(done) and not s.get("twitter_running") and not s.get("reddit_running")
 
 
 def step_report(c: Client, simulation_id: str, force: bool = False, wait: bool = True,

@@ -288,7 +288,11 @@ def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     promoters = sum(1 for x in rec if x >= 9)
     detractors = sum(1 for x in rec if x <= 6)
     objections = Counter(r.get("objection_type") for r in rows if r.get("objection_type") not in (None, "none"))
-    msgs = Counter(r.get("best_message") for r in rows if r.get("best_message"))
+    # best message: among people at least open to it (yes counts double), the message they saw or picked
+    msgs = Counter()
+    for r in rows:
+        if r.get("message_key") and r.get("would_convert") in (YES, MAYBE):
+            msgs[r["message_key"]] += 2 if r.get("would_convert") == YES else 1
     return {
         "n": n,
         "interest": _avg([r.get("interest") for r in rows]),
@@ -327,6 +331,12 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                      "communities": m.get("communities") or [], "age_band": age_band(m.get("age")),
                      "gender": m.get("gender"), "acted": acted.get(aid, 0)})
 
+    split_mode = survey.get("mode") == "split"
+    for r in rows:
+        if split_mode and r.get("assigned") is not None:
+            r["message_key"] = f"#{int(r['assigned']) + 1}"
+        elif r.get("best_message"):
+            r["message_key"] = r["best_message"]
     out: Dict[str, Any] = {
         "has_survey": bool(rows), "people": len(people),
         "engaged": sum(1 for a in people if acted.get(a)),
@@ -416,7 +426,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
             grid[r["segment"]][r["message_key"]].append(r)
     out["message_grid"] = {
         "messages": [m["key"] for m in out["messages_ranked"]],
-        "rows": [{"segment": seg_, "cells": {k: {"n": len(v), "convert_yes": _pct(sum(1 for r in v if r.get("would_convert") == YES), len(v))}
+        "rows": [{"segment": seg_, "cells": {k: {"n": len(v), "convert_yes": _pct(sum(1 for r in v if r.get("would_convert") == YES), len(v)),
+                                              "convert_maybe": _pct(sum(1 for r in v if r.get("would_convert") == MAYBE), len(v))}
                                               for k, v in cells.items()}}
                  for seg_, cells in sorted(grid.items())],
     } if grid else None
@@ -503,13 +514,15 @@ def playbook(a: Dict[str, Any], rows: List[Dict[str, Any]]) -> List[Dict[str, An
         cells = grid.get(s["key"]) or {}
         lead = None
         if cells:
-            lead = max(cells.items(), key=lambda kv: ((kv[1]["convert_yes"] or 0), kv[1]["n"]))[0]
+            lead = max(cells.items(), key=lambda kv: ((kv[1]["convert_yes"] or 0), (kv[1].get("convert_maybe") or 0), kv[1]["n"]))[0]
         fixes = Counter(r["would_change_mind"].strip().rstrip(".") for r in seg_rows
                         if r.get("would_convert") != YES and r.get("would_change_mind"))
         hooks = [r.get("quote") for r in seg_rows if r.get("would_convert") == YES and r.get("quote")]
+        score = (s["convert_yes"] or 0) + 0.3 * (s["convert_maybe"] or 0)      # a maybe is partial interest
         plays.append({
-            "segment": s["key"], "n": s["n"], "convert_yes": s["convert_yes"], "interest": s["interest"],
-            "priority": "high" if (s["convert_yes"] or 0) >= 40 else "medium" if (s["convert_yes"] or 0) >= 20 else "low",
+            "segment": s["key"], "n": s["n"], "convert_yes": s["convert_yes"], "convert_maybe": s["convert_maybe"],
+            "interest": s["interest"], "score": round(score, 1),
+            "priority": "high" if score >= 30 else "medium" if score >= 12 else "low",
             "lead_with": _message_label(lead, a.get("messages") or []) if lead else None,
             "preempt": OBJECTION_LABELS.get(s.get("top_objection")) if s.get("top_objection") else None,
             "answer_with": fixes.most_common(1)[0][0] if fixes else None,
@@ -517,7 +530,7 @@ def playbook(a: Dict[str, Any], rows: List[Dict[str, Any]]) -> List[Dict[str, An
             "proof_quote": hooks[0] if hooks else None,
         })
     order = {"high": 0, "medium": 1, "low": 2}
-    return sorted(plays, key=lambda p: (order[p["priority"]], -(p["convert_yes"] or 0)))
+    return sorted(plays, key=lambda p: (order[p["priority"]], -p["score"]))
 
 
 def _goal_verb(goal: Optional[str]) -> str:
@@ -542,7 +555,13 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
         out.append(f"{_fmt_pct(o.get('convert_yes'))} of the people surveyed say they would "
                    f"{_goal_verb(a.get('goal'))}, and {_fmt_pct(o.get('convert_maybe'))} more are on the fence.")
     segs = [s for s in a.get("by_segment") or [] if s["n"] >= 2]
-    if len(segs) >= 2:
+    no_yes = all(not (s.get("convert_yes") or 0) for s in segs)
+    if len(segs) >= 2 and no_yes:
+        ranked = sorted(segs, key=lambda s: (-(s.get("convert_maybe") or 0), -(s.get("interest") or 0)))
+        best, worst = ranked[0], ranked[-1]
+        out.append(f"Nobody committed yet. Most open audience: {best['key']} ({_fmt_pct(best['convert_maybe'])} maybe, "
+                   f"interest {best['interest']}/10). Least open: {worst['key']} ({_fmt_pct(worst['convert_maybe'])} maybe).")
+    elif len(segs) >= 2:
         best, worst = segs[0], segs[-1]
         out.append(f"Best audience: {best['key']} ({_fmt_pct(best['convert_yes'])} would convert, "
                    f"interest {best['interest']}/10). Weakest: {worst['key']} ({_fmt_pct(worst['convert_yes'])}).")
@@ -551,7 +570,11 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
         top = objs[0]
         out.append(f"Biggest blocker: {top['label'].lower()}, raised by {_fmt_pct(top['share'])} of people.")
     msgs = a.get("messages_ranked") or []
-    if msgs and a.get("split_test"):
+    if msgs and a.get("split_test") and not any(x.get("convert_yes") for x in msgs):
+        m = max(msgs, key=lambda x: ((x.get("reaction") or 0), (x.get("convert_maybe") or 0)))
+        out.append(f"No message produced a firm yes. Best reaction: {trunc_text(m['label'], 90)} "
+                   f"({m.get('reaction')}/10, {_fmt_pct(m.get('convert_maybe'))} maybe). Treat the split test as inconclusive.")
+    elif msgs and a.get("split_test"):
         m = msgs[0]
         tail = ""
         if len(msgs) > 1:
@@ -875,7 +898,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         cards = "".join(
             f'<div class="play p-{p["priority"]}"><div class="play-h"><strong>{_e(p["segment"])}</strong>'
             f'<span class="pill {"accent" if p["priority"] == "high" else "mint" if p["priority"] == "medium" else ""}">'
-            f'{_e(p["priority"])} priority · {_fmt_pct(p["convert_yes"])}</span></div><dl>'
+            f'{_e(p["priority"])} priority · {_fmt_pct(p["convert_yes"])} yes · {_fmt_pct(p.get("convert_maybe"))} maybe</span></div><dl>'
             + (f'<dt>Lead with</dt><dd>{_e(trunc_text(p["lead_with"], 160))}</dd>' if p.get("lead_with") else "")
             + (f'<dt>Pre-empt</dt><dd>{_e(p["preempt"])}</dd>' if p.get("preempt") else "")
             + (f'<dt>Answer with</dt><dd>{_e(trunc_text(p["answer_with"], 200))}</dd>' if p.get("answer_with") else "")

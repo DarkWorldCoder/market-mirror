@@ -528,7 +528,8 @@ def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, A
     o = mk.get("overall") or {}
     if mk.get("has_survey") and o.get("convert_yes") is not None:
         v = o["convert_yes"]
-        signals.append({"name": "Buyer survey", "vote": "go" if v >= 40 else "iterate" if v >= 20 else "no-go",
+        score = v + 0.3 * (o.get("convert_maybe") or 0)          # a "maybe" is worth a fraction of a "yes"
+        signals.append({"name": "Buyer survey", "vote": "go" if v >= 30 or score >= 40 else "iterate" if score >= 8 else "no-go",
                         "detail": f"{v:.0f}% would convert (+{o.get('convert_maybe') or 0:.0f}% maybe), n={mk.get('answered')}",
                         "n": mk.get("answered") or 0})
     ft = (bundle.get("feed_test") or {}).get("summary") or {}
@@ -579,8 +580,8 @@ def decision_section(d: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, st
     if not d:
         return None
     color = {"go": "mint", "iterate": "accent", "no-go": "orchid"}[d["decision"]]
-    rows = "".join(f'<li><span class="pill {"mint" if s["vote"] == "go" else "accent" if s["vote"] == "iterate" else "orchid"}">'
-                   f'{_e(s["vote"])}</span> <b>{_e(s["name"])}</b>: {_e(s["detail"])}</li>' for s in d["signals"])
+    rows = "".join(f'<li><span><span class="pill {"mint" if s["vote"] == "go" else "accent" if s["vote"] == "iterate" else "orchid"}">'
+                   f'{_e(s["vote"])}</span> <b>{_e(s["name"])}</b>: {_e(s["detail"])}</span></li>' for s in d["signals"])
     fixes = "".join(f"<li>{_e(f)}</li>" for f in d.get("fixes") or [])
     return ("decision", "Decision", f'<div class="panel dec"><div class="eyebrow">Decision · {_e(d["confidence"])} confidence</div>'
             f'<div class="headline"><span class="pill {color}" style="font-size:1.1rem;padding:6px 14px;margin-right:10px">'
