@@ -26,6 +26,15 @@ Your own inputs go in `scenarios/<name>/` (gitignored). Runs go to `mirofish_run
 - [x] Launch run with `posts`/`events` and the pitch rehearsal on 28 people (`mirofish_runs/fitloop_launch/`): brand posts land at their rounds on both platforms with replies per country; `pitch.json` scored.
 - [x] 150-person run from `quickstart --answers` (`mirofish_runs/fitloop/`, sim `sim_4e650375af47`): 13 min for the people, 41 min for feed test + 6 rounds + survey + pitch + panel + report; about 1,500 Claude calls; dashboard 3.9 MB. The market-map ontology (Brand, Competitor, Product, Community, segments) was used for it.
 
+## v3 (2026-10-18): what exists now
+- `understand` (product profile) and the no-key gateway (`backend/gateway/local_gateway.py`, `mm.sh gateway`).
+- Persona engine v2: adaptive probes, product questions, BDE card, stereotype guard, population weights, verbalized chances + dispersion, `survey --retest`, `calibrate` (AIPW), SSR on pitch replies.
+- Speed: memory window, concurrent interviews, config pool, knobs; 150 people in 11 min.
+- Campaign lab: `emailtest`, `test --spec` (12 test types), `study --spec` (scenarios x seeds), `predict` + calibration store + forecast, `research` (HN, App Store, Reddit when reachable) + voice store, `context` (live updates into rounds).
+- Report v2 (so-what, sales rehearsal, email, real-world check, budget plan, 30-day plan, decision changers, risks, reliability), dashboard design system.
+- Integration: `docs/API.md` + `openapi.json` from `backend/app/api/registry.py` (`backend/scripts/gen_api_docs.py`), webhooks (`MIROFISH_WEBHOOK_URL`), `sdk/`, Dockerfile + compose, CI (`.github/workflows/tests.yml`), Codex package (`codex/`), `docs/PUBLISHING.md`.
+- Checks that still need a real run: email test on real people (unit-tested only), `test --spec` on real people, `calibrate` with a real CSV, the gateway with a logged-in `claude` CLI (the login on this machine had expired when tried).
+
 ## Known gaps / next steps
 - Done: survey ratings come from free text mapped to anchor statements (SSR, arXiv 2510.08338, `backend/app/services/ssr.py`), and `feedtest --seeds N` reports ranges. Not yet checked on a real run: the anchor sets and the decision thresholds on the SSR mean (go >= 3.5, iterate >= 2.7) are first guesses; tune them with a backtest or real survey data.
 - Pricing (Van Westendorp) answers from LLMs are low-confidence without real price data.
