@@ -74,7 +74,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas",
 ]
 
 
@@ -1052,6 +1052,15 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
             survey_by_agent[r.get("agent_id")] = r["answer"]
     leads = {aid: sc for aid, sc in ((aid, report_view.person_lead_score(a)) for aid, a in survey_by_agent.items())
              if sc is not None}
+    pitch = bundle.get("pitch") or {}
+    for r in pitch.get("people") or []:                     # a pitch answer is the stronger lead signal
+        if r.get("lead_score") is not None:
+            aid = r.get("agent_id")
+            leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
+    for extra in (report_view.pitch_section(pitch, marketing.chart), report_view.ideas_section(bundle.get("ideas"))):
+        if extra:
+            at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
+            mk_sections.insert(at, extra)
     people_html = report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads)
     files = feed_view.export_files(bundle, mk, md)
     files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
@@ -1063,6 +1072,11 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         files["leads.csv"] = report_view.leads_csv(index, survey_by_agent, leads)
     if bundle.get("feed_story"):
         files["feed_story.json"] = json.dumps(bundle["feed_story"], ensure_ascii=False, default=str)
+    if pitch.get("answered"):
+        files["pitch.json"] = json.dumps(pitch, ensure_ascii=False, indent=2, default=str)
+    if (bundle.get("ideas") or {}).get("ideas"):
+        files["ideas.md"] = bundle["ideas"].get("markdown") or ""
+        files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)
     rep_sec = report_view.report_section(mr, files, markdown_to_html)
     if dec:
         mk_sections.insert(0, dec)

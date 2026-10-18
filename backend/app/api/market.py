@@ -31,7 +31,7 @@ from ..utils.logger import get_logger
 logger = get_logger('mirofish.api.market')
 
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
-                "market-report": "market_report.json"}
+                "market-report": "market_report.json", "pitch": "pitch.json"}
 
 
 def _client():
@@ -172,6 +172,80 @@ def start_analyst_panel():
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "analysts": analysts}})
 
 
+@simulation_bp.route('/pitch', methods=['POST'])
+def start_pitch():
+    """POST {simulation_id, script, rebuttals?: {objection_type: text, "*": generic} | text, product?, channel?,
+    segment?, agents?[], batch?} -> task. Pitches every simulated buyer (interview API, so the environment must be
+    alive), then answers objections with the matching rebuttal. Result: pitch.json (GET /<sid>/pitch)."""
+    from ..services import pitch as pitch_svc
+    from ..services.simulation_runner import SimulationRunner
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    script = str(data.get("script") or "").strip()
+    if not script:
+        return jsonify({"success": False, "error": "script is required"}), 400
+    try:
+        people, cfg = _people(sid or "")
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if data.get("segment"):
+        people = [p for p in people if p.get("segment") == data["segment"]]
+    if data.get("agents"):
+        wanted = {int(a) for a in data["agents"]}
+        people = [p for p in people if p["agent_id"] in wanted]
+    if not people:
+        return jsonify({"success": False, "error": "no simulated people match (prepare the simulation first)"}), 400
+    rebuttals = pitch_svc.parse_rebuttals(data.get("rebuttals"))
+    platform = data.get("platform") or ("reddit" if (cfg.get("enable_reddit", True)) else "twitter")
+    timeout = float(data.get("timeout") or 240)
+    batch = max(1, min(int(data.get("batch") or 8), 32))
+
+    def interview_batch(items):
+        res = SimulationRunner.interview_agents_batch(
+            sid, [{"agent_id": it["agent_id"], "prompt": it["prompt"], "platform": platform} for it in items],
+            platform=platform, timeout=timeout)
+        out = {}
+        results = (res.get("result") or {}).get("results") if isinstance(res.get("result"), dict) else None
+        if isinstance(results, dict):
+            results = list(results.values())
+        for it in results or []:
+            if isinstance(it, dict) and it.get("agent_id") is not None and it.get("response") not in (None, ""):
+                resp = it["response"]
+                out[int(it["agent_id"])] = json.dumps(resp, ensure_ascii=False) if isinstance(resp, (dict, list)) else str(resp)
+        return out
+
+    def work(progress):
+        return pitch_svc.run(interview_batch, people, script, rebuttals, str(data.get("product") or ""),
+                             str(data.get("channel") or "message"), batch=batch, progress=progress)
+
+    task_id = _start("pitch", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(people),
+                                              "rebuttals": sorted(rebuttals)}})
+
+
+@simulation_bp.route('/ideas', methods=['POST'])
+def generate_ideas():
+    """POST {brand?, brief?, ads?: [rows from an ad-account export or a connected ads tool] | ads_summary?,
+    run_summary?: summary.json of a run, n?} -> {ideas: [...], evidence: [...]} (synchronous, one LLM call).
+    Proposes the next tests to run from what real ads and the simulation already showed."""
+    from ..services import ideas as ideas_svc
+    data = request.get_json() or {}
+    try:
+        evidence = ideas_svc.build_evidence(data.get("ads") or [], data.get("ads_summary") or {},
+                                            data.get("run_summary") or {}, str(data.get("brief") or ""))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not evidence["signals"]:
+        return jsonify({"success": False, "error": "nothing to reason from: pass ads rows, an ads summary or a run summary"}), 400
+    try:
+        out = ideas_svc.generate(_client(), Config.LLM_MODEL_NAME, evidence, str(data.get("brand") or ""),
+                                 n=int(data.get("n") or 8))
+        return jsonify({"success": True, "data": out})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"ideas failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/market-report', methods=['POST'])
 def start_market_report():
     """POST {simulation_id, material, brand?} -> background job writing market_report.json (plain-language report)."""
@@ -214,6 +288,7 @@ def market_task_status():
 
 @simulation_bp.route('/<simulation_id>/feed-test', methods=['GET'], defaults={"kind": "feed-test"})
 @simulation_bp.route('/<simulation_id>/analyst-panel', methods=['GET'], defaults={"kind": "analyst-panel"})
+@simulation_bp.route('/<simulation_id>/pitch', methods=['GET'], defaults={"kind": "pitch"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
         return jsonify({"success": False, "error": "not found"}), 404

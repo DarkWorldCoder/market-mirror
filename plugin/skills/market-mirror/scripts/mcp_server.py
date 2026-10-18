@@ -98,6 +98,16 @@ def results(run: str) -> Dict[str, Any]:
             "impressions", "noticed", "thumb_stop", "ctr", "expected_ctr", "engagement_rate", "hide_rate", "landing", "projection")}
             for cid, m in (summ.get("per_creative") or {}).items()}
         out["feed_test_ranked"] = summ.get("ranked")
+    pj = os.path.join(run_dir, "pitch.json")
+    if os.path.exists(pj):
+        pt = json.load(open(pj, encoding="utf-8"))
+        out["pitch"] = {k: pt.get(k) for k in ("answered", "pitch_score", "verdict_before", "verdict_after", "fixes", "hot_leads")}
+        out["pitch"]["objections"] = [{k: o.get(k) for k in ("type", "share", "rebuttal_success")} for o in pt.get("objections") or []]
+    ij = os.path.join(run_dir, "ideas.json")
+    if os.path.exists(ij):
+        it = json.load(open(ij, encoding="utf-8"))
+        out["ideas"] = [{k: i.get(k) for k in ("title", "type", "priority", "hypothesis", "metric", "how_to_test")} for i in it.get("ideas") or []]
+        out["ideas_md"] = os.path.join(run_dir, "ideas.md")
     return out
 
 
@@ -158,6 +168,29 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"file": {"type": "string"}, "out": {"type": "string", "description": "absolute path of the seed .md to write"}}, "required": ["file", "out"]}},
     {"name": "backtest", "description": "Score a run's feed test against real ad results (from ads_import): rank correlation, winner match, calibration.",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "actuals": {"type": "string"}, "map": {"type": "array", "items": {"type": "string"}}}, "required": ["run", "actuals"]}},
+    {"name": "quickstart", "description": (
+        "Easiest start. Answer a few questions and get a ready scenario folder (brief, personas, two template captions per "
+        "platform, messages, launch calendar, pitch) plus the simulated people (stops before any paid rounds). Keys: brand, "
+        "product (what, for whom, price), buyers (who and where), platforms (comma list), tests (ads, messages, price, launch, "
+        "pitch), budget ('300 USD'), size (small|medium|large), past_ads (absolute path, optional), docs (paths, optional). "
+        "Background job; poll job_status. The result names the files to edit and the exact next command."),
+     "inputSchema": {"type": "object", "properties": {"answers": {"type": "object"}, "no_run": {"type": "boolean"}}, "required": ["answers"]}},
+    {"name": "pitch", "description": (
+        "Sales rehearsal: pitch a script to every simulated buyer of a simulation (its environment must be alive: run market_test "
+        "with rounds first, or start it), collect objections and the questions they ask back, then answer with rebuttals "
+        "({objection_type: text, '*': generic}). Scores the pitch, each rebuttal, and every person (lead score). Background job."),
+     "inputSchema": {"type": "object", "properties": {"simulation_id": {"type": "string"}, "run": {"type": "string"},
+                                                      "script": {"type": "string"}, "rebuttals": {"type": "object"},
+                                                      "product": {"type": "string"}, "channel": {"type": "string"},
+                                                      "segment": {"type": "string"}}, "required": ["simulation_id", "script"]}},
+    {"name": "ideas", "description": (
+        "Next test ideas from real data: pass ad rows you fetched from a connected ads tool (Meta/Google/TikTok: name, campaign, "
+        "spend, impressions, clicks, conversions, country...) and/or an export file path, plus a previous run (its objections, "
+        "audiences and decision). Returns prioritised experiments, each citing its evidence, with the MarketMirror config to "
+        "simulate it first. Writes ideas.json/.md into the run folder and adds a 'Test ideas' section to the dashboard."),
+     "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
+                                                      "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
+                                                      "n": {"type": "integer"}}}},
     {"name": "cli", "description": "Advanced: run any MarketMirror CLI command as a background job, e.g. ['survey','--simulation','sim_x','--offer','...']. See CLAUDE.md in the engine.",
      "inputSchema": {"type": "object", "properties": {"args": {"type": "array", "items": {"type": "string"}}}, "required": ["args"]}},
 ]
@@ -189,6 +222,52 @@ def call(name: str, a: Dict[str, Any]) -> Any:
     if name == "backtest":
         run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
         r = sh(["cli", "backtest", "--run-dir", run_dir, "--actuals", a["actuals"], *(["--map", *a["map"]] if a.get("map") else [])], timeout=300)
+        return r["stdout"].strip() or r["stderr"].strip()
+    if name == "quickstart":
+        d = os.path.join(home(), "scenarios", "_quickstart")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"answers_{uuid.uuid4().hex[:6]}.json")
+        json.dump(a["answers"], open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        return {**job(["cli", "quickstart", "--answers", "@" + path] + (["--no-run"] if a.get("no_run") else []), "quickstart"),
+                "answers": path}
+    if name == "pitch":
+        run_dir = a.get("run")
+        run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
+        d = os.path.join(home(), "scenarios", "_pitch")
+        os.makedirs(d, exist_ok=True)
+        sp = os.path.join(d, f"pitch_{uuid.uuid4().hex[:6]}.md")
+        open(sp, "w", encoding="utf-8").write(a["script"])
+        args = ["cli", "pitch", "--simulation", a["simulation_id"], "--script", "@" + sp]
+        if a.get("rebuttals"):
+            rp = sp.replace("pitch_", "rebuttals_").replace(".md", ".json")
+            json.dump(a["rebuttals"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rebuttals", "@" + rp]
+        for k in ("product", "channel", "segment"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if run_dir:
+            args += ["--run-dir", run_dir]
+        return job(args, "pitch")
+    if name == "ideas":
+        run_dir = a.get("run")
+        run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
+        args = ["cli", "ideas"]
+        if a.get("rows"):
+            d = os.path.join(home(), "scenarios", "_ideas")
+            os.makedirs(d, exist_ok=True)
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            json.dump(a["rows"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        if a.get("ads_file"):
+            args += ["--ads", a["ads_file"]]
+        if run_dir:
+            args += ["--run-dir", run_dir]
+        for k in ("brand", "brief"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("n"):
+            args += ["--n", str(int(a["n"]))]
+        r = sh(args, timeout=400)
         return r["stdout"].strip() or r["stderr"].strip()
     if name == "cli":
         return job(["cli", *[str(x) for x in a["args"]]], "cli " + " ".join(map(str, a["args"][:2])))

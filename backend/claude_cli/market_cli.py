@@ -485,3 +485,67 @@ def backtest(feed: Dict[str, Any], actual: Dict[str, Any], mapping: Dict[str, st
             "top1_match": top_sim == top_real, "top_sim": top_sim, "top_real": top_real, "ctr_calibration": calib,
             "warnings": ([f"real ads with under 100 clicks are noisy: {', '.join(small)}"] if small else [])
             + (["fewer than 5 pairs: rank agreement is only indicative"] if len(pairs) < 5 else [])}
+
+
+# --------------------------------------------------------------------------
+# pitch (sales rehearsal) and ideas (next tests from real ads + runs)
+# --------------------------------------------------------------------------
+
+def pitch(c, simulation_id: str, run_dir: str, log, script: str, rebuttals: Any = None, product: str = "",
+          channel: str = "message", segment: Optional[str] = None, agents: Optional[List[int]] = None,
+          batch: int = 8) -> Dict[str, Any]:
+    """Pitch every simulated buyer (needs a live simulation environment), then answer their objections."""
+    if not str(script or "").strip():
+        raise ValueError("pitch: the script is empty")
+    body = {"simulation_id": simulation_id, "script": script, "rebuttals": rebuttals, "product": product,
+            "channel": channel, "batch": batch}
+    if segment:
+        body["segment"] = segment
+    if agents:
+        body["agents"] = agents
+    started = c.data("POST", "/api/simulation/pitch", json=body, timeout=120)
+    log(f"pitch: {started.get('people')} people, rebuttals for {started.get('rebuttals') or 'nothing'}")
+    wait_task(c, started["task_id"], "pitch", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/pitch")
+    with open(os.path.join(run_dir, "pitch.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    return {"pitch": os.path.join(os.path.abspath(run_dir), "pitch.json"), "answered": result.get("answered"),
+            "pitch_score": result.get("pitch_score"), "verdict_after": result.get("verdict_after"),
+            "fixes": result.get("fixes"), "hot_leads": len(result.get("hot_leads") or [])}
+
+
+def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_rows: Optional[List[Dict[str, Any]]] = None,
+          brand: str = "", brief: str = "", n: int = 8, out: Optional[str] = None) -> Dict[str, Any]:
+    """Next tests from real ad results (export file or rows from a connected ads tool) and a run's summary."""
+    rows = list(ads_rows or [])
+    if ads_path:
+        rows += read_ads(ads_path)
+    run_summary: Dict[str, Any] = {}
+    if run_dir:
+        try:
+            with open(os.path.join(run_dir, "summary.json"), encoding="utf-8") as f:
+                run_summary = json.load(f)
+        except (OSError, ValueError):
+            log(f"ideas: no summary.json in {run_dir}; using the ads only")
+        try:
+            with open(os.path.join(run_dir, "feed_test.json"), encoding="utf-8") as f:
+                ft = json.load(f)
+            run_summary["feed_test"] = {"per_creative": {k: {kk: v.get(kk) for kk in ("expected_ctr", "hide_rate", "projection")}
+                                                         for k, v in ((ft.get("summary") or {}).get("per_creative") or {}).items()}}
+        except (OSError, ValueError):
+            pass
+    if not rows and not run_summary:
+        raise ValueError("ideas: give --ads (export file), --rows (JSON) or --run-dir with a summary.json")
+    log(f"ideas: {len(rows)} ad rows, run summary {'yes' if run_summary else 'no'}")
+    data = c.data("POST", "/api/simulation/ideas",
+                  json={"brand": brand, "brief": brief, "ads": rows[:2000], "run_summary": run_summary, "n": n}, timeout=300)
+    out_json = out or os.path.join(run_dir or ".", "ideas.json")
+    os.makedirs(os.path.dirname(os.path.abspath(out_json)), exist_ok=True)
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    out_md = os.path.splitext(out_json)[0] + ".md"
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write(data.get("markdown") or "")
+    return {"ideas": os.path.abspath(out_json), "markdown": os.path.abspath(out_md), "method": data.get("method"),
+            "count": len(data.get("ideas") or []),
+            "titles": [f"{i.get('title')} ({i.get('type')}, {i.get('priority')})" for i in data.get("ideas") or []]}

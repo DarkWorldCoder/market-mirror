@@ -45,6 +45,9 @@ class CLIError(RuntimeError):
     pass
 
 
+DEFAULT_PARALLEL = max(4, min(16, (os.cpu_count() or 4)))   # LLM calls in flight for profiles / feed test
+
+
 def log(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
@@ -498,7 +501,7 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
                 put("report", rep)
     if simulation_id:
         for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel"),
-                           ("market-report", "market_report"), ("feed-story", "feed_story")):
+                           ("market-report", "market_report"), ("feed-story", "feed_story"), ("pitch", "pitch")):
             if not os.path.exists(os.path.join(out_dir, f"{name}.json")):
                 put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
     if report_id:
@@ -1059,7 +1062,7 @@ def cmd_market_test(c: Client, a) -> Any:
         sim = step_create_sim(c, up["project_id"], g.get("graph_id"), cfg.get("platform") or "parallel")
         sid = state["simulation_id"] = sim["simulation_id"]
         checkpoint()
-        step_prepare(c, sid, parallel=int(cfg.get("parallel") or 5), persona_spec=persona_spec)
+        step_prepare(c, sid, parallel=int(cfg.get("parallel") or DEFAULT_PARALLEL), persona_spec=persona_spec)
         collect(c, out_dir, state.get("project_id"), sid)
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     state["simulation_id"] = sid
@@ -1087,7 +1090,7 @@ def cmd_market_test(c: Client, a) -> Any:
         arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
         state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
                                                  int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                                                 int(cfg.get("parallel") or 8), int(cfg.get("exposures") or 2), True,
+                                                 int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
                                                  int(cfg.get("seeds_n") or 1))
         steps.append("feed_test")
         checkpoint()
@@ -1109,6 +1112,22 @@ def cmd_market_test(c: Client, a) -> Any:
                                       msgs or [], bool(survey.get("split")), survey.get("pricing"),
                                       ssr=survey.get("ssr", True) is not False)
         steps.append("survey")
+        checkpoint()
+    pitch_cfg = cfg.get("pitch")
+    if pitch_cfg:
+        script = pitch_cfg.get("script") or ""
+        sp = _cfg_path(base, script)
+        script = read_text_arg("@" + sp) if sp != script or str(script).startswith("@") else script
+        rb = pitch_cfg.get("rebuttals")
+        if isinstance(rb, str):
+            rp = _cfg_path(base, rb)
+            rb = read_text_arg("@" + rp) if rp != rb or rb.startswith("@") else rb
+        try:
+            state["pitch"] = market_cli.pitch(c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
+                                              str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment"))
+            steps.append("pitch")
+        except (ValueError, RuntimeError, CLIError) as e:
+            log(f"pitch skipped: {e}")
         checkpoint()
     panel_cfg = cfg.get("panel")
     if panel_cfg:
@@ -1165,6 +1184,53 @@ def cmd_captions(c: Client, a) -> Any:
                               "content": cp["text"]} for cp in caps]}, f, ensure_ascii=False, indent=2)
     log(f"captions: wrote {len(caps)} to {out} (use as --creatives, --posts or --messages)")
     return {"file": os.path.abspath(out), "captions": [{"angle": cp["angle"], "hook": cp["hook"]} for cp in caps]}
+
+
+def cmd_pitch(c: Client, a) -> Any:
+    out_dir = _run_dir_for(a)
+    script = read_text_arg(a.script) or ""
+    rebuttals = read_text_arg(a.rebuttals) if a.rebuttals else None
+    try:
+        res = market_cli.pitch(c, a.simulation, out_dir, log, script, rebuttals, a.product or "", a.channel,
+                               a.segment, a.agents, a.batch)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    return _reexport(c, a, out_dir, res)
+
+
+def cmd_ideas(c: Client, a) -> Any:
+    rows = load_json_list(a.rows, "rows") if a.rows else None
+    try:
+        res = market_cli.ideas(c, a.run_dir, log, a.ads, rows, a.brand or "", read_text_arg(a.brief) or "", a.n, a.out)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
+        res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
+    return res
+
+
+def cmd_quickstart(c: Optional[Client], a) -> Any:
+    import quickstart
+    try:
+        answers = quickstart.load_answers(a.answers) if a.answers else quickstart.ask(sys.stdin, sys.stderr)
+        root = a.out or os.path.join("scenarios", quickstart.slug(answers.get("brand") or answers.get("product") or "my_test"))
+        res = quickstart.build_scenario(answers, root, ads_import=market_cli.ads_import)
+    except (ValueError, OSError) as e:
+        raise CLIError(f"quickstart: {e}")
+    if a.answers is None:
+        quickstart.ensure_env(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), sys.stdin, sys.stderr)
+    res["next"] = f"python backend/claude_cli/mirofish.py market-test {res['config']}"
+    if a.no_run or c is None:
+        return res
+    try:
+        c.get("/health")
+    except CLIError:
+        res["note"] = "backend not running: start it with backend/claude_cli/start_server.sh, then run the next command"
+        return res
+    log("quickstart: creating the simulated people (stops before any paid rounds)")
+    run_ns = argparse.Namespace(config=res["config"])
+    res["stage_one"] = cmd_market_test(c, run_ns)
+    return res
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -1276,7 +1342,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", help="project name")
     s.add_argument("--out", help="output dir (default ./mirofish_runs/<timestamp>)")
     s.add_argument("--title", help="dashboard title")
-    s.add_argument("--parallel", type=int, default=5, help="parallel profile generation")
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, help="parallel profile generation (default: CPU count)")
     s.add_argument("--entity-types", nargs="+", help="only turn these entity types into agents (fewer agents = cheaper)")
     s.add_argument("--personas", help="persona spec JSON: audience segments (country, ages, role, count) and "
                                       "communities; see docs/personas.md")
@@ -1319,7 +1385,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("prepare", help="generate agent profiles + simulation config")
     s.add_argument("--simulation", required=True)
-    s.add_argument("--parallel", type=int, default=5)
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
     s.add_argument("--entity-types", nargs="+")
     s.add_argument("--no-llm-profiles", action="store_true", help="rule-based profiles (cheaper, lower quality)")
     s.add_argument("--personas", help="persona spec JSON: audience segments (country, ages, role, count) and "
@@ -1429,7 +1495,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, help="only the first N personas (quick, cheap check)")
     s.add_argument("--seeds", type=int, default=1,
                    help="repeat with N different seeds and report each creative's range (N x the cost; default %(default)s)")
-    s.add_argument("--parallel", type=int, default=8)
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
     s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")
     s.add_argument("--no-export", action="store_true")
     s.add_argument("--title")
@@ -1468,6 +1534,32 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, seeds_n "
                                   "(feed-test repeats), survey, panel, approve_spend (see README)")
 
+    s = sub.add_parser("pitch", help="sales rehearsal: pitch every simulated buyer, answer their objections with rebuttals")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--script", required=True, help="the pitch text or @file.md")
+    s.add_argument("--rebuttals", help="@file.md with '## price' / '## trust' / '## any' sections, or JSON {type: text}")
+    s.add_argument("--product", help="what is being sold (one line)")
+    s.add_argument("--channel", default="message", choices=["message", "call", "demo", "email", "dm"])
+    s.add_argument("--segment", help="only this audience")
+    s.add_argument("--agents", type=int, nargs="*", help="only these agent ids")
+    s.add_argument("--batch", type=int, default=8)
+    s.add_argument("--run-dir", help="run folder to update (default: mirofish_runs/<simulation>)")
+    s.add_argument("--no-export", action="store_true")
+
+    s = sub.add_parser("ideas", help="next test ideas from real ad results (export or connected ads tool rows) and a run")
+    s.add_argument("--ads", help="Meta/Google Ads export (CSV/JSON)")
+    s.add_argument("--rows", help="@file.json with ad rows (e.g. fetched from an ads API by an agent)")
+    s.add_argument("--run-dir", help="run folder with summary.json (objections, audiences, decision)")
+    s.add_argument("--brand")
+    s.add_argument("--brief", help="text or @file")
+    s.add_argument("--n", type=int, default=8)
+    s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
+
+    s = sub.add_parser("quickstart", help="answer a few questions, get a ready scenario folder and the simulated people")
+    s.add_argument("--answers", help="@answers.json (for agents; otherwise asks on the terminal)")
+    s.add_argument("--out", help="scenario folder (default: scenarios/<brand>)")
+    s.add_argument("--no-run", action="store_true", help="only write the files")
+
     s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
     s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")
     s.add_argument("--runs-root", default="mirofish_runs", help="where runs live (default %(default)s)")
@@ -1488,7 +1580,7 @@ COMMANDS = {
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
 }
 
 
@@ -1497,7 +1589,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        offline = offline_export or offline_live or a.cmd in ("ads-import", "backtest")
+        offline = offline_export or offline_live or a.cmd in ("ads-import", "backtest") or (a.cmd == "quickstart" and a.no_run)
         c = None if offline else Client(a.base_url, lang=a.lang)
         result = COMMANDS[a.cmd](c, a)
     except CLIError as e:

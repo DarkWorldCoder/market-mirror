@@ -129,3 +129,97 @@ REPORT_CSS = """
 .person-d{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:.82rem;margin:0}
 .person-d dt{color:var(--muted)}.person-d dd{margin:0}
 """
+
+
+# --------------------------------------------------------------------------
+# Sales rehearsal (pitch.json) and test ideas (ideas.json)
+# --------------------------------------------------------------------------
+
+DL_LABELS.update({"pitch.json": "Sales rehearsal (JSON)", "ideas.md": "Test ideas (Markdown)",
+                  "ideas.json": "Test ideas (JSON)"})
+
+
+def _mix_bar(m: Dict[str, Any]) -> str:
+    y, mb, n = (float(m.get(k) or 0) for k in ("yes", "maybe", "no"))
+    return (f'<div class="mixbar" title="yes {y}% · maybe {mb}% · no {n}%"><span class="mint" style="width:{y}%"></span>'
+            f'<span class="accent" style="width:{mb}%"></span><span class="orchid" style="width:{n}%"></span></div>')
+
+
+def pitch_section(p: Optional[Dict[str, Any]], chart=None) -> Optional[Tuple[str, str, str]]:
+    """'Sales rehearsal': how simulated buyers answered the pitch, which objections the rebuttals handled."""
+    if not p or not p.get("answered"):
+        return None
+    before, after = p.get("verdict_before") or {}, p.get("verdict_after") or {}
+    tiles = [("People pitched", p.get("answered")), ("Pitch score", f'{p.get("pitch_score")}/100'),
+             ("Yes after rebuttals", f'{after.get("yes", 0)}%'), ("Maybe", f'{after.get("maybe", 0)}%'),
+             ("Hot leads (55+)", len(p.get("hot_leads") or []))]
+    tiles_html = "".join(f'<div class="tile"><div class="tile-v">{_e(v)}</div><div class="tile-l">{_e(k)}</div></div>' for k, v in tiles)
+    obj_rows = "".join(
+        f'<tr><td><b>{_e(o["type"])}</b><div class="small muted">{_e(_t("; ".join(x["text"] for x in o.get("examples") or []), 220))}</div></td>'
+        f'<td class="num">{o["share"]}%<div class="small muted">{o["count"]}</div></td>'
+        f'<td class="small">{_e(_t(o.get("rebuttal") or "no rebuttal given", 160))}</td>'
+        f'<td class="num">{"–" if o.get("rebuttal_success") is None else str(o["rebuttal_success"]) + "%"}'
+        f'<div class="small muted">{o.get("moved_yes", 0)} yes · {o.get("moved_partly", 0)} partly · {o.get("moved_no", 0)} no</div></td>'
+        f'<td class="small">{_e(_t("; ".join(o.get("questions") or []), 180))}</td></tr>'
+        for o in p.get("objections") or [] if o.get("type") != "none")
+    seg_rows = "".join(
+        f'<tr><td>{_e(s["segment"])}</td><td class="num">{s["n"]}</td><td>{_mix_bar(s)}</td>'
+        f'<td class="num">{s["lead_score"]}</td><td>{_e(s.get("top_objection") or "–")}</td></tr>' for s in p.get("by_segment") or [])
+    hot = "".join(f'<tr><td><b>{_e(h["name"])}</b><div class="small muted">{_e(h.get("segment"))}</div></td><td class="num">{h["lead_score"]}</td>'
+                  f'<td>{_e(h.get("verdict"))}</td><td class="small">{_e(_t(h.get("next_step") or "", 80))}</td>'
+                  f'<td class="small">{_e(_t(h.get("reach") or "", 100))}</td></tr>' for h in p.get("hot_leads") or [])
+    quotes = "".join(f'<blockquote class="voice"><p>{_e(q["text"])}</p><footer>{_e(q["name"])} · {_e(q.get("segment"))}</footer></blockquote>'
+                     for q in (p.get("best_replies") or [])[:2] + (p.get("worst_replies") or [])[:2])
+    fixes = "".join(f"<li>{_e(f)}</li>" for f in p.get("fixes") or [])
+    html = (f'<h2>Sales rehearsal</h2><p class="muted">Every simulated buyer heard the pitch'
+            + (f" (as a {_e(p.get('channel'))})" if p.get("channel") else "")
+            + f'; those who hesitated heard the rebuttal written for their objection. {p.get("rebuttals_given", 0)} rebuttals given. '
+            'Scores are directions, not measurements.</p>'
+            f'<div class="tiles">{tiles_html}</div>'
+            f'<div class="card"><h3>Before and after the rebuttals</h3><div class="grid2"><div><div class="small muted">After the pitch</div>{_mix_bar(before)}</div>'
+            f'<div><div class="small muted">After the rebuttals</div>{_mix_bar(after)}</div></div>'
+            f'<div class="small muted">green yes · yellow maybe · pink no</div></div>'
+            + (f'<div class="card"><h3>Fix in the pitch first</h3><ul>{fixes}</ul></div>' if fixes else "")
+            + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table><thead><tr><th>Objection</th><th class="num">Share</th>'
+               f'<th>Rebuttal used</th><th class="num">Moved them</th><th>Questions they asked back</th></tr></thead><tbody>{obj_rows}</tbody></table></div></div>' if obj_rows else "")
+            + (f'<div class="card"><h3>By audience</h3><div class="tbl"><table><thead><tr><th>Audience</th><th class="num">n</th><th>Yes / maybe / no</th>'
+               f'<th class="num">Lead score</th><th>Top objection</th></tr></thead><tbody>{seg_rows}</tbody></table></div></div>' if seg_rows else "")
+            + (f'<div class="card"><h3>Call these first</h3><div class="tbl"><table><thead><tr><th>Who</th><th class="num">Lead score</th><th>Verdict</th>'
+               f'<th>Agreed to</th><th>Reach them</th></tr></thead><tbody>{hot}</tbody></table></div></div>' if hot else "")
+            + (f'<div class="card"><h3>In their words</h3><div class="voices">{quotes}</div></div>' if quotes else "")
+            + f'<details class="card"><summary>The pitch that was tested</summary><pre class="script">{_e(p.get("script") or "")}</pre></details>')
+    return ("pitch", "Sales rehearsal", html)
+
+
+def ideas_section(ideas: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, str]]:
+    """'Test ideas': the next experiments proposed from real ads and the run, each citing its evidence."""
+    if not ideas or not ideas.get("ideas"):
+        return None
+    cards = []
+    for i, idea in enumerate(ideas["ideas"], 1):
+        how = idea.get("how_to_test") or {}
+        cards.append(
+            f'<div class="play idea"><div class="play-h"><strong>{i}. {_e(idea["title"])}</strong>'
+            f'<span class="pill {"mint" if idea.get("priority") == "high" else ""}">{_e(idea.get("priority"))}</span><span class="pill">{_e(idea.get("type"))}</span></div>'
+            f'<p><b>If</b> {_e(idea.get("hypothesis"))}</p><dl>'
+            f'<dt>Make</dt><dd>{_e(idea.get("what_to_make"))}</dd>'
+            f'<dt>Where</dt><dd>{_e(idea.get("audience") or "–")} · {_e(idea.get("platform") or "–")} · {_e(idea.get("budget") or "small budget")} · {_e(idea.get("duration") or "")}</dd>'
+            f'<dt>Decide by</dt><dd>{_e(idea.get("metric") or "–")}: {_e(idea.get("success_looks_like") or "–")}</dd>'
+            f'<dt>Evidence</dt><dd><ul class="small">{"".join(f"<li>{_e(e)}</li>" for e in idea.get("evidence") or [])}</ul></dd>'
+            + (f'<dt>Simulate first</dt><dd class="small"><code>{_e(how.get("tool"))}</code> {_e(_t(json.dumps(how.get("config") or {}, ensure_ascii=False), 200))}</dd>' if how else "")
+            + '</dl></div>')
+    ev = ideas.get("evidence") or {}
+    src = ", ".join(ev.get("sources") or [])
+    html = (f'<h2>Test ideas</h2><p class="muted">{len(cards)} next tests proposed from {len(ev.get("signals") or [])} pieces of evidence'
+            + (f' ({_e(src)})' if src else "") + '. Every idea cites the evidence it comes from; run the cheap simulation first, then spend.</p>'
+            f'<div class="plays">{"".join(cards)}</div>')
+    return ("ideas", "Test ideas", html)
+
+
+REPORT_CSS += """
+.mixbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0}
+.mixbar span{display:block;height:100%}.mixbar .mint{background:var(--mint)}.mixbar .accent{background:var(--accent)}.mixbar .orchid{background:var(--orchid)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono,monospace);margin:8px 0 0}
+.idea dl{margin:8px 0 0}.idea ul.small{margin:0;padding-left:18px}
+"""
