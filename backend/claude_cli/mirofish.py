@@ -1097,7 +1097,9 @@ def cmd_market_test(c: Client, a) -> Any:
         state["project_id"] = up["project_id"]
         save_json(out_dir, "ontology", up)
         checkpoint()
-        research_dir = _cfg_path(base, cfg["research"]) if cfg.get("research") else None
+        research_dir = cfg.get("research")
+        if research_dir and not os.path.isabs(research_dir):
+            research_dir = os.path.normpath(os.path.join(base, research_dir))   # relative to the config file
         if research_dir:
             try:
                 vpath = research_dir if research_dir.endswith(".json") else os.path.join(research_dir, "voices.json")
