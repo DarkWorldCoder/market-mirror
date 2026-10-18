@@ -125,6 +125,9 @@ class ExporterStillWorksTests(unittest.TestCase):
             html_ = f.read()
         self.assertIn("<title>", html_)
         self.assertTrue(os.path.getsize(paths["summary_json"]) > 0)
+        self.assertIn('<section id="socialfeed"', html_)
+        self.assertNotIn('<section id="posts"', html_)           # the social feed replaces the plain post list
+        self.assertNotIn(">Conversations</a>", html_)
 
 
 if __name__ == "__main__":

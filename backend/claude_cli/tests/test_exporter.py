@@ -77,7 +77,7 @@ class ExportTests(unittest.TestCase):
         self.assertLess(len(h.encode()), 2_000_000)
 
     def test_sections(self):
-        for sid in ["overview", "graph", "timeline", "agents", "posts", "report"]:
+        for sid in ["overview", "graph", "timeline", "agents", "socialfeed", "report"]:   # fixture has a feed story
             self.assertIn(f'<section id="{sid}"', self.html)
         self.assertEqual(self.html.count("<circle"), 24)
         self.assertEqual(len(re.findall(r"<line x1=", self.html)), len([

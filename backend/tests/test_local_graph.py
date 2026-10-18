@@ -450,5 +450,10 @@ def test_comention_links_islands(client):
     linked = {e.source_node_uuid for e in edges} | {e.target_node_uuid for e in edges}
     assert all(n.uuid_ in linked for n in nodes.values())            # no islands
     co = [e for e in edges if e.name == "MENTIONED_WITH"]
-    assert {e.source_node_uuid for e in co} == {nodes["Initech"].uuid_, nodes["Umbrella"].uuid_}
-    assert all(e.target_node_uuid == nodes["Acme"].uuid_ for e in co)   # the passage's best-connected entity
+    assert len(co) == 2                                               # the two island entities each get one link
+    mentioned = {nodes["Initech"].uuid_, nodes["Umbrella"].uuid_, nodes["Acme"].uuid_}
+    assert all(e.source_node_uuid in mentioned and e.target_node_uuid in mentioned for e in co)
+    hubs = {e.target_node_uuid for e in co}
+    assert len(hubs) == 1                                             # both link to the passage's single hub
+    # chunks run in parallel: the hub is Acme when its partner edge landed first, else the first mentioned entity
+    assert hubs <= {nodes["Acme"].uuid_, nodes["Initech"].uuid_}

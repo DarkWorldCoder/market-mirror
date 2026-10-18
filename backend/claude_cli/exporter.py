@@ -1143,7 +1143,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
 
     report_html = markdown_to_html(md) if md else '<p class="empty">No report generated for this run yet.</p>'
 
-    has_social = any(sec[0] == "social" for sec in mk_sections)
+    has_social = any(sec[0] in ("social", getattr(social_feed, "ANCHOR", "socialfeed")) for sec in mk_sections)
     nav = [(a, b) for a, b, _ in mk_sections] + ([] if has_social else [("posts", "Conversations")]) + [
         ("agents", "People"), ("timeline", "Activity"), ("graph", "Market map"), ("overview", "Run details")]
     if md:
