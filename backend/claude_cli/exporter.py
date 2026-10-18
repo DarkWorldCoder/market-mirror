@@ -45,9 +45,18 @@ from typing import Any, Dict, List, Optional, Tuple
 try:  # marketing layer (stdlib only)
     import marketing  # type: ignore
     import feed_view  # type: ignore
+    import report_view  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
+    from . import report_view  # type: ignore
+try:  # social feed section (Phase 2, optional until wired)
+    import social_feed  # type: ignore
+except ImportError:  # pragma: no cover
+    try:
+        from . import social_feed  # type: ignore
+    except ImportError:
+        social_feed = None
 
 VENDOR_ECHARTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "echarts.min.js")
 
@@ -65,7 +74,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story",
 ]
 
 
@@ -1022,13 +1031,44 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                   feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart)):
         if extra:
             mk_sections.append(extra)
-    dec = feed_view.decision_section(feed_view.decision(bundle, mk))
-    if dec:
-        mk_sections.insert(0, dec)
-    summary["decision"] = feed_view.decision(bundle, mk)
+    decision = feed_view.decision(bundle, mk)
+    summary["decision"] = decision
+    dec = feed_view.decision_section(decision)
+    # social feed (real post view) right after the feed test, when the section module and data exist
+    if social_feed is not None and bundle.get("feed_story"):
+        try:
+            sf = social_feed.feed_story_section(bundle["feed_story"], marketing.chart)
+        except Exception as e:  # noqa: BLE001 - never lose the dashboard to one section
+            sf = None
+            print(f"social feed section failed: {e}")
+        if sf:
+            at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "feedtest"), 1)
+            mk_sections.insert(at, sf)
+    # people: cards with interview summaries, lead scores and survey verdicts
+    index = [r for r in (cfg.get("persona_index") or []) if isinstance(r, dict)]
+    survey_by_agent = {}
+    for r in (bundle.get("survey") or {}).get("responses") or []:
+        if r.get("answer"):
+            survey_by_agent[r.get("agent_id")] = r["answer"]
+    leads = {aid: sc for aid, sc in ((aid, report_view.person_lead_score(a)) for aid, a in survey_by_agent.items())
+             if sc is not None}
+    people_html = report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads)
     files = feed_view.export_files(bundle, mk, md)
     files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
-    mk_sections.append(feed_view.downloads_section(files))
+    mr = bundle.get("market_report") or {}
+    if mr.get("markdown"):
+        files = {"market_report.md": mr["markdown"],
+                 "action_plan.json": json.dumps(mr.get("action_plan") or {}, ensure_ascii=False, indent=2), **files}
+    if leads:
+        files["leads.csv"] = report_view.leads_csv(index, survey_by_agent, leads)
+    if bundle.get("feed_story"):
+        files["feed_story.json"] = json.dumps(bundle["feed_story"], ensure_ascii=False, default=str)
+    rep_sec = report_view.report_section(mr, files, markdown_to_html)
+    if dec:
+        mk_sections.insert(0, dec)
+        mk_sections.insert(1, rep_sec)
+    else:
+        mk_sections.insert(0, rep_sec)
 
     req = summary.get("simulation_requirement") or ""
     page_title = title or (bundle.get("run_manifest") or {}).get("title") or (
@@ -1103,9 +1143,11 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
 
     report_html = markdown_to_html(md) if md else '<p class="empty">No report generated for this run yet.</p>'
 
-    nav = [(a, b) for a, b, _ in mk_sections] + [("report", "Report"), ("posts", "Conversations"),
-                                                  ("agents", "People"), ("timeline", "Activity"),
-                                                  ("graph", "Knowledge graph"), ("overview", "Run details")]
+    has_social = any(sec[0] == "social" for sec in mk_sections)
+    nav = [(a, b) for a, b, _ in mk_sections] + ([] if has_social else [("posts", "Conversations")]) + [
+        ("agents", "People"), ("timeline", "Activity"), ("graph", "Market map"), ("overview", "Run details")]
+    if md:
+        nav.append(("engine-report", "Engine report"))
     body = [
         '<div class="wrap">',
         f'<header class="top"><div><div class="muted small">MarketMirror · simulated market test</div>'
@@ -1113,27 +1155,36 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         + marketing.hero_stats(mk) + "</header>",
         '<nav class="toc">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
-        f'<section id="report"><h2>Analyst report</h2><article class="report">{report_html}</article></section>',
-        f'<section id="posts"><h2>What people posted</h2>{posts_html}</section>',
+        ("" if has_social else f'<section id="posts"><h2>What people posted</h2>{posts_html}</section>'),
         '<h2 class="divider">Behind the simulation</h2>',
-        f'<section id="agents"><h2>The simulated people</h2>{stance_html}<div style="margin-top:14px">'
-        f'{render_personas(profiles, actions_by_agent)}</div></section>',
+        f'<section id="agents"><h2>The simulated people</h2>'
+        + (f'<p class="muted small">Everyone is invented, with a life story from a short interview. Lead score 0-100 '
+           f'combines purchase intent, trust and click intent from their survey answers.</p>{people_html}'
+           f'<details style="margin-top:14px"><summary>Table view and stances</summary>{stance_html}<div style="margin-top:14px">'
+           f'{render_personas(profiles, actions_by_agent)}</div></details>' if people_html else
+           f'{stance_html}<div style="margin-top:14px">{render_personas(profiles, actions_by_agent)}</div>')
+        + "</section>",
         f'<section id="timeline"><h2>Activity over time</h2>{timeline_section}</section>',
-        f'<section id="graph"><h2>Knowledge graph</h2><p class="muted small">Who and what the seed documents '
-        f'mention, and how they relate. Personas are built on top of this.</p>{graph_html}'
+        f'<section id="graph"><h2>Market map</h2><p class="muted small">Brand, offers, competitors, segments, '
+        f'communities and objections from your documents and the simulated people, and how they connect.</p>{graph_html}'
         + (f'<div style="margin-top:14px">{ontology_html}</div>' if ontology_html else "") + "</section>",
         f'<section id="overview"><h2>Run details</h2>{tiles_html}{meta_html}</section>',
-        f'<footer>Generated {esc(summary["generated_at"])} by MiroFish claude_cli exporter</footer>',
+        (f'<section id="engine-report"><h2>Engine report</h2><p class="muted small">The simulation engine\'s own '
+         f'narrative report (prediction style). The plain-language report above is the one to act on.</p>'
+         f'<article class="report">{report_html}</article></section>' if md else ""),
+        f'<footer>Generated {esc(summary["generated_at"])} by MarketMirror</footer>',
         "</div>", '<div id="tip" role="tooltip"></div>',
     ]
     html_out = (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{esc(page_title)}</title>\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
-        f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}</style>\n</head>\n<body>\n"
+        f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"
+        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
-        + f"\n<script>{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}</script>\n</body>\n</html>\n"
+        + f"\n<script>{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
+        f"{getattr(social_feed, 'SOCIAL_JS', '') if social_feed else ''}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary
 
@@ -1152,11 +1203,20 @@ def export_run_dir(run_dir: str, out_html: Optional[str] = None, title: Optional
     summary_path = os.path.join(out_dir, "summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
-    # every downloadable report file, next to the dashboard
-    mk = marketing.analyze(bundle)
-    for name, text in feed_view.export_files(bundle, mk, md).items():
-        if name.endswith((".csv", ".json")) and name != "summary.json":
+    # every downloadable file, next to the dashboard (same payload the page embeds)
+    import re as _re
+    m = _re.search(r'<script type="application/json" id="mm-files">(.*?)</script>', page, _re.S)
+    written = {}
+    if m:
+        try:
+            files = json.loads(m.group(1))
+        except ValueError:
+            files = {}
+        for name, text in files.items():
+            if name in ("summary.json", "report.md") or not name.endswith((".csv", ".json", ".md")):
+                continue
             with open(os.path.join(out_dir, name), "w", encoding="utf-8", newline="") as f:
                 f.write(text)
+            written["download:" + name] = os.path.abspath(os.path.join(out_dir, name))
     return {"html": os.path.abspath(out_html), "report_md": os.path.abspath(md_path),
-            "summary_json": os.path.abspath(summary_path)}
+            "summary_json": os.path.abspath(summary_path), **written}

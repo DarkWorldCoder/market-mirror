@@ -497,7 +497,8 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
             if rep:
                 put("report", rep)
     if simulation_id:
-        for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel")):
+        for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel"),
+                           ("market-report", "market_report"), ("feed-story", "feed_story")):
             if not os.path.exists(os.path.join(out_dir, f"{name}.json")):
                 put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
     if report_id:
@@ -799,6 +800,19 @@ def cmd_status(c: Client, a) -> Any:
 
 
 def cmd_report(c: Client, a) -> Any:
+    if a.engine == "market":
+        out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
+        if not os.path.exists(os.path.join(out_dir, "summary.json")):
+            collect(c, out_dir, simulation_id=a.simulation)
+            do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
+        try:
+            res = market_cli.report(c, a.simulation, out_dir, log, load_bundle=exporter.load_run_dir, brand=a.brand or "")
+        except (ValueError, RuntimeError, OSError) as e:
+            raise CLIError(str(e))
+        if a.out:
+            with open(a.out, "w", encoding="utf-8") as f, open(res["market_report"], encoding="utf-8") as src:
+                f.write(src.read())
+        return _reexport(c, a, out_dir, res)
     rep = step_report(c, a.simulation, force=a.force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval)
     if a.out and isinstance(rep, dict) and rep.get("markdown_content"):
         with open(a.out, "w", encoding="utf-8") as f:
@@ -1102,12 +1116,18 @@ def cmd_market_test(c: Client, a) -> Any:
         state["panel"] = market_cli.panel(c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5),
                                           str(panel_cfg.get("brief") or ""), load_bundle=exporter.load_run_dir)
         steps.append("panel")
-    if cfg.get("report"):
+    if cfg.get("report") == "upstream" or cfg.get("engine_report"):
         rep = step_report(c, sid)
         state["report_id"] = rep.get("report_id")
-        steps.append("report")
+        steps.append("engine report")
     collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    if cfg.get("report", True) and cfg.get("report") != "upstream":
+        state["report"] = market_cli.report(c, sid, out_dir, log, load_bundle=exporter.load_run_dir,
+                                            brand=str(cfg.get("brand") or ""))
+        steps.append("report")
+        collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
+        state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     state["finished_at"] = datetime.now().isoformat()
     checkpoint()
     summary = {}
@@ -1335,9 +1355,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--project")
     s.add_argument("--task")
 
-    s = sub.add_parser("report", help="generate (or reuse) the ReportAgent report and print it")
+    s = sub.add_parser("report", help="plain-language market report (default) or the engine's narrative report")
     s.add_argument("--simulation", required=True)
-    s.add_argument("--force", action="store_true", help="regenerate")
+    s.add_argument("--engine", choices=["market", "upstream"], default="market",
+                   help="market = plain-language report from every test in the run; upstream = MiroFish ReportAgent")
+    s.add_argument("--brand", help="brand name for the report title")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--no-export", action="store_true", help="don't re-export the dashboard")
+    s.add_argument("--title")
+    s.add_argument("--force", action="store_true", help="upstream: regenerate")
     s.add_argument("--out", help="also write markdown here")
     s.add_argument("--markdown-only", action="store_true")
     waitopts(s)

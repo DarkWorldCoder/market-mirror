@@ -162,15 +162,18 @@ class DashboardTest(unittest.TestCase):
         json.dump(cfg, open(cfg_path, "w"))
         paths = exporter.export_run_dir(self.dir)
         page = open(paths["html"], encoding="utf-8").read()
-        for anchor in ("results", "playbook", "funnel", "audiences", "objections", "messages", "pricing", "voices"):
+        for anchor in ("report", "results", "playbook", "funnel", "audiences", "objections", "messages", "pricing", "voices"):
             self.assertIn(f'id="{anchor}"', page)
         self.assertLess(page.index('id="results"'), page.index('id="graph"'))
         self.assertIn('data-kind="heat"', page)
         self.assertIn('data-kind="price"', page)
         self.assertIn("echarts", page[:2_000_000])
         self.assertEqual(page.count("</script>"), page.count("<script"))
-        self.assertIn('id="downloads"', page)
-        self.assertIn("survey_answers.csv", page)
+        self.assertNotIn('id="downloads"', page)
+        self.assertIn('id="report"', page)
+        self.assertLess(page.index('id="report"'), page.index('id="results"'))      # report with downloads comes first
+        self.assertIn('data-dl="survey_answers.csv"', page)
+        self.assertIn("leads.csv", page)
         summary = json.load(open(paths["summary_json"]))
         self.assertTrue(summary["marketing"]["split_test"])
         self.assertNotIn("curves", summary["marketing"]["pricing"])

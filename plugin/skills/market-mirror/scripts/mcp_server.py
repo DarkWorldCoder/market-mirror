@@ -79,6 +79,9 @@ def results(run: str) -> Dict[str, Any]:
     s = json.load(open(path, encoding="utf-8"))
     mk = s.get("marketing") or {}
     out = {"dashboard": os.path.join(run_dir, "dashboard.html"), "decision": s.get("decision"),
+           "report_md": os.path.join(run_dir, "market_report.md") if os.path.exists(os.path.join(run_dir, "market_report.md")) else None,
+           "action_plan": (json.load(open(os.path.join(run_dir, "market_report.json"), encoding="utf-8")).get("action_plan")
+                           if os.path.exists(os.path.join(run_dir, "market_report.json")) else None),
            "verdicts": mk.get("verdicts"), "overall": mk.get("overall"), "playbook": mk.get("playbook"),
            "by_segment": mk.get("by_segment"), "objections": mk.get("objections"),
            "messages": mk.get("messages_ranked"), "pricing": mk.get("pricing"),

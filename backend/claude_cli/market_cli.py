@@ -220,6 +220,48 @@ def panel(c, simulation_id: str, run_dir: str, log, analysts: int = 5, brief: st
 
 
 # --------------------------------------------------------------------------
+# report (plain-language, marketing-aware)
+# --------------------------------------------------------------------------
+
+def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """Stdlib mirror of market_report.compact_material's inputs: the CLI sends the bundle's relevant parts and
+    lets the backend compact them, so the two never drift."""
+    keep = {}
+    for k in ("summary", "project", "config", "feed_test", "survey", "analyst_panel", "feed_story"):
+        v = bundle.get(k)
+        if v:
+            keep[k] = v
+    if "summary" not in keep:
+        try:
+            with open(os.path.join(bundle.get("_run_dir", ""), "summary.json"), encoding="utf-8") as f:
+                keep["summary"] = json.load(f)
+        except (OSError, ValueError):
+            pass
+    return keep
+
+
+def report(c, simulation_id: str, run_dir: str, log, load_bundle: Callable[[str], Dict[str, Any]] = None,
+           brand: str = "") -> Dict[str, Any]:
+    bundle = load_bundle(run_dir)
+    bundle["_run_dir"] = run_dir
+    material = compact_material(bundle)
+    if "summary" not in material:
+        raise ValueError("no summary.json yet: export the run first (or run a survey / feed test)")
+    log("report: writing the plain-language report (one Claude call)")
+    started = c.data("POST", "/api/simulation/market-report",
+                     json={"simulation_id": simulation_id, "material": material, "brand": brand}, timeout=120)
+    wait_task(c, started["task_id"], "report", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/market-report")
+    with open(os.path.join(run_dir, "market_report.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(run_dir, "market_report.md"), "w", encoding="utf-8") as f:
+        f.write(result.get("markdown") or "")
+    return {"market_report": os.path.join(os.path.abspath(run_dir), "market_report.md"),
+            "method": result.get("method"), "decision": ((result.get("sections") or {}).get("executive_summary") or {}).get("decision"),
+            "action_plan": result.get("action_plan")}
+
+
+# --------------------------------------------------------------------------
 # ads-import
 # --------------------------------------------------------------------------
 

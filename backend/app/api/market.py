@@ -30,7 +30,8 @@ from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.api.market')
 
-RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json"}
+RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
+                "market-report": "market_report.json"}
 
 
 def _client():
@@ -169,6 +170,36 @@ def start_analyst_panel():
 
     task_id = _start("analyst-panel", sid, work)
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "analysts": analysts}})
+
+
+@simulation_bp.route('/market-report', methods=['POST'])
+def start_market_report():
+    """POST {simulation_id, material, brand?} -> background job writing market_report.json (plain-language report)."""
+    from ..services import market_report
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    material = data.get("material")
+    try:
+        _sim_dir(sid or "")
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if not isinstance(material, dict) or not material:
+        return jsonify({"success": False, "error": "material (the compact fact sheet) is required"}), 400
+    brand = str(data.get("brand") or material.get("brand") or "")[:120]
+
+    def work(progress):
+        progress(1, 2)
+        out = market_report.generate(_client(), Config.LLM_MODEL_NAME, material, brand or None)
+        progress(2, 2)
+        return out
+
+    task_id = _start("market-report", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid}})
+
+
+@simulation_bp.route('/<simulation_id>/market-report', methods=['GET'], defaults={"kind": "market-report"})
+def market_report_result(simulation_id: str, kind: str):
+    return market_result(simulation_id, kind)
 
 
 @simulation_bp.route('/market-task/status', methods=['POST'])

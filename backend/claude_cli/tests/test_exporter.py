@@ -91,7 +91,8 @@ class ExportTests(unittest.TestCase):
     def test_empty_bundle_renders(self):
         page, md, summary = exporter.render_dashboard({})
         self.assertIn("No graph data", page)
-        self.assertIn("No report generated", page)
+        self.assertIn("No report yet", page)
+        self.assertNotIn('id="engine-report"', page)
         self.assertEqual(md, "")
 
     def test_fallback_timeline_from_actions(self):
