@@ -282,6 +282,34 @@ def start_email_test():
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "emails": len(emails), "people": len(people)}})
 
 
+@simulation_bp.route('/study-report', methods=['POST'])
+def study_report():
+    """POST {summary: study_summary.json, brand?} -> {markdown, method} (one Claude call, number-guarded; synchronous)."""
+    from ..services import market_report
+    from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+    data = request.get_json() or {}
+    summary = data.get("summary")
+    if not isinstance(summary, dict) or not summary.get("scenarios"):
+        return jsonify({"success": False, "error": "summary with scenarios is required"}), 400
+    brand = str(data.get("brand") or summary.get("name") or "the brand")[:120]
+    facts = json.dumps(summary, ensure_ascii=False, default=str)[:50000]
+    prompt = (f"Write a short study report for {brand} from these facts (several scenarios run on the same simulated people, "
+              f"each with several random seeds).\n\nFACTS:\n{facts}\n\n"
+              "Markdown, under 500 words, for a business owner: a one-line conclusion with its confidence, a table of the scenarios "
+              "side by side (mean and seed-to-seed spread), what changed against the first scenario and whether the change is "
+              "outside the spread, the decision agreement across seeds, and what to do next. Every number must come from the facts. "
+              "Say 'simulated people' at least once.")
+    try:
+        resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=3000,
+                                      messages=[{"role": "system", "content": market_report.SYSTEM}, {"role": "user", "content": prompt}])
+        md = extract_chat_completion_text(resp) or ""
+        md = market_report._check_numbers(md, market_report._fact_numbers(summary))
+        return jsonify({"success": True, "data": {"markdown": md, "method": "llm"}})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"study report failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/calibrate', methods=['POST'])
 def calibrate_panel():
     """POST {synthetic: [rows], real: [rows], key?} rows = {segment, country, gender, age, y in [0,1]}

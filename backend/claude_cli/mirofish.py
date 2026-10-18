@@ -1130,7 +1130,7 @@ def cmd_market_test(c: Client, a) -> Any:
         state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
                                                  int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
                                                  int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                                                 int(cfg.get("seeds_n") or 1))
+                                                 int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5))
         steps.append("feed_test")
         checkpoint()
     emails = cfg.get("emails")
@@ -1138,7 +1138,7 @@ def cmd_market_test(c: Client, a) -> Any:
         epath = _cfg_path(base, emails)
         earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
         try:
-            state["email_test"] = market_cli.emailtest(c, sid, earg, out_dir, log, 5, int(cfg.get("parallel") or DEFAULT_PARALLEL),
+            state["email_test"] = market_cli.emailtest(c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
                                                        cfg.get("list_size"))
             steps.append("email_test")
         except (ValueError, RuntimeError, CLIError) as e:
@@ -1439,6 +1439,59 @@ def cmd_test(c: Client, a) -> Any:
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return {k: v for k, v in res.items() if k != "variants"} | {"variants": [{k: r.get(k) for k in ("id", "value", "margin", "n", "unit")} for r in res["variants"]],
                                                               "result_file": os.path.join(os.path.abspath(out_dir), "experiment_result.json")}
+
+
+def cmd_study(c: Client, a) -> Any:
+    """Several scenarios x seeds on the same people -> study_summary.json, study_report.md, study.html."""
+    import study as study_mod
+    try:
+        with open(a.spec, encoding="utf-8") as f:
+            spec = json.load(f)
+        st = study_mod.normalize(spec, os.path.dirname(os.path.abspath(a.spec)))
+    except (OSError, ValueError) as e:
+        raise CLIError(f"study: {e}")
+    root = a.out or os.path.join("mirofish_runs", st["name"])
+
+    def run_cell(cfg: Dict[str, Any], cfg_path: str) -> Any:
+        # keep relative paths (creatives.json, messages.txt...) resolvable: they live next to the base config
+        for key in ("creatives", "personas", "requirement", "posts", "events", "emails"):
+            v = cfg.get(key)
+            if isinstance(v, str) and not os.path.isabs(v) and os.path.exists(os.path.join(st["base_root"], v)):
+                cfg[key] = os.path.join(st["base_root"], v)
+        sv = cfg.get("survey")
+        if isinstance(sv, dict) and isinstance(sv.get("messages"), str) and not os.path.isabs(sv["messages"]):
+            cand = os.path.join(st["base_root"], sv["messages"])
+            if os.path.exists(cand):
+                sv["messages"] = cand
+        pt = cfg.get("pitch")
+        if isinstance(pt, dict):
+            for key in ("script", "rebuttals"):
+                v = pt.get(key)
+                if isinstance(v, str) and not os.path.isabs(v) and os.path.exists(os.path.join(st["base_root"], v)):
+                    pt[key] = os.path.join(st["base_root"], v)
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        return cmd_market_test(c, argparse.Namespace(config=cfg_path))
+
+    summary = study_mod.run(st, root, run_cell, log)
+    md = None
+    if st.get("report") and not a.no_report:
+        try:
+            data = c.data("POST", "/api/simulation/study-report", json={"summary": summary, "brand": st.get("brand") or ""}, timeout=300)
+            md = data.get("markdown")
+            log(f"study: report written ({data.get('method')})")
+        except CLIError as e:
+            log(f"study: report call failed, using the data-only report: {e}")
+    md = md or study_mod.render_markdown(summary, st.get("brand") or "")
+    with open(os.path.join(root, "study_report.md"), "w", encoding="utf-8") as f:
+        f.write(md)
+    links = {f"{x['scenario']} seed {x['seed']}": os.path.join(os.path.relpath(x["path"], root), "dashboard.html") for x in summary["cells"]}
+    with open(os.path.join(root, "study.html"), "w", encoding="utf-8") as f:
+        f.write(study_mod.render_html(summary, exporter.markdown_to_html, exporter.CSS, st.get("brand") or "", links))
+    conc = summary.get("conclusion") or {}
+    return {"study": os.path.abspath(root), "summary": os.path.join(os.path.abspath(root), "study_summary.json"),
+            "report": os.path.join(os.path.abspath(root), "study_report.md"), "html": os.path.join(os.path.abspath(root), "study.html"),
+            "cells": len(summary.get("cells") or []), "conclusion": conc}
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -1764,6 +1817,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("study", help="same people, several scenarios x seeds -> one defended conclusion (study_summary.json, study_report.md, study.html)")
+    s.add_argument("--spec", required=True, help="study.json: {name, base: market_test.json, simulation_id, scenarios:[{name, overrides}], seeds:[..], steps:[..]}")
+    s.add_argument("--out", help="study folder (default mirofish_runs/<name>)")
+    s.add_argument("--no-report", action="store_true", help="skip the one-call study report")
+
     s = sub.add_parser("test", help="test anything from one spec: ad, message, price, offer, positioning, naming, landing, launch, pitch, email, creator_post, channel_mix")
     s.add_argument("--simulation", required=True)
     s.add_argument("--spec", required=True, help="@experiment.json: {type, name, variants[], audience{segments,countries}, metric, budget, rounds, ...}")
@@ -1829,7 +1887,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study,
 }
 
 

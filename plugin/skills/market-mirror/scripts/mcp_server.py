@@ -202,6 +202,13 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "study", "description": (
+        "Several scenarios x several seeds on the same simulated people, one defended conclusion. spec: {name, base (a market_test "
+        "config object: creatives, survey, pitch, emails, rounds...), simulation_id (the people to reuse), scenarios: [{name, overrides}], "
+        "seeds: [1,2,3], steps: [feed_test, rounds, survey, pitch, email_test]}. Writes study_summary.json (per-scenario mean, spread and "
+        "95% interval of every metric, deltas, winner stability, decision agreement matrix, conclusion with confidence), study_report.md "
+        "and study.html under mirofish_runs/<name>/. Finished cells are reused on rerun. Background job."),
+     "inputSchema": {"type": "object", "properties": {"spec": {"type": "object"}, "out": {"type": "string"}}, "required": ["spec"]}},
     {"name": "run_test", "description": (
         "Test anything from one spec on a prepared simulation: type = ad | message | price | offer | positioning | naming | landing | "
         "launch | pitch | email | creator_post | channel_mix; variants = the things to compare (ad creatives, message lines, prices, "
@@ -325,6 +332,15 @@ def call(name: str, a: Dict[str, Any]) -> Any:
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
         return r["stdout"].strip() or r["stderr"].strip()
+    if name == "study":
+        d = os.path.join(home(), "scenarios", "_studies")
+        os.makedirs(d, exist_ok=True)
+        sp = os.path.join(d, f"study_{uuid.uuid4().hex[:6]}.json")
+        json.dump(a["spec"], open(sp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        args = ["cli", "study", "--spec", sp]
+        if a.get("out"):
+            args += ["--out", a["out"]]
+        return job(args, "study")
     if name == "run_test":
         run_dir = a.get("run")
         run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
