@@ -28,6 +28,19 @@
 
 This branch can run MiroFish **headless**, driven by Claude or any agent with a shell. It runs on Claude models and needs no Zep account.
 
+### Use it as a Claude skill
+
+Install the `mirofish` skill and ask Claude things like "simulate how parents in Jakarta react to this ad" or "run a swarm prediction on this policy PDF". The skill downloads this engine on first use, sets it up, asks for your Anthropic key, runs the simulation in two cost-safe stages, and shows a live dashboard.
+
+In Claude Code:
+
+```
+/plugin marketplace add DarkWorldCoder/mirofish-claude
+/plugin install mirofish@mirofish-claude
+```
+
+Or copy `plugin/skills/mirofish/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/). Keep your own inputs in `scenarios/<name>/`, which is gitignored.
+
 - **Config** (`.env`): `LLM_PROVIDER=claude`, `LLM_API_KEY=<Anthropic key>`, `LLM_MODEL_NAME=claude-haiku-4-5`, `MEMORY_BACKEND=local` (a local SQLite knowledge graph, so no Zep key).
 - **Memory**: the default `local` backend builds the graph with Claude and searches it with hybrid BM25 + local multilingual embeddings (`fastembed`, CPU, free). It also merges duplicate entities (aliases, name variants, embedding similarity). `MEMORY_BACKEND=cognee` swaps in [Cognee](https://github.com/topoteretes/cognee), which runs as a sidecar in its own venv: `backend/memory_sidecar/cognee_sidecar.sh setup && backend/memory_sidecar/cognee_sidecar.sh start`. `MEMORY_BACKEND=zep` keeps the legacy Zep Cloud path.
 - **Server**: `backend/claude_cli/start_server.sh` starts the Flask API on :5001 in the background and waits for `/health`. `stop_server.sh` stops it.

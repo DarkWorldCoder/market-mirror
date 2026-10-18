@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mirofish-live",
+      "runtimeExecutable": "backend/.venv/bin/python",
+      "runtimeArgs": ["backend/claude_cli/mirofish.py", "live", "--interval", "8"],
+      "port": 5050
+    }
+  ]
+}

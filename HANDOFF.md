@@ -48,6 +48,7 @@ Check the agents after `--stop-after prepare`, then run the rounds with `start -
 - `CLAUDE.md`: operating guide (setup, CLI, live view, export and publish, memory backends, costs)
 - `HANDOFF.md`: this file
 - `.claude/launch.json`: browser-pane launch entry for the live dashboard
+- `.claude-plugin/marketplace.json` and `plugin/`: the installable `mirofish` Claude skill (`plugin/skills/mirofish/SKILL.md`, helper `scripts/mf.sh`)
 - `backend/claude_cli/`: `mirofish.py` (CLI), `exporter.py` (dashboard), `start_server.sh`, `stop_server.sh`, `tests/`
 - `backend/app/utils/local_graph.py`, `embeddings.py`, `cognee_graph.py`: memory backends
 - `backend/memory_sidecar/`: Cognee sidecar (`cognee_sidecar.sh setup|start|stop|status`)

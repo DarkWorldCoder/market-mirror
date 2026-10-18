@@ -1,0 +1,24 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mirofish-claude",
+  "metadata": {
+    "description": "MiroFish swarm simulation for Claude agents: turn any documents into AI personas, simulate how they react on social media, and get a prediction report with a live dashboard."
+  },
+  "owner": {
+    "name": "DarkWorldCoder"
+  },
+  "plugins": [
+    {
+      "name": "mirofish",
+      "description": "Run MiroFish swarm simulations from Claude: download the engine, feed it any documents and a question, watch the agents live, and read the prediction report.",
+      "version": "0.1.0",
+      "author": {
+        "name": "DarkWorldCoder"
+      },
+      "source": "./plugin",
+      "category": "research",
+      "homepage": "https://github.com/DarkWorldCoder/mirofish-claude",
+      "tags": ["simulation", "prediction", "personas", "market-research", "agents", "skills"]
+    }
+  ]
+}

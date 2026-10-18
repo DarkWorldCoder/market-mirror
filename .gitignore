@@ -43,7 +43,8 @@ htmlcov/
 
 # Cursor
 .cursor/
-.claude/
+.claude/*
+!.claude/launch.json
 
 # 文档与测试程序
 mydoc/

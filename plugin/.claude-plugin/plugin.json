@@ -1,0 +1,11 @@
+{
+  "name": "mirofish",
+  "description": "Run MiroFish swarm simulations from Claude: download the engine, feed it any documents and a question, watch the agents live, and read the prediction report.",
+  "version": "0.1.0",
+  "author": {
+    "name": "DarkWorldCoder"
+  },
+  "homepage": "https://github.com/DarkWorldCoder/mirofish-claude",
+  "repository": "https://github.com/DarkWorldCoder/mirofish-claude",
+  "license": "AGPL-3.0"
+}
