@@ -381,3 +381,14 @@ def test_population_weights_rake_to_target_shares():
     assert ws["female"] > 1.0 > ws["male"]                              # women up-weighted toward 75%
     assert abs(sum(e.attributes["weight"] for e in ents) / len(ents) - 1.0) < 0.05
     assert pp.population_weights(ents, {}) == 0
+
+
+def test_real_voices_reach_the_interview_prompt():
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=2)]})
+    client = FakeClient()
+    voices = [{"text": "They charged my card after the trial, scam", "source": "appstore", "sentiment": "neg", "country": "Nepal"},
+              {"text": "Finally an app that works offline", "source": "hackernews", "sentiment": "pos", "country": ""}]
+    pp.generate_personas(client, "m", spec, "req", "ctx", voices=voices)
+    first = next(u for u in client.prompts if u.startswith("This is a life interview"))
+    assert "What real people wrote" in first and "charged my card" in first
+    assert pp._voices_block(None) == "" and pp._voices_block([], "Nepal") == ""

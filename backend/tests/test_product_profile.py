@@ -102,3 +102,18 @@ def test_profile_api(tmp_path, monkeypatch):
     assert r.get_json().get("cached") is True                      # reused unless refresh
     assert c.get(f"/api/graph/project/{proj.project_id}/profile").get_json()["data"]["name"] == "Fitloop"
     assert c.get("/api/graph/project/nope/profile").status_code == 404
+
+
+def test_project_voices_endpoint(tmp_path, monkeypatch):
+    from app import create_app
+    from app.models.project import ProjectManager
+    monkeypatch.setattr(ProjectManager, "PROJECTS_DIR", str(tmp_path), raising=False)
+    app = create_app()
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    proj = ProjectManager.create_project("v")
+    assert c.get(f"/api/graph/project/{proj.project_id}/voices").status_code == 404
+    r = c.put(f"/api/graph/project/{proj.project_id}/voices", json={"voices": [{"text": "works offline", "source": "hn"}, {"nope": 1}]})
+    assert r.get_json()["data"]["stored"] == 1
+    assert c.get(f"/api/graph/project/{proj.project_id}/voices").get_json()["data"]["voices"][0]["text"] == "works offline"
+    assert c.put(f"/api/graph/project/{proj.project_id}/voices", json={"voices": "x"}).status_code == 400

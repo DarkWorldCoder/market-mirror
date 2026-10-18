@@ -31,7 +31,7 @@ SYSTEM = (
 SECTION_ORDER = [
     ("executive_summary", "Executive summary"), ("what_we_tested", "What we tested"),
     ("who_we_simulated", "Who we simulated"), ("social", "What happened on social media"),
-    ("ad_results", "Ad results"), ("survey_results", "Survey results"), ("objections", "Objections and how to answer them"),
+    ("real_world_check", "What real people say"), ("ad_results", "Ad results"), ("survey_results", "Survey results"), ("objections", "Objections and how to answer them"),
     ("pricing", "Pricing"), ("sales_rehearsal", "Sales rehearsal"), ("email_results", "Email results"), ("sales_notes", "Sales notes"), ("action_plan", "Action plan"),
     ("budget_plan", "Budget plan"), ("thirty_day_plan", "The next 30 days"), ("what_would_change_the_decision", "What would change the decision"),
     ("risks", "Risks"), ("limits", "Limits and confidence"),
@@ -161,11 +161,24 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
            "themes": [{"theme": t.get("theme"), "analysts": t.get("analysts"), "evidence": (t.get("evidence") or [""])[0][:160]}
                       for t in (panel.get("themes") or [])[:6]]},
         "social": social, "playbook": _top(mk.get("playbook") or [], 8, ["segment", "priority", "lead_with", "preempt", "answer_with", "seed_in"]),
+        "real_voices": _research_facts(bundle.get("research") or {}),
         "pitch": _pitch_facts(bundle.get("pitch") or {}),
         "email": _email_facts(bundle.get("email_test") or {}),
         "reliability": _reliability(mk, bundle),
         "budget": _budget_facts(ads, bundle),
     }
+
+
+def _research_facts(r: Dict[str, Any]) -> Dict[str, Any]:
+    summ = r.get("summary") or {}
+    if not summ.get("quotes"):
+        return {}
+    return {"query": summ.get("query"), "quotes": summ.get("quotes"), "by_source": summ.get("by_source"), "sentiment": summ.get("sentiment"),
+            "avg_app_rating": summ.get("avg_rating"), "sentiment_method": summ.get("sentiment_method"),
+            "themes": [{"theme": t.get("theme"), "mentions": t.get("mentions"), "share_pct": t.get("share_pct"),
+                        "example": (t.get("examples") or [{}])[0].get("text", "")[:160], "url": (t.get("examples") or [{}])[0].get("url")}
+                       for t in (summ.get("themes") or [])[:6]],
+            "top_quotes": [{"source": q.get("source"), "text": (q.get("text") or "")[:200], "url": q.get("url")} for q in (summ.get("top_quotes") or [])[:4]]}
 
 
 def _email_facts(e: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,6 +283,7 @@ SCHEMA = '''{
  "what_we_tested": "2-4 sentences: the offer, the ads/messages, prices, how many simulated people, which platforms",
  "who_we_simulated": [{"segment": "...", "people": N, "where": "...", "in_short": "one sentence on how this group reacts", "example_person": "name, age, one line"}],
  "social": {"summary": "2-4 sentences on what happened in the simulated feeds", "themes": ["..."], "brand_post_notes": ["one line per brand post: what it got and how people replied"], "best_reaction": "quote", "worst_reaction": "quote", "so_what": "one sentence: what this means for the next post", "confidence": "low|medium|high"},
+ "real_world_check": {"summary": "2-3 sentences: what real people say about this kind of product (from the real_voices facts; omit if none) and where the simulation agrees or disagrees", "agrees": ["..."], "disagrees": ["..."], "quotes": [{"text": "...", "source": "..."}]},
  "ad_results": {"summary": "2-4 sentences", "winner": "creative id and why", "table_notes": ["one line per ad"], "landing_page": "what happened after the click and what to fix", "so_what": "one sentence: what to do with the ads", "confidence": "low|medium|high"},
  "survey_results": {"summary": "2-4 sentences with the main rates and what they mean", "best_audience": "...", "weakest_audience": "...", "message_winner": "...", "so_what": "one sentence", "confidence": "low|medium|high"},
  "sales_rehearsal": {"summary": "2-3 sentences on how the pitch did (omit if no pitch facts)", "fix_first": ["..."], "so_what": "one sentence"},
@@ -483,6 +497,15 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
         if so.get("worst_reaction"):
             out += [f"> Worst reaction: \"{so['worst_reaction']}\"", ""]
         out += _so_what(so)
+    rw = sec.get("real_world_check") or {}
+    if rw and rw.get("summary"):
+        out += ["## What real people say", "", str(rw.get("summary") or ""), ""]
+        if rw.get("agrees"):
+            out += ["**The simulation agrees with real people on**", "", _bullets(rw["agrees"])]
+        if rw.get("disagrees"):
+            out += ["**Where they differ**", "", _bullets(rw["disagrees"])]
+        for q in (rw.get("quotes") or [])[:3]:
+            out += [f"> \"{q.get('text')}\" ({q.get('source')})", ""]
     ad = sec.get("ad_results") or {}
     if ad:
         out += ["## Ad results", "", str(ad.get("summary") or ""), ""]

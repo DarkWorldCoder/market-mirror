@@ -492,7 +492,19 @@ INTERVIEW_QUESTIONS = [
 INTERVIEW_BATCH = 4
 
 
-def _interview_prompt(people: List[Dict[str, Any]], context: str) -> str:
+def _voices_block(voices: Optional[List[Dict[str, Any]]], country: str = "", n: int = 4) -> str:
+    """Real quotes from public reviews/threads (research step) that people like these would have read or written."""
+    if not voices:
+        return ""
+    from .research import pick_voices
+    picks = pick_voices(voices, n, country)
+    if not picks:
+        return ""
+    lines = "\n".join(f"- \"{v['text'][:220]}\" ({v['source']})" for v in picks)
+    return f"\nWhat real people wrote in public reviews and threads about this kind of product (ground the answers in this reality, do not copy it):\n{lines}\n"
+
+
+def _interview_prompt(people: List[Dict[str, Any]], context: str, voices: Optional[List[Dict[str, Any]]] = None) -> str:
     cards = "\n".join(
         f"{i + 1}. {p['name']}: age {p.get('age')}, {p.get('gender')}, {p.get('occupation')}, "
         f"{p.get('city') or ''} {p.get('country') or ''}; segment {p.get('segment')}; "
@@ -510,7 +522,7 @@ different from the others. Never use real or public people.
 
 Context of the simulation (what they will later react to):
 {context[:1500]}
-
+{_voices_block(voices, str((people[0] or {}).get("country") or "") if people else "")}
 People:
 {cards}
 
@@ -655,7 +667,8 @@ def render_bde(bde: Optional[Dict[str, Any]], limit: int = 700) -> str:
 
 def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                    progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4,
-                   product: Optional[Dict[str, Any]] = None, probes: bool = True) -> int:
+                   product: Optional[Dict[str, Any]] = None, probes: bool = True,
+                   voices: Optional[List[Dict[str, Any]]] = None) -> int:
     """Interview every synthetic persona in batches; attach answers, phone/data plan and a first-person summary.
     With probes=True a second call per batch asks adaptive follow-ups and product questions and extracts the
     structured BDE card (background / decision procedure / evaluation). Returns the number of people interviewed."""
@@ -676,7 +689,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
 
     def run(batch: List[EntityNode]):
         try:
-            data = _llm_json(client, model, _interview_prompt([card(e) for e in batch], context),
+            data = _llm_json(client, model, _interview_prompt([card(e) for e in batch], context, voices),
                              temperature=0.9, max_tokens=6000)
             rows = data.get("interviews") if isinstance(data, dict) else data
             return batch, [r for r in (rows or []) if isinstance(r, dict)]
@@ -871,7 +884,8 @@ def _dedupe_name(name: str, taken: set) -> str:
 
 def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, context: str,
                       progress: Optional[Callable[[int, int, str], None]] = None,
-                      parallel: int = 4, product: Optional[Dict[str, Any]] = None) -> List[EntityNode]:
+                      parallel: int = 4, product: Optional[Dict[str, Any]] = None,
+                      voices: Optional[List[Dict[str, Any]]] = None) -> List[EntityNode]:
     """Synthetic individual entities for every segment, plus community accounts when communities exist."""
     rng = random.Random(spec.seed)
     if spec.auto and not spec.segments:
@@ -941,7 +955,7 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
                 if spec.interview:
                     interview_futures.append(ipool.submit(
                         run_interviews, client, model, group, context, progress=interview_progress(seg.label),
-                        parallel=max(2, parallel // 2), product=product, probes=spec.probes))
+                        parallel=max(2, parallel // 2), product=product, probes=spec.probes, voices=voices))
         interviewed = sum(f.result() for f in interview_futures)
 
     entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]

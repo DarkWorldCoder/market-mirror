@@ -91,6 +91,12 @@ def build_evidence(ads: List[Dict[str, Any]], ads_summary: Dict[str, Any], run_s
         add("product", f"Claimed differentiator: {d}")
     for u in ((profile or {}).get("unknowns") or [])[:2]:
         add("product", f"Unknown in the material: {u}")
+    rsum = ((run_summary or {}).get("research") or {}).get("summary") or (run_summary or {}).get("research_summary") or {}
+    for t in (rsum.get("themes") or [])[:4]:
+        add("real", f"Real people mention '{t.get('theme')}' in {t.get('share_pct')}% of {rsum.get('quotes')} public posts/reviews"
+                    + (f" ({t.get('sentiment')})" if t.get("sentiment") else "") + ".")
+    if rsum.get("avg_rating") is not None:
+        add("real", f"Average recent app-store rating of comparable apps: {rsum['avg_rating']} / 5 over {rsum.get('ratings')} reviews.")
 
     rows = [canon_row(r) for r in ads if isinstance(r, dict)]
     rows = [r for r in rows if r["impressions"] or r["spend"] or r["clicks"]]

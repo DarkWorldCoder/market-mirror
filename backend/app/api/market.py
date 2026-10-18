@@ -75,6 +75,21 @@ def _profile(simulation_id: str):
         return None
 
 
+def _voices(simulation_id: str):
+    """voices.json of the simulation's project (from `research`), or None."""
+    try:
+        from ..models.project import ProjectManager
+        state = SimulationManager().get_simulation(simulation_id)
+        pid = getattr(state, "project_id", None) if state else None
+        path = os.path.join(ProjectManager._get_project_dir(pid), "voices.json") if pid else ""
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:  # noqa: BLE001 - optional
+        pass
+    return None
+
+
 def _start(kind: str, simulation_id: str, work):
     tm = TaskManager()
     task_id = tm.create_task(task_type=f"market_{kind}", metadata={"simulation_id": simulation_id})
@@ -128,9 +143,11 @@ def start_feed_test():
         from ..services import product_profile as pp
         context = pp.render_text(prof, 1500) + "\n" + context
 
+    voices = _voices(sid)
+
     def work(progress):
         return feed_test.run_multi_seed(_client(), Config.LLM_MODEL_NAME, creatives, people,
-                                        seeds=feed_test.seed_list(seed, n_seeds), context=context,
+                                        seeds=feed_test.seed_list(seed, n_seeds), context=context, voices=voices,
                                         organic_per_feed=organic, parallel=parallel, progress=progress,
                                         waves=int(data.get("waves") or 3), landing=landing,
                                         exposures=int(data.get("exposures") or 2),

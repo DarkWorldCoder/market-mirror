@@ -330,11 +330,19 @@ def _llm_json(client, model: str, system: str, prompt: str, temperature: float =
     raise RuntimeError(f"feed test LLM call failed: {last}")
 
 
-def organic_pool(client, model: str, platform: str, country: str, context: str, n: int = 10) -> List[Dict[str, Any]]:
+def organic_pool(client, model: str, platform: str, country: str, context: str, n: int = 10,
+                 voices: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     label = PLATFORMS[platform]["label"]
+    real = ""
+    if voices:
+        from .research import pick_voices
+        picks = pick_voices(voices, 3, country)
+        if picks:
+            real = "Real things people posted about this kind of product (use the tone and concerns, not the words):\n" + \
+                   "\n".join(f"- {v['text'][:200]}" for v in picks) + "\n"
     prompt = (f"Write {n} varied {label} feed posts that a typical person in {country or 'this audience'} would see "
               f"today, in the languages people there actually post in. Some background on the audience:\n"
-              f"{context[:1500]}\n\nReturn JSON: {{\"posts\": [{{\"kind\": \"friend|family|group|page|creator|news|meme\", "
+              f"{context[:1500]}\n{real}\nReturn JSON: {{\"posts\": [{{\"kind\": \"friend|family|group|page|creator|news|meme\", "
               f"\"author\": \"invented name or page\", \"text\": \"post text\", \"media\": \"what the photo/video shows, or empty\"}}]}}")
     try:
         data = _llm_json(client, model, ORGANIC_SYSTEM, prompt, temperature=0.9, max_tokens=2500)
@@ -351,8 +359,8 @@ SEED_WORKERS = max(1, int(os.environ.get("FEED_TEST_SEED_WORKERS", "4") or 4))
 
 
 def organic_pools(client, model: str, keys: List[Tuple[str, str]], context: str, parallel: int = 8,
-                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None
-                  ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
+                  voices: Optional[List[Dict[str, Any]]] = None) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     """Fill `pools` with an organic pool per missing (platform, country) key, all in parallel. The dict is
     shared between the seeds of one run_multi_seed, so each pool is generated once per run."""
     pools = pools if pools is not None else {}
@@ -361,7 +369,7 @@ def organic_pools(client, model: str, keys: List[Tuple[str, str]], context: str,
     if not missing:
         return pools
     with ThreadPoolExecutor(max_workers=max(1, min(parallel, len(missing)))) as ex:
-        built = list(ex.map(lambda k: (k, organic_pool(client, model, k[0], k[1], context)), missing))
+        built = list(ex.map(lambda k: (k, organic_pool(client, model, k[0], k[1], context, voices=voices)), missing))
     with _POOL_LOCK:
         for k, pool in built:
             pools.setdefault(k, pool)
@@ -492,7 +500,8 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                   progress: Optional[Callable[[int, int], None]] = None, waves: int = 3,
                   landing: Optional[Dict[str, Any]] = None, benchmarks: Optional[Dict[str, Any]] = None,
                   exposures: int = 2, attention_gate: bool = True,
-                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None) -> Dict[str, Any]:
+                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
+                  voices: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """waves: later waves see earlier reaction counts (and, if they open them, comments).
     exposures: how many times each person scrolls past the ad (frequency, with wear-out).
     attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
@@ -506,7 +515,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     creatives, plan = _plan(creatives, people, seed)
     by_id = {p["agent_id"]: p for p in people}
     pools = organic_pools(client, model, [(platform, by_id[aid].get("country", "")) for (aid, platform) in plan],
-                          context, parallel, pools)
+                          context, parallel, pools, voices=voices)
     traits = {p["agent_id"]: behaviour_traits(p, random.Random(seed * 1000 + int(p["agent_id"]))) for p in people}
     exposures = max(1, min(exposures, 6))
     jobs = []
@@ -896,7 +905,7 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
             _, plan = _plan(creatives, people, sd)
             keys |= {(platform, by_id[aid].get("country", "")) for (aid, platform) in plan}
         pool_meter = UsageMeter(base)
-        organic_pools(pool_meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools)
+        organic_pools(pool_meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools, kw.get("voices"))
         shared = pool_meter.snapshot()
     lock = threading.Lock()
     done_by_seed: Dict[int, int] = {}

@@ -1097,6 +1097,20 @@ def cmd_market_test(c: Client, a) -> Any:
         state["project_id"] = up["project_id"]
         save_json(out_dir, "ontology", up)
         checkpoint()
+        research_dir = _cfg_path(base, cfg["research"]) if cfg.get("research") else None
+        if research_dir:
+            try:
+                vpath = research_dir if research_dir.endswith(".json") else os.path.join(research_dir, "voices.json")
+                with open(vpath, encoding="utf-8") as f:
+                    voices = json.load(f)
+                c.data("PUT", f"/api/graph/project/{up['project_id']}/voices", json={"voices": voices}, timeout=60)
+                rpath = os.path.join(os.path.dirname(vpath), "research.json")
+                if os.path.exists(rpath):
+                    with open(rpath, encoding="utf-8") as f:
+                        save_json(out_dir, "research", json.load(f))
+                log(f"research: {len(voices)} real voices attached to the project")
+            except (OSError, ValueError, CLIError) as e:
+                log(f"research skipped: {e}")
         if cfg.get("understand", True):
             try:
                 prof = step_profile(c, up["project_id"], cfg.get("url"), None, False, cfg.get("brand"))
@@ -1529,6 +1543,21 @@ def cmd_predict(c: Client, a) -> Any:
     return out
 
 
+def cmd_research(c: Optional[Client], a) -> Any:
+    """What real people say (Hacker News, App Store reviews, Reddit when reachable, pages) -> research.md + voices.json."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    try:
+        from app.services import research
+    except Exception as e:  # noqa: BLE001
+        raise CLIError(f"research needs the backend package importable (run from the repo with its venv): {e}")
+    out_dir = a.out or os.path.join("scenarios", re.sub(r"[^A-Za-z0-9._-]+", "_", a.query)[:40], "research")
+    res = research.run(a.query, [s.strip().lower() for s in a.sources.split(",")], out_dir, a.country, a.subreddit, a.url, a.limit, log=log)
+    summ = res["summary"]
+    return {"files": res["files"], "quotes": summ["quotes"], "by_source": summ["by_source"], "sentiment": summ["sentiment"],
+            "avg_rating": summ.get("avg_rating"), "themes": [f"{t['theme']} ({t['mentions']})" for t in summ.get("themes") or []],
+            "voices": res["voices"], "notes": summ.get("notes"), "next": f"add {res['files']['md']} to the scenario seeds; voices.json grounds the personas and feeds"}
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas, a.personas_lite)  # fail fast on a bad spec file
@@ -1853,6 +1882,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("research", help="what real people say: Hacker News, App Store reviews, Reddit (when reachable), pages -> research.md + voices.json")
+    s.add_argument("--query", required=True, help="product, category or competitor, e.g. 'home workout app'")
+    s.add_argument("--sources", default="hn,appstore,reddit", help="comma list: hn, appstore, reddit")
+    s.add_argument("--country", default="us", help="App Store storefront, e.g. in, ph, ke")
+    s.add_argument("--subreddit", nargs="*", help="subreddits to search (default: all)")
+    s.add_argument("--url", nargs="*", help="pages to read (landing page, review page, thread)")
+    s.add_argument("--limit", type=int, default=30)
+    s.add_argument("--out", help="folder (default scenarios/<query>/research)")
+
     s = sub.add_parser("predict", help="predictions with intervals (scaled by real results seen so far) and a 90-day adoption forecast for a run")
     s.add_argument("--run-dir", required=True)
     s.add_argument("--brand")
@@ -1930,7 +1968,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research,
 }
 
 
@@ -1939,7 +1977,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        offline = offline_export or offline_live or a.cmd == "ads-import" or (a.cmd == "quickstart" and a.no_run)
+        offline = offline_export or offline_live or a.cmd in ("ads-import", "research") or (a.cmd == "quickstart" and a.no_run)
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

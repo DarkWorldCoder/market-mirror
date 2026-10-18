@@ -202,6 +202,15 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "research", "description": (
+        "What real people say about a product, category or competitor, from public keyless sources: Hacker News stories and "
+        "comments, App Store listings and recent reviews for a country storefront (in, ph, ke, us...), Reddit public search when "
+        "it answers (it often blocks non-browser clients; the result says so, then use your own browser tools and add what you find "
+        "as seed files), and any page URLs. Writes research.md (themes with quotes and links), research.json and voices.json (short "
+        "real quotes the personas and feeds draw on) under scenarios/<query>/research. Run it before planning personas."),
+     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "sources": {"type": "string"}, "country": {"type": "string"},
+                                                      "subreddits": {"type": "array", "items": {"type": "string"}}, "urls": {"type": "array", "items": {"type": "string"}},
+                                                      "out": {"type": "string"}}, "required": ["query"]}},
     {"name": "predict", "description": (
         "Predictions with intervals for a run: CTR per ad, cost per lead, would-convert overall and per audience, email click rates, "
         "each scaled by the real-vs-simulated results stored so far (from backtest and calibrate) and labelled with its basis "
@@ -337,6 +346,20 @@ def call(name: str, a: Dict[str, Any]) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("n"):
             args += ["--n", str(int(a["n"]))]
+        r = sh(args, timeout=400)
+        return r["stdout"].strip() or r["stderr"].strip()
+    if name == "research":
+        args = ["cli", "research", "--query", a["query"]]
+        if a.get("sources"):
+            args += ["--sources", str(a["sources"])]
+        if a.get("country"):
+            args += ["--country", str(a["country"])]
+        if a.get("subreddits"):
+            args += ["--subreddit", *[str(x) for x in a["subreddits"]]]
+        if a.get("urls"):
+            args += ["--url", *[str(x) for x in a["urls"]]]
+        if a.get("out"):
+            args += ["--out", str(a["out"])]
         r = sh(args, timeout=400)
         return r["stdout"].strip() or r["stderr"].strip()
     if name == "predict":

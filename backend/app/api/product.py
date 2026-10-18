@@ -95,3 +95,27 @@ def profile_from_text():
     except Exception as e:  # noqa: BLE001
         logger.error(f"profile failed: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@graph_bp.route('/project/<project_id>/voices', methods=['PUT', 'GET'])
+def project_voices(project_id: str):
+    """PUT a voices.json (from `research`) next to the project: persona interviews and organic feeds then draw on real quotes."""
+    import json as _json
+    import os as _os
+    project = ProjectManager.get_project(project_id)
+    if not project:
+        return jsonify({"success": False, "error": f"project not found: {project_id}"}), 404
+    path = _os.path.join(ProjectManager._get_project_dir(project_id), "voices.json")
+    if request.method == "GET":
+        if not _os.path.exists(path):
+            return jsonify({"success": False, "error": "no voices yet"}), 404
+        with open(path, encoding="utf-8") as f:
+            return jsonify({"success": True, "data": {"voices": _json.load(f)}})
+    data = request.get_json(silent=True) or {}
+    voices = data.get("voices")
+    if not isinstance(voices, list):
+        return jsonify({"success": False, "error": "voices must be a list"}), 400
+    keep = [v for v in voices if isinstance(v, dict) and v.get("text")][:500]
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(keep, f, ensure_ascii=False, indent=1)
+    return jsonify({"success": True, "data": {"stored": len(keep)}})

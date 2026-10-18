@@ -531,6 +531,11 @@ def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_ro
         try:
             with open(os.path.join(run_dir, "feed_test.json"), encoding="utf-8") as f:
                 ft = json.load(f)
+            try:
+                with open(os.path.join(run_dir, "research.json"), encoding="utf-8") as f:
+                    run_summary["research"] = {"summary": (json.load(f).get("summary") or {})}
+            except (OSError, ValueError):
+                pass
             run_summary["feed_test"] = {"per_creative": {k: {kk: v.get(kk) for kk in ("expected_ctr", "hide_rate", "projection")}
                                                          for k, v in ((ft.get("summary") or {}).get("per_creative") or {}).items()}}
         except (OSError, ValueError):

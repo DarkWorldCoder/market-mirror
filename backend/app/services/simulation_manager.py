@@ -521,8 +521,17 @@ class SimulationManager:
                 context = (pp.render_text(prof) + "\n\n" + context)[:14000]
         except Exception:  # noqa: BLE001 - the profile is optional
             prof = None
+        voices = None
+        try:
+            from ..models.project import ProjectManager
+            vpath = os.path.join(ProjectManager._get_project_dir(project_id), "voices.json") if project_id else ""
+            if vpath and os.path.exists(vpath):
+                with open(vpath, encoding="utf-8") as f:
+                    voices = json.load(f)
+        except Exception:  # noqa: BLE001 - optional
+            voices = None
         personas = persona_planner.generate_personas(
-            client, Config.LLM_MODEL_NAME, spec, requirement, context, product=prof,
+            client, Config.LLM_MODEL_NAME, spec, requirement, context, product=prof, voices=voices,
             progress=persona_progress, parallel=max(1, min(parallel, 16)))
         kept = persona_planner.select_graph_entities(
             filtered.entities, spec, persona_planner.spec_countries(spec))

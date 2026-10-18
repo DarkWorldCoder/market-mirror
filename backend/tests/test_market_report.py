@@ -7,6 +7,10 @@ import pytest
 
 from app.services import market_report as mr
 
+RESEARCH = {"summary": {"query": "home workout app", "quotes": 40, "by_source": {"appstore": 30, "hackernews": 10}, "sentiment": {"pos": 20, "neg": 15, "neu": 5},
+                        "avg_rating": 3.4, "ratings": 30, "sentiment_method": "word list",
+                        "themes": [{"theme": "offline", "mentions": 9, "share_pct": 22.5, "examples": [{"text": "works offline, finally", "url": "u1"}]}],
+                        "top_quotes": [{"source": "appstore", "text": "charged after the trial", "url": "u2"}]}}
 BUNDLE = {
     "summary": {"decision": {"decision": "iterate", "confidence": "low", "summary": "Fix the card step.",
                              "fixes": ["Trust / looks like a scam"]},
@@ -47,6 +51,7 @@ BUNDLE = {
     "analyst_panel": {"consensus": {"analysts_ok": 5, "consensus": "weak", "success_probability": 25,
                                     "verdict": {"winner": "iterate"}, "best_audience": {"winner": "India young professionals"},
                                     "themes": [{"theme": "Card requirement = trust barrier", "analysts": 3, "evidence": ["card upfront is a red flag"]}]}},
+    "research": RESEARCH,
     "feed_story": {"brand_posts": [{"platform": "twitter", "round": 0, "content": "Fitloop is live!", "likes": 3, "quotes": [1],
                                     "comments": [{"content": "free ba talaga?"}], "reply_sentiment": {"pos": 1, "neg": 1, "neu": 0}}],
                    "platforms": {"reddit": {"posts": [{"author": {"segment": "Students", "country": "India"}, "round": 2,
@@ -86,6 +91,8 @@ GOOD = {
     "risks": [{"risk": "Card fix slips", "likelihood": "medium", "mitigation": "Ship email-only trial first"}],
 }
 GOOD["ad_results"]["so_what"] = "Run ig_price first."
+GOOD["real_world_check"] = {"summary": "Real reviews average 3.4 out of 5; offline use is praised.", "agrees": ["trust worries"], "disagrees": [],
+                            "quotes": [{"text": "charged after the trial", "source": "appstore"}]}
 GOOD["ad_results"]["confidence"] = "medium"
 
 
@@ -114,6 +121,7 @@ def test_compact_material_collects_every_source():
     assert m["social"]["brand_posts"][0]["comments"] == 1 and m["social"]["top_posts"][0]["platform"] == "reddit"
     assert m["panel"]["verdict"] == "iterate" and m["who"][0]["examples"][0]["summary"].startswith("I am Priya")
     assert m["budget"]["per_ad"][0]["projected_cpl"] == 24.0
+    assert m["real_voices"]["themes"][0]["theme"] == "offline" and m["real_voices"]["avg_app_rating"] == 3.4
     assert m["budget"]["total_benchmark_budget"] == 300.0
 
 
@@ -127,6 +135,7 @@ def test_generate_renders_markdown_with_all_sections():
               "## Pricing", "## Sales notes", "## Action plan", "## Limits and confidence"):
         assert h in md, h
     assert "| ig_price | India young professionals | instagram | 300 USD | 7 days |" in md
+    assert "## What real people say" in md and "charged after the trial" in md
     for h in ("## Budget plan", "## The next 30 days", "## What would change the decision", "## Risks", "**So what:** Run ig_price first.",
               "_Confidence: medium_", "Reliability: ad winner agreed in 67% of seeds", "| 1 | Remove the card step | product | trial starts |"):
         assert h in md, h

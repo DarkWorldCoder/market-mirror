@@ -278,3 +278,18 @@ def test_segment_targeting_is_forgiving():
     assert segment_matches("Philippines young professionals", "Young professionals, Philippines, Metro Manila & Makati")
     assert not segment_matches("Kenya students", "Young professionals, Kenya, Nairobi")
     assert segment_matches("Students", "Students")
+
+
+def test_organic_pool_quotes_real_voices():
+    from app.services import feed_test as ft
+    seen = {}
+
+    class C:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    seen["prompt"] = kw["messages"][1]["content"]
+                    raise RuntimeError("stop here")
+    ft.organic_pool(C(), "m", "facebook", "India", "ctx", voices=[{"text": "Bhai offline chalega?", "source": "reddit", "sentiment": "neu", "country": "India"}])
+    assert "Real things people posted" in seen["prompt"] and "Bhai offline chalega?" in seen["prompt"]
