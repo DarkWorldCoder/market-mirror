@@ -1,0 +1,104 @@
+{
+  "platforms": {
+    "twitter": {
+      "posts": [
+        {
+          "post_id": 1, "platform": "twitter", "kind": "post",
+          "author": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"},
+          "round": 0, "hour": "00:00", "created_at": 1,
+          "content": "Tuition stays flat next year. Ask us anything. <script>alert(1)</script>",
+          "is_brand": true, "brand_source": "initial_post", "quote_content": null, "original": null,
+          "likes": 2, "dislikes": 0,
+          "likers": [{"agent_id": 5, "name": "Ana Souza", "segment": "Students", "country": "Brazil", "kind": "persona"},
+                     {"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"}],
+          "reposts": 1, "quotes": [2],
+          "comments": [],
+          "engagement": {"by_segment": {"Students": 2, "Parents": 1}, "by_country": {"Brazil": 2, "Lebanon": 1}},
+          "reach_proxy": 7, "reply_sentiment": {"pos": 0, "neg": 1, "neu": 0}, "sentiment": "neu", "score": 6
+        },
+        {
+          "post_id": 2, "platform": "twitter", "kind": "quote",
+          "author": {"agent_id": 5, "name": "Ana Souza", "segment": "Students", "country": "Brazil", "kind": "persona"},
+          "round": 1, "hour": "19:00", "created_at": 2,
+          "content": "Flat tuition but the fees went up. Scam vibes 🚩",
+          "is_brand": false, "brand_source": null,
+          "quote_content": "Tuition stays flat next year. Ask us anything.",
+          "original": {"post_id": 1, "author": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"}},
+          "likes": 3, "dislikes": 0,
+          "likers": [{"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"}],
+          "reposts": 0, "quotes": [],
+          "comments": [],
+          "engagement": {"by_segment": {"Parents": 1}, "by_country": {"Lebanon": 1}},
+          "reach_proxy": 3, "reply_sentiment": {"pos": 0, "neg": 0, "neu": 0}, "sentiment": "neg", "score": 3
+        },
+        {
+          "post_id": 3, "platform": "twitter", "kind": "repost",
+          "author": {"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"},
+          "round": 2, "hour": "20:00", "created_at": 3,
+          "content": "", "is_brand": false, "brand_source": null,
+          "quote_content": "Tuition stays flat next year. Ask us anything.",
+          "original": {"post_id": 1, "author": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"}},
+          "likes": 0, "dislikes": 0, "likers": [], "reposts": 0, "quotes": [], "comments": [],
+          "engagement": {"by_segment": {}, "by_country": {}},
+          "reach_proxy": 0, "reply_sentiment": {"pos": 0, "neg": 0, "neu": 0}, "sentiment": "neu", "score": 0
+        }
+      ],
+      "rounds": [
+        {"round": 0, "hour": "00:00", "posts": 1, "comments": 0, "likes": 0, "top_posts": [1], "brand_sentiment": {"pos": 0, "neg": 0, "neu": 0}},
+        {"round": 1, "hour": "19:00", "posts": 1, "comments": 0, "likes": 3, "top_posts": [2], "brand_sentiment": {"pos": 0, "neg": 1, "neu": 0}},
+        {"round": 2, "hour": "20:00", "posts": 1, "comments": 0, "likes": 2, "top_posts": [3], "brand_sentiment": {"pos": 0, "neg": 0, "neu": 0}}
+      ],
+      "total_posts": 3, "truncated": false, "rounds_known": true, "comments": 0, "likes": 5
+    },
+    "reddit": {
+      "posts": [
+        {
+          "post_id": 1, "platform": "reddit", "kind": "post",
+          "author": {"agent_id": 5, "name": "Ana Souza", "segment": "Students", "country": "Brazil", "kind": "persona"},
+          "round": 0, "hour": "00:00", "created_at": "2026-10-01 10:00:00.000000",
+          "content": "Is the flat tuition real or marketing?",
+          "is_brand": false, "brand_source": null, "quote_content": null, "original": null,
+          "likes": 4, "dislikes": 1,
+          "likers": [{"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"}],
+          "reposts": 0, "quotes": [],
+          "comments": [
+            {"comment_id": 1, "author": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"},
+             "content": "It is real, and great value for students.", "round": 1, "hour": "19:00", "likes": 1, "sentiment": "pos"},
+            {"comment_id": 2, "author": {"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"},
+             "content": "Terrible, the hidden fees are the catch.", "round": 1, "hour": "19:00", "likes": 0, "sentiment": "neg"}
+          ],
+          "engagement": {"by_segment": {"Parents": 2, "unknown": 1}, "by_country": {"Lebanon": 2, "unknown": 1}},
+          "reach_proxy": 4, "reply_sentiment": {"pos": 1, "neg": 1, "neu": 0}, "sentiment": "neu", "score": 7
+        }
+      ],
+      "rounds": [
+        {"round": 0, "hour": "00:00", "posts": 1, "comments": 0, "likes": 0, "top_posts": [1], "brand_sentiment": {"pos": 0, "neg": 0, "neu": 0}},
+        {"round": 1, "hour": "19:00", "posts": 0, "comments": 2, "likes": 4, "top_posts": [], "brand_sentiment": {"pos": 0, "neg": 0, "neu": 0}}
+      ],
+      "total_posts": 1, "truncated": false, "rounds_known": true, "comments": 2, "likes": 4
+    }
+  },
+  "brand_posts": [
+    {
+      "post_id": 1, "platform": "twitter", "kind": "post", "source": "initial_post",
+      "author": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"},
+      "round": 0, "hour": "00:00", "created_at": 1,
+      "content": "Tuition stays flat next year. Ask us anything. <script>alert(1)</script>",
+      "is_brand": true, "quote_content": null, "original": null,
+      "likes": 2, "dislikes": 0, "likers": [], "reposts": 1, "quotes": [2], "comments": [],
+      "engagement": {"by_segment": {"Students": 2, "Parents": 1}, "by_country": {"Brazil": 2, "Lebanon": 1}},
+      "reach_proxy": 7, "reply_sentiment": {"pos": 0, "neg": 1, "neu": 0}, "sentiment": "neu", "score": 6,
+      "best_reply": {"author": {"agent_id": 5, "name": "Ana Souza", "segment": "Students", "country": "Brazil", "kind": "persona"},
+                     "content": "Flat tuition but the fees went up. Scam vibes 🚩", "sentiment": "neg"},
+      "worst_reply": null
+    }
+  ],
+  "people": {
+    "3": {"agent_id": 3, "name": "Riverside University", "segment": null, "country": null, "kind": "community"},
+    "5": {"agent_id": 5, "name": "Ana Souza", "segment": "Students", "country": "Brazil", "kind": "persona"},
+    "6": {"agent_id": 6, "name": "Omar Haddad", "segment": "Parents", "country": "Lebanon", "kind": "persona"}
+  },
+  "sentiment_method": "lexicon",
+  "max_posts": 300,
+  "generated_at": "2026-10-18T12:00:00"
+}
