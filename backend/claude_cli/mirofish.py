@@ -334,7 +334,7 @@ def read_messages(v: Optional[str]) -> List[str]:
 
 def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
-                platform: Optional[str] = None, batch: int = 8, wait_s: int = 240,
+                platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
                 limit: Optional[int] = None, ssr: bool = True) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
 
@@ -1058,6 +1058,13 @@ def cmd_market_test(c: Client, a) -> Any:
         state["project_id"] = up["project_id"]
         save_json(out_dir, "ontology", up)
         checkpoint()
+        if cfg.get("understand", True):
+            try:
+                prof = step_profile(c, up["project_id"], cfg.get("url"), None, False, cfg.get("brand"))
+                save_json(out_dir, "product_profile", prof)
+                state["profile"] = {"name": prof.get("name"), "one_liner": prof.get("one_liner"), "method": prof.get("method")}
+            except CLIError as e:
+                log(f"understand skipped: {e}")
         g = step_build_graph(c, up["project_id"])
         state["graph_id"] = g.get("graph_id")
         sim = step_create_sim(c, up["project_id"], g.get("graph_id"), cfg.get("platform") or "parallel")
@@ -1201,8 +1208,16 @@ def cmd_pitch(c: Client, a) -> Any:
 
 def cmd_ideas(c: Client, a) -> Any:
     rows = load_json_list(a.rows, "rows") if a.rows else None
+    profile = None
+    if a.run_dir:
+        try:
+            with open(os.path.join(a.run_dir, "product_profile.json"), encoding="utf-8") as f:
+                profile = json.load(f)
+        except (OSError, ValueError):
+            profile = None
     try:
-        res = market_cli.ideas(c, a.run_dir, log, a.ads, rows, a.brand or "", read_text_arg(a.brief) or "", a.n, a.out)
+        res = market_cli.ideas(c, a.run_dir, log, a.ads, rows, a.brand or "", read_text_arg(a.brief) or "", a.n, a.out,
+                               profile=profile)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
@@ -1213,7 +1228,16 @@ def cmd_ideas(c: Client, a) -> Any:
 def cmd_quickstart(c: Optional[Client], a) -> Any:
     import quickstart
     try:
-        answers = quickstart.load_answers(a.answers) if a.answers else quickstart.ask(sys.stdin, sys.stderr)
+        prefill: Dict[str, Any] = {}
+        if (a.from_docs or a.url) and c is not None:
+            text = read_docs_text(a.from_docs or [])
+            prof = c.data("POST", "/api/graph/profile", json={"text": text, "url": a.url or "", "name": ""}, timeout=300)
+            prefill = {k: v for k, v in (prof.get("quickstart_answers") or {}).items() if v}
+            log(f"quickstart: understood {prof.get('name') or 'the product'}: {prof.get('one_liner') or ''}"[:160])
+            if a.from_docs:
+                prefill["docs"] = ", ".join(a.from_docs)
+        answers = quickstart.load_answers(a.answers) if a.answers else quickstart.ask(sys.stdin, sys.stderr, prefill)
+        answers = {**prefill, **{k: v for k, v in answers.items() if str(v).strip()}}
         root = a.out or os.path.join("scenarios", quickstart.slug(answers.get("brand") or answers.get("product") or "my_test"))
         res = quickstart.build_scenario(answers, root, ads_import=market_cli.ads_import)
     except (ValueError, OSError) as e:
@@ -1232,6 +1256,60 @@ def cmd_quickstart(c: Optional[Client], a) -> Any:
     run_ns = argparse.Namespace(config=res["config"])
     res["stage_one"] = cmd_market_test(c, run_ns)
     return res
+
+
+def read_docs_text(paths: List[str], limit: int = 60000) -> str:
+    """Local documents (md/txt; pdf via the backend's parser is not available offline) -> one text."""
+    out = []
+    for path in paths:
+        if not os.path.isfile(path):
+            raise CLIError(f"document not found: {path}")
+        if path.lower().endswith(".pdf"):
+            raise CLIError(f"{path}: upload PDFs through a project (understand --project) so the backend can parse them")
+        with open(path, encoding="utf-8", errors="replace") as f:
+            out.append(f"# {os.path.basename(path)}\n" + f.read())
+    return "\n\n".join(out)[:limit]
+
+
+def step_profile(c: Client, project_id: str, url: Optional[str] = None, ads_summary: Optional[Dict[str, Any]] = None,
+                 refresh: bool = False, name: Optional[str] = None) -> Dict[str, Any]:
+    """Create (or reuse) the project's product profile; before the graph build it also seeds the market map."""
+    body: Dict[str, Any] = {"refresh": bool(refresh)}
+    if url:
+        body["url"] = url
+    if ads_summary:
+        body["ads_summary"] = ads_summary
+    if name:
+        body["name"] = name
+    prof = c.data("POST", f"/api/graph/project/{project_id}/profile", json=body, timeout=300)
+    log(f"understand: {prof.get('name') or '?'} - {prof.get('one_liner') or ''}"[:160]
+        + (f" ({prof.get('method')})" if prof.get("method") else ""))
+    return prof
+
+
+def cmd_understand(c: Client, a) -> Any:
+    ads_summary = None
+    if a.ads:
+        try:
+            ads_summary = market_cli.summarize_ads(market_cli.read_ads(a.ads))
+        except (OSError, ValueError) as e:
+            raise CLIError(f"understand: cannot read ads export: {e}")
+    if a.project:
+        prof = step_profile(c, a.project, a.url, ads_summary, a.refresh, a.name)
+    else:
+        text = read_docs_text(a.docs or [])
+        if not text and not a.url:
+            raise CLIError("understand: give --project, --docs or --url")
+        prof = c.data("POST", "/api/graph/profile", json={"text": text, "url": a.url or "", "ads_summary": ads_summary,
+                                                          "name": a.name or ""}, timeout=300)
+    out = a.out or "product_profile.json"
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(prof, f, ensure_ascii=False, indent=2)
+    return {"file": os.path.abspath(out), "name": prof.get("name"), "one_liner": prof.get("one_liner"),
+            "for_whom": [x.get("segment") for x in prof.get("for_whom") or []], "pricing": prof.get("pricing"),
+            "likely_objections": [o.get("text") for o in prof.get("likely_objections") or []],
+            "unknowns": prof.get("unknowns"), "method": prof.get("method")}
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -1474,8 +1552,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
     s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
     s.add_argument("--platform", choices=["twitter", "reddit"], help="which platform's agents to ask (default reddit)")
-    s.add_argument("--batch", type=int, default=8, help="people per interview call (default %(default)s)")
-    s.add_argument("--wait-s", type=int, default=240, help="server-side timeout per batch (s)")
+    s.add_argument("--batch", type=int, default=40, help="people per interview call (default %(default)s)")
+    s.add_argument("--wait-s", type=int, default=600, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
@@ -1543,7 +1621,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--channel", default="message", choices=["message", "call", "demo", "email", "dm"])
     s.add_argument("--segment", help="only this audience")
     s.add_argument("--agents", type=int, nargs="*", help="only these agent ids")
-    s.add_argument("--batch", type=int, default=8)
+    s.add_argument("--batch", type=int, default=40, help="people per interview call (default %(default)s)")
     s.add_argument("--run-dir", help="run folder to update (default: mirofish_runs/<simulation>)")
     s.add_argument("--no-export", action="store_true")
 
@@ -1556,8 +1634,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
+    s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
+    s.add_argument("--docs", nargs="*", help="local .md/.txt files (no project needed)")
+    s.add_argument("--url", help="landing page or app-store page")
+    s.add_argument("--ads", help="Meta/Google Ads export (CSV/JSON) to fold in")
+    s.add_argument("--name", help="brand name hint")
+    s.add_argument("--refresh", action="store_true", help="rebuild even if the project already has a profile")
+    s.add_argument("--out", help="where to write product_profile.json")
+
     s = sub.add_parser("quickstart", help="answer a few questions, get a ready scenario folder and the simulated people")
     s.add_argument("--answers", help="@answers.json (for agents; otherwise asks on the terminal)")
+    s.add_argument("--from-docs", nargs="*", help="documents to read first; the answers are prefilled from them")
+    s.add_argument("--url", help="landing page to read first")
     s.add_argument("--out", help="scenario folder (default: scenarios/<brand>)")
     s.add_argument("--no-run", action="store_true", help="only write the files")
 
@@ -1582,6 +1671,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
+    "understand": cmd_understand,
 }
 
 

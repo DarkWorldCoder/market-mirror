@@ -161,6 +161,8 @@ def test_market_report_api(tmp_path, monkeypatch):
             break
         time.sleep(0.05)
     assert st["status"] == "completed", st
-    got = c.get("/api/simulation/sim_r/market-report").get_json()["data"]
+    raw = c.get("/api/simulation/sim_r/market-report").get_json()
+    assert raw.get("data"), (raw, st)
+    got = raw["data"]
     assert got["method"] == "llm" and "## Action plan" in got["markdown"]
     assert "# Fitloop: market test report" in got["markdown"]          # brand came from the compacted facts

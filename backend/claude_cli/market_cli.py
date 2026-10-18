@@ -493,7 +493,7 @@ def backtest(feed: Dict[str, Any], actual: Dict[str, Any], mapping: Dict[str, st
 
 def pitch(c, simulation_id: str, run_dir: str, log, script: str, rebuttals: Any = None, product: str = "",
           channel: str = "message", segment: Optional[str] = None, agents: Optional[List[int]] = None,
-          batch: int = 8) -> Dict[str, Any]:
+          batch: int = 40) -> Dict[str, Any]:
     """Pitch every simulated buyer (needs a live simulation environment), then answer their objections."""
     if not str(script or "").strip():
         raise ValueError("pitch: the script is empty")
@@ -515,7 +515,8 @@ def pitch(c, simulation_id: str, run_dir: str, log, script: str, rebuttals: Any 
 
 
 def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_rows: Optional[List[Dict[str, Any]]] = None,
-          brand: str = "", brief: str = "", n: int = 8, out: Optional[str] = None) -> Dict[str, Any]:
+          brand: str = "", brief: str = "", n: int = 8, out: Optional[str] = None,
+          profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Next tests from real ad results (export file or rows from a connected ads tool) and a run's summary."""
     rows = list(ads_rows or [])
     if ads_path:
@@ -538,7 +539,8 @@ def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_ro
         raise ValueError("ideas: give --ads (export file), --rows (JSON) or --run-dir with a summary.json")
     log(f"ideas: {len(rows)} ad rows, run summary {'yes' if run_summary else 'no'}")
     data = c.data("POST", "/api/simulation/ideas",
-                  json={"brand": brand, "brief": brief, "ads": rows[:2000], "run_summary": run_summary, "n": n}, timeout=300)
+                  json={"brand": brand or (profile or {}).get("name") or "", "brief": brief, "ads": rows[:2000],
+                        "run_summary": run_summary, "n": n, "profile": profile}, timeout=300)
     out_json = out or os.path.join(run_dir or ".", "ideas.json")
     os.makedirs(os.path.dirname(os.path.abspath(out_json)), exist_ok=True)
     with open(out_json, "w", encoding="utf-8") as f:

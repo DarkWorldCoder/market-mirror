@@ -225,7 +225,7 @@ class SimulationIPCClient:
         self,
         interviews: List[Dict[str, Any]],
         platform: str = None,
-        timeout: float = 120.0
+        timeout: float = 600.0
     ) -> IPCResponse:
         """
         发送批量采访命令

@@ -168,13 +168,24 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"file": {"type": "string"}, "out": {"type": "string", "description": "absolute path of the seed .md to write"}}, "required": ["file", "out"]}},
     {"name": "backtest", "description": "Score a run's feed test against real ad results (from ads_import): rank correlation, winner match, calibration.",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "actuals": {"type": "string"}, "map": {"type": "array", "items": {"type": "string"}}}, "required": ["run", "actuals"]}},
+    {"name": "understand", "description": (
+        "Step one for any product: read the user's documents (absolute paths to .md/.txt), a landing page URL and/or an ads "
+        "export into one product profile (what it is, for whom, pricing, offer, proofs, differentiators, competitors, channels, "
+        "likely objections, brand voice, KPIs, unknowns). Every later step uses it. Synchronous, one Claude call. Writes "
+        "product_profile.json; pass `project` instead of docs to profile an existing project (also seeds the market map before "
+        "the graph build)."),
+     "inputSchema": {"type": "object", "properties": {"docs": {"type": "array", "items": {"type": "string"}}, "url": {"type": "string"},
+                                                      "ads_file": {"type": "string"}, "project": {"type": "string"}, "name": {"type": "string"},
+                                                      "out": {"type": "string"}}}},
     {"name": "quickstart", "description": (
         "Easiest start. Answer a few questions and get a ready scenario folder (brief, personas, two template captions per "
         "platform, messages, launch calendar, pitch) plus the simulated people (stops before any paid rounds). Keys: brand, "
         "product (what, for whom, price), buyers (who and where), platforms (comma list), tests (ads, messages, price, launch, "
         "pitch), budget ('300 USD'), size (small|medium|large), past_ads (absolute path, optional), docs (paths, optional). "
         "Background job; poll job_status. The result names the files to edit and the exact next command."),
-     "inputSchema": {"type": "object", "properties": {"answers": {"type": "object"}, "no_run": {"type": "boolean"}}, "required": ["answers"]}},
+     "inputSchema": {"type": "object", "properties": {"answers": {"type": "object"}, "no_run": {"type": "boolean"},
+                                                      "from_docs": {"type": "array", "items": {"type": "string"}, "description": "documents to understand first; prefills the answers"},
+                                                      "url": {"type": "string"}}, "required": ["answers"]}},
     {"name": "pitch", "description": (
         "Sales rehearsal: pitch a script to every simulated buyer of a simulation (its environment must be alive: run market_test "
         "with rounds first, or start it), collect objections and the questions they ask back, then answer with rebuttals "
@@ -223,13 +234,33 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
         r = sh(["cli", "backtest", "--run-dir", run_dir, "--actuals", a["actuals"], *(["--map", *a["map"]] if a.get("map") else [])], timeout=300)
         return r["stdout"].strip() or r["stderr"].strip()
+    if name == "understand":
+        d = os.path.join(home(), "scenarios", "_profiles")
+        os.makedirs(d, exist_ok=True)
+        out = a.get("out") or os.path.join(d, f"profile_{uuid.uuid4().hex[:6]}.json")
+        args = ["cli", "understand", "--out", out]
+        if a.get("project"):
+            args += ["--project", a["project"]]
+        if a.get("docs"):
+            args += ["--docs", *[str(x) for x in a["docs"]]]
+        for k in ("url", "name"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("ads_file"):
+            args += ["--ads", a["ads_file"]]
+        r = sh(args, timeout=400)
+        return r["stdout"].strip() or r["stderr"].strip()
     if name == "quickstart":
         d = os.path.join(home(), "scenarios", "_quickstart")
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"answers_{uuid.uuid4().hex[:6]}.json")
         json.dump(a["answers"], open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        return {**job(["cli", "quickstart", "--answers", "@" + path] + (["--no-run"] if a.get("no_run") else []), "quickstart"),
-                "answers": path}
+        args = ["cli", "quickstart", "--answers", "@" + path] + (["--no-run"] if a.get("no_run") else [])
+        if a.get("from_docs"):
+            args += ["--from-docs", *[str(x) for x in a["from_docs"]]]
+        if a.get("url"):
+            args += ["--url", str(a["url"])]
+        return {**job(args, "quickstart"), "answers": path}
     if name == "pitch":
         run_dir = a.get("run")
         run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None

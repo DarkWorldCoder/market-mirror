@@ -7,6 +7,7 @@
 #   mm.sh scenario NAME FILE... copy documents into <home>/scenarios/NAME/ and print that folder
 #   mm.sh cli ARGS...           run the MiroFish CLI from the engine folder (see its --help)
 #   mm.sh live [ARGS...]        serve the live dashboard on http://127.0.0.1:5050/ (foreground)
+#   mm.sh gateway start|stop|status [claude|codex]   run without an API key on your Claude Code or ChatGPT login
 #   mm.sh home                  print the engine folder
 #   mm.sh mcp                   run the MCP server (stdio) exposing all of this as agent tools
 #
@@ -41,7 +42,16 @@ doctor() {
   local ok=1
   [ -d "$HOME_DIR/.git" ] && say "engine:  $HOME_DIR" || { say "engine:  missing (run: mm.sh setup)"; ok=0; }
   [ -x "$PY" ] && say "python:  $("$PY" --version 2>&1)" || { say "python:  deps not installed (run: mm.sh setup)"; ok=0; }
-  local k; k=$(key_status); say "api key: $k"; case $k in set*) ;; *) ok=0 ;; esac
+  local k; k=$(key_status); say "api key: $k"
+  case $k in set*) ;; *)
+    if grep -Eq '^LLM_BASE_URL=http://127\.0\.0\.1:5055' "$HOME_DIR/.env" 2>/dev/null; then
+      say "gateway: configured (LLM_GATEWAY=$(grep -E '^LLM_GATEWAY=' "$HOME_DIR/.env" | cut -d= -f2-)); $(curl -fsS -m 2 http://127.0.0.1:5055/health >/dev/null 2>&1 && echo running || echo 'stopped (run: mm.sh gateway start)')"
+    else
+      ok=0
+      command -v claude >/dev/null && say "no key, but 'claude' is installed: 'mm.sh gateway start claude' runs on your Claude Code login (personal use)"
+      command -v codex  >/dev/null && say "no key, but 'codex' is installed: 'mm.sh gateway start codex' runs on your ChatGPT login (personal use)"
+    fi ;;
+  esac
   if [ -f "$HOME_DIR/.env" ]; then
     say "model:   $(grep -E '^LLM_MODEL_NAME=' "$HOME_DIR/.env" | cut -d= -f2- || true)"
     say "memory:  $(grep -E '^MEMORY_BACKEND=' "$HOME_DIR/.env" | cut -d= -f2- || true)"
@@ -88,6 +98,28 @@ case "$cmd" in
     [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
     cd "$HOME_DIR" && exec "$PY" "$CLI" live "$@"
     ;;
+  gateway)
+    [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
+    sub="${1:-status}"; be="${2:-$(grep -E '^LLM_GATEWAY=' "$HOME_DIR/.env" 2>/dev/null | cut -d= -f2-)}"; be="${be:-claude}"
+    pidf="$HOME_DIR/backend/logs/gateway.pid"; mkdir -p "$HOME_DIR/backend/logs"
+    case "$sub" in
+      start)
+        command -v "$be" >/dev/null || die "'$be' CLI not found on PATH (install it and log in first)"
+        if curl -fsS -m 2 http://127.0.0.1:5055/health >/dev/null 2>&1; then say "gateway already running"; else
+          (cd "$HOME_DIR" && nohup "$PY" backend/gateway/local_gateway.py --backend "$be" > backend/logs/gateway.out 2>&1 & echo $! > "$pidf")
+          for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS -m 1 http://127.0.0.1:5055/health >/dev/null 2>&1 && break; sleep 0.5; done
+          say "gateway started ($be) on http://127.0.0.1:5055/v1"
+        fi
+        # point the engine at it (keeps a real key if one is set)
+        if ! grep -Eq '^LLM_BASE_URL=http://127\.0\.0\.1:5055' "$HOME_DIR/.env" 2>/dev/null; then
+          { grep -Ev '^(LLM_PROVIDER|LLM_BASE_URL|LLM_API_KEY|LLM_GATEWAY|LLM_MODEL_NAME)=' "$HOME_DIR/.env" 2>/dev/null
+            printf 'LLM_PROVIDER=openai\nLLM_BASE_URL=http://127.0.0.1:5055/v1\nLLM_API_KEY=gateway\nLLM_GATEWAY=%s\nLLM_MODEL_NAME=%s\n' "$be" "$be"; } > "$HOME_DIR/.env.tmp"
+          mv "$HOME_DIR/.env.tmp" "$HOME_DIR/.env"; say "wrote gateway settings to $HOME_DIR/.env (restart the backend: mm.sh stop && mm.sh start)"
+        fi ;;
+      stop) [ -f "$pidf" ] && kill "$(cat "$pidf")" 2>/dev/null && rm -f "$pidf" && say "gateway stopped" || say "gateway not running" ;;
+      status) curl -fsS -m 2 http://127.0.0.1:5055/health 2>/dev/null || say "gateway stopped" ;;
+      *) die "usage: mm.sh gateway start|stop|status [claude|codex]" ;;
+    esac ;;
   mcp) exec python3 "$(dirname "$0")/mcp_server.py" ;;
   help|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$cmd' (try: mm.sh help)" ;;

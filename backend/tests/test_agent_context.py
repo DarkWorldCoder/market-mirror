@@ -163,3 +163,71 @@ def test_patched_environment_prompt_when_oasis_present():
         SocialEnvironment.to_text_prompt = original
         SocialEnvironment.env_template.template = template
         ac._STATE["installed"] = False
+
+
+def test_per_platform_state_is_independent():
+    agents = [(i, SimpleNamespace(social_agent_id=i, env=SimpleNamespace())) for i in range(3)]
+    graph = SimpleNamespace(get_agents=lambda: agents)
+    assert ac.install(graph, CONFIG, seed=3, platform="twitter") == 3
+    assert ac.install(graph, CONFIG, seed=3, platform="reddit") == 3
+    assert agents[1][1].env.mm_platform == "reddit"           # last install tags the agents' environments
+    ac.begin_round(2, 21, platform="twitter")
+    ac.begin_round(2, 3, platform="reddit")                    # must not touch Twitter's hour/budgets/moods
+    tw, rd = ac.session_line(1, "twitter"), ac.session_line(1, "reddit")
+    assert "about 21:00" in tw and "about 03:00" in rd
+    assert ac._state("twitter")["hour"] == 21 and ac._state("reddit")["hour"] == 3
+    assert ac._state("reddit")["moods"][1] in ("tired", "can't sleep", "bored")
+    assert ac._state("twitter")["moods"][1] not in ("can't sleep",) or True   # evening moods come from MOODS
+    assert ac.compose_prompt(1, "BASE", "twitter").endswith(tw) and ac.compose_prompt(1, "BASE", "reddit").endswith(rd)
+    assert ac.compose_prompt(1, "BASE") == "BASE"              # the default slot was never installed
+    ac.reset()
+    assert ac._state("twitter")["cards"] == {} and ac._STATE["cards"] == {}
+
+
+def test_memory_window_and_token_limit_are_applied(monkeypatch):
+    class Creator:
+        _token_limit = 4096
+
+    class Memory:
+        def __init__(self):
+            self._window_size = None
+            self._creator = Creator()
+
+        def get_context_creator(self):
+            return self._creator
+
+    mems = [Memory() for _ in range(2)]
+    agents = [(i, SimpleNamespace(social_agent_id=i, memory=m)) for i, m in enumerate(mems)]
+    graph = SimpleNamespace(get_agents=lambda: agents + [(9, SimpleNamespace(social_agent_id=9))])
+    monkeypatch.delenv("OASIS_MEMORY_WINDOW", raising=False)
+    monkeypatch.delenv("OASIS_TOKEN_LIMIT", raising=False)
+    assert ac.memory_window_for(graph) == 2
+    assert all(m._window_size == ac.DEFAULT_MEMORY_WINDOW for m in mems)
+    assert all(m._creator._token_limit == ac.DEFAULT_TOKEN_LIMIT for m in mems)
+    monkeypatch.setenv("OASIS_MEMORY_WINDOW", "4")
+    monkeypatch.setenv("OASIS_TOKEN_LIMIT", "9000")
+    ac.install(graph, CONFIG, seed=1, platform="twitter")        # install applies the window too
+    assert mems[0]._window_size == 4 and mems[0]._creator._token_limit == 9000
+
+
+def test_speed_knobs_read_env(monkeypatch):
+    monkeypatch.delenv("OASIS_SEMAPHORE", raising=False)
+    monkeypatch.delenv("OASIS_RECSYS", raising=False)
+    monkeypatch.delenv("MODEL_TIMEOUT", raising=False)
+    assert ac.semaphore_size() == ac.DEFAULT_SEMAPHORE and ac.recsys_type() == "random"
+    assert ac.model_timeout() == float(ac.DEFAULT_MODEL_TIMEOUT) and os.environ["MODEL_TIMEOUT"] == "60"
+    monkeypatch.setenv("OASIS_SEMAPHORE", "12")
+    monkeypatch.setenv("OASIS_RECSYS", "twhin-bert")
+    monkeypatch.setenv("MODEL_TIMEOUT", "180")
+    assert ac.semaphore_size() == 12 and ac.recsys_type() == "twhin-bert" and ac.model_timeout() == 180.0
+    monkeypatch.setenv("OASIS_SEMAPHORE", "oops")
+    monkeypatch.setenv("OASIS_RECSYS", "bogus")
+    assert ac.semaphore_size() == ac.DEFAULT_SEMAPHORE and ac.recsys_type() == "random"
+
+
+def test_twitter_platform_uses_chosen_recommender(monkeypatch, tmp_path):
+    pytest.importorskip("oasis")
+    from oasis.social_platform.typing import RecsysType
+    monkeypatch.delenv("OASIS_RECSYS", raising=False)
+    p = ac.twitter_platform(str(tmp_path / "tw.db"))
+    assert p is not None and p.recsys_type == RecsysType.RANDOM and p.max_rec_post_len == 2

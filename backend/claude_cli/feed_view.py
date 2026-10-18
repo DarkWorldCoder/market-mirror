@@ -7,50 +7,21 @@ real ads, confidence helpers and the downloads bar. Stdlib only.
 from __future__ import annotations
 
 import csv
-import html
 import io
 import json
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 try:  # stdlib only
+    import ui  # type: ignore
     from marketing import SSR_GO_MEAN, SSR_ITERATE_MEAN  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
+    from . import ui  # type: ignore
     from .marketing import SSR_GO_MEAN, SSR_ITERATE_MEAN  # type: ignore
 
-PLATFORM_LABEL = {"facebook": "Facebook", "instagram": "Instagram", "reddit": "Reddit", "tiktok": "TikTok",
-                  "linkedin": "LinkedIn", "x": "X"}
+# shared helpers (ui.py); the old private names stay as aliases for the other dashboard modules
+_e, _t, ci, pct_ci, low_n_pill, PLATFORM_LABEL = ui.esc, ui.trunc, ui.ci, ui.pct_ci, ui.low_n_pill, ui.PLATFORM_LABEL
 REACTION_EMOJI = {"like": "👍", "love": "❤️", "care": "🤗", "haha": "😆", "wow": "😮", "sad": "😢", "angry": "😡",
                   "celebrate": "👏", "support": "🤝", "insightful": "💡", "funny": "😄", "upvote": "⬆", "downvote": "⬇"}
-
-
-def _e(v: Any) -> str:
-    return html.escape("" if v is None else str(v), quote=True)
-
-
-def _t(s: Any, n: int) -> str:
-    s = "" if s is None else str(s)
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
-
-
-def ci(p_pct: Optional[float], n: int) -> Optional[float]:
-    """95% margin of error (percentage points) for a proportion, Wilson-style floor for tiny n."""
-    if p_pct is None or not n:
-        return None
-    p = max(min(p_pct / 100, 1), 0)
-    return round(100 * 1.96 * math.sqrt(max(p * (1 - p), 0.25 / n) / n), 1)
-
-
-def pct_ci(p: Optional[float], n: int) -> str:
-    if p is None:
-        return "–"
-    m = ci(p, n)
-    return f"{p:.0f}%" + (f" ±{m:.0f}" if m is not None else "")
-
-
-def low_n_pill(n: int, threshold: int = 10) -> str:
-    return f' <span class="pill orchid" title="Small sample: treat as a direction, not a result">low n={n}</span>' \
-        if n < threshold else ""
 
 
 def _money(v: Any, cur: str = "") -> str:
@@ -211,7 +182,7 @@ def _seeds_html(ft: Dict[str, Any], ranked: List[str], labels: List[str]) -> str
                else "")
     return (f'<div class="card"><h3>Across {n} seeds</h3><p class="muted small">The same test repeated with different '
             f'random seeds (who sees which ad, feed order, attention, habits). Mean and min–max range per creative. '
-            f'{_e(verdict)}{_e(cost)}</p><div class="tbl"><table><thead><tr><th>Creative</th><th class="num">Expected CTR</th>'
+            f'{_e(verdict)}{_e(cost)}</p><div class="tbl"><table class="sortable"><thead><tr><th>Creative</th><th class="num">Expected CTR</th>'
             f'<th class="num">Thumb-stop</th><th class="num">Engagement</th><th class="num">Ranked first</th></tr></thead>'
             f'<tbody>{body}</tbody></table></div></div>')
 
@@ -245,15 +216,15 @@ def _projection_html(pr: Optional[Dict[str, Any]]) -> str:
         items += [("ROAS", f'{pr["roas"]:.2f}x'), ("ROI", f'{pr["roi_pct"]:+.0f}%'), ("Break-even CPL", _money(pr.get("break_even_cpl"), cur))]
     if pr.get("payback_months") is not None:
         items.append(("Payback", f'{pr["payback_months"]} months'))
-    cells = "".join(f'<div><div class="v">{_e(v)}</div><div class="k">{_e(k)}</div></div>' for k, v in items)
+    cells = "".join(ui.kpi(v, k, cls="sm") for k, v in items)
     note = f'CTR {pr["ctr_used"]}%' + (" calibrated to your real platform CTR" if pr.get("calibrated") else " as simulated (not calibrated)")
     if pr.get("too_few_clicks") is not None:
         note += (f'. Only {pr["too_few_clicks"]} simulated click(s): too few to estimate conversions, '
                  'so add personas or exposures')
-    return f'<div class="proj"><h4>If you spend {_e(_money(pr["budget"], cur))} at CPM {_e(pr["cpm"])}</h4><div class="proj-g">{cells}</div><p class="muted small">{_e(note)}.</p></div>'
+    return f'<div class="proj"><h4>If you spend {_e(_money(pr["budget"], cur))} at CPM {_e(pr["cpm"])}</h4><div class="kpis auto proj-g">{cells}</div><p class="muted small">{_e(note)}.</p></div>'
 
 
-def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
+def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     summary = (ft or {}).get("summary") or {}
     per = summary.get("per_creative") or {}
     if not per:
@@ -296,16 +267,17 @@ def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
             + (f', in each of {n_seeds} seeded runs ({n} impressions).' if n_seeds > 1 else '.') + '</p>'
             f'<table class="kv-t"><tbody>{_metric_rows(m, base.get(cr.get("platform")), (ms.get("spread") or {}).get(cid), n_seeds)}</tbody></table>'
             f'{_landing_html(m.get("landing"))}{_projection_html(m.get("projection"))}{proof}'
-            + (f'<details class="tv"><summary>By audience</summary><div class="tbl"><table><thead><tr><th>Audience</th><th class="num">Saw it</th>'
+            + (f'<details class="tv"><summary>By audience</summary><div class="tbl"><table class="sortable"><thead><tr><th>Audience</th><th class="num">Saw it</th>'
                f'<th class="num">Thumb-stop</th><th class="num">CTR</th><th class="num">Engagement</th></tr></thead><tbody>{seg_rows}</tbody></table></div></details>'
                if seg_rows else "")
             + (f'<details class="tv"><summary>What went through their heads</summary><ul class="small">{thoughts}</ul></details>' if thoughts else "")
             + "</div></div>")
-    head = (f'<h2>Feed test</h2><p class="muted small">{ft.get("personas_tested", 0)} simulated people scrolled realistic feeds '
-            f'({ft.get("feeds", 0)} feeds, {ft.get("waves", 1)} waves; later waves saw earlier reactions'
-            + (f'; repeated with {n_seeds} seeds' if n_seeds > 1 else '') + '). ± values are 95% '
-            'margins of error; small samples are flagged.'
-            + ('' if n_seeds > 1 else ' One seed only: run with --seeds 3 to see how much the result moves.') + '</p>')
+    intro = (f'{ft.get("personas_tested", 0)} simulated people scrolled realistic feeds '
+             f'({ft.get("feeds", 0)} feeds, {ft.get("waves", 1)} waves; later waves saw earlier reactions'
+             + (f'; repeated with {n_seeds} seeds' if n_seeds > 1 else '') + '). ± values are 95% '
+             'margins of error; small samples are flagged.'
+             + ('' if n_seeds > 1 else ' One seed only: run with --seeds 3 to see how much the result moves.'))
+    head = ui.section_head("Feed test", intro, insight)
     return ("feedtest", "Feed test", head + seeds_card + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
 
 
@@ -313,7 +285,7 @@ def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
 # Analyst panel + backtest
 # --------------------------------------------------------------------------
 
-def panel_section(p: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+def panel_section(p: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     if not p or not p.get("analysts"):
         return None
     c = p.get("consensus") or {}
@@ -341,18 +313,19 @@ def panel_section(p: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
                      + (f'<dt>Objections</dt><dd>{_e("; ".join(r["objections"][:3]))}</dd>' if r["objections"] else "")
                      + (f'<dt>Risks</dt><dd>{_e("; ".join(r["risks"][:2]))}</dd>' if r["risks"] else "")
                      + f'<dt>Confidence</dt><dd>{_e(r["confidence"])}/10 · {_e(_t(r["evidence_gaps"], 140))}</dd></dl></div>')
-    return ("analysts", "Analysts", f'<h2>Independent analyst panel</h2>{head}'
-            + (f'<div class="card" style="margin-top:14px"><h3>Themes the analysts found</h3><div class="tbl"><table><thead><tr>'
+    return ("analysts", "Analysts", ui.section_head("Independent analyst panel", insight=insight) + head
+            + (f'<div class="card" style="margin-top:14px"><h3>Themes the analysts found</h3><div class="tbl"><table class="sortable"><thead><tr>'
                f'<th>Theme</th><th class="num">Analysts</th><th class="num">Weight</th><th>Evidence</th></tr></thead><tbody>{themes}</tbody></table></div></div>'
                if themes else "")
             + f'<div class="plays" style="margin-top:14px">{"".join(cards)}</div>')
 
 
-def backtest_section(b: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
+def backtest_section(b: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     if not b or not b.get("pairs"):
         return None
+    head = ui.section_head("Backtest against real ads", insight=insight)
     if b.get("note"):
-        return ("backtest", "Backtest", f'<h2>Backtest against real ads</h2><div class="callout">{_e(b["note"])}</div>')
+        return ("backtest", "Backtest", head + f'<div class="callout">{_e(b["note"])}</div>')
     rows = "".join(f'<tr><td>{_e(p["creative"])}</td><td>{_e(p["real_ad"])}</td><td class="num">{p["sim_ctr"]}%</td>'
                    f'<td class="num">{p["real_ctr"]}%</td><td class="num">{p["real_clicks"]}</td><td class="num">{p["real_conversions"]}</td></tr>'
                    for p in b["pairs"])
@@ -361,14 +334,13 @@ def backtest_section(b: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]
     verdict = ("The simulation picked the same winner as the real ads." if b.get("top1_match")
                else f'The simulation picked {b.get("top_sim")}, but the real winner was {b.get("top_real")}.')
     warn = "".join(f"<li>{_e(w)}</li>" for w in b.get("warnings") or [])
-    return ("backtest", "Backtest", '<h2>Backtest against real ads</h2><div class="grid2"><div class="card">'
-            f'<div class="kpis"><div class="kpi hl"><div class="v">{_e(b.get("spearman"))}</div><div class="k">Rank correlation (Spearman)</div></div>'
-            f'<div class="kpi"><div class="v">{_e(b.get("kendall_tau"))}</div><div class="k">Kendall tau</div></div>'
-            f'<div class="kpi"><div class="v">{"Yes" if b.get("top1_match") else "No"}</div><div class="k">Same winner</div></div>'
-            f'<div class="kpi"><div class="v">{_e(b.get("ctr_calibration"))}×</div><div class="k">Real ÷ simulated CTR</div></div></div>'
+    return ("backtest", "Backtest", head + '<div class="grid2"><div class="card">'
+            '<div class="kpis">' + ui.kpi(b.get("spearman"), "Rank correlation (Spearman)", hl=True)
+            + ui.kpi(b.get("kendall_tau"), "Kendall tau") + ui.kpi("Yes" if b.get("top1_match") else "No", "Same winner")
+            + ui.kpi(f'{b.get("ctr_calibration")}×', "Real ÷ simulated CTR") + '</div>'
             f'<p>{_e(verdict)}</p>' + (f'<ul class="small">{warn}</ul>' if warn else "") + '</div>'
             f'<div class="card"><h3>Simulated vs real CTR</h3>{sc}</div></div>'
-            f'<div class="card" style="margin-top:14px"><div class="tbl"><table><thead><tr><th>Creative</th><th>Real ad</th><th class="num">Simulated CTR</th>'
+            f'<div class="card" style="margin-top:14px"><div class="tbl"><table class="sortable"><thead><tr><th>Creative</th><th>Real ad</th><th class="num">Simulated CTR</th>'
             f'<th class="num">Real CTR</th><th class="num">Real clicks</th><th class="num">Real conversions</th></tr></thead><tbody>{rows}</tbody></table></div></div>')
 
 
@@ -442,7 +414,7 @@ def downloads_section(files: Dict[str, str]) -> Tuple[str, str, str]:
             '<button type="button" onclick="window.print()">Print or save as PDF</button>']
     btns += [f'<button type="button" data-dl="{_e(name)}">{_e(labels.get(name, name))}</button>' for name in files]
     payload = json.dumps(files, ensure_ascii=False).replace("</", "<\\/")
-    return ("downloads", "Downloads", '<h2>Download the reports</h2><div class="card"><p class="muted small">Everything here '
+    return ("downloads", "Downloads", ui.section_head("Download the reports") + '<div class="card"><p class="muted small">Everything here '
             'is generated from this run and stays on your machine. The same files are saved next to dashboard.html.</p>'
             f'<div class="dl">{"".join(btns)}</div></div>'
             f'<script type="application/json" id="mm-files">{payload}</script>')
@@ -464,8 +436,7 @@ FEED_CSS = """
 .lf-row{display:grid;grid-template-columns:110px 1fr 40px;gap:8px;align-items:center;font-size:.85rem;margin:3px 0}
 .lf-track{background:var(--surface-2);border-radius:6px;height:12px;overflow:hidden}.lf-bar{display:block;height:100%;background:var(--mm-ink-bar);border-radius:6px}
 .proj{margin-top:12px;background:var(--surface-2);border-radius:18px;padding:12px 14px}
-.proj-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
-.proj-g .v{font-size:1.15rem;font-weight:500}.proj-g .k{font-size:.75rem;color:var(--muted)}
+.proj-g{grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:0}
 .dl{display:flex;flex-wrap:wrap;gap:8px}
 .dl button{font:inherit;font-size:.86rem;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:999px;padding:8px 16px;cursor:pointer}
 .dl button:first-child{background:var(--text);color:var(--surface);border-color:var(--text)}
@@ -668,7 +639,7 @@ def decision_section(d: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, st
                    f'{_e(s["vote"])}</span> <b>{_e(s["name"])}</b>: {_e(s["detail"])}</span></li>' for s in d["signals"])
     fixes = "".join(f"<li>{_e(f)}</li>" for f in d.get("fixes") or [])
     return ("decision", "Decision", f'<div class="panel dec"><div class="eyebrow">Decision · {_e(d["confidence"])} confidence</div>'
-            f'<div class="headline"><span class="pill {color}" style="font-size:1.1rem;padding:6px 14px;margin-right:10px">'
+            f'<div class="headline"><span class="pill lg {color}" style="margin-right:10px">'
             f'{_e(d["decision"].upper())}</span>{_e(d["summary"])}</div><ul class="verdicts">{rows}</ul>'
             + (f'<div class="eyebrow" style="margin-top:14px">Fix first</div><ul class="verdicts">{fixes}</ul>' if fixes else "")
             + '<p class="small" style="color:var(--mm-panel-muted);margin:12px 0 0">Simulated evidence: confirm with a small real budget before scaling.</p></div>')

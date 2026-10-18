@@ -6,9 +6,15 @@ People cards for the dashboard. Stdlib only.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
-from feed_view import _e, _t
+try:  # stdlib only
+    import ui  # type: ignore
+except ImportError:  # pragma: no cover - imported as a package
+    from . import ui  # type: ignore
+
+_e, _t, _pill = ui.esc, ui.trunc, ui.pill
 
 DL_LABELS = {
     "market_report.md": "Report (Markdown)", "action_plan.json": "Action plan (JSON)",
@@ -29,11 +35,11 @@ def download_bar(files: Dict[str, str]) -> str:
             f'<script type="application/json" id="mm-files">{payload}</script>')
 
 
-def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown_to_html) -> Tuple[str, str, str]:
+def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown_to_html,
+                   insight: Optional[str] = None) -> Tuple[str, str, str]:
     """The report, download bar first. Without a generated report it still shows the downloads and a hint."""
-    head = ('<div class="rep-head"><div><h2>Report</h2><p class="muted small">Written in plain words from this run. '
-            'Every number comes from the data below. Simulated people, not real customers.</p></div>'
-            f'{download_bar(files)}</div>')
+    head = ui.section_head("Report", "Written in plain words from this run. Every number comes from the data below. "
+                           "Simulated people, not real customers.", insight, aside=ui.Raw(download_bar(files)))
     if not mr or not (mr.get("markdown") or "").strip():
         return ("report", "Report", head + '<div class="callout">No report yet. Run <code>mirofish.py report --simulation '
                 '&lt;id&gt;</code> (or let <code>market-test</code> finish) to get the plain-language report here.</div>')
@@ -44,25 +50,29 @@ def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown
     return ("report", "Report", head + note + f'<article class="report mm-report">{body}</article>')
 
 
-def _pill(text: Any, cls: str = "") -> str:
-    return f'<span class="pill {cls}">{_e(text)}</span>' if text not in (None, "") else ""
-
-
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
                  leads: Dict[Any, int], limit: int = 150) -> str:
     people = [r for r in index if r.get("kind") == "persona"][:limit]
     if not people:
         return ""
     cards = []
-    for r in people:
+    segments: Counter = Counter()
+    countries: Counter = Counter()
+    for i, r in enumerate(people):
         aid = r.get("agent_id")
         sv = survey_by_agent.get(aid) or {}
         verdict = sv.get("would_convert")
         vcls = {"yes": "mint", "maybe": "accent", "no": "orchid"}.get(verdict, "")
         who = ", ".join(str(x) for x in (r.get("age"), r.get("city"), r.get("country")) if x)
         traits = [r.get("upbringing"), r.get("education"), r.get("income_level") or r.get("income"), r.get("thinking_style")]
+        if r.get("segment"):
+            segments[str(r["segment"])] += 1
+        if r.get("country"):
+            countries[str(r["country"])] += 1
+        attrs = (f'data-item data-order="{i}" data-segment="{_e(r.get("segment") or "")}" data-country="{_e(r.get("country") or "")}" '
+                 f'data-verdict="{_e(verdict or "none")}" data-lead="{leads[aid] if aid in leads else ""}"')
         cards.append(
-            f'<div class="person"><div class="person-h"><span class="pm-av">{_e(str(r.get("name") or "?")[:1])}</span>'
+            f'<div class="person" {attrs}><div class="person-h"><span class="pm-av">{_e(str(r.get("name") or "?")[:1])}</span>'
             f'<div><b>{_e(r.get("name"))}</b><div class="muted small">{_e(who)} · {_e(r.get("occupation") or "")}</div></div>'
             + (f'<span class="lead" title="Lead score 0-100">{leads[aid]}</span>' if aid in leads else "") + '</div>'
             f'<div class="person-pills">{_pill(r.get("segment"))}'
@@ -76,7 +86,27 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             + (f'<dt>In the run</dt><dd>{activity.get(aid, 0)} actions</dd>' if activity else "")
             + (f'<dt>Objection</dt><dd>{_e(_t(sv.get("main_objection"), 140))}</dd>' if sv.get("main_objection") else "")
             + '</dl></div>')
-    return f'<div class="people">{"".join(cards)}</div>'
+    return people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values())) + f'<div class="people">{"".join(cards)}</div></div>'
+
+
+def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_leads: bool, has_survey: bool) -> str:
+    """Opens the people filter root (closed by people_cards): segment, country, verdict and a minimum lead score."""
+    def opts(c: Dict[str, int]) -> str:
+        return "".join(f'<option value="{_e(k)}">{_e(k)} ({n})</option>' for k, n in sorted(c.items(), key=lambda x: (-x[1], x[0])))
+    bar = ['<div class="filter-bar" role="group" aria-label="Filter people">']
+    if segments:
+        bar.append(f'<select data-filter="segment" aria-label="Segment"><option value="">All segments</option>{opts(segments)}</select>')
+    if countries:
+        bar.append(f'<select data-filter="country" aria-label="Country"><option value="">All countries</option>{opts(countries)}</select>')
+    if has_survey:
+        bar.append('<select data-filter="verdict" aria-label="Survey verdict"><option value="">Any verdict</option>'
+                   '<option value="yes">Would say yes</option><option value="maybe">Maybe</option><option value="no">Would say no</option>'
+                   '<option value="none">No answer</option></select>')
+    if has_leads:
+        bar.append('<label>Lead score ≥ <input type="range" min="0" max="100" step="5" value="0" data-filter="lead" data-filter-op="min" '
+                   'aria-label="Minimum lead score"> <output data-filter-out="lead">0</output></label>')
+    bar.append('<span data-filter-count aria-live="polite"></span></div>')
+    return '<div class="people-root" data-filter-root data-filter-noun="people">' + "".join(bar)
 
 
 def leads_csv(index: List[Dict[str, Any]], survey_by_agent: Dict[Any, Dict[str, Any]], leads: Dict[Any, int]) -> str:
@@ -113,14 +143,13 @@ def person_lead_score(sv: Dict[str, Any]) -> Optional[int]:
 
 
 REPORT_CSS = """
-.rep-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px}
-.rep-head h2{margin:0 0 4px}.rep-head .dl{justify-content:flex-end;max-width:620px}
+#report .section-head .dl{justify-content:flex-end;max-width:620px}
 .mm-report{background:var(--surface);border-radius:24px;padding:22px 26px;max-width:none}
 .mm-report h1{font-size:1.5rem;font-weight:500;letter-spacing:-.02em;margin-top:0}
 .mm-report h2{font-size:1.15rem;font-weight:500;margin-top:26px;padding-top:14px;border-top:1px solid var(--grid)}
 .mm-report table{font-size:.9rem}.mm-report blockquote{border-left-color:var(--mm-accent)}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
-.person{background:var(--surface);border-radius:20px;padding:14px 16px}
+.person{background:var(--surface-2);border-radius:20px;padding:14px 16px}
 .person-h{display:flex;gap:10px;align-items:center}.person-h>div{flex:1;min-width:0}
 .person .pm-av{width:38px;height:38px;flex-basis:38px;background:var(--surface-2);color:var(--text)}
 .lead{font-weight:600;background:var(--mm-accent);color:var(--mm-accent-ink);border-radius:999px;padding:3px 10px;font-size:.85rem}
@@ -141,11 +170,12 @@ DL_LABELS.update({"pitch.json": "Sales rehearsal (JSON)", "ideas.md": "Test idea
 
 def _mix_bar(m: Dict[str, Any]) -> str:
     y, mb, n = (float(m.get(k) or 0) for k in ("yes", "maybe", "no"))
-    return (f'<div class="mixbar" title="yes {y}% · maybe {mb}% · no {n}%"><span class="mint" style="width:{y}%"></span>'
-            f'<span class="accent" style="width:{mb}%"></span><span class="orchid" style="width:{n}%"></span></div>')
+    return (f'<div class="mixbar" role="img" aria-label="yes {y}%, maybe {mb}%, no {n}%" title="yes {y}% · maybe {mb}% · no {n}%">'
+            f'<span class="yes" style="width:{y}%"></span><span class="maybe" style="width:{mb}%"></span>'
+            f'<span class="no" style="width:{n}%"></span></div>')
 
 
-def pitch_section(p: Optional[Dict[str, Any]], chart=None) -> Optional[Tuple[str, str, str]]:
+def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Sales rehearsal': how simulated buyers answered the pitch, which objections the rebuttals handled."""
     if not p or not p.get("answered"):
         return None
@@ -153,7 +183,7 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None) -> Optional[Tuple[str
     tiles = [("People pitched", p.get("answered")), ("Pitch score", f'{p.get("pitch_score")}/100'),
              ("Yes after rebuttals", f'{after.get("yes", 0)}%'), ("Maybe", f'{after.get("maybe", 0)}%'),
              ("Hot leads (55+)", len(p.get("hot_leads") or []))]
-    tiles_html = "".join(f'<div class="tile"><div class="tile-v">{_e(v)}</div><div class="tile-l">{_e(k)}</div></div>' for k, v in tiles)
+    tiles_html = "".join(ui.kpi(v, k, hl=(k == "Pitch score")) for k, v in tiles)
     obj_rows = "".join(
         f'<tr><td><b>{_e(o["type"])}</b><div class="small muted">{_e(_t("; ".join(x["text"] for x in o.get("examples") or []), 220))}</div></td>'
         f'<td class="num">{o["share"]}%<div class="small muted">{o["count"]}</div></td>'
@@ -171,27 +201,27 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None) -> Optional[Tuple[str
     quotes = "".join(f'<blockquote class="voice"><p>{_e(q["text"])}</p><footer>{_e(q["name"])} · {_e(q.get("segment"))}</footer></blockquote>'
                      for q in (p.get("best_replies") or [])[:2] + (p.get("worst_replies") or [])[:2])
     fixes = "".join(f"<li>{_e(f)}</li>" for f in p.get("fixes") or [])
-    html = (f'<h2>Sales rehearsal</h2><p class="muted">Every simulated buyer heard the pitch'
-            + (f" (as a {_e(p.get('channel'))})" if p.get("channel") else "")
-            + f'; those who hesitated heard the rebuttal written for their objection. {p.get("rebuttals_given", 0)} rebuttals given. '
-            'Scores are directions, not measurements.</p>'
-            f'<div class="tiles">{tiles_html}</div>'
-            f'<div class="card"><h3>Before and after the rebuttals</h3><div class="grid2"><div><div class="small muted">After the pitch</div>{_mix_bar(before)}</div>'
+    intro = ('Every simulated buyer heard the pitch' + (f" (as a {p.get('channel')})" if p.get("channel") else "")
+             + f'; those who hesitated heard the rebuttal written for their objection. {p.get("rebuttals_given", 0)} rebuttals given. '
+             'Scores are directions, not measurements.')
+    html = (ui.section_head("Sales rehearsal", intro, insight)
+            + f'<div class="kpis auto">{tiles_html}</div>'
+            f'<div class="card"><h3>Before and after the rebuttals</h3><div class="mixbars"><div><div class="small muted">After the pitch</div>{_mix_bar(before)}</div>'
             f'<div><div class="small muted">After the rebuttals</div>{_mix_bar(after)}</div></div>'
-            f'<div class="small muted">blue yes · grey maybe · red no</div></div>'
+            '<div class="legend"><span><i class="i-yes"></i>yes</span><span><i class="i-maybe"></i>maybe</span><span><i class="i-no"></i>no</span></div></div>'
             + (f'<div class="card"><h3>Fix in the pitch first</h3><ul>{fixes}</ul></div>' if fixes else "")
-            + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table><thead><tr><th>Objection</th><th class="num">Share</th>'
+            + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table class="sortable"><thead><tr><th>Objection</th><th class="num">Share</th>'
                f'<th>Rebuttal used</th><th class="num">Moved them</th><th>Questions they asked back</th></tr></thead><tbody>{obj_rows}</tbody></table></div></div>' if obj_rows else "")
-            + (f'<div class="card"><h3>By audience</h3><div class="tbl"><table><thead><tr><th>Audience</th><th class="num">n</th><th>Yes / maybe / no</th>'
+            + (f'<div class="card"><h3>By audience</h3><div class="tbl"><table class="sortable"><thead><tr><th>Audience</th><th class="num">n</th><th>Yes / maybe / no</th>'
                f'<th class="num">Lead score</th><th>Top objection</th></tr></thead><tbody>{seg_rows}</tbody></table></div></div>' if seg_rows else "")
-            + (f'<div class="card"><h3>Call these first</h3><div class="tbl"><table><thead><tr><th>Who</th><th class="num">Lead score</th><th>Verdict</th>'
+            + (f'<div class="card"><h3>Call these first</h3><div class="tbl"><table class="sortable"><thead><tr><th>Who</th><th class="num">Lead score</th><th>Verdict</th>'
                f'<th>Agreed to</th><th>Reach them</th></tr></thead><tbody>{hot}</tbody></table></div></div>' if hot else "")
             + (f'<div class="card"><h3>In their words</h3><div class="voices">{quotes}</div></div>' if quotes else "")
             + f'<details class="card"><summary>The pitch that was tested</summary><pre class="script">{_e(p.get("script") or "")}</pre></details>')
     return ("pitch", "Sales rehearsal", html)
 
 
-def ideas_section(ideas: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, str]]:
+def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Test ideas': the next experiments proposed from real ads and the run, each citing its evidence."""
     if not ideas or not ideas.get("ideas"):
         return None
@@ -210,16 +240,16 @@ def ideas_section(ideas: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, s
             + '</dl></div>')
     ev = ideas.get("evidence") or {}
     src = ", ".join(ev.get("sources") or [])
-    html = (f'<h2>Test ideas</h2><p class="muted">{len(cards)} next tests proposed from {len(ev.get("signals") or [])} pieces of evidence'
-            + (f' ({_e(src)})' if src else "") + '. Every idea cites the evidence it comes from; run the cheap simulation first, then spend.</p>'
-            f'<div class="plays">{"".join(cards)}</div>')
+    intro = (f'{len(cards)} next tests proposed from {len(ev.get("signals") or [])} pieces of evidence'
+             + (f' ({src})' if src else "") + '. Every idea cites the evidence it comes from; run the cheap simulation first, then spend.')
+    html = ui.section_head("Test ideas", intro, insight) + f'<div class="plays">{"".join(cards)}</div>'
     return ("ideas", "Test ideas", html)
 
 
 REPORT_CSS += """
 .mixbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0}
-.mixbar span{display:block;height:100%}.mixbar .mint{background:var(--mm-yes,var(--mm-mint))}.mixbar .accent{background:var(--mm-maybe,var(--accent))}.mixbar .orchid{background:var(--mm-no,var(--mm-orchid))}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.grid2{grid-template-columns:1fr}}
-pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono,monospace);margin:8px 0 0}
+.mixbar span{display:block;height:100%}.mixbar .yes{background:var(--mm-yes)}.mixbar .maybe{background:var(--mm-maybe)}.mixbar .no{background:var(--mm-no)}
+.mixbars{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.mixbars{grid-template-columns:1fr}}
+pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono);margin:8px 0 0}
 .idea dl{margin:8px 0 0}.idea ul.small{margin:0;padding-left:18px}
 """

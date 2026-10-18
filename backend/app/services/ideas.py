@@ -76,12 +76,21 @@ def _fmt(v: Any, unit: str = "") -> str:
 
 
 def build_evidence(ads: List[Dict[str, Any]], ads_summary: Dict[str, Any], run_summary: Dict[str, Any],
-                   brief: str = "") -> Dict[str, Any]:
-    """-> {"signals": [{"id": "S1", "source": "ads|run", "text": "..."}], "numbers": [...], "brief": ...}"""
+                   brief: str = "", profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """-> {"signals": [{"id": "S1", "source": "ads|run|product", "text": "..."}], "numbers": [...], "brief": ...}"""
     signals: List[Dict[str, Any]] = []
 
     def add(source: str, text: str) -> None:
         signals.append({"id": f"S{len(signals) + 1}", "source": source, "text": text[:300]})
+
+    for o in ((profile or {}).get("likely_objections") or [])[:4]:
+        add("product", f"The material itself expects a '{o.get('type')}' objection: {o.get('text')}")
+    for c in ((profile or {}).get("competitors") or [])[:3]:
+        add("product", f"Competitor {c.get('name')}" + (f" wins on: {c.get('how_they_win')}" if c.get("how_they_win") else ""))
+    for d in ((profile or {}).get("differentiators") or [])[:3]:
+        add("product", f"Claimed differentiator: {d}")
+    for u in ((profile or {}).get("unknowns") or [])[:2]:
+        add("product", f"Unknown in the material: {u}")
 
     rows = [canon_row(r) for r in ads if isinstance(r, dict)]
     rows = [r for r in rows if r["impressions"] or r["spend"] or r["clicks"]]

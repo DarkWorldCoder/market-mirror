@@ -19,11 +19,17 @@ Stdlib only, so offline `export --run-dir` keeps working anywhere.
 
 from __future__ import annotations
 
-import html
 import json
 import re
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
+
+try:  # shared HTML helpers (stdlib only)
+    import ui  # type: ignore
+except ImportError:  # pragma: no cover - imported as a package
+    from . import ui  # type: ignore
+
+_e, trunc_text, _pct_ci, _low_n = ui.esc, ui.trunc, ui.pct_ci, ui.low_n_pill
 
 YES, MAYBE, NO = "yes", "maybe", "no"
 OBJECTION_TYPES = ["price", "trust", "relevance", "timing", "effort", "unclear", "privacy", "language",
@@ -707,54 +713,24 @@ def _fmt_pct(v: Optional[float]) -> str:
     return "–" if v is None else f"{v:.0f}%"
 
 
-def trunc_text(s: Any, n: int) -> str:
-    s = "" if s is None else str(s)
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
-
-
-
 # --------------------------------------------------------------------------
 # HTML: MarketMirror theme (warm canvas, white cards, black pills, one accent)
 # Charts are Apache ECharts containers rendered by MARKETING_JS; every chart
 # has a table view next to it, so the numbers survive without the library.
 # --------------------------------------------------------------------------
 
-def _e(v: Any) -> str:
-    return html.escape("" if v is None else str(v), quote=True)
-
-
 MARKETING_CSS = """
-:root{--bg:#eeeeea;--surface:#ffffff;--surface-2:#f6f6f3;--border:#dcdbd5;--text:#111111;--text-2:#3d3d3a;
---muted:#6b6b66;--grid:#e8e7e2;--axis:#c3c2b7;--accent:#111111;
---mm-accent:#f3d64b;--mm-accent-ink:#2b2005;--mm-accent-wash:#fbf1bf;--mm-panel:#121212;--mm-panel-2:#1d1d1c;
---mm-panel-ink:#f2f2ee;--mm-panel-muted:#9a9a93;--mm-mint:#cfefd9;--mm-orchid:#f1c6ee;--mm-sky:#cde7f6;--mm-lav:#d9d0f5;
---mm-yes:#2a78d6;--mm-maybe:#d6d5ce;--mm-no:#e34948;--mm-ink-bar:#111111;
---mm-seq:#f6f6f3,#cde2fb,#86b6ef,#3987e5,#1c5cab,#0d366b}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d0d0c;--surface:#1a1a19;--surface-2:#242422;
---border:#33332f;--text:#f2f2ee;--text-2:#c3c2b7;--muted:#9a9a93;--grid:#2c2c2a;--axis:#383835;--accent:#f2f2ee;
---mm-panel:#000000;--mm-panel-2:#161615;--mm-yes:#3987e5;--mm-maybe:#4a4a46;--mm-no:#e66767;--mm-ink-bar:#f2f2ee;
---mm-mint:#1f3a28;--mm-orchid:#3d2240;--mm-sky:#1d3340;--mm-lav:#2b2546;--mm-accent-wash:#3a3210;
---mm-seq:#242422,#0d366b,#1c5cab,#3987e5,#86b6ef,#cde2fb}}
-:root[data-theme="dark"]{--bg:#0d0d0c;--surface:#1a1a19;--surface-2:#242422;--border:#33332f;--text:#f2f2ee;
---text-2:#c3c2b7;--muted:#9a9a93;--grid:#2c2c2a;--axis:#383835;--accent:#f2f2ee;--mm-panel:#000000;--mm-panel-2:#161615;
---mm-yes:#3987e5;--mm-maybe:#4a4a46;--mm-no:#e66767;--mm-ink-bar:#f2f2ee;--mm-mint:#1f3a28;--mm-orchid:#3d2240;
---mm-sky:#1d3340;--mm-lav:#2b2546;--mm-accent-wash:#3a3210;--mm-seq:#242422,#0d366b,#1c5cab,#3987e5,#86b6ef,#cde2fb}
-body{background:var(--bg);font-family:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;
--webkit-font-smoothing:antialiased}
+body{background:var(--bg);-webkit-font-smoothing:antialiased}
 ::selection{background:var(--mm-accent);color:var(--mm-accent-ink)}
 .wrap{max-width:1240px}
 header.top{display:flex;flex-wrap:wrap;gap:20px 40px;align-items:flex-end;justify-content:space-between;margin-top:8px}
 header.top h1{font-size:clamp(2.1rem,4.4vw,3.5rem);line-height:.95;font-weight:500;letter-spacing:-.045em;
 text-transform:uppercase;margin:6px 0 10px;max-width:16ch}
 header.top .req{color:var(--text-2);max-width:70ch}
-.hero-stats{display:flex;gap:28px;flex-wrap:wrap}
-.hero-stats div{min-width:90px}.hero-stats .v{font-size:2.4rem;font-weight:500;letter-spacing:-.04em;line-height:1}
-.hero-stats .k{color:var(--muted);font-size:.82rem;margin-top:4px}
 nav.toc{gap:8px;padding:10px 0}
 nav.toc a{border-radius:999px;background:var(--surface);border:1px solid var(--border);padding:7px 15px;color:var(--text);
 text-decoration:none;font-weight:500;font-size:.88rem;white-space:nowrap}
 nav.toc a:hover{border-color:var(--text)}
-nav.toc a:first-child{background:var(--text);border-color:var(--text);color:var(--surface)}
 section{scroll-margin-top:64px;background:transparent;border:0;padding:0;margin:0 0 36px;border-radius:0}
 #report,#posts,#agents,#timeline,#graph,#overview{background:var(--surface);border-radius:24px;padding:22px 24px}
 #report .card,#posts .card,#agents .card,#timeline .card,#graph .card,#overview .card,#overview .tile{background:var(--surface-2)}
@@ -772,11 +748,6 @@ section h2{font-size:1.35rem;font-weight:500;letter-spacing:-.02em}
 .verdicts{list-style:none;padding:0;margin:0;display:grid;gap:10px}
 .verdicts li{display:flex;gap:10px;align-items:flex-start;color:var(--mm-panel-ink);font-size:.95rem}
 .verdicts li::before{content:"";flex:0 0 8px;height:8px;margin-top:7px;border-radius:50%;background:var(--mm-accent)}
-.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.kpi{background:var(--surface);border-radius:20px;padding:16px 18px}
-.kpi .v{font-size:2rem;font-weight:500;letter-spacing:-.04em;line-height:1.05}
-.kpi .k{color:var(--text-2);font-size:.85rem;margin-top:4px}.kpi .h{color:var(--muted);font-size:.76rem;margin-top:2px}
-.kpi.hl{background:var(--mm-accent);color:var(--mm-accent-ink)}.kpi.hl .k,.kpi.hl .h{color:var(--mm-accent-ink)}
 .ec{width:100%;min-height:120px}
 .ec-fallback{color:var(--muted);font-size:.85rem}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted);margin:2px 0 8px}
@@ -792,10 +763,6 @@ details.tv{margin-top:8px}details.tv summary{cursor:pointer;color:var(--muted);f
 .quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
 .quote{background:var(--surface-2);border-radius:18px;padding:12px 14px}
 .quote p{margin:0 0 6px}.quote .who{color:var(--muted);font-size:.8rem}
-.pill{display:inline-block;font-size:.74rem;font-weight:500;border-radius:999px;padding:3px 10px;background:var(--surface-2);color:var(--text-2)}
-.pill.mint{background:var(--mm-mint)}.pill.orchid{background:var(--mm-orchid)}.pill.sky{background:var(--mm-sky)}
-.pill.accent{background:var(--mm-accent);color:var(--mm-accent-ink)}
-.callout{background:var(--surface);border-radius:24px;padding:18px 22px}
 td.best{font-weight:600}
 .plays{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}
 .play{background:var(--surface);border-radius:24px;padding:18px 20px}
@@ -811,11 +778,7 @@ text-transform:uppercase;letter-spacing:.08em;font-weight:500}
 
 MARKETING_JS = r"""
 (function(){
-function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
-function th(){return {ink:css('--text'),ink2:css('--text-2'),muted:css('--muted'),grid:css('--grid'),axis:css('--axis'),
- card:css('--surface'),line:css('--border'),bar:css('--mm-ink-bar'),accent:css('--mm-accent'),accentInk:css('--mm-accent-ink'),
- yes:css('--mm-yes'),maybe:css('--mm-maybe'),no:css('--mm-no'),s:[css('--s1'),css('--s2'),css('--s3'),css('--s4')],
- seq:css('--mm-seq').split(',').map(function(x){return x.trim();}),font:getComputedStyle(document.body).fontFamily};}
+function th(){return window.MM.theme();}
 function base(t){return {textStyle:{fontFamily:t.font,color:t.muted,fontSize:11},animationDuration:450,
  tooltip:{confine:true,backgroundColor:t.card,borderColor:t.line,borderWidth:1,padding:[8,12],textStyle:{color:t.ink,fontSize:12},
   extraCssText:'border-radius:12px;box-shadow:0 10px 26px rgba(0,0,0,.10)'}};}
@@ -849,8 +812,7 @@ var B={
   tooltip:Object.assign(base(t).tooltip,{trigger:'item',formatter:function(p){var d=p.value;return s.y[d[1]]+' × '+s.x[d[0]]+'<br><b>'+d[2]+'%</b> would convert (n='+d[3]+')';}}),
   xAxis:catAxis(t,s.x,{position:'bottom',axisLabel:{color:t.ink2,fontSize:12}}),yAxis:catAxis(t,s.y,{inverse:true}),
   visualMap:{show:false,min:0,max:100,dimension:2,inRange:{color:t.seq}},
-  series:[{type:'heatmap',data:s.cells.map(function(c){var light=document.documentElement.getAttribute('data-theme')==='dark'||
-    (document.documentElement.getAttribute('data-theme')!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches)?c[2]>=50:c[2]<50;
+  series:[{type:'heatmap',data:s.cells.map(function(c){var light=t.dark?c[2]>=50:c[2]<50;
     return {value:c,label:{color:light?'#111111':'#ffffff'}};}),itemStyle:{borderColor:t.card,borderWidth:3,borderRadius:8},
    label:{show:true,fontSize:12,formatter:function(p){return p.value[2]+'%';}},
    emphasis:{itemStyle:{borderColor:t.ink,borderWidth:2}}}]});},
@@ -909,11 +871,8 @@ def chart(kind: str, spec: Dict[str, Any], height: int, label: str) -> str:
 
 
 def _table_view(head: List[str], rows: List[List[Any]], summary: str = "Show the numbers") -> str:
-    th_ = "".join(f'<th{" class=num" if i else ""}>{_e(h)}</th>' for i, h in enumerate(head))
-    body = "".join("<tr>" + "".join(f'<td{" class=num" if i else ""}>{_e(c)}</td>' for i, c in enumerate(r)) + "</tr>"
-                   for r in rows)
-    return (f'<details class="tv"><summary>{_e(summary)}</summary><div class="tbl"><table><thead><tr>{th_}</tr></thead>'
-            f'<tbody>{body}</tbody></table></div></details>')
+    """Chart companion: the numbers in a sortable table behind a <details> (opened automatically when printing)."""
+    return ui.table(head, rows, sortable=True, summary=summary, num=list(range(1, len(head))))
 
 
 def _num(v: Any) -> str:
@@ -941,7 +900,7 @@ def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
         f'<td class="num">{_num(r["interest"])}</td><td class="num">{_num(r["trust"])}</td>'
         f'<td>{_e(OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"))}</td>'
         f'<td>{_e(r["top_message"] or "–")}</td></tr>' for r in rows)
-    table = (f'<div class="tbl" style="margin-top:10px"><table><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
+    table = (f'<div class="tbl" style="margin-top:10px"><table class="sortable"><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
              '<th class="num">Would convert</th><th class="num">Maybe</th><th class="num">Would click</th>'
              '<th class="num">Interest</th><th class="num">Trust</th><th>Top objection</th><th>Best message</th>'
              f'</tr></thead><tbody>{body}</tbody></table></div>')
@@ -961,13 +920,13 @@ def _breakdown_block_ssr(rows: List[Dict[str, Any]], label: str) -> str:
         + f'<td class="num">{_pct_ci(r["convert_yes"], r["n"])}</td><td class="num">{_fmt_pct(r["click_yes"])}</td>'
         f'<td>{_e(OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"))}</td>'
         f'<td>{_e(r["top_message"] or "–")}</td></tr>' for r in rows)
-    table = (f'<div class="tbl" style="margin-top:10px"><table><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
+    table = (f'<div class="tbl" style="margin-top:10px"><table class="sortable"><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
              '<th class="num">Intent 1-5</th><th class="num">Interest 1-5</th><th class="num">Trust 1-5</th>'
              '<th class="num">Recommend 1-5</th><th class="num">Would convert</th><th class="num">Would click</th>'
              '<th>Top objection</th><th>Best message</th></tr></thead>'
              f'<tbody>{body}</tbody></table></div><p class="muted small">1-5 scores come from free-text answers (SSR): '
              'mean ± spread (standard deviation of the answers). Would convert and the bars are the stated answer: '
-             'blue = yes, grey = maybe, red = no.</p>')
+             '<span class="legend"><i class="i-yes"></i>yes <i class="i-maybe"></i>maybe <i class="i-no"></i>no</span></p>')
     return ch + table
 
 
@@ -978,7 +937,7 @@ LIKERT_LABELS = {"purchase": ["Definitely not", "Probably not", "Might or might 
 SSR_SCALE_LABELS = {"purchase": "Purchase intent", "interest": "Interest", "trust": "Trust", "recommend": "Would recommend"}
 
 
-def ssr_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+def ssr_section(a: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """Free-text ratings: answer distributions, mean ± spread per scale and per segment, stated numbers next to them."""
     o = a.get("overall") or {}
     ssr = o.get("ssr") or {}
@@ -1004,26 +963,13 @@ def ssr_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
                                   "Show mean ± spread by segment"))
     info = a.get("ssr") or {}
     model = f' Embedding model: {info["model"]}.' if info.get("model") else ""
-    return ("ratings", "Ratings", '<h2>How they rate it, in their own words</h2><div class="card">'
+    return ("ratings", "Ratings", ui.section_head("How they rate it, in their own words", insight=insight) + '<div class="card">'
             '<p class="muted small">Every person first answered in one or two sentences. Each answer is mapped to a 1-5 '
             'scale by its similarity to anchor statements ("I would definitely do it" … "I definitely would not"), which '
             'gives a distribution instead of a single number (semantic similarity rating, arXiv 2510.08338). Direct '
             f'numeric answers from simulated people bunch up and run positive; they are shown only for comparison.{_e(model)}</p>'
             + dist + _table_view(["Scale", "1", "2", "3", "4", "5", "Mean ± spread", "Stated 0-10"], overall_rows,
                                  "Show the distributions") + seg_html + "</div>")
-
-
-def _pct_ci(p: Optional[float], n: int) -> str:
-    if p is None:
-        return "–"
-    import math
-    q = max(min(p / 100, 1), 0)
-    m = 100 * 1.96 * math.sqrt(max(q * (1 - q), 0.25 / n) / n) if n else None
-    return f"{p:.0f}%" + (f" ±{m:.0f}" if m is not None else "")
-
-
-def _low_n(n: int) -> str:
-    return (f' <span class="pill orchid" title="Small sample: a direction, not a result">low n={n}</span>' if n < 10 else "")
 
 
 def hero_stats(a: Dict[str, Any]) -> str:
@@ -1034,13 +980,17 @@ def hero_stats(a: Dict[str, Any]) -> str:
         o = a["overall"]
         items = [(_fmt_pct(o["convert_yes"]), f"Would {_goal_verb(a.get('goal'))}"),
                  (_fmt_pct(o["click_yes"]), "Would click"), (str(a["answered"]), "People surveyed")]
-    return '<div class="hero-stats">' + "".join(
-        f'<div><div class="v">{_e(v)}</div><div class="k">{_e(k)}</div></div>' for v, k in items) + "</div>"
+    return '<div class="kpis hero">' + "".join(ui.kpi(v, k) for v, k in items) + "</div>"
 
 
-def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
-    """[(anchor, nav label, section html)] for the marketing part of the dashboard."""
+def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None) -> List[Tuple[str, str, str]]:
+    """[(anchor, nav label, section html)] for the marketing part of the dashboard. ``insights`` maps a section
+    anchor to the one-line callout shown under its heading (built by the exporter)."""
     sections: List[Tuple[str, str, str]] = []
+    ins = insights or {}
+
+    def shead(anchor: str, title: str, intro: Optional[str] = None) -> str:
+        return ui.section_head(title, intro, ins.get(anchor))
     if not a.get("has_survey"):
         eng = a.get("engagement_by_segment") or []
         body = '<p class="empty">No activity yet.</p>'
@@ -1051,7 +1001,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                 ["Segment", "People", "Took part", "Actions per person"],
                 [[r["key"], r["n"], _fmt_pct(r["engaged"]), r["actions_per_person"]] for r in eng])
         sections.append(("results", "Results", (
-            '<h2>Marketing results</h2><div class="mm-top"><div class="panel"><div class="eyebrow">Next step</div>'
+            shead("results", "Marketing results") + '<div class="mm-top"><div class="panel"><div class="eyebrow">Next step</div>'
             '<div class="headline">Run the buyer survey to see who would click, convert and why not.</div>'
             '<p style="margin:0;color:var(--mm-panel-muted)"><code>mirofish.py survey --simulation &lt;id&gt; --offer "..." '
             '--goal "..." --messages @ads.txt --split</code></p></div>'
@@ -1087,9 +1037,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         wom,
         ("People surveyed", str(a["answered"]), f'of {a["people"]} simulated · {a["engaged"]} joined the conversation', False),
     ]
-    kpi_html = '<div class="kpis">' + "".join(
-        f'<div class="kpi{" hl" if hl else ""}"><div class="v">{_e(v)}</div><div class="k">{_e(k)}</div>'
-        f'<div class="h">{_e(h)}</div></div>' for k, v, h, hl in kpis) + "</div>"
+    kpi_html = '<div class="kpis">' + "".join(ui.kpi(v, k, h, hl=hl) for k, v, h, hl in kpis) + "</div>"
     offer = ""
     if a.get("offer") or a.get("goal"):
         offer = ('<p style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">'
@@ -1097,8 +1045,8 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                  + (f'<span class="pill">Goal: {_e(a.get("goal"))}</span>' if a.get("goal") else "")
                  + (f'<span class="pill sky">Split test of {len(a.get("messages") or [])} messages</span>' if a.get("split_test") else "")
                  + "</p>")
-    sections.append(("results", "Results", f'<h2>Marketing results</h2>{offer}<div class="mm-top">{panel}{kpi_html}</div>'))
-    rs = ssr_section(a)
+    sections.append(("results", "Results", shead("results", "Marketing results") + f'{offer}<div class="mm-top">{panel}{kpi_html}</div>'))
+    rs = ssr_section(a, ins.get("ratings"))
     if rs:
         sections.append(rs)
 
@@ -1115,10 +1063,10 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
             + (f'<dt>Seed it in</dt><dd>{_e(p["seed_in"])}</dd>' if p.get("seed_in") else "")
             + (f'<dt>Proof line</dt><dd>“{_e(trunc_text(p["proof_quote"], 180))}”</dd>' if p.get("proof_quote") else "")
             + "</dl></div>" for p in plays)
-        sections.append(("playbook", "Playbook", '<h2>Sales &amp; marketing playbook</h2>'
-                         '<p class="muted small">One card per audience, highest priority first. Built from what the '
-                         'simulated people said: confirm on real traffic before scaling spend.</p>'
-                         f'<div class="plays">{cards}</div>'))
+        sections.append(("playbook", "Playbook", shead("playbook", "Sales & marketing playbook",
+                                                       "One card per audience, highest priority first. Built from what the "
+                                                       "simulated people said: confirm on real traffic before scaling spend.")
+                         + f'<div class="plays">{cards}</div>'))
 
     fn = a["funnel"]
     fn_chart = chart("funnel", {"stages": [x[0] for x in fn], "values": [x[1] for x in fn]}, 48 * len(fn) + 12,
@@ -1127,7 +1075,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
     for label, v in fn:
         fn_rows.append([label, v, "–" if not prev else f"{100 * v / prev:.0f}%"])
         prev = v
-    sections.append(("funnel", "Funnel", '<h2>Funnel</h2><div class="card"><p class="muted small">From everyone simulated '
+    sections.append(("funnel", "Funnel", shead("funnel", "Funnel") + '<div class="card"><p class="muted small">From everyone simulated '
                      'to people who say they would act. Hover a step for the drop-off.</p>'
                      f'{fn_chart}{_table_view(["Step", "People", "Of previous step"], fn_rows)}</div>'))
 
@@ -1139,10 +1087,10 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                        for i, (k, lbl, _) in enumerate(tabs))
     panels = "".join(f'<div class="seg-panel" data-panel="{k}"{"" if i == 0 else " hidden"}>{_breakdown_block(rows_, lbl)}</div>'
                      for i, (k, lbl, rows_) in enumerate(tabs))
-    sections.append(("audiences", "Audiences", '<h2>Which audience to target</h2><div class="card">'
+    sections.append(("audiences", "Audiences", shead("audiences", "Which audience to target") + '<div class="card">'
                      f'<div class="seg-tabs" role="group" aria-label="Break down by">{tab_btns}</div>'
-                     '<p class="muted small" style="margin-top:0">Sorted best first. Blue = would convert, grey = maybe, '
-                     f'red = no.</p>{panels}</div>'))
+                     '<p class="muted small" style="margin-top:0">Sorted best first. <span class="legend"><i class="i-yes"></i>would convert '
+                     f'<i class="i-maybe"></i>maybe <i class="i-no"></i>no</span></p>{panels}</div>'))
 
     objs = a.get("objections") or []
     obj_chart = '<p class="empty">No objections raised.</p>'
@@ -1156,7 +1104,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         + "".join(f'<p style="margin-top:8px">“{_e(trunc_text(ex["text"], 220))}”</p><div class="who">{_e(ex["name"])} · '
                   f'{_e(ex["segment"])}' + (f' · would say yes if: {_e(trunc_text(ex["fix"], 140))}' if ex.get("fix") else "")
                   + "</div>" for ex in x["examples"][:2]) + "</div>" for x in objs[:4])
-    sections.append(("objections", "Objections", '<h2>What stops people</h2><div class="grid2">'
+    sections.append(("objections", "Objections", shead("objections", "What stops people") + '<div class="grid2">'
                      f'<div class="card"><h3>Objections</h3>{obj_chart}</div>'
                      f'<div class="card"><h3>In their words</h3><div class="quotes">{obj_examples or "<p class=empty>None.</p>"}</div></div></div>'))
 
@@ -1186,8 +1134,8 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                     + _table_view(["Audience"] + xs, [[r["segment"]] + [
                         f'{_fmt_pct(r["cells"][m]["convert_yes"])} (n={r["cells"][m]["n"]})' if m in r["cells"] else "–"
                         for m in xs] for r in grid["rows"]]))
-        sections.append(("messages", "Messages", f'<h2>Which message wins{" (split test)" if split else ""}</h2>'
-                         f'<div class="card"><p class="muted small">{_e(note)}</p>{msg_chart}{_table_view(head, rows_)}{heat}</div>'))
+        sections.append(("messages", "Messages", shead("messages", f'Which message wins{" (split test)" if split else ""}')
+                         + f'<div class="card"><p class="muted small">{_e(note)}</p>{msg_chart}{_table_view(head, rows_)}{heat}</div>'))
 
     pr = a.get("pricing")
     if pr:
@@ -1196,12 +1144,11 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         cur = (a.get("currency") or "")
         price_chart = chart("price", {"curves": pr["curves"], "low": lo, "high": hi, "opt": opt, "currency": cur},
                             340, "Van Westendorp price sensitivity curves")
-        sections.append(("pricing", "Pricing", '<h2>What people would pay</h2><div class="grid2">'
+        sections.append(("pricing", "Pricing", shead("pricing", "What people would pay") + '<div class="grid2">'
                          '<div class="kpis" style="align-content:start">'
-                         f'<div class="kpi hl"><div class="v">{_num(lo)} – {_num(hi)}</div><div class="k">Acceptable range {_e(cur)}</div></div>'
-                         f'<div class="kpi"><div class="v">{_num(opt)}</div><div class="k">Sweet spot</div></div>'
-                         f'<div class="kpi"><div class="v">{_num(med.get("price_cheap"))}</div><div class="k">Median "bargain"</div></div>'
-                         f'<div class="kpi"><div class="v">{_num(med.get("price_too_expensive"))}</div><div class="k">Median "never pay"</div></div></div>'
+                         + ui.kpi(f"{_num(lo)} – {_num(hi)}", f"Acceptable range {cur}", hl=True)
+                         + ui.kpi(_num(opt), "Sweet spot") + ui.kpi(_num(med.get("price_cheap")), 'Median "bargain"')
+                         + ui.kpi(_num(med.get("price_too_expensive")), 'Median "never pay"') + '</div>'
                          f'<div class="card"><h3>Price sensitivity</h3>{price_chart}'
                          + _table_view(["Segment", "Answers", "Bargain", "Getting expensive", "Never pay"],
                                        [[s["key"], s["n"], _num(s["cheap"]), _num(s["expensive"]), _num(s["too_expensive"])]
@@ -1214,7 +1161,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                        f'{_e(q["segment"])} · {_e(q["country"])}</div></div>' for q in qs) or '<p class="empty">None.</p>'
     change = "".join(f'<li><span class="pill">{_e(c["segment"])}</span> {_e(trunc_text(c["text"], 200))}</li>'
                      for c in a.get("change_mind") or [])
-    sections.append(("voices", "Voices", '<h2>Voice of the customer</h2><div class="grid2">'
+    sections.append(("voices", "Voices", shead("voices", "Voice of the customer") + '<div class="grid2">'
                      f'<div class="card"><h3><span class="pill mint">Would say yes</span></h3><div class="quotes">{qcards(a.get("quotes_yes") or [])}</div></div>'
                      f'<div class="card"><h3><span class="pill orchid">Would say no</span></h3><div class="quotes">{qcards(a.get("quotes_no") or [])}</div></div></div>'
                      + (f'<div class="card" style="margin-top:14px"><h3>What would change their mind</h3>'

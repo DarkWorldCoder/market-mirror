@@ -63,6 +63,18 @@ def _people(simulation_id: str):
     return people_from_simulation(profiles, cfg.get("persona_index") or []), cfg
 
 
+def _profile(simulation_id: str):
+    """The project's product profile (or None) for a simulation."""
+    try:
+        from ..models.project import ProjectManager
+        from ..services import product_profile as pp
+        state = SimulationManager().get_simulation(simulation_id)
+        pid = getattr(state, "project_id", None) if state else None
+        return pp.load(ProjectManager._get_project_dir(pid)) if pid else None
+    except Exception:  # noqa: BLE001 - optional
+        return None
+
+
 def _start(kind: str, simulation_id: str, work):
     tm = TaskManager()
     task_id = tm.create_task(task_type=f"market_{kind}", metadata={"simulation_id": simulation_id})
@@ -109,8 +121,12 @@ def start_feed_test():
     if isinstance(limit, int) and limit > 0:
         people = people[:limit]
     organic = max(2, min(int(data.get("organic_per_feed") or 5), 12))
-    parallel = max(1, min(int(data.get("parallel") or 8), 16))
+    parallel = max(1, min(int(data.get("parallel") or 8), 32))
     context = json.dumps((cfg.get("persona_spec") or {}).get("segments") or [], ensure_ascii=False)[:2000]
+    prof = _profile(sid)
+    if prof:
+        from ..services import product_profile as pp
+        context = pp.render_text(prof, 1500) + "\n" + context
 
     def work(progress):
         return feed_test.run_multi_seed(_client(), Config.LLM_MODEL_NAME, creatives, people,
@@ -197,8 +213,8 @@ def start_pitch():
         return jsonify({"success": False, "error": "no simulated people match (prepare the simulation first)"}), 400
     rebuttals = pitch_svc.parse_rebuttals(data.get("rebuttals"))
     platform = data.get("platform") or ("reddit" if (cfg.get("enable_reddit", True)) else "twitter")
-    timeout = float(data.get("timeout") or 240)
-    batch = max(1, min(int(data.get("batch") or 8), 32))
+    timeout = float(data.get("timeout") or 600)
+    batch = max(1, min(int(data.get("batch") or 40), 64))
 
     def interview_batch(items):
         res = SimulationRunner.interview_agents_batch(
@@ -214,8 +230,13 @@ def start_pitch():
                 out[int(it["agent_id"])] = json.dumps(resp, ensure_ascii=False) if isinstance(resp, (dict, list)) else str(resp)
         return out
 
+    product = str(data.get("product") or "")
+    if not product:
+        prof = _profile(sid)
+        product = (prof or {}).get("one_liner") or (prof or {}).get("name") or ""
+
     def work(progress):
-        return pitch_svc.run(interview_batch, people, script, rebuttals, str(data.get("product") or ""),
+        return pitch_svc.run(interview_batch, people, script, rebuttals, product,
                              str(data.get("channel") or "message"), batch=batch, progress=progress)
 
     task_id = _start("pitch", sid, work)
@@ -232,7 +253,8 @@ def generate_ideas():
     data = request.get_json() or {}
     try:
         evidence = ideas_svc.build_evidence(data.get("ads") or [], data.get("ads_summary") or {},
-                                            data.get("run_summary") or {}, str(data.get("brief") or ""))
+                                            data.get("run_summary") or {}, str(data.get("brief") or ""),
+                                            profile=data.get("profile") if isinstance(data.get("profile"), dict) else None)
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
     if not evidence["signals"]:
@@ -261,9 +283,14 @@ def start_market_report():
         return jsonify({"success": False, "error": "material (the compact fact sheet) is required"}), 400
     brand = str(data.get("brand") or material.get("brand") or "")[:120]
 
+    prof = _profile(sid)
+
     def work(progress):
         progress(1, 2)
         facts = market_report.compact_material(material) if "summary" in material else material
+        if prof and isinstance(facts, dict) and "product" not in facts:
+            facts["product"] = {k: prof.get(k) for k in ("name", "category", "one_liner", "offer", "pricing", "proofs",
+                                                         "differentiators", "competitors", "likely_objections", "funnel_goal")}
         out = market_report.generate(_client(), Config.LLM_MODEL_NAME, facts, brand or None)
         progress(2, 2)
         return out

@@ -43,10 +43,14 @@ from typing import Any, Dict, List, Optional, Tuple
 # --------------------------------------------------------------------------
 
 try:  # marketing layer (stdlib only)
+    import tokens  # type: ignore
+    import ui  # type: ignore
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
+    from . import tokens  # type: ignore
+    from . import ui  # type: ignore
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
@@ -118,14 +122,12 @@ def load_run_dir(run_dir: str) -> Dict[str, Any]:
 # Small helpers
 # --------------------------------------------------------------------------
 
-def esc(v: Any) -> str:
-    return html.escape("" if v is None else str(v), quote=True)
+esc = ui.esc
 
 
 def trunc(s: Any, n: int) -> str:
-    s = "" if s is None else str(s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+    """Whitespace-collapsing cut (tooltips and titles); ui.trunc keeps newlines."""
+    return ui.trunc(s, n, collapse=True)
 
 
 def as_list(v: Any) -> List[Any]:
@@ -524,7 +526,7 @@ def render_graph(graph: Dict[str, Any], max_nodes: int = 300) -> Tuple[str, Dict
             f"<td>{esc(trunc(e.get('fact'), 200))}</td></tr>")
     if rel_rows:
         html_out += ('<details><summary>Relations table'
-                     f' ({min(len(edges), 200)} of {len(edges)})</summary><div class="tbl"><table>'
+                     f' ({min(len(edges), 200)} of {len(edges)})</summary><div class="tbl"><table class="sortable">'
                      '<thead><tr><th>Source</th><th>Relation</th><th>Target</th><th>Fact</th></tr></thead><tbody>'
                      + "".join(rel_rows) + "</tbody></table></div></details>")
     stats = {"node_count": len(nodes), "edge_count": len(edges),
@@ -685,7 +687,7 @@ def collect_profiles(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
 def render_personas(rows: List[Dict[str, Any]], actions_by_agent: Dict[Any, int]) -> str:
     if not rows:
         return '<p class="empty">No agent profiles in this run.</p>'
-    out = ['<div class="tbl tall"><table class="personas"><thead><tr>'
+    out = ['<div class="tbl tall"><table class="personas sortable"><thead><tr>'
            '<th>#</th><th>Agent</th><th>Type</th><th>Stance</th><th class="num">Sentiment</th>'
            '<th class="num">Activity</th><th class="num">Actions</th><th>Profile</th></tr></thead><tbody>']
     for r in rows:
@@ -838,21 +840,6 @@ def report_markdown(report: Dict[str, Any]) -> str:
 # --------------------------------------------------------------------------
 
 CSS = """
-:root{color-scheme:light;--bg:#f6f6f4;--surface:#fcfcfb;--surface-2:#f0efec;--border:#e2e1dc;
---text:#0b0b0b;--text-2:#52514e;--muted:#77756f;--accent:#2a78d6;--grid:#e6e5e0;--axis:#a9a79f;
---edge:#b9b7ae;--other:#9a988f;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;
---s7:#6250d6;--s8:#e34948;--div-neg2:#c43d3c;--div-neg1:#ec9a99;--div-mid:#b9b7ae;--div-pos1:#86b6ef;--div-pos2:#1c5cab;
---pos-bg:#e3effd;--pos-fg:#184f95;--neg-bg:#fde6e6;--neg-fg:#9e2b2a;--neu-bg:#efeee9;--neu-fg:#52514e}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#121211;--surface:#1a1a19;
---surface-2:#242422;--border:#33332f;--text:#f0efec;--text-2:#c3c2b7;--muted:#9a988f;--accent:#3987e5;--grid:#2c2c29;
---axis:#5c5b55;--edge:#55544e;--other:#7d7b74;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;
---s7:#9085e9;--s8:#e66767;--div-neg2:#e66767;--div-neg1:#9e4a49;--div-mid:#6b6a63;--div-pos1:#2f5f99;--div-pos2:#6da7ec;
---pos-bg:#1d3350;--pos-fg:#9ec5f4;--neg-bg:#4a2222;--neg-fg:#f3b0af;--neu-bg:#2c2c29;--neu-fg:#c3c2b7}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#121211;--surface:#1a1a19;--surface-2:#242422;--border:#33332f;
---text:#f0efec;--text-2:#c3c2b7;--muted:#9a988f;--accent:#3987e5;--grid:#2c2c29;--axis:#5c5b55;--edge:#55544e;--other:#7d7b74;
---s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
---div-neg2:#e66767;--div-neg1:#9e4a49;--div-mid:#6b6a63;--div-pos1:#2f5f99;--div-pos2:#6da7ec;
---pos-bg:#1d3350;--pos-fg:#9ec5f4;--neg-bg:#4a2222;--neg-fg:#f3b0af;--neu-bg:#2c2c29;--neu-fg:#c3c2b7}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,
@@ -871,10 +858,6 @@ nav.toc a{flex:none;font-size:.85rem;text-decoration:none;color:var(--text-2);bo
 background:var(--surface);padding:4px 10px;border-radius:999px}
 nav.toc a:hover{color:var(--text);border-color:var(--axis)}
 section{scroll-margin-top:56px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin:0 0 18px;min-width:0}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:0 0 18px}
-.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
-.tile .v{font-size:1.5rem;font-weight:650;font-variant-numeric:tabular-nums}
-.tile .k{font-size:.8rem;color:var(--muted)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
 .card{background:var(--surface-2);border-radius:10px;padding:14px;min-width:0}
 section>.card+.card{margin-top:14px}
@@ -914,9 +897,6 @@ th{font-weight:600;color:var(--text-2);background:var(--surface);position:sticky
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 table.personas td.profile{min-width:240px;max-width:460px}
 .tag{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;background:var(--neu-bg);color:var(--neu-fg)}
-.pill{display:inline-block;font-size:.75rem;padding:1px 6px;border-radius:6px;font-variant-numeric:tabular-nums}
-.pill.pos{background:var(--pos-bg);color:var(--pos-fg)}.pill.neg{background:var(--neg-bg);color:var(--neg-fg)}
-.pill.neu{background:var(--neu-bg);color:var(--neu-fg)}
 details{margin-top:10px}summary{cursor:pointer;color:var(--text-2);font-size:.88rem}
 ol.posts{padding-left:1.3em;margin:0}
 li.post{margin:0 0 10px}li.post p{margin:2px 0 0;color:var(--text-2);overflow-wrap:anywhere}
@@ -939,8 +919,8 @@ hr{border:0;border-top:1px solid var(--border);margin:18px 0}
 font-size:.8rem;line-height:1.4;padding:6px 9px;border-radius:6px;white-space:pre-line;opacity:0;transition:opacity .08s}
 footer{color:var(--muted);font-size:.8rem;text-align:center;margin-top:24px}
 @media (max-width:640px){.wrap{padding:16px 16px 48px}h1{font-size:1.35rem}section{padding:14px;border-radius:10px}
-.tile .v{font-size:1.25rem}svg.graph{min-width:680px}svg.graph text{font-size:14px}svg.graph .elabels text{font-size:11px}
-nav.toc{position:static}svg.chart{min-width:560px}svg.chart .tick{font-size:15px}}
+svg.graph{min-width:680px}svg.graph text{font-size:14px}svg.graph .elabels text{font-size:11px}
+svg.chart{min-width:560px}svg.chart .tick{font-size:15px}}
 @media print{nav.toc{display:none}section{break-inside:avoid}}
 """
 
@@ -992,6 +972,118 @@ def build_summary(bundle: Dict[str, Any], graph_stats: Dict[str, Any], rounds: L
     }
 
 
+def _pct(v: Any) -> str:
+    return "–" if v is None else f"{float(v):.0f}%"
+
+
+def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optional[Dict[str, Any]],
+                   graph_stats: Dict[str, Any], rounds: List[int], values: Dict[str, List[float]]) -> Dict[str, str]:
+    """anchor -> one plain sentence shown as the callout under that section's heading. Only sections with
+    something worth saying get an entry; every number is read straight from the analysis dicts."""
+    ins: Dict[str, str] = {}
+    o = mk.get("overall") or {}
+    goal = marketing._goal_verb(mk.get("goal"))
+    objs = mk.get("objections") or []
+    if decision:
+        ins["report"] = (f'Decision: {decision["decision"].upper()} with {decision["confidence"]} confidence. '
+                         f'{decision["summary"]}')
+    if mk.get("has_survey") and o:
+        line = f'{_pct(o.get("convert_yes"))} would {goal}, {_pct(o.get("convert_maybe"))} maybe'
+        if objs:
+            line += f'; {objs[0]["label"].lower()} is the blocker for {_pct(objs[0]["share"])}'
+        ins["results"] = line + "."
+        ssr = o.get("ssr") or {}
+        if ssr.get("purchase"):
+            bits = [f'{k.replace("purchase", "purchase intent")} {v["mean"]:.1f}/5' for k, v in ssr.items() if v]
+            ins["ratings"] = ("Free-text ratings: " + ", ".join(bits) + f' (spread ±{ssr["purchase"]["sd"]:.1f} on intent).')
+        fn = mk.get("funnel") or []
+        if len(fn) >= 4:
+            ins["funnel"] = (f'Of {fn[0][1]} simulated people, {fn[1][1]} answered, {fn[2][1]} would click and '
+                             f'{fn[3][1]} would {goal}.')
+        segs = [x for x in mk.get("by_segment") or [] if x.get("n")]
+        if len(segs) >= 2:
+            ins["audiences"] = (f'Best audience: {segs[0]["key"]} ({_pct(segs[0]["convert_yes"])} said yes); weakest: '
+                                f'{segs[-1]["key"]} ({_pct(segs[-1]["convert_yes"])}).')
+        if objs:
+            fix = next((ex.get("fix") for ex in objs[0].get("examples") or [] if ex.get("fix")), None)
+            ins["objections"] = (f'{objs[0]["label"]} is the blocker for {_pct(objs[0]["share"])} of people'
+                                 + (f'; what would change their mind: “{trunc(fix, 110)}”' if fix else "") + ".")
+        plays = mk.get("playbook") or []
+        if plays:
+            p0 = plays[0]
+            why = (f'intent {p0["intent"]["mean"]:.1f}/5, ' if p0.get("intent") else "") + f'{_pct(p0.get("convert_yes"))} said yes'
+            ins["playbook"] = (f'Start with {p0["segment"]} ({p0["priority"]} priority: {why})'
+                               + (f'; lead with “{trunc(p0["lead_with"], 90)}”' if p0.get("lead_with") else "") + ".")
+        msgs = mk.get("messages_ranked") or []
+        if msgs:
+            m0 = msgs[0]
+            ins["messages"] = (f'Strongest message: “{trunc(m0["label"], 90)}” ({_pct(m0.get("convert_yes"))} of the '
+                               f'{m0.get("votes", 0)} people who {"saw" if mk.get("split_test") else "picked"} it would {goal}).')
+        pr = mk.get("pricing") or {}
+        if pr.get("acceptable_low") is not None and pr.get("acceptable_high") is not None:
+            ins["pricing"] = (f'Acceptable price range {pr["acceptable_low"]:g} to {pr["acceptable_high"]:g} {mk.get("currency") or ""}'
+                              + (f', sweet spot around {pr["optimal"]:g}' if pr.get("optimal") is not None else "") + ".").replace("  ", " ")
+        ch = mk.get("change_mind") or []
+        ins["voices"] = (f'{len(mk.get("quotes_yes") or [])} would say yes and {len(mk.get("quotes_no") or [])} would say no'
+                         + (f'; the most common ask: “{trunc(ch[0]["text"], 110)}”' if ch else "") + ".")
+    ftj = bundle.get("feed_test") or {}
+    per = (ftj.get("summary") or {}).get("per_creative") or {}
+    if per:
+        ranked = [c for c in (ftj.get("summary") or {}).get("ranked") or list(per) if c in per]
+        b = per[ranked[0]]
+        line = f'{ranked[0]} leads: expected CTR {b.get("expected_ctr")}%, thumb-stop {_pct(b.get("thumb_stop"))}, hides {_pct(b.get("hide_rate") or 0)}'
+        ms = ftj.get("multi_seed") or {}
+        if (ms.get("n") or 1) > 1 and ms.get("winner_agreement") is not None:
+            line += f'; ranked first in {ms["winner_agreement"]}% of {ms["n"]} seeds'
+        ins["feedtest"] = line + "."
+    fs = bundle.get("feed_story") or {}
+    brand = fs.get("brand_posts") or []
+    if brand:
+        top = max(brand, key=lambda b: (len(b.get("comments") or []), int(b.get("likes") or 0)))
+        replies = sum(len(b.get("comments") or []) for b in brand)
+        likes = sum(int(b.get("likes") or 0) for b in brand)
+        line = f'{len(brand)} brand posts drew {likes} likes and {replies} replies'
+        if top.get("comments"):
+            line += f'; most discussed: “{trunc(top.get("content"), 90)}” ({len(top["comments"])} replies)'
+        ins["socialfeed"] = line + "."
+    pitch = bundle.get("pitch") or {}
+    if pitch.get("answered"):
+        before, after = pitch.get("verdict_before") or {}, pitch.get("verdict_after") or {}
+        moved = ("unchanged by the rebuttals" if after.get("yes", 0) == before.get("yes", 0)
+                 else f'from {before.get("yes", 0)}% before the rebuttals')
+        ins["pitch"] = (f'Pitch score {pitch.get("pitch_score")}/100: {after.get("yes", 0)}% say yes ({moved}), '
+                        f'{len(pitch.get("hot_leads") or [])} hot leads.')
+    ideas = (bundle.get("ideas") or {}).get("ideas") or []
+    if ideas:
+        ins["ideas"] = f'{len(ideas)} tests proposed; first: {trunc(ideas[0].get("title"), 90)}.'
+    pc = (bundle.get("analyst_panel") or {}).get("consensus") or {}
+    if pc.get("consensus"):
+        ins["analysts"] = (f'Consensus is {pc["consensus"]}'
+                           + (f'; best audience {pc["best_audience"]["winner"]}' if (pc.get("best_audience") or {}).get("winner") else "")
+                           + f' (confidence {pc.get("confidence_mean")}/10).')
+    bt = bundle.get("backtest") or {}
+    if bt.get("pairs") and bt.get("spearman") is not None:
+        ins["backtest"] = (f'Rank correlation with the real ads {bt["spearman"]}; '
+                           + ("the simulation picked the real winner." if bt.get("top1_match") else "the winners differ."))
+    index = [r for r in ((bundle.get("config") or {}).get("persona_index") or []) if r.get("kind") == "persona"]
+    if index:
+        segs = Counter(r.get("segment") for r in index if r.get("segment"))
+        ctry = Counter(r.get("country") for r in index if r.get("country"))
+        ins["agents"] = (f'{len(index)} simulated people across {len(segs)} segment{"s" if len(segs) != 1 else ""}'
+                         + (f' and {len(ctry)} countr{"ies" if len(ctry) != 1 else "y"}' if ctry else "")
+                         + (f'; largest segment {segs.most_common(1)[0][0]} ({segs.most_common(1)[0][1]})' if segs else "") + ".")
+    if rounds:
+        totals = [sum(values[k][i] for k in values) for i in range(len(rounds))]
+        peak = max(range(len(rounds)), key=lambda i: totals[i])
+        ins["timeline"] = f'{int(sum(totals))} actions over {len(rounds)} rounds; the busiest round was {rounds[peak]} with {int(totals[peak])}.'
+    if graph_stats.get("node_count"):
+        et = graph_stats.get("entity_types") or {}
+        big = max(et.items(), key=lambda kv: kv[1]) if et else None
+        ins["graph"] = (f'{graph_stats["node_count"]} entities and {graph_stats.get("edge_count", 0)} relations'
+                        + (f'; most common type {big[0]} ({big[1]})' if big else "") + ".")
+    return ins
+
+
 def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """Return (html, report_markdown, summary)."""
     project = bundle.get("project") or {}
@@ -1021,23 +1113,24 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     summary = build_summary(bundle, graph_stats, rounds, series_totals, profiles)
     mk = marketing.analyze(bundle)
     summary["marketing"] = marketing.summary_block(mk)
-    mk_sections = marketing.render_sections(mk)
+    decision = feed_view.decision(bundle, mk)
+    summary["decision"] = decision
+    insights = build_insights(bundle, mk, decision, graph_stats, rounds, values)
+    mk_sections = marketing.render_sections(mk, insights)
     # MarketMirror extras: feed test after the playbook; panel, backtest and downloads after the voices
-    fs = feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart)
+    fs = feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart, insights.get("feedtest"))
     if fs:
         at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), 1)
         mk_sections.insert(at, fs)
-    for extra in (feed_view.panel_section(bundle.get("analyst_panel") or {}),
-                  feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart)):
+    for extra in (feed_view.panel_section(bundle.get("analyst_panel") or {}, insights.get("analysts")),
+                  feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart, insights.get("backtest"))):
         if extra:
             mk_sections.append(extra)
-    decision = feed_view.decision(bundle, mk)
-    summary["decision"] = decision
     dec = feed_view.decision_section(decision)
     # social feed (real post view) right after the feed test, when the section module and data exist
     if social_feed is not None and bundle.get("feed_story"):
         try:
-            sf = social_feed.feed_story_section(bundle["feed_story"], marketing.chart)
+            sf = social_feed.feed_story_section(bundle["feed_story"], marketing.chart, insights.get("socialfeed"))
         except Exception as e:  # noqa: BLE001 - never lose the dashboard to one section
             sf = None
             print(f"social feed section failed: {e}")
@@ -1057,7 +1150,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (report_view.ideas_section(bundle.get("ideas")), report_view.pitch_section(pitch, marketing.chart)):   # pitch ends up first
+    for extra in (report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
+                  report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))):   # pitch ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)
@@ -1077,7 +1171,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     if (bundle.get("ideas") or {}).get("ideas"):
         files["ideas.md"] = bundle["ideas"].get("markdown") or ""
         files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)
-    rep_sec = report_view.report_section(mr, files, markdown_to_html)
+    rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
         mk_sections.insert(0, dec)
         mk_sections.insert(1, rep_sec)
@@ -1097,8 +1191,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         ("Actions", summary.get("total_actions") or 0),
         ("Posts", sum(summary["posts"].values())),
     ]
-    tiles_html = '<div class="tiles">' + "".join(
-        f'<div class="tile"><div class="v">{fmt_num(v)}</div><div class="k">{k}</div></div>' for k, v in tiles) + "</div>"
+    tiles_html = '<div class="kpis auto">' + "".join(ui.kpi(fmt_num(v), k) for k, v in tiles) + "</div>"
 
     # Timeline section
     tl_html = stacked_bar_chart(rounds, series, values, slots, "Actions per round by action type")
@@ -1119,7 +1212,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         for s, v in type_items)
     data_table = ""
     if rounds:
-        data_table = ('<details><summary>Timeline data table</summary><div class="tbl"><table><thead><tr><th>Round</th>'
+        data_table = ('<details class="tv"><summary>Timeline data table</summary><div class="tbl"><table class="sortable"><thead><tr><th>Round</th>'
                       + "".join(f'<th class="num">{esc(s)}</th>' for s in series) + '<th class="num">Total</th></tr></thead><tbody>'
                       + "".join("<tr><td>" + str(r) + "</td>" + "".join(f'<td class="num">{fmt_num(values[s][i])}</td>' for s in series)
                                 + f'<td class="num">{fmt_num(sum(values[s][i] for s in series))}</td></tr>'
@@ -1166,26 +1259,31 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         '<div class="wrap">',
         f'<header class="top"><div><div class="muted small">MarketMirror · simulated market test</div>'
         f'<h1>{esc(page_title)}</h1>' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "") + "</div>"
-        + marketing.hero_stats(mk) + "</header>",
-        '<nav class="toc">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
+        + marketing.hero_stats(mk)
+        + '<div class="hdr-tools"><button type="button" class="theme-btn" data-theme-toggle aria-pressed="false" '
+          'aria-label="Switch to dark theme">☾ Dark</button></div></header>',
+        '<nav class="toc" data-scrollspy aria-label="Sections">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
-        ("" if has_social else f'<section id="posts"><h2>What people posted</h2>{posts_html}</section>'),
+        ("" if has_social else f'<section id="posts">{ui.section_head("What people posted")}{posts_html}</section>'),
         '<h2 class="divider">Behind the simulation</h2>',
-        f'<section id="agents"><h2>The simulated people</h2>'
-        + (f'<p class="muted small">Everyone is invented, with a life story from a short interview. Lead score 0-100 '
-           f'combines purchase intent, trust and click intent from their survey answers.</p>{people_html}'
-           f'<details style="margin-top:14px"><summary>Table view and stances</summary>{stance_html}<div style="margin-top:14px">'
-           f'{render_personas(profiles, actions_by_agent)}</div></details>' if people_html else
-           f'{stance_html}<div style="margin-top:14px">{render_personas(profiles, actions_by_agent)}</div>')
+        f'<section id="agents">'
+        + (ui.section_head("The simulated people", "Everyone is invented, with a life story from a short interview. Lead score "
+                           "0-100 combines purchase intent, trust and click intent from their survey answers.", insights.get("agents"))
+           + f'{people_html}<details style="margin-top:14px"><summary>Table view and stances</summary>{stance_html}'
+           f'<div style="margin-top:14px">{render_personas(profiles, actions_by_agent)}</div></details>' if people_html else
+           ui.section_head("The simulated people", insight=insights.get("agents"))
+           + f'{stance_html}<div style="margin-top:14px">{render_personas(profiles, actions_by_agent)}</div>')
         + "</section>",
-        f'<section id="timeline"><h2>Activity over time</h2>{timeline_section}</section>',
-        f'<section id="graph"><h2>Market map</h2><p class="muted small">Brand, offers, competitors, segments, '
-        f'communities and objections from your documents and the simulated people, and how they connect.</p>{graph_html}'
-        + (f'<div style="margin-top:14px">{ontology_html}</div>' if ontology_html else "") + "</section>",
-        f'<section id="overview"><h2>Run details</h2>{tiles_html}{meta_html}</section>',
-        (f'<section id="engine-report"><h2>Engine report</h2><p class="muted small">The simulation engine\'s own '
-         f'narrative report (prediction style). The plain-language report above is the one to act on.</p>'
-         f'<article class="report">{report_html}</article></section>' if md else ""),
+        f'<section id="timeline">{ui.section_head("Activity over time", insight=insights.get("timeline"))}{timeline_section}</section>',
+        f'<section id="graph">'
+        + ui.section_head("Market map", "Brand, offers, competitors, segments, communities and objections from your documents "
+                          "and the simulated people, and how they connect.", insights.get("graph"))
+        + graph_html + (f'<div style="margin-top:14px">{ontology_html}</div>' if ontology_html else "") + "</section>",
+        f'<section id="overview">{ui.section_head("Run details")}{tiles_html}{meta_html}</section>',
+        (f'<section id="engine-report">'
+         + ui.section_head("Engine report", "The simulation engine's own narrative report (prediction style). The plain-language "
+                           "report above is the one to act on.")
+         + f'<article class="report">{report_html}</article></section>' if md else ""),
         f'<footer>Generated {esc(summary["generated_at"])} by MarketMirror</footer>',
         "</div>", '<div id="tip" role="tooltip"></div>',
     ]
@@ -1193,11 +1291,14 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{esc(page_title)}</title>\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
+        f"<script>{ui.HEAD_JS}</script>\n"
+        # tokens.TOKENS_CSS comes last so its palette and components win over the per-module styles
         f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"
-        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}</style>\n</head>\n<body>\n"
+        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
-        + f"\n<script>{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
+        # ui.UI_JS first: it defines window.MM (theme reader, filter engine) that the module scripts use
+        + f"\n<script>{ui.UI_JS}{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
         f"{getattr(social_feed, 'SOCIAL_JS', '') if social_feed else ''}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary

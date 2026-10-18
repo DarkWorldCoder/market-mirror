@@ -320,7 +320,7 @@ class SimulationManager:
             if spec is not None:
                 filtered = self._apply_persona_spec(
                     spec, filtered, simulation_requirement, document_text, sim_dir,
-                    parallel_profile_count, progress_callback)
+                    parallel_profile_count, progress_callback, project_id=state.project_id)
                 state.entities_count = filtered.filtered_count
                 state.entity_types = list(filtered.entity_types)
                 self._save_simulation_state(state)
@@ -498,7 +498,7 @@ class SimulationManager:
             raise
     
     def _apply_persona_spec(self, spec, filtered: FilteredEntities, requirement: str, document_text: str,
-                            sim_dir: str, parallel: int, progress_callback=None) -> FilteredEntities:
+                            sim_dir: str, parallel: int, progress_callback=None, project_id: str = None) -> FilteredEntities:
         """Generate synthetic personas (and community accounts) and merge them with real graph actors.
 
         Agent ids are list positions, so the order here (kept graph entities, then personas, then
@@ -513,6 +513,14 @@ class SimulationManager:
 
         client = OpenAI(api_key=Config.LLM_API_KEY, base_url=Config.LLM_BASE_URL)
         context = (document_text or "")[:12000]
+        try:                                                   # product profile first, so segments and interviews know the product
+            from ..models.project import ProjectManager
+            from . import product_profile as pp
+            prof = pp.load(ProjectManager._get_project_dir(project_id)) if project_id else None
+            if prof:
+                context = (pp.render_text(prof) + "\n\n" + context)[:14000]
+        except Exception:  # noqa: BLE001 - the profile is optional
+            pass
         personas = persona_planner.generate_personas(
             client, Config.LLM_MODEL_NAME, spec, requirement, context,
             progress=persona_progress, parallel=max(1, min(parallel, 6)))

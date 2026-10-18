@@ -21,6 +21,7 @@ replays on a platform-styled mock of the post.
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import threading
@@ -345,6 +346,41 @@ def organic_pool(client, model: str, platform: str, country: str, context: str, 
     return list(FALLBACK_ORGANIC)
 
 
+_POOL_LOCK = threading.Lock()
+SEED_WORKERS = max(1, int(os.environ.get("FEED_TEST_SEED_WORKERS", "4") or 4))
+
+
+def organic_pools(client, model: str, keys: List[Tuple[str, str]], context: str, parallel: int = 8,
+                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None
+                  ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    """Fill `pools` with an organic pool per missing (platform, country) key, all in parallel. The dict is
+    shared between the seeds of one run_multi_seed, so each pool is generated once per run."""
+    pools = pools if pools is not None else {}
+    with _POOL_LOCK:
+        missing = sorted({k for k in keys if k not in pools})
+    if not missing:
+        return pools
+    with ThreadPoolExecutor(max_workers=max(1, min(parallel, len(missing)))) as ex:
+        built = list(ex.map(lambda k: (k, organic_pool(client, model, k[0], k[1], context)), missing))
+    with _POOL_LOCK:
+        for k, pool in built:
+            pools.setdefault(k, pool)
+    return pools
+
+
+def _plan(creatives: List[Dict[str, Any]], people: List[Dict[str, Any]], seed: int):
+    """(creatives, plan) for one seed; falls back to untargeted creatives when the labels match nobody."""
+    plan = assign(creatives, people, seed)
+    if not plan:
+        # the creatives' segment labels match nobody (e.g. a spec from another run): show every ad to everyone
+        logger.warning("feed test: no persona matches the creatives' targeting; ignoring segment/country targeting")
+        creatives = [{**c, "segments": [], "countries": []} for c in creatives]
+        plan = assign(creatives, people, seed)
+        if not plan:
+            raise ValueError("no persona matches the creatives' targeting")
+    return creatives, plan
+
+
 def render_item(item_id: str, post: Dict[str, Any], platform: str, is_ad: bool,
                 proof: Optional[Dict[str, Any]] = None) -> str:
     if is_ad:
@@ -455,36 +491,28 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                   context: str = "", organic_per_feed: int = 5, parallel: int = 8, seed: int = 5,
                   progress: Optional[Callable[[int, int], None]] = None, waves: int = 3,
                   landing: Optional[Dict[str, Any]] = None, benchmarks: Optional[Dict[str, Any]] = None,
-                  exposures: int = 2, attention_gate: bool = True) -> Dict[str, Any]:
+                  exposures: int = 2, attention_gate: bool = True,
+                  pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None) -> Dict[str, Any]:
     """waves: later waves see earlier reaction counts (and, if they open them, comments).
     exposures: how many times each person scrolls past the ad (frequency, with wear-out).
     attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
-    benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections."""
+    benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections.
+    pools: organic posts per (platform, country), shared across seeds; missing keys are generated in parallel."""
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
     client = meter
     start_usage = meter.snapshot()
     rng = random.Random(seed)
-    plan = assign(creatives, people, seed)
-    if not plan:
-        # the creatives' segment labels match nobody (e.g. a spec from another run): show every ad to everyone
-        logger.warning("feed test: no persona matches the creatives' targeting; ignoring segment/country targeting")
-        creatives = [{**c, "segments": [], "countries": []} for c in creatives]
-        plan = assign(creatives, people, seed)
-        if not plan:
-            raise ValueError("no persona matches the creatives' targeting")
-    pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-    for (aid, platform) in plan:
-        country = next((p["country"] for p in people if p["agent_id"] == aid), "")
-        if (platform, country) not in pools:
-            pools[(platform, country)] = organic_pool(client, model, platform, country, context)
+    creatives, plan = _plan(creatives, people, seed)
     by_id = {p["agent_id"]: p for p in people}
+    pools = organic_pools(client, model, [(platform, by_id[aid].get("country", "")) for (aid, platform) in plan],
+                          context, parallel, pools)
     traits = {p["agent_id"]: behaviour_traits(p, random.Random(seed * 1000 + int(p["agent_id"]))) for p in people}
     exposures = max(1, min(exposures, 6))
     jobs = []
     for (aid, platform), creative in sorted(plan.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         person = by_id[aid]
-        pool = pools[(platform, person["country"])]
+        pool = pools[(platform, person.get("country", ""))]
         for k in range(1, exposures + 1):
             organic = rng.sample(pool, min(organic_per_feed, len(pool)))
             pos = rng.randint(1, max(1, len(organic) - 1))
@@ -853,17 +881,47 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
                    benchmarks: Optional[Dict[str, Any]] = None, **kw) -> Dict[str, Any]:
     """Run the feed test once per seed (assignment, placements, attention and traits all change) and combine.
 
-    One seed returns the plain single-run result. Every run logs its Claude calls and tokens."""
+    One seed returns the plain single-run result. The organic pools are generated once and shared by every
+    seed, and the seeds run concurrently (FEED_TEST_SEED_WORKERS, default 4). Every run logs its Claude calls
+    and tokens; the shared pool calls are counted in the first seed's usage."""
     seeds = list(seeds or [5])
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
-    runs = []
-    for i, sd in enumerate(seeds):
+    pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    shared = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    if len(seeds) > 1:
+        by_id = {p["agent_id"]: p for p in people}
+        keys = set()
+        for sd in seeds:
+            _, plan = _plan(creatives, people, sd)
+            keys |= {(platform, by_id[aid].get("country", "")) for (aid, platform) in plan}
+        before = meter.snapshot()
+        organic_pools(meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools)
+        after = meter.snapshot()
+        shared = {k: after[k] - before[k] for k in after}
+    lock = threading.Lock()
+    done_by_seed: Dict[int, int] = {}
+    total_by_seed: Dict[int, int] = {}
+
+    def run_one(i: int, sd: int) -> Dict[str, Any]:
         def prog(done, total, i=i):
-            if progress:
-                progress(i * total + done, total * len(seeds))
-        r = run_feed_test(meter, model, creatives, people, seed=sd, progress=prog, benchmarks=benchmarks, **kw)
+            if not progress:
+                return
+            with lock:
+                done_by_seed[i], total_by_seed[i] = done, total
+                known = sum(total_by_seed.values())
+                est_total = known + (len(seeds) - len(total_by_seed)) * (known // max(1, len(total_by_seed)))
+                progress(sum(done_by_seed.values()), max(est_total, 1))
+        r = run_feed_test(meter, model, creatives, people, seed=sd, progress=prog, benchmarks=benchmarks,
+                          pools=pools, **kw)
         u = r["usage"]
         logger.info(f"feed test seed {sd} ({i + 1}/{len(seeds)}): {u['calls']} Claude calls, "
                     f"{u['input_tokens']} input / {u['output_tokens']} output tokens")
-        runs.append(r)
-    return runs[0] if len(runs) == 1 else combine_runs(runs, benchmarks)
+        return r
+
+    if len(seeds) == 1:
+        return run_one(0, seeds[0])
+    with ThreadPoolExecutor(max_workers=max(1, min(SEED_WORKERS, len(seeds)))) as ex:
+        runs = list(ex.map(lambda args: run_one(*args), list(enumerate(seeds))))
+    for k, v in shared.items():
+        runs[0]["usage"][k] = int(runs[0]["usage"].get(k, 0)) + int(v)
+    return combine_runs(runs, benchmarks)

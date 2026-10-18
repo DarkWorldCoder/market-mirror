@@ -12,6 +12,8 @@
 
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -20,7 +22,7 @@ from openai import OpenAI
 
 from ..config import Config
 from ..utils.logger import get_logger
-from ..utils.locale import get_language_instruction, t
+from ..utils.locale import get_language_instruction, get_locale, set_locale, t
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
@@ -215,6 +217,8 @@ class SimulationConfigGenerator:
     MAX_CONTEXT_LENGTH = 50000
     # 每批生成的Agent数量
     AGENTS_PER_BATCH = 15
+    # MarketMirror: agent batches run in a thread pool (CONFIG_GEN_WORKERS, default 6); ids stay stable via start_idx
+    CONFIG_WORKERS = max(1, int(os.environ.get("CONFIG_GEN_WORKERS", "6") or 6))
     
     # 各步骤的上下文截断长度（字符数）
     TIME_CONFIG_CONTEXT_LENGTH = 10000   # 时间配置
@@ -293,38 +297,52 @@ class SimulationConfigGenerator:
         
         reasoning_parts = []
         
-        # ========== 步骤1: 生成时间配置 ==========
+        # ========== 步骤1+2: 时间配置和事件配置并行生成 ==========
+        # 后台线程不带 Flask 请求上下文，语言是线程本地的：把当前语言传给工作线程
+        locale = get_locale()
+
+        def with_locale(fn, *args, **kwargs):
+            set_locale(locale)
+            return fn(*args, **kwargs)
+
         report_progress(1, t('progress.generatingTimeConfig'))
         num_entities = len(entities)
-        time_config_result = self._generate_time_config(context, num_entities)
-        time_config = self._parse_time_config(time_config_result, num_entities)
-        reasoning_parts.append(f"{t('progress.timeConfigLabel')}: {time_config_result.get('reasoning', t('common.success'))}")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            time_future = pool.submit(with_locale, self._generate_time_config, context, num_entities)
+            event_future = pool.submit(with_locale, self._generate_event_config, context, simulation_requirement, entities)
+            time_config_result = time_future.result()
+            time_config = self._parse_time_config(time_config_result, num_entities)
+            reasoning_parts.append(f"{t('progress.timeConfigLabel')}: {time_config_result.get('reasoning', t('common.success'))}")
+            report_progress(2, t('progress.generatingEventConfig'))
+            event_config_result = event_future.result()
+            event_config = self._parse_event_config(event_config_result)
+            reasoning_parts.append(f"{t('progress.eventConfigLabel')}: {event_config_result.get('reasoning', t('common.success'))}")
         
-        # ========== 步骤2: 生成事件配置 ==========
-        report_progress(2, t('progress.generatingEventConfig'))
-        event_config_result = self._generate_event_config(context, simulation_requirement, entities)
-        event_config = self._parse_event_config(event_config_result)
-        reasoning_parts.append(f"{t('progress.eventConfigLabel')}: {event_config_result.get('reasoning', t('common.success'))}")
-        
-        # ========== 步骤3-N: 分批生成Agent配置 ==========
-        all_agent_configs = []
+        # ========== 步骤3-N: 分批并行生成Agent配置（agent_id 由 start_idx 决定，与批次完成顺序无关） ==========
+        batches = []
         for batch_idx in range(num_batches):
             start_idx = batch_idx * self.AGENTS_PER_BATCH
             end_idx = min(start_idx + self.AGENTS_PER_BATCH, len(entities))
-            batch_entities = entities[start_idx:end_idx]
-            
-            report_progress(
-                3 + batch_idx,
-                t('progress.generatingAgentConfig', start=start_idx + 1, end=end_idx, total=len(entities))
-            )
-            
-            batch_configs = self._generate_agent_configs_batch(
-                context=context,
-                entities=batch_entities,
-                start_idx=start_idx,
-                simulation_requirement=simulation_requirement
-            )
-            all_agent_configs.extend(batch_configs)
+            batches.append((batch_idx, start_idx, end_idx))
+        batch_results: Dict[int, List[AgentActivityConfig]] = {}
+        workers = max(1, min(self.CONFIG_WORKERS, len(batches) or 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(with_locale, self._generate_agent_configs_batch,
+                            context=context, entities=entities[start_idx:end_idx], start_idx=start_idx,
+                            simulation_requirement=simulation_requirement): (batch_idx, start_idx, end_idx)
+                for batch_idx, start_idx, end_idx in batches
+            }
+            finished = 0
+            for future in as_completed(futures):
+                batch_idx, start_idx, end_idx = futures[future]
+                batch_results[batch_idx] = future.result()
+                finished += 1
+                report_progress(
+                    2 + finished,
+                    t('progress.generatingAgentConfig', start=start_idx + 1, end=end_idx, total=len(entities))
+                )
+        all_agent_configs = [cfg for batch_idx in sorted(batch_results) for cfg in batch_results[batch_idx]]
         
         reasoning_parts.append(t('progress.agentConfigResult', count=len(all_agent_configs)))
         

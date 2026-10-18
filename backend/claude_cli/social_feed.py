@@ -23,12 +23,14 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 try:  # stdlib only
-    from feed_view import _avatar, _comments_html, _e, _t  # type: ignore
+    import ui  # type: ignore
+    from feed_view import _avatar, _comments_html  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
-    from .feed_view import _avatar, _comments_html, _e, _t  # type: ignore
+    from . import ui  # type: ignore
+    from .feed_view import _avatar, _comments_html  # type: ignore
 
+_e, _t, PLATFORM_LABEL = ui.esc, ui.trunc, ui.PLATFORM_LABEL
 MAX_POSTS = 300
-PLATFORM_LABEL = {"twitter": "X / Twitter", "reddit": "Reddit"}
 ANCHOR = "socialfeed"
 
 
@@ -95,7 +97,7 @@ def _card(p: Dict[str, Any], order: int) -> str:
     a = p.get("author") or {}
     platform = p.get("platform") or "twitter"
     kind = p.get("kind") or "post"
-    attrs = (f'data-platform="{_e(platform)}" data-round="{_e("" if p.get("round") is None else p["round"])}" '
+    attrs = (f'data-item data-platform="{_e(platform)}" data-round="{_e("" if p.get("round") is None else p["round"])}" '
              f'data-segment="{_e(a.get("segment") or "")}" data-country="{_e(a.get("country") or "")}" '
              f'data-brand="{1 if p.get("is_brand") else 0}" data-score="{int(p.get("score") or 0)}" '
              f'data-order="{order}" data-id="{_e(p.get("post_id"))}"')
@@ -156,7 +158,7 @@ def _brand_strip(brand_posts: List[Dict[str, Any]]) -> str:
     return (f'<div class="card sf-brand-card"><h3>Brand posts</h3><p class="muted small">Posts injected into the simulation '
             f'(initial posts, scheduled events and community accounts) and how people answered them. Reach is a proxy: the '
             f'author\'s followers plus everyone who reacted and their followers. Reply sentiment is a word-list heuristic.</p>'
-            f'<div class="tbl{" tall" if len(rows) > 6 else ""}"><table class="sf-brand-t"><thead><tr><th>Where</th><th>Post</th><th class="num">Likes</th>'
+            f'<div class="tbl{" tall" if len(rows) > 6 else ""}"><table class="sf-brand-t sortable"><thead><tr><th>Where</th><th>Post</th><th class="num">Likes</th>'
             f'<th class="num">Quotes</th><th class="num">Reposts</th><th class="num">Comments</th><th class="num">Reach</th>'
             f'<th>Replies +/0/−</th><th>Best reply</th><th>Worst reply</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></div>')
 
@@ -173,12 +175,12 @@ def _rounds_block(platform: str, rounds: List[Dict[str, Any]], chart) -> str:
                    f'<td class="num">{r.get("likes", 0)}</td><td class="num">{_e(", ".join(str(x) for x in r.get("top_posts") or []))}</td>'
                    f'<td>{_sent_bar(r.get("brand_sentiment") or {})}</td></tr>' for c, r in zip(cats, rounds))
     return (f'<div class="card sf-rounds"><h3>Activity per round</h3>{chart("sfrounds", spec, 60 + 24 * max(len(rounds), 3), label)}'
-            f'<details class="tv"><summary>Show the numbers</summary><div class="tbl"><table><thead><tr><th>Round</th>'
+            f'<details class="tv"><summary>Show the numbers</summary><div class="tbl"><table class="sortable"><thead><tr><th>Round</th>'
             f'<th class="num">Posts</th><th class="num">Comments</th><th class="num">Likes</th><th class="num">Top posts</th>'
             f'<th>Brand replies +/0/−</th></tr></thead><tbody>{body}</tbody></table></div></details></div>')
 
 
-def feed_story_section(fs: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
+def feed_story_section(fs: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """(anchor, label, html) for the Social feed section, or None when there is nothing to show."""
     platforms = (fs or {}).get("platforms") or {}
     shown = {k: v for k, v in platforms.items() if (v or {}).get("posts")}
@@ -211,7 +213,8 @@ def feed_story_section(fs: Dict[str, Any], chart) -> Optional[Tuple[str, str, st
             if r.get("round") is not None and r.get("hour"):
                 hours.setdefault(int(r["round"]), r["hour"])
 
-    tabs = "".join(f'<button type="button" data-tab="{_e(k)}" aria-pressed="{"true" if i == 0 else "false"}">'
+    tabs = "".join(f'<button type="button" data-tab="{_e(k)}" data-filter="platform" data-value="{_e(k)}" '
+                   f'aria-pressed="{"true" if i == 0 else "false"}">'
                    f'{_e(PLATFORM_LABEL.get(k, k))} <span class="pm-muted">{len(shown[k]["posts"])}</span></button>'
                    for i, k in enumerate(order))
     seg_opts = "".join(f'<option value="{_e(s)}">{_e(s)} ({n})</option>' for s, n in sorted(segments.items(), key=lambda x: -x[1]))
@@ -219,13 +222,14 @@ def feed_story_section(fs: Dict[str, Any], chart) -> Optional[Tuple[str, str, st
     slider = ""
     if max_round >= 0:
         slider = (f'<label class="sf-round">Round <input type="range" min="-1" max="{max_round}" value="-1" step="1" data-round '
-                  f'aria-label="Round"> <output data-round-out>all rounds</output></label>')
-    bar = (f'<div class="sf-bar"><div class="sf-tabs seg-tabs" role="tablist">{tabs}</div>{slider}'
-           f'<select data-segment aria-label="Segment"><option value="">All segments</option>{seg_opts}</select>'
-           f'<select data-country aria-label="Country"><option value="">All countries</option>{cty_opts}</select>'
-           f'<label><input type="checkbox" data-brand> Brand posts only</label>'
-           f'<label><input type="checkbox" data-sort> Most engaged first</label>'
-           f'<span class="sf-count muted small" data-count aria-live="polite"></span></div>')
+                  f'data-filter="round" data-filter-any="-1" aria-label="Round"> <output data-round-out>all rounds</output></label>')
+    # a generic filter root (ui.UI_JS): controls carry data-filter="<attr>", every card is a data-item
+    bar = (f'<div class="sf-bar filter-bar"><div class="sf-tabs seg-tabs" role="tablist">{tabs}</div>{slider}'
+           f'<select data-segment data-filter="segment" aria-label="Segment"><option value="">All segments</option>{seg_opts}</select>'
+           f'<select data-country data-filter="country" aria-label="Country"><option value="">All countries</option>{cty_opts}</select>'
+           f'<label><input type="checkbox" data-brand data-filter="brand"> Brand posts only</label>'
+           f'<label><input type="checkbox" data-sort data-filter-sort="score"> Most engaged first</label>'
+           f'<span class="sf-count muted small" data-count data-filter-count aria-live="polite"></span></div>')
 
     panels = []
     for i, k in enumerate(order):
@@ -240,21 +244,19 @@ def feed_story_section(fs: Dict[str, Any], chart) -> Optional[Tuple[str, str, st
     index = {"hours": {str(r): h for r, h in hours.items()}, "platforms": {k: len(shown[k]["posts"]) for k in order},
              "rounds_known": all(bool(shown[k].get("rounds_known", True)) for k in order)}
     n_brand = len((fs or {}).get("brand_posts") or [])
-    head = (f'<h2>Social feed</h2><p class="muted small">Every post of the simulation, who wrote it, from which segment and country, '
-            f'in which round, and how people reacted: likes (hover for names), quotes, reposts and comments. '
-            f'{total_posts} posts across {len(order)} platform{"s" if len(order) != 1 else ""}'
-            + (f', {n_brand} of them brand posts' if n_brand else '') + '. Sentiment labels come from a word list, not a model.</p>')
-    html_ = (head + _brand_strip((fs or {}).get("brand_posts") or []) + f'<div class="sf" data-sf-root>{bar}{"".join(panels)}'
+    intro = ('Every post of the simulation, who wrote it, from which segment and country, in which round, and how people '
+             'reacted: likes (hover for names), quotes, reposts and comments. '
+             f'{total_posts} posts across {len(order)} platform{"s" if len(order) != 1 else ""}'
+             + (f', {n_brand} of them brand posts' if n_brand else '') + '. Sentiment labels come from a word list, not a model.')
+    head = ui.section_head("Social feed", intro, insight)
+    html_ = (head + _brand_strip((fs or {}).get("brand_posts") or [])
+             + f'<div class="sf" data-sf-root data-filter-root data-filter-noun="posts">{bar}{"".join(panels)}'
              f'<script type="application/json" data-sf-index>{json.dumps(index, ensure_ascii=False).replace("</", "<\\/")}</script></div>')
     return (ANCHOR, "Social feed", html_)
 
 
 SOCIAL_CSS = """
-.sf-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:12px 0 14px;font-size:.88rem}
-.sf-bar select,.sf-bar input[type=range]{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 10px;max-width:100%}
-.sf-bar input[type=range]{padding:0;width:140px;vertical-align:middle;border:0;background:transparent}
-.sf-bar label{display:inline-flex;gap:6px;align-items:center}
-.sf-round output{min-width:120px;display:inline-block;color:var(--text-2)}
+.sf-round output{min-width:120px}
 .sf-tabs{margin:0}
 .sf-panel[hidden]{display:none}
 .sf-feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:14px;align-items:start}
@@ -273,8 +275,7 @@ SOCIAL_CSS = """
 .sf-sb i{display:block;height:100%}.sf-sb .pos{background:var(--mm-yes,#1baf7a)}.sf-sb .neu{background:var(--mm-maybe,#eda100)}.sf-sb .neg{background:var(--mm-no,#e34948)}
 .sf-brand-t td,.sf-brand-t th{vertical-align:top}.sf-bt{min-width:180px;max-width:320px;font-size:.84rem}
 .sf-rounds{margin-bottom:14px}
-.sf-count{margin-left:auto}
-@media (max-width:700px){.sf-feed{grid-template-columns:1fr}.sf-count{margin-left:0}}
+@media (max-width:700px){.sf-feed{grid-template-columns:1fr}}
 @media print{.sf-bar{display:none}.sf-card{break-inside:avoid}}
 """
 
@@ -283,26 +284,11 @@ SOCIAL_JS = r"""
 var root=document.querySelector('[data-sf-root]');if(!root)return;
 var index={};try{index=JSON.parse((root.querySelector('[data-sf-index]')||{}).textContent||'{}');}catch(e){}
 var hours=index.hours||{};
-var tabs=root.querySelector('.sf-tabs'),range=root.querySelector('[data-round]'),out=root.querySelector('[data-round-out]'),
- seg=root.querySelector('[data-segment]'),cty=root.querySelector('[data-country]'),brand=root.querySelector('[data-brand]'),
- sort=root.querySelector('[data-sort]'),count=root.querySelector('[data-count]');
-function current(){var b=tabs&&tabs.querySelector('button[aria-pressed="true"]');return b?b.getAttribute('data-tab'):null;}
-function apply(){var cur=current(),r=range?parseInt(range.value,10):-1,s=seg?seg.value:'',c=cty?cty.value:'',b=brand&&brand.checked,shown=0,total=0;
- if(out)out.textContent=r<0?'all rounds':('round '+r+(hours[r]?' · '+hours[r]:''));
- root.querySelectorAll('.sf-panel').forEach(function(p){var on=p.getAttribute('data-panel')===cur;p.hidden=!on;if(!on)return;
-  var feed=p.querySelector('.sf-feed');var cards=Array.prototype.slice.call(feed.querySelectorAll('.sf-card'));total=cards.length;
-  cards.forEach(function(k){var ok=(r<0||k.getAttribute('data-round')===String(r))&&(!s||k.getAttribute('data-segment')===s)&&(!c||k.getAttribute('data-country')===c)&&(!b||k.getAttribute('data-brand')==='1');k.hidden=!ok;if(ok)shown++;});
-  var key=sort&&sort.checked?function(k){return -parseInt(k.getAttribute('data-score')||'0',10);}:function(k){return parseInt(k.getAttribute('data-order')||'0',10);};
-  cards.sort(function(a,b2){return key(a)-key(b2);}).forEach(function(k){feed.appendChild(k);});
-  drawRounds(p);});
- if(count)count.textContent=shown+' of '+total+' posts';}
-if(tabs)tabs.addEventListener('click',function(ev){var b=ev.target.closest('button');if(!b)return;tabs.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false');});apply();});
-[range,seg,cty,brand,sort].forEach(function(el){if(el)el.addEventListener(el.tagName==='SELECT'?'change':'input',apply);});
-function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+var range=root.querySelector('[data-round]'),out=root.querySelector('[data-round-out]');
+function label(){if(!range||!out)return;var r=parseInt(range.value,10);out.textContent=r<0?'all rounds':('round '+r+(hours[r]?' · '+hours[r]:''));}
 function drawRounds(panel){if(!window.echarts)return;panel.querySelectorAll('.ec[data-kind=sfrounds]').forEach(function(el){
  if(el.__ec||el.offsetWidth===0)return;var s;try{s=JSON.parse(el.getAttribute('data-spec'));}catch(e){return;}
- var t={ink:css('--text'),ink2:css('--text-2'),muted:css('--muted'),grid:css('--grid'),card:css('--surface'),line:css('--border'),
-  s:[css('--s1'),css('--s2'),css('--s3')],font:getComputedStyle(document.body).fontFamily};
+ var t=window.MM.theme();
  var mk=function(name,key,col){return {name:name,type:'bar',barMaxWidth:18,data:s[key],itemStyle:{color:col,borderRadius:[4,4,0,0]}};};
  var c=echarts.init(el,null,{renderer:'svg'});c.setOption({textStyle:{fontFamily:t.font,color:t.muted,fontSize:11},animationDuration:450,
   tooltip:{trigger:'axis',confine:true,backgroundColor:t.card,borderColor:t.line,borderWidth:1,textStyle:{color:t.ink,fontSize:12},axisPointer:{type:'shadow',shadowStyle:{color:'rgba(127,127,127,.08)'}}},
@@ -311,13 +297,14 @@ function drawRounds(panel){if(!window.echarts)return;panel.querySelectorAll('.ec
   xAxis:{type:'category',data:s.cats,axisTick:{show:false},axisLine:{show:false},axisLabel:{color:t.ink2,fontSize:12}},
   yAxis:{type:'value',axisLine:{show:false},axisTick:{show:false},splitLine:{lineStyle:{color:t.grid}},axisLabel:{color:t.muted},minInterval:1},
   series:[mk('Posts','posts',t.s[0]),mk('Comments','comments',t.s[1]),mk('Likes','likes',t.s[2])]});el.__ec=c;});}
-function redraw(){root.querySelectorAll('.ec[data-kind=sfrounds]').forEach(function(el){if(el.__ec){el.__ec.dispose();el.__ec=null;}});apply();}
-function resize(){root.querySelectorAll('.ec[data-kind=sfrounds]').forEach(function(el){el.__ec&&el.__ec.resize();});
- root.querySelectorAll('.sf-panel:not([hidden])').forEach(drawRounds);}
+function drawVisible(){root.querySelectorAll('.sf-panel:not([hidden])').forEach(drawRounds);}
+function redraw(){root.querySelectorAll('.ec[data-kind=sfrounds]').forEach(function(el){if(el.__ec){el.__ec.dispose();el.__ec=null;}});drawVisible();}
+function resize(){root.querySelectorAll('.ec[data-kind=sfrounds]').forEach(function(el){el.__ec&&el.__ec.resize();});drawVisible();}
+root.addEventListener('mm:filter',function(){label();drawVisible();});
 var rt;window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(resize,120);});
 document.addEventListener('visibilitychange',function(){if(!document.hidden)resize();});
 try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redraw);}catch(e){}
 new MutationObserver(redraw).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-apply();
+label();drawVisible();
 })();
 """

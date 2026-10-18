@@ -73,18 +73,20 @@ def load_answers(arg: str) -> Dict[str, Any]:
     return data
 
 
-def ask(stdin, stderr) -> Dict[str, Any]:
-    """Terminal wizard; stderr for prompts so stdout stays JSON."""
+def ask(stdin, stderr, prefill: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Terminal wizard; stderr for prompts so stdout stays JSON. prefill (from `understand`) becomes the defaults."""
     answers: Dict[str, Any] = {}
+    prefill = prefill or {}
     stderr.write("MarketMirror quickstart. Press Enter to accept a default; empty answers are fine.\n\n")
     for q in QUESTIONS:
+        default = str(prefill.get(q["key"]) or q.get("default", ""))
         while True:
-            stderr.write(q["q"] + (f" [{q['default']}]" if q.get("default") else "") + "\n> ")
+            stderr.write(q["q"] + (f" [{default}]" if default else "") + "\n> ")
             stderr.flush()
             line = stdin.readline()
             if not line:
                 raise ValueError("no input")
-            v = line.strip() or q.get("default", "")
+            v = line.strip() or default
             if v or not q.get("required"):
                 answers[q["key"]] = v
                 break
@@ -307,6 +309,25 @@ def ensure_env(repo_root: str, stdin, stderr) -> Dict[str, Any]:
         stderr.write(f"created {env}\n")
     if key_configured(repo_root):
         return {"env": env, "key": "set"}
+    clis = [c for c in ("claude", "codex") if shutil.which(c)]
+    if clis:
+        stderr.write(f"No API key found, but {' and '.join(clis)} CLI is installed. Use that login instead of a key? "
+                     "(slower, your subscription's limits, personal use) [y/N]: ")
+        stderr.flush()
+        if (stdin.readline() or "").strip().lower().startswith("y"):
+            be = clis[0]
+            lines = []
+            try:
+                with open(env, encoding="utf-8") as f:
+                    lines = [ln for ln in f.read().splitlines()
+                             if not ln.startswith(("LLM_PROVIDER=", "LLM_BASE_URL=", "LLM_API_KEY=", "LLM_GATEWAY=", "LLM_MODEL_NAME="))]
+            except OSError:
+                pass
+            lines += ["LLM_PROVIDER=openai", "LLM_BASE_URL=http://127.0.0.1:5055/v1", "LLM_API_KEY=gateway", f"LLM_GATEWAY={be}", f"LLM_MODEL_NAME={be}"]
+            with open(env, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            stderr.write(f"Gateway settings written. Start it with: python backend/gateway/local_gateway.py --backend {be}\n")
+            return {"env": env, "key": f"gateway ({be})"}
     stderr.write("No Anthropic API key found. Paste it now (input is hidden), or press Enter to add it to .env later:\n")
     try:
         import getpass

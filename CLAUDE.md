@@ -29,7 +29,7 @@ LLM_MODEL_NAME=claude-haiku-4-5   # cheap and fast; use a Sonnet model for bette
 MEMORY_BACKEND=local         # local SQLite graph + local embeddings, so no Zep key is needed
 ```
 
-Install the Python deps with `cd backend && uv sync` (this includes `fastembed`; the ~220 MB multilingual embedding model is downloaded on first use into `backend/uploads/models`). See section 6 for the memory backends. The CLI itself needs only the stdlib and `requests`. Offline `export --run-dir` needs only the stdlib.
+No API key? `backend/gateway/local_gateway.py --backend claude|codex` serves an OpenAI-compatible endpoint on :5055 over your Claude Code or ChatGPT login (`LLM_PROVIDER=openai`, `LLM_BASE_URL=http://127.0.0.1:5055/v1`, `LLM_API_KEY=gateway`); slower and rate-limited, personal use. Install the Python deps with `cd backend && uv sync` (this includes `fastembed`; the ~220 MB multilingual embedding model is downloaded on first use into `backend/uploads/models`). See section 6 for the memory backends. The CLI itself needs only the stdlib and `requests`. Offline `export --run-dir` needs only the stdlib.
 
 ## 2. Start / stop the backend
 
@@ -81,6 +81,7 @@ Interviews work only while the simulation environment is still alive (`status` s
 | analyst panel | `$C panel --simulation sim_x --analysts 5 --brief ".."` |
 | past ads to seed + benchmarks | `$C ads-import export.csv --out scenarios/x/past_ads.md` |
 | backtest vs real ads | `$C backtest --run-dir mirofish_runs/x --actuals scenarios/x/past_ads.json` |
+| understand the product first | `$C understand --project proj_x` or `--docs a.md b.md --url https://...` (`product_profile.json`; `market-test` does it after upload; every later prompt reads it) |
 | platform-native captions | `$C captions --brief @brief.md --platform instagram --n 6 [--run-dir X]` (objections from the run are folded in; output usable as `posts`, creatives or messages) |
 | brand posts + launch calendar inside the rounds | `$C run ... --posts @posts.json --events @events.json` or `market_test.json` keys `posts` / `events` (`[{round, agent, platform, content}]`; `PUT /api/simulation/<sid>/events`) |
 | sales rehearsal (pitch + rebuttals) | `$C pitch --simulation sim_x --script @pitch.md --rebuttals @rebuttals.md [--channel call] [--segment ..]` (needs a live environment, like the survey) |

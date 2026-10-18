@@ -82,7 +82,7 @@ class SocialFeedSectionTests(unittest.TestCase):
     def test_brand_table(self):
         h = self.html
         self.assertIn("<h3>Brand posts</h3>", h)
-        row = re.search(r'<table class="sf-brand-t">.*?<tbody>(.*?)</tbody>', h, re.S).group(1)
+        row = re.search(r'<table class="sf-brand-t[^"]*">.*?<tbody>(.*?)</tbody>', h, re.S).group(1)
         self.assertEqual(row.count("<tr>"), 1)
         self.assertIn("X / Twitter", row)
         self.assertIn("round 0 · 00:00 · initial_post", row)

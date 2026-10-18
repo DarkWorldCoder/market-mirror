@@ -91,6 +91,14 @@ flowchart LR
 
 ## Quick start
 
+### Step zero: let it understand your product
+
+```bash
+mm understand --docs brief.md pricing.md --url https://yourbrand.com --ads export.csv --name Acme
+```
+
+One Claude call reads everything you have into a **product profile**: what it is, for whom and where, pricing and offer, proofs, differentiators, competitors, channels, the objections your material already predicts, brand voice, the KPIs you watch, and what is still unknown. `quickstart --from-docs ...` prefills its questions from it; `market-test` builds it right after upload (so the market map gets Brand, Product, Competitor and Objection nodes), and every later step (persona planning, feed test, survey wording, pitch, report, test ideas) reads it. The MCP tool is `understand`.
+
 ### Easiest: `quickstart`
 
 ```bash
@@ -101,6 +109,15 @@ backend/.venv/bin/python backend/claude_cli/mirofish.py quickstart
 ```
 
 It asks nine plain questions (brand, what you sell, who buys and where, platforms, what to test, budget, how many people, past ad export, extra documents), creates `.env` and asks for your Anthropic key if there is none (typed hidden, never printed), writes a scenario folder with template ads, messages, a launch calendar, a pitch and rebuttals, builds the simulated people and stops before any paid step. Edit the templates, then run the printed command. Agents call it with `--answers @answers.json`, or through the `quickstart` MCP tool.
+
+### No API key? Run on your Claude Code or ChatGPT login
+
+```bash
+mm gateway start claude      # or: codex   (plugin helper), or by hand:
+python backend/gateway/local_gateway.py --backend claude --workers 6
+```
+
+The gateway is a tiny OpenAI-compatible server on `http://127.0.0.1:5055/v1` that answers every model call by running `claude -p` (Claude Code, your Claude subscription) or `codex exec` (your ChatGPT subscription). `.env` then says `LLM_PROVIDER=openai`, `LLM_BASE_URL=http://127.0.0.1:5055/v1`, `LLM_API_KEY=gateway`, `LLM_GATEWAY=claude|codex`; nothing else changes. `quickstart` and `doctor` offer it when no key is found. Be aware: each call starts a CLI process (about 3-8 s, so a 150-person run takes hours rather than an hour), your subscription's rate limits apply, identical prompts are cached in SQLite so reruns are free, and both vendors allow subscription use through their own tools for your own work, not inside a product you resell: use an API key for teams and clients. Any OpenAI-compatible local model works the same way (`LLM_PROVIDER=openai` and the Ollama / LM Studio / vLLM URL).
 
 ### As a Claude skill (recommended)
 
@@ -306,6 +323,8 @@ Always stop after `prepare` and look at the people before spending on the rest. 
 | Sales rehearsal | `backend/app/services/pitch.py` |
 | Test ideas from real ad data | `backend/app/services/ideas.py` |
 | Quickstart wizard | `backend/claude_cli/quickstart.py` |
+| Product profile (understand) | `backend/app/services/product_profile.py`, `backend/app/api/product.py` |
+| No-key gateway (Claude Code / Codex logins) | `backend/gateway/local_gateway.py` |
 | API | `backend/app/api/market.py` (+ upstream `simulation.py`) |
 | CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
 | Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
