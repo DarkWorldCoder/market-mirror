@@ -1027,6 +1027,14 @@ def cmd_backtest(c: Optional[Client], a) -> Any:
     mapping = dict(m.split("=", 1) for m in (a.map or []) if "=" in m)
     res = market_cli.backtest(feed, actual, mapping)
     save_json(a.run_dir, "backtest", res)
+    pairs = [{"sim": p.get("sim_ctr"), "real": p.get("real_ctr"), "label": p.get("creative")} for p in res.get("pairs") or []
+             if p.get("sim_ctr") is not None and p.get("real_ctr") is not None]
+    if pairs and c is not None:
+        try:
+            c.data("POST", "/api/simulation/calibration-pairs", json={"brand": a.brand or "", "metric": "ctr", "pairs": pairs, "source": "backtest"}, timeout=60)
+            res["stored_pairs"] = len(pairs)
+        except CLIError as e:
+            log(f"backtest: could not store calibration pairs: {e}")
     res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
     return res
 
@@ -1494,6 +1502,33 @@ def cmd_study(c: Client, a) -> Any:
             "cells": len(summary.get("cells") or []), "conclusion": conc}
 
 
+def cmd_predict(c: Client, a) -> Any:
+    """Predictions with intervals for a run's headline numbers, scaled by the calibration store; plus a 90-day forecast."""
+    bundle = exporter.load_run_dir(a.run_dir)
+    summary = {}
+    try:
+        with open(os.path.join(a.run_dir, "summary.json"), encoding="utf-8") as f:
+            summary = json.load(f)
+    except (OSError, ValueError):
+        pass
+    targets = dict(x.split("=", 1) for x in (a.target or []) if "=" in x)
+    brand = a.brand or (bundle.get("run_manifest") or {}).get("brand") or ""
+    res = c.data("POST", "/api/simulation/predict", json={"brand": brand, "summary": summary, "feed_test": bundle.get("feed_test") or {},
+                                                        "email_test": bundle.get("email_test") or {}, "targets": targets}, timeout=120)
+    save_json(a.run_dir, "predictions", res)
+    out = {"predictions": os.path.join(os.path.abspath(a.run_dir), "predictions.json"), "calibrated": res.get("calibrated"),
+           "rows": [{k: p.get(k) for k in ("what", "simulated", "predicted", "low", "high", "p_success", "basis")} for p in res.get("predictions") or []][:12]}
+    if bundle.get("feed_test"):
+        try:
+            fc = c.data("POST", "/api/simulation/forecast", json={"feed_test": bundle["feed_test"], "feed_story": bundle.get("feed_story") or {},
+                                                                 "spend": a.spend, "days": a.days}, timeout=120)
+            save_json(a.run_dir, "forecast", fc)
+            out["forecast"] = {k: fc.get(k) for k in ("creative", "customers_total", "active_at_end", "cac", "k_factor", "spend_total", "currency")}
+        except CLIError as e:
+            out["forecast"] = f"not available: {e}"
+    return out
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas, a.personas_lite)  # fail fast on a bad spec file
@@ -1776,7 +1811,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", help="summary + benchmarks JSON (default next to --out)")
     s.add_argument("--title")
 
-    s = sub.add_parser("backtest", help="compare simulated creative rankings with real ad results")
+    s = sub.add_parser("backtest", help="compare simulated creative rankings with real ad results (stores real-vs-simulated CTR pairs for predict)")
+    s.add_argument("--brand", help="brand name for the calibration store")
     s.add_argument("--run-dir", required=True, help="run folder with feed_test.json")
     s.add_argument("--actuals", required=True, help="JSON written by ads-import")
     s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
@@ -1816,6 +1852,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--brief", help="text or @file")
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
+
+    s = sub.add_parser("predict", help="predictions with intervals (scaled by real results seen so far) and a 90-day adoption forecast for a run")
+    s.add_argument("--run-dir", required=True)
+    s.add_argument("--brand")
+    s.add_argument("--target", nargs="*", help="targets to score, e.g. ctr=2 cpl=10 would_convert=15")
+    s.add_argument("--spend", type=float, help="monthly spend for the forecast (default: the benchmark budget)")
+    s.add_argument("--days", type=int, default=90)
 
     s = sub.add_parser("study", help="same people, several scenarios x seeds -> one defended conclusion (study_summary.json, study_report.md, study.html)")
     s.add_argument("--spec", required=True, help="study.json: {name, base: market_test.json, simulation_id, scenarios:[{name, overrides}], seeds:[..], steps:[..]}")
@@ -1887,7 +1930,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict,
 }
 
 
@@ -1896,7 +1939,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        offline = offline_export or offline_live or a.cmd in ("ads-import", "backtest") or (a.cmd == "quickstart" and a.no_run)
+        offline = offline_export or offline_live or a.cmd == "ads-import" or (a.cmd == "quickstart" and a.no_run)
+        if a.cmd == "backtest":
+            try:
+                Client(a.base_url, lang=a.lang).get("/health")
+            except Exception:  # noqa: BLE001 - backtest works offline; pairs are stored only when the backend is up
+                offline = True
         c = None if offline else Client(a.base_url, lang=a.lang)
         result = COMMANDS[a.cmd](c, a)
     except CLIError as e:

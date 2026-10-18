@@ -91,6 +91,8 @@ Interviews work only while the simulation environment is still alive (`status` s
 | next test ideas from real ads + the run | `$C ideas --ads export.csv --run-dir mirofish_runs/x --brand X` (or `--rows @rows.json` with rows pulled from a connected ads tool) |
 | email campaign test | `$C emailtest --simulation sim_x --emails @emails.json [--list-size N]` (`emails.json`: `{emails:[{id, from_name, subject, preheader, body, cta, send_time, segments, sequence:[{delay_days, subject, body}]}], list_size, benchmarks}`; `market-test` key `emails`) |
 | test anything from one spec | `$C test --simulation sim_x --spec @experiment.json [--brand X]` (`{type, name, variants, audience, metric, budget, rounds}`; types ad, message, price, offer, positioning, naming, landing, launch, pitch, email, creator_post, channel_mix) -> `experiment_result.json` |
+| study: scenarios x seeds | `$C study --spec study.json` (`{name, base, simulation_id, scenarios:[{name, overrides}], seeds, steps}`) -> `mirofish_runs/<name>/{study_summary.json, study_report.md, study.html}`; finished cells are reused |
+| predictions + forecast | `$C predict --run-dir mirofish_runs/x --brand X [--target ctr=2 cpl=10] [--spend 500]` -> `predictions.json`, `forecast.json`; `backtest --brand X` and `calibrate` feed the store `backend/uploads/calibration_store.json` |
 | plain-language report | `$C report --simulation sim_x --run-dir mirofish_runs/x` (default engine `market`; `--engine upstream` for the old narrative report) |
 | real post view | `GET /api/simulation/<sid>/feed-story` -> `feed_story.json`, rendered as the dashboard's **Social feed** |
 

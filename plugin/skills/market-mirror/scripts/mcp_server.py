@@ -202,6 +202,13 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "predict", "description": (
+        "Predictions with intervals for a run: CTR per ad, cost per lead, would-convert overall and per audience, email click rates, "
+        "each scaled by the real-vs-simulated results stored so far (from backtest and calibrate) and labelled with its basis "
+        "('calibrated on N real results' or 'uncalibrated prior'); optional targets (e.g. {ctr: 2, cpl: 10}) give a probability of "
+        "success. Also a 30/60/90-day adoption forecast from the best ad, its landing conversion and the word of mouth seen in the rounds."),
+     "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "brand": {"type": "string"}, "targets": {"type": "object"},
+                                                      "spend": {"type": "number"}, "days": {"type": "integer"}}, "required": ["run"]}},
     {"name": "study", "description": (
         "Several scenarios x several seeds on the same simulated people, one defended conclusion. spec: {name, base (a market_test "
         "config object: creatives, survey, pitch, emails, rounds...), simulation_id (the people to reuse), scenarios: [{name, overrides}], "
@@ -331,6 +338,19 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         if a.get("n"):
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
+        return r["stdout"].strip() or r["stderr"].strip()
+    if name == "predict":
+        run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
+        args = ["cli", "predict", "--run-dir", run_dir]
+        if a.get("brand"):
+            args += ["--brand", str(a["brand"])]
+        if a.get("targets"):
+            args += ["--target", *[f"{k}={v}" for k, v in a["targets"].items()]]
+        if a.get("spend"):
+            args += ["--spend", str(a["spend"])]
+        if a.get("days"):
+            args += ["--days", str(int(a["days"]))]
+        r = sh(args, timeout=300)
         return r["stdout"].strip() or r["stderr"].strip()
     if name == "study":
         d = os.path.join(home(), "scenarios", "_studies")

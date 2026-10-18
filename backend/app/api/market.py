@@ -282,6 +282,49 @@ def start_email_test():
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "emails": len(emails), "people": len(people)}})
 
 
+@simulation_bp.route('/predict', methods=['POST'])
+def predict_run():
+    """POST {brand, summary, feed_test?, email_test?, targets?: {ctr, cpl, would_convert, click_rate}} -> predictions with
+    intervals and P(target), scaled by the calibration store; synchronous, no LLM."""
+    from ..services import predict
+    data = request.get_json() or {}
+    if not isinstance(data.get("summary"), dict) and not data.get("feed_test"):
+        return jsonify({"success": False, "error": "summary (summary.json) or feed_test is required"}), 400
+    out = predict.predict_run(data.get("summary") or {}, data.get("feed_test") or {}, str(data.get("brand") or ""),
+                              {k: float(v) for k, v in (data.get("targets") or {}).items() if v is not None}, data.get("email_test"))
+    return jsonify({"success": True, "data": out})
+
+
+@simulation_bp.route('/forecast', methods=['POST'])
+def forecast_run():
+    """POST {feed_test, feed_story?, spend?, days?} -> adoption curve over time from the best ad, its landing conversion
+    and the word of mouth seen in the rounds; synchronous."""
+    from ..services import predict
+    data = request.get_json() or {}
+    out = predict.forecast_run(data.get("feed_test") or {}, data.get("feed_story") or {}, data.get("spend"), int(data.get("days") or 90))
+    if not out:
+        return jsonify({"success": False, "error": "forecast needs a feed test with benchmarks (cpm and budget)"}), 400
+    return jsonify({"success": True, "data": out})
+
+
+@simulation_bp.route('/calibration-pairs', methods=['POST', 'GET'])
+def calibration_pairs():
+    """POST {brand, metric, pairs: [{sim, real, label}], source} stores real-vs-simulated pairs; GET lists the fits."""
+    from ..services import predict
+    if request.method == "GET":
+        store = predict.load_store()
+        metrics = sorted({p.get("metric") for p in store.get("pairs") or []})
+        brands = sorted({p.get("brand") for p in store.get("pairs") or []})
+        return jsonify({"success": True, "data": {"pairs": len(store.get("pairs") or []), "brands": brands,
+                                                  "fits": {m: predict.fit(request.args.get("brand") or "", m, store) for m in metrics}}})
+    data = request.get_json() or {}
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list) or not data.get("metric"):
+        return jsonify({"success": False, "error": "metric and pairs are required"}), 400
+    n = predict.add_pairs(str(data.get("brand") or ""), str(data["metric"]), pairs, str(data.get("source") or "manual"))
+    return jsonify({"success": True, "data": {"stored": n}})
+
+
 @simulation_bp.route('/study-report', methods=['POST'])
 def study_report():
     """POST {summary: study_summary.json, brand?} -> {markdown, method} (one Claude call, number-guarded; synchronous)."""
@@ -323,6 +366,12 @@ def calibrate_panel():
         out = calibration.diagnose([r for r in syn if isinstance(r, dict) and "y" in r],
                                    [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"))
         out["field"] = data.get("field")
+        corr = out.get("corrected") or {}
+        if corr.get("estimate") is not None and corr.get("naive_syn"):
+            from ..services import predict
+            predict.add_pairs(str(data.get("brand") or ""), "would_convert" if str(data.get("field") or "would_convert") == "would_convert" else str(data.get("field")),
+                              [{"sim": 100 * corr["naive_syn"], "real": 100 * corr["real_mean"], "label": "calibrate"}], "calibrate")
+            out["stored_pair"] = True
         return jsonify({"success": True, "data": out})
     except Exception as e:  # noqa: BLE001
         logger.error(f"calibrate failed: {e}\n{traceback.format_exc()}")

@@ -167,7 +167,7 @@ class CLITests(unittest.TestCase):
     def test_parser_has_all_commands(self):
         p = mirofish.build_parser()
         for cmd in ["health", "run", "upload", "build-graph", "create-sim", "prepare", "start", "status",
-                    "report", "chat", "interview", "list", "export", "pitch", "ideas", "quickstart", "captions", "understand", "calibrate", "emailtest", "test", "study"]:
+                    "report", "chat", "interview", "list", "export", "pitch", "ideas", "quickstart", "captions", "understand", "calibrate", "emailtest", "test", "study", "predict"]:
             self.assertIn(cmd, mirofish.COMMANDS)
         a = p.parse_args(["run", "--seed", "a.md", "--requirement", "q", "--max-rounds", "3", "--platform", "reddit"])
         self.assertEqual((a.max_rounds, a.platform), (3, "reddit"))
