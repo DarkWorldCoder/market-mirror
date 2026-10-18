@@ -56,6 +56,18 @@ class QuickstartTests(unittest.TestCase):
         self.assertIn("4.99", open(os.path.join(d, "fit", "events.json"), encoding="utf-8").read())
         self.assertIn("## price", open(os.path.join(d, "fit", "rebuttals.md"), encoding="utf-8").read())
 
+    def test_docs_never_overwrite_generated_files(self):
+        d = tempfile.mkdtemp()
+        other = os.path.join(d, "src")
+        os.makedirs(other)
+        open(os.path.join(other, "brief.md"), "w").write("# the user's own brief")
+        open(os.path.join(other, "notes.md"), "w").write("notes")
+        r = quickstart.build_scenario({**ANSWERS, "docs": f"{other}/brief.md, {other}/notes.md"}, os.path.join(d, "s"))
+        cfg = json.load(open(r["config"]))
+        self.assertEqual(cfg["seeds"], ["brief.md", "doc_brief.md", "notes.md"])
+        self.assertIn("## What we sell", open(os.path.join(d, "s", "brief.md")).read())   # generated brief kept
+        self.assertEqual(open(os.path.join(d, "s", "doc_brief.md")).read(), "# the user's own brief")
+
     def test_required_answers(self):
         with self.assertRaises(ValueError):
             quickstart.build_scenario({"brand": "X"}, tempfile.mkdtemp())

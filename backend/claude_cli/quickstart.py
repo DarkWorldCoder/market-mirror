@@ -30,6 +30,8 @@ QUESTIONS: List[Dict[str, Any]] = [
     {"key": "docs", "q": "Extra documents to learn from (paths, comma separated), or leave empty", "default": ""},
 ]
 SIZES = {"small": 20, "medium": 60, "large": 150}
+GENERATED = {"brief.md", "question.txt", "personas.json", "creatives.json", "messages.txt", "posts.json", "events.json",
+             "pitch.md", "rebuttals.md", "market_test.json", "past_ads.md", "past_ads.json"}
 PLATFORMS = ["facebook", "instagram", "tiktok", "reddit", "linkedin", "x"]
 TESTS = ["ads", "messages", "price", "launch", "pitch"]
 
@@ -192,8 +194,8 @@ def rebuttals_md(a: Dict[str, Any]) -> str:
 def market_test(a: Dict[str, Any], files: Dict[str, str]) -> Dict[str, Any]:
     cfg: Dict[str, Any] = {
         "name": slug(a["brand"]), "title": f"{a['brand']} market test", "brand": a["brand"],
-        "seeds": ["brief.md"] + ([os.path.basename(files["past_ads_md"])] if files.get("past_ads_md") else [])
-                 + [os.path.basename(d) for d in a["docs"]],
+        "seeds": list(dict.fromkeys(["brief.md"] + ([os.path.basename(files["past_ads_md"])] if files.get("past_ads_md") else [])
+                                    + list(a.get("doc_names") or []))),
         "requirement": "question.txt", "personas": "personas.json", "platform": "parallel",
         "rounds": 6 if "launch" in a["tests"] else 3, "panel": {"analysts": 5, "brief": question_txt(a)}, "report": True,
     }
@@ -252,11 +254,17 @@ def build_scenario(answers: Dict[str, Any], root: str, ads_import: Optional[Call
                     benchmarks = json.load(f).get("benchmarks")
             except (OSError, ValueError):
                 benchmarks = None
+    doc_names: List[str] = []
     for d in a["docs"]:
         if not os.path.exists(d):
             raise ValueError(f"document not found: {d}")
+        name = os.path.basename(d)
         if os.path.abspath(os.path.dirname(d)) != os.path.abspath(root):
-            shutil.copy(d, root)
+            if name in GENERATED or os.path.exists(os.path.join(root, name)):
+                name = "doc_" + name                      # never overwrite a generated file (brief.md, ...)
+            shutil.copy(d, os.path.join(root, name))
+        doc_names.append(name)
+    a["doc_names"] = list(dict.fromkeys(doc_names))
     if "ads" in a["tests"]:
         put("creatives.json", creatives_json(a, benchmarks))
     put("messages.txt", messages_txt(a))
