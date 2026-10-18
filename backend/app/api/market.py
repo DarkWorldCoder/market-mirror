@@ -193,3 +193,113 @@ def market_result(simulation_id: str, kind: str):
         return jsonify({"success": False, "error": f"no {kind} result yet"}), 404
     with open(path, encoding="utf-8") as f:
         return jsonify({"success": True, "data": json.load(f)})
+
+
+# --------------------------------------------------------------------------
+# Brand posts and scheduled events inside the simulation (MarketMirror)
+# --------------------------------------------------------------------------
+
+def _runner_status(sim_dir: str) -> str:
+    try:
+        with open(os.path.join(sim_dir, "run_state.json"), encoding="utf-8") as f:
+            return str(json.load(f).get("runner_status") or "")
+    except (OSError, ValueError):
+        return ""
+
+
+@simulation_bp.route('/<simulation_id>/events', methods=['PUT', 'GET'])
+def simulation_events(simulation_id: str):
+    """PUT {posts:[{agent, content, platform?}], events:[{round, agent, content, platform?, label?}]}
+    writes event_config.initial_posts / scheduled_events into simulation_config.json. GET returns them."""
+    import sys
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from event_schedule import normalize_events
+    try:
+        sim_dir = _sim_dir(simulation_id)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    cfg_path = os.path.join(sim_dir, "simulation_config.json")
+    if not os.path.exists(cfg_path):
+        return jsonify({"success": False, "error": "prepare the simulation first (no simulation_config.json)"}), 400
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if request.method == 'GET':
+        ev = cfg.get("event_config") or {}
+        return jsonify({"success": True, "data": {"initial_posts": ev.get("initial_posts") or [],
+                                                  "scheduled_events": ev.get("scheduled_events") or []}})
+    if _runner_status(sim_dir) == "running":
+        return jsonify({"success": False, "error": "simulation is running; stop it before changing events"}), 409
+    data = request.get_json() or {}
+    try:
+        frag = normalize_events(cfg, data.get("posts"), data.get("events"))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    ev = cfg.setdefault("event_config", {})
+    if data.get("posts") is not None:
+        ev["initial_posts"] = frag["initial_posts"] if data.get("replace", True) else (ev.get("initial_posts") or []) + frag["initial_posts"]
+    if data.get("events") is not None:
+        ev["scheduled_events"] = frag["scheduled_events"]
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"success": True, "data": {"initial_posts": ev.get("initial_posts") or [],
+                                              "scheduled_events": ev.get("scheduled_events") or []}})
+
+
+CAPTION_SYSTEM = (
+    "You are a senior social media copywriter who writes platform-native posts and ad captions that real people "
+    "in the target country would stop for. Write in the language mix the audience uses. Never invent statistics, "
+    "awards or customer numbers. Return only valid JSON."
+)
+
+
+@simulation_bp.route('/captions', methods=['POST'])
+def generate_captions():
+    """POST {brief, platform, n?, audience?, objections?[], tone?, language?, brand?} -> {captions:[...]}
+    Each caption: {hook, body, hashtags[], cta, format, why}. Usable as brand posts or feed-test creatives."""
+    from ..services.persona_planner import parse_json_block
+    from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+    data = request.get_json() or {}
+    brief = str(data.get("brief") or "").strip()
+    if not brief:
+        return jsonify({"success": False, "error": "brief is required"}), 400
+    platform = str(data.get("platform") or "instagram").lower()
+    n = max(1, min(int(data.get("n") or 6), 12))
+    objections = [str(x) for x in (data.get("objections") or [])][:8]
+    prompt = (
+        f"Write {n} different {platform} posts/ad captions for this brief.\n\nBrief:\n{brief[:4000]}\n\n"
+        f"Audience: {data.get('audience') or 'see brief'}\nLanguage: {data.get('language') or 'the audience\'s everyday mix'}\n"
+        f"Tone: {data.get('tone') or 'natural for the platform'}\n"
+        + (f"Objections real people raised that the captions should pre-empt: {'; '.join(objections)}\n" if objections else "")
+        + f"\nRules for {platform}: " + {
+            "instagram": "first line is the hook (under 8 words), 2-4 short lines, emoji ok, 3-6 hashtags, one clear CTA.",
+            "facebook": "conversational, 2-5 sentences, one question people will answer in comments, CTA at the end.",
+            "tiktok": "on-screen hook under 6 words plus a 15-second script in 3 beats, casual, no hashtags over 4.",
+            "reddit": "honest, no marketing speak, a title under 90 chars and a body that gives real information, no hashtags.",
+            "linkedin": "professional, a story or a number, line breaks, no hashtags over 3.",
+            "x": "under 240 characters, punchy, one hashtag at most.",
+        }.get(platform, "short and native to the platform.")
+        + "\nMake them genuinely different angles (price, proof, fear of missing out, how-to, social proof, humour, question).\n"
+        'Return JSON: {"captions": [{"angle": "...", "hook": "...", "body": "...", "hashtags": ["..."], "cta": "...", '
+        '"format": "image|video|reel|carousel|text", "media": "what the image/video should show", "why": "one line"}]}'
+    )
+    try:
+        resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.9, max_tokens=3500,
+                                      messages=[{"role": "system", "content": CAPTION_SYSTEM},
+                                                {"role": "user", "content": prompt}])
+        parsed = parse_json_block(extract_chat_completion_text(resp))
+        rows = parsed.get("captions") if isinstance(parsed, dict) else parsed
+        caps = []
+        for i, r in enumerate([x for x in (rows or []) if isinstance(x, dict)][:n]):
+            hook, body = str(r.get("hook") or "").strip(), str(r.get("body") or "").strip()
+            text = (hook + "\n" + body).strip() if hook and hook not in body else (body or hook)
+            caps.append({"id": f"{platform[:2]}_{i + 1}", "platform": platform, "angle": str(r.get("angle") or "")[:60],
+                         "hook": hook[:200], "body": body[:1500], "text": text[:1700],
+                         "hashtags": [str(h).lstrip("#") for h in (r.get("hashtags") or [])][:8],
+                         "cta": str(r.get("cta") or "")[:60], "format": str(r.get("format") or "image")[:20],
+                         "media": str(r.get("media") or "")[:300], "why": str(r.get("why") or "")[:200]})
+        return jsonify({"success": True, "data": {"platform": platform, "captions": caps}})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"captions failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

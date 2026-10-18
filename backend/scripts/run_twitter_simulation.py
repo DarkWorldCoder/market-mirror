@@ -605,6 +605,10 @@ class TwitterSimulationRunner:
             model=model,
             available_actions=self.AVAILABLE_ACTIONS,
         )
+        import agent_context  # MarketMirror: per-round persona cards
+        from event_schedule import events_by_round, inject_scheduled
+        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7))
+        self._scheduled_by_round = events_by_round(self.config, "twitter")
         
         # 数据库路径
         db_path = self._get_db_path()
@@ -672,7 +676,7 @@ class TwitterSimulationRunner:
                 self.env, simulated_hour, round_num
             )
             
-            if not active_agents:
+            if not active_agents and not self._scheduled_by_round.get(round_num + 1):
                 continue
             
             # 构建动作
@@ -682,6 +686,8 @@ class TwitterSimulationRunner:
             }
             
             # 执行动作
+            agent_context.begin_round(round_num + 1, simulated_hour)
+            inject_scheduled(actions, self.env, round_num + 1, self._scheduled_by_round, ManualAction, ActionType, print)
             await self.env.step(actions)
             
             # 打印进度

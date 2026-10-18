@@ -181,6 +181,7 @@ class PersonaSpec:
     graph_agents: str = "auto"         # all | none | auto (drop places/platforms/campaigns/group labels)
     keep_entities: List[str] = field(default_factory=list)   # graph entity names to always keep
     diversity: Dict[str, List[str]] = field(default_factory=dict)   # trait overrides for every segment
+    interview: bool = True             # life interview per person (research: interview-grounded personas predict better)
     seed: int = 7
 
     @classmethod
@@ -205,6 +206,7 @@ class PersonaSpec:
             graph_agents=mode,
             keep_entities=_str_list(d.get("keep_entities")),
             diversity=_diversity(d.get("diversity")),
+            interview=bool(d.get("interview", True)) and not bool(d.get("personas_lite", False)),
             seed=_int(d.get("seed"), 7),
         )
         total = sum(s.count for s in spec.segments)
@@ -467,6 +469,112 @@ Return JSON: {{"personas": [{{
 }}]}}"""
 
 
+INTERVIEW_QUESTIONS = [
+    "Where did you grow up, and what was home like?",
+    "Who is in your family now, and who do you live with?",
+    "How is money this month? What do you spend on first, and what do you cut?",
+    "Walk me through a typical weekday, hour by hour.",
+    "What phone do you use, and what is your data plan like?",
+    "What was the last thing you bought online, and why that one?",
+    "Tell me about a time you got scammed or badly disappointed by a purchase.",
+    "Who do you ask before spending real money on something new?",
+    "What did you do last weekend?",
+    "What do you post or share about online, and where?",
+    "What annoys you most in ads?",
+    "What is something you would never post about?",
+]
+INTERVIEW_BATCH = 4
+
+
+def _interview_prompt(people: List[Dict[str, Any]], context: str) -> str:
+    cards = "\n".join(
+        f"{i + 1}. {p['name']}: age {p.get('age')}, {p.get('gender')}, {p.get('occupation')}, "
+        f"{p.get('city') or ''} {p.get('country') or ''}; segment {p.get('segment')}; "
+        f"languages {', '.join(p.get('languages') or []) or 'local'}; upbringing {p.get('upbringing')}; "
+        f"education {p.get('education')}; income {p.get('income_level') or p.get('income')}; "
+        f"thinking style {p.get('thinking_style')}; tech comfort {p.get('tech_comfort')}; "
+        f"media diet {p.get('media_diet')}; attitude: {p.get('attitude')}"
+        for i, p in enumerate(people))
+    qs = "\n".join(f"Q{i + 1}. {q}" for i, q in enumerate(INTERVIEW_QUESTIONS))
+    return f"""This is a life interview with {len(people)} fictional people, for a market simulation. Answer every
+question as each person would, in their own words and in the language mix they actually speak day to day
+(e.g. Hinglish, Taglish, Nepali-English, Bahasa gaul), 1-3 sentences each, concrete and specific (names of
+neighbourhoods, prices in local currency, phone models, apps). Keep each person consistent with their card and
+different from the others. Never use real or public people.
+
+Context of the simulation (what they will later react to):
+{context[:1500]}
+
+People:
+{cards}
+
+Questions:
+{qs}
+
+Return JSON: {{"interviews": [{{"name": "<person name as given>",
+  "answers": [{{"q": "Q1", "a": "..."}}, ... 12 answers ...],
+  "phone": "phone model and age", "data_plan": "wifi at home / prepaid data / unlimited...",
+  "summary": "120 words in the first person, in their own voice, summarising who they are, their money situation,
+  how they decide on purchases and what they distrust"}}]}}"""
+
+
+def run_interviews(client, model: str, entities: List[EntityNode], context: str,
+                   progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4) -> int:
+    """Interview every synthetic persona in batches; attach answers, phone/data plan and a first-person summary.
+    Returns the number of people interviewed."""
+    people = [e for e in entities if PERSONA_LABEL in e.labels]
+    batches = [people[i:i + INTERVIEW_BATCH] for i in range(0, len(people), INTERVIEW_BATCH)]
+    if not batches:
+        return 0
+    done = 0
+
+    def card(e: EntityNode) -> Dict[str, Any]:
+        a = e.attributes or {}
+        prof = a.get(SYNTHETIC_PROFILE_KEY) or {}
+        return {"name": e.name, "age": prof.get("age"), "gender": prof.get("gender"), "occupation": a.get("occupation"),
+                "city": a.get("city"), "country": a.get("country"), "segment": a.get("segment"),
+                "languages": a.get("languages"), "upbringing": a.get("upbringing"), "education": a.get("education"),
+                "income_level": a.get("income_level"), "income": a.get("income"), "thinking_style": a.get("thinking_style"),
+                "tech_comfort": a.get("tech_comfort"), "media_diet": a.get("media_diet"), "attitude": a.get("attitude")}
+
+    def run(batch: List[EntityNode]):
+        try:
+            data = _llm_json(client, model, _interview_prompt([card(e) for e in batch], context),
+                             temperature=0.9, max_tokens=6000)
+            rows = data.get("interviews") if isinstance(data, dict) else data
+            return batch, [r for r in (rows or []) if isinstance(r, dict)]
+        except Exception as e:  # noqa: BLE001 - an uninterviewed batch keeps its shorter persona
+            logger.warning(f"interview batch failed: {e}")
+            return batch, []
+
+    count = 0
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
+        for batch, rows in pool.map(run, batches):
+            by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
+            for k, e in enumerate(batch):
+                r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
+                if not r:
+                    continue
+                answers = [{"q": str(x.get("q") or f"Q{i + 1}"), "a": str(x.get("a") or "").strip()}
+                           for i, x in enumerate(r.get("answers") or []) if isinstance(x, dict)]
+                summary = str(r.get("summary") or "").strip()
+                e.attributes["interview"] = answers
+                if summary:
+                    e.attributes["interview_summary"] = summary[:1200]
+                if r.get("phone"):
+                    e.attributes["phone"] = str(r["phone"])[:120]
+                if r.get("data_plan"):
+                    e.attributes["data_plan"] = str(r["data_plan"])[:120]
+                prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
+                if prof and summary:
+                    prof["persona"] = f"{prof['persona']} In their own words: {summary}"
+                count += 1
+            done += len(batch)
+            if progress:
+                progress(done, len(people), "interviews")
+    return count
+
+
 def _dedupe_name(name: str, taken: set) -> str:
     base = name.strip() or "Unnamed"
     candidate, n = base, 2
@@ -523,6 +631,9 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         for k, slot in enumerate(slots):
             row = rows[k] if k < len(rows) else {}
             entities.append(_to_entity(seg, slot, row, taken, len(entities)))
+    if spec.interview:
+        n = run_interviews(client, model, entities, context, progress=progress, parallel=parallel)
+        logger.info(f"persona planner: interviewed {n} people")
     if spec.communities:
         assign_communities(entities, spec, rng)
         entities.extend(community_accounts(spec, taken))
@@ -692,6 +803,9 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "city": attrs.get("city"), "age": prof.get("age"), "gender": prof.get("gender"),
             "occupation": attrs.get("occupation"), "income_level": attrs.get("income_level"),
             "decision_role": attrs.get("decision_role"), "communities": attrs.get("communities") or [],
+            "languages": attrs.get("languages") or [], "platform_habits": attrs.get("platform_habits"),
+            "phone": attrs.get("phone"), "data_plan": attrs.get("data_plan"),
+            "interview_summary": attrs.get("interview_summary"),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out

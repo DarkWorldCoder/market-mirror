@@ -157,6 +157,8 @@ def init_logging_for_simulation(simulation_dir: str):
 
 from action_logger import SimulationLogManager, PlatformActionLogger
 from community_seed import seed_community_follows, max_trace_rowid
+import agent_context  # MarketMirror: per-round persona cards
+from event_schedule import events_by_round, inject_scheduled  # MarketMirror: scheduled brand posts
 
 try:
     from camel.models import ModelFactory
@@ -1166,6 +1168,8 @@ async def run_twitter_simulation(
         model=model,
         available_actions=TWITTER_ACTIONS,
     )
+    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7))
+    scheduled_by_round = events_by_round(config, "twitter")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
     agent_names = get_agent_names_from_config(config)
@@ -1235,6 +1239,7 @@ async def run_twitter_simulation(
         if initial_actions:
             await result.env.step(initial_actions)
             log_info(f"已发布 {len(initial_actions)} 条初始帖子")
+            last_rowid = max_trace_rowid(db_path)   # MarketMirror: initial posts were logged above; don't re-log them as round 1
     
     # 记录 round 0 结束
     if action_logger:
@@ -1276,13 +1281,14 @@ async def run_twitter_simulation(
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
         
-        if not active_agents:
-            # 没有活跃agent时也记录round结束（actions_count=0）
+        if not active_agents and not scheduled_by_round.get(round_num + 1):
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
             continue
-        
+
         actions = {agent: LLMAction() for _, agent in active_agents}
+        agent_context.begin_round(round_num + 1, simulated_hour)
+        inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
         await result.env.step(actions)
         
         # 从数据库获取实际执行的动作并记录
@@ -1363,6 +1369,8 @@ async def run_reddit_simulation(
         model=model,
         available_actions=REDDIT_ACTIONS,
     )
+    agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7))
+    scheduled_by_round = events_by_round(config, "reddit")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
     agent_names = get_agent_names_from_config(config)
@@ -1440,6 +1448,7 @@ async def run_reddit_simulation(
         if initial_actions:
             await result.env.step(initial_actions)
             log_info(f"已发布 {len(initial_actions)} 条初始帖子")
+            last_rowid = max_trace_rowid(db_path)   # MarketMirror: initial posts were logged above; don't re-log them as round 1
     
     # 记录 round 0 结束
     if action_logger:
@@ -1481,13 +1490,14 @@ async def run_reddit_simulation(
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
         
-        if not active_agents:
-            # 没有活跃agent时也记录round结束（actions_count=0）
+        if not active_agents and not scheduled_by_round.get(round_num + 1):
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
             continue
-        
+
         actions = {agent: LLMAction() for _, agent in active_agents}
+        agent_context.begin_round(round_num + 1, simulated_hour)
+        inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
         await result.env.step(actions)
         
         # 从数据库获取实际执行的动作并记录

@@ -592,6 +592,10 @@ class RedditSimulationRunner:
             model=model,
             available_actions=self.AVAILABLE_ACTIONS,
         )
+        import agent_context  # MarketMirror: per-round persona cards
+        from event_schedule import events_by_round, inject_scheduled
+        agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7))
+        self._scheduled_by_round = events_by_round(self.config, "reddit")
         
         db_path = self._get_db_path()
         if os.path.exists(db_path):
@@ -663,7 +667,7 @@ class RedditSimulationRunner:
                 self.env, simulated_hour, round_num
             )
             
-            if not active_agents:
+            if not active_agents and not self._scheduled_by_round.get(round_num + 1):
                 continue
             
             actions = {
@@ -671,6 +675,8 @@ class RedditSimulationRunner:
                 for _, agent in active_agents
             }
             
+            agent_context.begin_round(round_num + 1, simulated_hour)
+            inject_scheduled(actions, self.env, round_num + 1, self._scheduled_by_round, ManualAction, ActionType, print)
             await self.env.step(actions)
             
             if (round_num + 1) % 10 == 0 or round_num == 0:

@@ -702,8 +702,41 @@ def cmd_create_sim(c: Client, a) -> Any:
     return step_create_sim(c, a.project, a.graph, a.platform)
 
 
-def load_persona_spec(path: Optional[str], auto: Optional[int]) -> Optional[Dict[str, Any]]:
-    """--personas FILE (JSON: segments, communities, ...) and/or --auto-personas N."""
+def step_events(c: Client, simulation_id: str, posts: Optional[List[Dict[str, Any]]],
+                events: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Brand posts at round 0 and scheduled posts in later rounds, inside the simulation."""
+    payload: Dict[str, Any] = {"simulation_id": simulation_id}
+    if posts is not None:
+        payload["posts"] = posts
+    if events is not None:
+        payload["events"] = events
+    data = c.data("PUT", f"/api/simulation/{simulation_id}/events", json=payload, timeout=60)
+    log(f"events: {len(data.get('initial_posts') or [])} brand post(s) at round 0, "
+        f"{len(data.get('scheduled_events') or [])} scheduled event(s)")
+    return data
+
+
+def load_json_list(v: Optional[str], what: str) -> Optional[List[Dict[str, Any]]]:
+    """@file.json or inline JSON list; also accepts {"posts": [...]} / {"events": [...]} wrappers."""
+    if not v:
+        return None
+    raw = _load_json_arg(v)
+    if isinstance(raw, dict):
+        raw = raw.get(what) or raw.get("captions") or raw.get("items")
+    if not isinstance(raw, list):
+        raise CLIError(f"--{what} must be a JSON list (or @file with one)")
+    out = []
+    for i, x in enumerate(raw):
+        if isinstance(x, dict) and x.get("text") and not x.get("content"):
+            x = {**x, "content": x["text"]}        # captions.json entries
+        if not isinstance(x, dict) or not x.get("content"):
+            raise CLIError(f"--{what}[{i}] needs 'content' (or 'text')")
+        out.append(x)
+    return out
+
+
+def load_persona_spec(path: Optional[str], auto: Optional[int], lite: bool = False) -> Optional[Dict[str, Any]]:
+    """--personas FILE (JSON: segments, communities, ...) and/or --auto-personas N; --personas-lite skips interviews."""
     spec: Optional[Dict[str, Any]] = None
     if path:
         try:
@@ -717,6 +750,8 @@ def load_persona_spec(path: Optional[str], auto: Optional[int]) -> Optional[Dict
         spec = dict(spec or {})
         spec.setdefault("auto", True)
         spec["auto_total"] = auto
+    if lite and spec is not None:
+        spec = {**spec, "personas_lite": True}
     return spec
 
 
@@ -724,7 +759,7 @@ def cmd_prepare(c: Client, a) -> Any:
     return step_prepare(c, a.simulation, wait=not a.no_wait, timeout=a.timeout, interval=a.interval,
                         parallel=a.parallel, entity_types=a.entity_types, use_llm=not a.no_llm_profiles,
                         force=a.force or bool(a.personas or a.auto_personas),
-                        persona_spec=load_persona_spec(a.personas, a.auto_personas))
+                        persona_spec=load_persona_spec(a.personas, a.auto_personas, a.personas_lite))
 
 
 def cmd_start(c: Client, a) -> Any:
@@ -992,6 +1027,8 @@ def cmd_market_test(c: Client, a) -> Any:
             persona_spec = json.load(f)
     if cfg.get("auto_personas"):
         persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
+    if cfg.get("personas_lite") and persona_spec is not None:
+        persona_spec = {**persona_spec, "personas_lite": True}
     if not sid:
         seeds = [_cfg_path(base, s) for s in cfg.get("seeds") or []]
         if not seeds:
@@ -1021,6 +1058,15 @@ def cmd_market_test(c: Client, a) -> Any:
                 "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
 
     steps = []
+    posts = cfg.get("posts")
+    events = cfg.get("events")
+    if isinstance(posts, str):
+        posts = load_json_list("@" + str(_cfg_path(base, posts)), "posts")
+    if isinstance(events, str):
+        events = load_json_list("@" + str(_cfg_path(base, events)), "events")
+    if posts is not None or events is not None:
+        step_events(c, sid, posts, events)
+        steps.append("events")
     creatives = cfg.get("creatives")
     if creatives:
         cpath = _cfg_path(base, creatives)
@@ -1074,9 +1120,37 @@ def cmd_market_test(c: Client, a) -> Any:
             "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
 
 
+def cmd_captions(c: Client, a) -> Any:
+    brief = read_text_arg(a.brief) or ""
+    objections: List[str] = []
+    if a.run_dir:
+        try:
+            with open(os.path.join(a.run_dir, "summary.json"), encoding="utf-8") as f:
+                mk = (json.load(f).get("marketing") or {})
+            objections = [o.get("label") for o in (mk.get("objections") or []) if o.get("label")][:6]
+        except (OSError, ValueError):
+            log(f"captions: no summary.json in {a.run_dir}; writing without objections")
+    data = c.data("POST", "/api/simulation/captions",
+                  json={"brief": brief, "platform": a.platform, "n": a.n, "audience": a.audience,
+                        "objections": objections, "tone": a.tone, "language": a.language}, timeout=180)
+    caps = data.get("captions") or []
+    out = a.out or f"captions_{a.platform}.json"
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({"platform": a.platform, "captions": caps,
+                   "creatives": [{"id": cp["id"], "platform": a.platform, "format": cp.get("format") or "image",
+                                  "page": a.page or "Brand", "text": cp["text"], "headline": cp.get("hook"),
+                                  "cta": cp.get("cta"), "media": cp.get("media"), "name": cp.get("angle")} for cp in caps],
+                   "posts": [{"agent": a.page or 0, "platform": a.platform if a.platform in ("twitter", "reddit") else "both",
+                              "content": cp["text"]} for cp in caps]}, f, ensure_ascii=False, indent=2)
+    log(f"captions: wrote {len(caps)} to {out} (use as --creatives, --posts or --messages)")
+    return {"file": os.path.abspath(out), "captions": [{"angle": cp["angle"], "hook": cp["hook"]} for cp in caps]}
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
-    load_persona_spec(a.personas, a.auto_personas)  # fail fast on a bad spec file
+    load_persona_spec(a.personas, a.auto_personas, a.personas_lite)  # fail fast on a bad spec file
+    load_json_list(a.posts, "posts"); load_json_list(a.events, "events")
     if a.split and len(read_messages(a.messages)) < 2:
         raise CLIError("--split needs at least two messages (--messages @file)")
     out_dir = a.out or default_run_dir()
@@ -1105,7 +1179,10 @@ def cmd_run(c: Client, a) -> Any:
 
         step_prepare(c, sim["simulation_id"], timeout=a.timeout, interval=a.interval, parallel=a.parallel,
                      entity_types=a.entity_types,
-                     persona_spec=load_persona_spec(a.personas, a.auto_personas))
+                     persona_spec=load_persona_spec(a.personas, a.auto_personas, a.personas_lite))
+        posts, events = load_json_list(a.posts, "posts"), load_json_list(a.events, "events")
+        if posts is not None or events is not None:
+            step_events(c, sim["simulation_id"], posts, events)
         if a.stop_after == "prepare":
             log("run: --stop-after prepare; not starting the simulation")
         else:
@@ -1185,9 +1262,12 @@ def build_parser() -> argparse.ArgumentParser:
                                       "communities; see docs/personas.md")
     s.add_argument("--auto-personas", type=int, metavar="N",
                    help="let Claude plan about N personas (and their communities) from the requirement")
+    s.add_argument("--personas-lite", action="store_true", help="skip the life interviews (cheaper, shallower people)")
     s.add_argument("--no-graph-memory", action="store_true", help="don't write agent activity back into the graph")
     s.add_argument("--no-report", action="store_true", help="skip report generation")
     s.add_argument("--stop-after", choices=["prepare", "simulate"], help="stop the pipeline early")
+    s.add_argument("--posts", help="brand posts at round 0: @posts.json [{agent, platform?, content}] (captions.json works)")
+    s.add_argument("--events", help="scheduled posts: @events.json [{round, agent, platform?, content, label?}]")
     s.add_argument("--survey", action="store_true", help="after the rounds, ask everyone the buyer survey")
     s.add_argument("--offer", help="what is being sold or promoted, e.g. 'Acme free practice test'")
     s.add_argument("--goal", help="the conversion you care about, e.g. 'sign up for the free practice test'")
@@ -1226,6 +1306,7 @@ def build_parser() -> argparse.ArgumentParser:
                                       "communities; see docs/personas.md")
     s.add_argument("--auto-personas", type=int, metavar="N",
                    help="let Claude plan about N personas (and their communities) from the requirement")
+    s.add_argument("--personas-lite", action="store_true", help="skip the life interviews (cheaper, shallower people)")
     s.add_argument("--force", action="store_true", help="regenerate even if prepared")
     waitopts(s)
 
@@ -1346,6 +1427,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--actuals", required=True, help="JSON written by ads-import")
     s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
 
+    s = sub.add_parser("captions", help="write platform-native post/ad captions from a brief (and a run's objections)")
+    s.add_argument("--brief", required=True, help="text or @brief.md")
+    s.add_argument("--platform", default="instagram", choices=["instagram", "facebook", "tiktok", "reddit", "linkedin", "x", "twitter"])
+    s.add_argument("--n", type=int, default=6)
+    s.add_argument("--audience", help="who the captions are for")
+    s.add_argument("--language", help="e.g. 'Hinglish', 'Taglish', 'Bahasa Indonesia'")
+    s.add_argument("--tone")
+    s.add_argument("--page", help="brand/page name used in creatives and posts")
+    s.add_argument("--run-dir", help="fold in the top objections from this run's summary.json")
+    s.add_argument("--out", help="output JSON (default captions_<platform>.json)")
+
     s = sub.add_parser("market-test", help="all-in-one: personas -> feed test -> rounds -> survey -> panel -> dashboard")
     s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, seeds_n "
                                   "(feed-test repeats), survey, panel, approve_spend (see README)")
@@ -1370,6 +1462,7 @@ COMMANDS = {
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
+    "captions": cmd_captions,
 }
 
 

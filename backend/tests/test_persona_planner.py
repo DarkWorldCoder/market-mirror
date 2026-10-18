@@ -38,6 +38,12 @@ class FakeClient:
             self.systems.append(system)
         if user.startswith("Plan the audience"):
             body = self.plan
+        elif user.startswith("This is a life interview"):
+            names = re.findall(r"^\d+\. ([^:]+):", user, re.M)
+            lang = "Hinglish" if "Hinglish" in user else "local"
+            body = {"interviews": [{"name": n, "phone": "Redmi 9, 3 years old", "data_plan": "prepaid 1.5GB/day",
+                                    "answers": [{"q": f"Q{i + 1}", "a": f"answer {i + 1} ({lang})"} for i in range(12)],
+                                    "summary": f"I am {n}. Paisa tight hai this month."} for n in names]}
         else:
             ages = [int(a) for a in re.findall(r"^\d+\. age (\d+)", user, re.M)]
             rows = []
@@ -99,7 +105,7 @@ def test_demographic_slots_spread_ages_genders_and_cities():
 
 def test_generate_personas_uses_fixed_demographics_and_unique_names():
     spec = pp.PersonaSpec.from_dict({"segments": [seg(count=8), seg("Nepal parents", count=3, age_min=40,
-                                                                      age_max=55, entity_type="Parent")]})
+                                                                      age_max=55, entity_type="Parent")], "interview": False})
     client = FakeClient(duplicate_names=True)
     ents = pp.generate_personas(client, "m", spec, "How do Nepali families react?", "context")
     assert len(ents) == 11
@@ -272,3 +278,26 @@ def test_names_get_distinct_initials_and_communities_a_country():
     assert any("given name starts with" in u for u in client.prompts)
     acc = {e.name: e for e in ents if pp.COMMUNITY_LABEL in e.labels}
     assert acc["MBBS in China - Nepal"].attributes[pp.SYNTHETIC_PROFILE_KEY]["country"] == "Nepal"
+
+
+
+def test_life_interviews_attach_answers_and_summary():
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=6)]})
+    assert spec.interview is True
+    client = FakeClient()
+    ents = pp.generate_personas(client, "m", spec, "req", "ctx")
+    interviews = [u for u in client.prompts if u.startswith("This is a life interview")]
+    assert len(interviews) == 2                                  # 6 people in batches of 4
+    assert "Hinglish" in interviews[0] and "Q12." in interviews[0]
+    for e in ents:
+        assert len(e.attributes["interview"]) == 12
+        assert e.attributes["phone"].startswith("Redmi")
+        assert "In their own words: I am " + e.name in e.attributes[pp.SYNTHETIC_PROFILE_KEY]["persona"]
+    idx = pp.persona_index(ents)
+    assert idx[0]["interview_summary"].startswith("I am") and idx[0]["data_plan"].startswith("prepaid")
+    assert idx[0]["languages"] == ["Nepali", "English"] or idx[0]["languages"] == []
+    lite = pp.PersonaSpec.from_dict({"segments": [seg(count=2)], "personas_lite": True})
+    assert lite.interview is False
+    c2 = FakeClient()
+    pp.generate_personas(c2, "m", lite, "req", "ctx")
+    assert not any(u.startswith("This is a life interview") for u in c2.prompts)
