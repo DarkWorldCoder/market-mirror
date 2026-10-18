@@ -287,7 +287,18 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
             done += len(chunk)
             if progress:
                 progress(min(done, total), total)
+    try:                                                   # free-text intent rating of the replies (SSR), no LLM calls
+        from . import ssr
+        items = [(p["agent_id"], (turn1.get(p["agent_id"]) or {}).get("reply") or "") for p in people]
+        rated = ssr.rate([("purchase", t) for _, t in items])
+        for (aid, _), r in zip(items, rated):
+            if r and turn1.get(aid) is not None:
+                turn1[aid]["ssr_purchase"] = {"mean": r.get("mean"), "sd": r.get("sd")}
+    except Exception:  # noqa: BLE001 - optional
+        pass
     out = score(people, turn1, turn2, rebuttals)
+    means = [t["ssr_purchase"]["mean"] for t in turn1.values() if t and t.get("ssr_purchase") and t["ssr_purchase"].get("mean") is not None]
+    out["ssr_purchase_mean"] = round(sum(means) / len(means), 2) if means else None
     out["script"] = script[:5000]
     out["channel"] = channel
     out["rebuttals"] = rebuttals

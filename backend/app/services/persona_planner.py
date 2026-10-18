@@ -182,6 +182,8 @@ class PersonaSpec:
     keep_entities: List[str] = field(default_factory=list)   # graph entity names to always keep
     diversity: Dict[str, List[str]] = field(default_factory=dict)   # trait overrides for every segment
     interview: bool = True             # life interview per person (research: interview-grounded personas predict better)
+    probes: bool = True                # second interview call: adaptive follow-ups, product questions, BDE card
+    population: Dict[str, Any] = field(default_factory=dict)   # {country: {"age": {...}, "gender": {...}}} target shares
     seed: int = 7
 
     @classmethod
@@ -207,6 +209,8 @@ class PersonaSpec:
             keep_entities=_str_list(d.get("keep_entities")),
             diversity=_diversity(d.get("diversity")),
             interview=bool(d.get("interview", True)) and not bool(d.get("personas_lite", False)),
+            probes=bool(d.get("probes", True)) and not bool(d.get("personas_lite", False)),
+            population=dict(d.get("population") or {}) if isinstance(d.get("population"), dict) else {},
             seed=_int(d.get("seed"), 7),
         )
         total = sum(s.count for s in spec.segments)
@@ -519,10 +523,141 @@ Return JSON: {{"interviews": [{{"name": "<person name as given>",
   how they decide on purchases and what they distrust"}}]}}"""
 
 
+# --- research-backed second pass: adaptive probes, product questions and the structured BDE card ---
+# Park et al. 2024 (interview-grounded agents), arXiv 2608.20344 (Background / Decision procedure / Evaluation
+# structure beats raw transcripts), arXiv 2509.19088 (hyper-rationality, stereotyping).
+
+PROBE_RULES = [
+    # (regex on the money answer / scam answer / who-they-ask answer, probe question)
+    ("money", r"tight|no savings|cut|short|loan|udhaar|utang|kulang|stretch|struggle|barely|paycheck|salary.*(end|late)",
+     "When money is tight, what is the very last thing you give up, and the first thing you stop paying for?"),
+    ("scam", r"scam|fraud|fake|cheated|lost|never (got|received)|refund|duplicate|chori|loko|dhoka",
+     "Since that happened, what exactly do you check before paying anyone online now?"),
+    ("ask", r"wife|husband|partner|mother|father|parents|family|boss|friend|colleague|brother|sister|biwi|asawa",
+     "What does that person usually say when you want to buy something new, and when did you ignore them?"),
+    ("ads", r"annoy|hate|skip|fake|loud|too much|repeat|irrelevant|bakwas|nakakainis",
+     "Tell me about the last ad that actually got you to buy something. What was different about it?"),
+]
+DEFAULT_PROBES = [
+    "What did you buy in the last year that you now regret, and what did you learn from it?",
+    "When did you last try something new because someone you know used it first?",
+]
+
+
+def choose_probes(answers: List[Dict[str, Any]]) -> List[str]:
+    """Two follow-up questions picked from the first answers (money, scam, who-they-ask, ads), else defaults."""
+    text = {("Q3" if i == 2 else "Q7" if i == 6 else "Q8" if i == 7 else "Q11" if i == 10 else x.get("q")): str(x.get("a") or "")
+            for i, x in enumerate(answers)}
+    joined = {"money": text.get("Q3", ""), "scam": text.get("Q7", ""), "ask": text.get("Q8", ""), "ads": text.get("Q11", "")}
+    picks = [q for key, pat, q in PROBE_RULES if re.search(pat, joined.get(key, ""), re.I)]
+    for q in DEFAULT_PROBES:
+        if len(picks) >= 2:
+            break
+        picks.append(q)
+    return picks[:2]
+
+
+def product_questions(product: Optional[Dict[str, Any]]) -> List[str]:
+    """Three product-specific interview questions from the product profile (Phase A), or none."""
+    if not product or not (product.get("name") or product.get("one_liner")):
+        return []
+    name = product.get("name") or "this product"
+    what = product.get("one_liner") or product.get("category") or "it"
+    offer = product.get("offer") or "a trial"
+    return [f"Have you ever used anything like {what}? What happened, and why did you stop or keep going?",
+            f"If {name} offered you {offer} this week, what would make you try it, and what would stop you?",
+            f"What would you expect to pay for {what}, and at what price would you walk away?"]
+
+
+BDE_SCHEMA = {
+    "background": {"who": "one sentence: who they are and what fills their days", "knows": "what they know about this product category",
+                   "believes": "2-3 beliefs that shape how they buy", "acquiescence": "low|medium|high (how much they agree to be polite)",
+                   "social_desirability": "low|medium|high (how much they say what sounds good)",
+                   "says_vs_does": "one sentence on where their words and actions differ"},
+    "decision_procedure": {"who_they_ask": "...", "speed": "impulsive|considered|slow", "style": "maximiser|satisficer",
+                           "risk": "averse|neutral|seeking", "patience": "low|medium|high",
+                           "triggers": ["what makes them act now"], "stoppers": ["what makes them close the tab"]},
+    "evaluation": {"monthly_discretionary": "amount in local currency", "value_priorities": ["top 3 things they pay for"],
+                   "pays_for": ["things they already pay for monthly"], "never_pays_for": ["..."],
+                   "dealbreakers": ["..."], "trust_cues": ["what makes them trust a brand"]},
+}
+
+
+def _probe_prompt(people: List[Dict[str, Any]], answers_by_name: Dict[str, List[Dict[str, Any]]],
+                  probes_by_name: Dict[str, List[str]], product_qs: List[str], context: str) -> str:
+    blocks = []
+    for p in people:
+        qa = "\n".join(f"  {x['q']}: {x['a']}" for x in answers_by_name.get(p["name"], [])[:12])
+        qs = probes_by_name.get(p["name"], []) + product_qs
+        blocks.append(f"{p['name']} ({p.get('age')}, {p.get('occupation')}, {p.get('city') or ''} {p.get('country') or ''}):\n"
+                      f"Earlier answers:\n{qa}\nNow answer:\n" + "\n".join(f"  P{i + 1}. {q}" for i, q in enumerate(qs)))
+    return f"""Second part of a life interview with {len(people)} fictional people (market simulation). First answer the
+follow-up questions as each person would, in their own voice and everyday language mix, 1-3 sentences, concrete
+(amounts in local currency, names of apps and places). People are not fully consistent or rational: let habits,
+mood and money pressure show. Then fill the structured card from EVERYTHING they said: the card describes this one
+person, never their group; copy their own words where you can.
+
+Context (what they will react to later):
+{context[:1200]}
+
+{chr(10).join(blocks)}
+
+Return JSON: {{"people": [{{"name": "<name as given>", "probe_answers": [{{"q": "P1", "a": "..."}}, ...],
+  "bde": {json.dumps(BDE_SCHEMA, ensure_ascii=False)}}}]}}"""
+
+
+def clean_bde(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for section, fields in BDE_SCHEMA.items():
+        src = raw.get(section) if isinstance(raw.get(section), dict) else {}
+        sec: Dict[str, Any] = {}
+        for k, spec in fields.items():
+            v = src.get(k)
+            if isinstance(spec, list):
+                sec[k] = [str(x).strip()[:120] for x in (v if isinstance(v, list) else [v] if v else []) if str(x).strip()][:5]
+            else:
+                sec[k] = str(v or "").strip()[:240]
+        out[section] = sec
+    return out if any(any(v for v in sec.values()) for sec in out.values()) else None
+
+
+def render_bde(bde: Optional[Dict[str, Any]], limit: int = 700) -> str:
+    """Compact text for prompts: how this person decides and what they pay for."""
+    if not bde:
+        return ""
+    b, d, e = bde.get("background") or {}, bde.get("decision_procedure") or {}, bde.get("evaluation") or {}
+    bits = []
+    if b.get("believes"):
+        bits.append(f"Beliefs: {b['believes']}")
+    if b.get("says_vs_does"):
+        bits.append(f"Says vs does: {b['says_vs_does']}")
+    dp = ", ".join(x for x in (d.get("speed"), d.get("style"), f"risk {d['risk']}" if d.get("risk") else "",
+                               f"patience {d['patience']}" if d.get("patience") else "") if x)
+    if dp or d.get("who_they_ask"):
+        bits.append(f"Decides: {dp}" + (f"; asks {d['who_they_ask']}" if d.get("who_they_ask") else ""))
+    if d.get("triggers"):
+        bits.append("Acts when: " + "; ".join(d["triggers"]))
+    if d.get("stoppers"):
+        bits.append("Stops when: " + "; ".join(d["stoppers"]))
+    if e.get("monthly_discretionary"):
+        bits.append(f"Spare money: {e['monthly_discretionary']}")
+    if e.get("value_priorities"):
+        bits.append("Pays for: " + "; ".join(e["value_priorities"]))
+    if e.get("dealbreakers"):
+        bits.append("Dealbreakers: " + "; ".join(e["dealbreakers"]))
+    if e.get("trust_cues"):
+        bits.append("Trusts when: " + "; ".join(e["trust_cues"]))
+    return " ".join(bits)[:limit]
+
+
 def run_interviews(client, model: str, entities: List[EntityNode], context: str,
-                   progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4) -> int:
+                   progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4,
+                   product: Optional[Dict[str, Any]] = None, probes: bool = True) -> int:
     """Interview every synthetic persona in batches; attach answers, phone/data plan and a first-person summary.
-    Returns the number of people interviewed."""
+    With probes=True a second call per batch asks adaptive follow-ups and product questions and extracts the
+    structured BDE card (background / decision procedure / evaluation). Returns the number of people interviewed."""
     people = [e for e in entities if PERSONA_LABEL in e.labels]
     batches = [people[i:i + INTERVIEW_BATCH] for i in range(0, len(people), INTERVIEW_BATCH)]
     if not batches:
@@ -546,6 +681,24 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
             return batch, [r for r in (rows or []) if isinstance(r, dict)]
         except Exception as e:  # noqa: BLE001 - an uninterviewed batch keeps its shorter persona
             logger.warning(f"interview batch failed: {e}")
+            return batch, []
+
+    product_qs = product_questions(product)
+
+    def run_probes(batch: List[EntityNode]):
+        """Second call: adaptive follow-ups, product questions, BDE card."""
+        cards = [card(e) for e in batch if e.attributes.get("interview")]
+        if not cards:
+            return batch, []
+        answers_by_name = {e.name: e.attributes.get("interview") or [] for e in batch}
+        probes_by_name = {e.name: choose_probes(e.attributes.get("interview") or []) for e in batch}
+        try:
+            data = _llm_json(client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
+                             temperature=0.8, max_tokens=7000)
+            rows = data.get("people") if isinstance(data, dict) else data
+            return batch, [r for r in (rows or []) if isinstance(r, dict)]
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"interview probes failed: {e}")
             return batch, []
 
     count = 0
@@ -573,7 +726,136 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
             done += len(batch)
             if progress:
                 progress(done, len(people), "interviews")
+        if probes:
+            done = 0
+            for batch, rows in pool.map(run_probes, batches):
+                by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
+                for k, e in enumerate(batch):
+                    r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
+                    if not r:
+                        continue
+                    pa = [{"q": str(x.get("q") or f"P{i + 1}"), "a": str(x.get("a") or "").strip()}
+                          for i, x in enumerate(r.get("probe_answers") or []) if isinstance(x, dict)]
+                    if pa:
+                        e.attributes["interview"] = (e.attributes.get("interview") or []) + pa
+                    bde = clean_bde(r.get("bde"))
+                    if bde:
+                        e.attributes["bde"] = bde
+                        prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
+                        if prof:
+                            prof["persona"] = f"{prof['persona']} How I decide: {render_bde(bde, 500)}"
+                done += len(batch)
+                if progress:
+                    progress(done, len(people), "follow-up probes")
     return count
+
+
+def diversity_report(entities: List[EntityNode]) -> Dict[str, Any]:
+    """Per segment: how many people share an occupation, city, phone or contradiction, and a 0-1 variety score
+    (normalised entropy of occupations). Flags segments that read like one stereotype repeated."""
+    import math
+    from collections import Counter
+    by_seg: Dict[str, List[EntityNode]] = {}
+    for e in entities:
+        if PERSONA_LABEL in e.labels:
+            by_seg.setdefault(str((e.attributes or {}).get("segment") or "?"), []).append(e)
+    rows = []
+    for seg, people in by_seg.items():
+        n = len(people)
+
+        def dup(key: str) -> int:
+            c = Counter(str((e.attributes or {}).get(key) or "").strip().lower() for e in people)
+            return sum(v - 1 for k, v in c.items() if k and v > 1)
+
+        occ = Counter(str((e.attributes or {}).get("occupation") or "").strip().lower() for e in people)
+        ent = -sum((v / n) * math.log(v / n) for v in occ.values() if v) if n > 1 else 0.0
+        variety = round(ent / math.log(n), 2) if n > 1 else 1.0
+        row = {"segment": seg, "n": n, "variety": variety, "dup_occupation": dup("occupation"), "dup_city": dup("city"),
+               "dup_phone": dup("phone"), "dup_contradiction": dup("contradiction")}
+        row["flag"] = n >= 4 and (variety < 0.6 or row["dup_occupation"] > n // 2)
+        rows.append(row)
+    return {"segments": rows, "flagged": [r["segment"] for r in rows if r["flag"]]}
+
+
+def fix_duplicates(entities: List[EntityNode], rng: random.Random) -> int:
+    """Code-only repair for the commonest stereotype: several people in a segment with the same occupation and
+    city. The duplicates get another city from the segment (round-robin) and a numbered variant of the role
+    ('shop owner' -> 'shop owner (second-hand phones)'). Returns how many people were changed."""
+    changed = 0
+    by_seg: Dict[str, List[EntityNode]] = {}
+    for e in entities:
+        if PERSONA_LABEL in e.labels:
+            by_seg.setdefault(str((e.attributes or {}).get("segment") or "?"), []).append(e)
+    variants = ["(part-time)", "(night shift)", "(freelance)", "(family business)", "(junior)", "(senior)", "(contract)"]
+    for people in by_seg.values():
+        cities = sorted({str((e.attributes or {}).get("city") or "") for e in people} - {""})
+        seen: Dict[tuple, int] = {}
+        for e in people:
+            a = e.attributes or {}
+            key = (str(a.get("occupation") or "").lower(), str(a.get("city") or "").lower())
+            k = seen.get(key, 0)
+            seen[key] = k + 1
+            if k == 0 or not key[0]:
+                continue
+            if len(cities) > 1:
+                a["city"] = cities[(cities.index(a.get("city")) + k) % len(cities)] if a.get("city") in cities else rng.choice(cities)
+            else:
+                a["occupation"] = f"{a['occupation']} {variants[(k - 1) % len(variants)]}"
+                prof = a.get(SYNTHETIC_PROFILE_KEY)
+                if prof:
+                    prof["profession"] = a["occupation"]
+            changed += 1
+    return changed
+
+
+def population_weights(entities: List[EntityNode], population: Optional[Dict[str, Any]]) -> int:
+    """Raking-lite: `population` = {country: {"age": {"18-24": share, ...}, "gender": {"female": share, ...}}}.
+    Each persona gets weight = product over dimensions of target share / sample share for its cell, normalised
+    to mean 1 within the country. Aggregates that honour `weight` then reflect the real population mix
+    (backstory conditioning + demographic resampling, Anthology / Anamnesis). Returns how many people got a weight."""
+    if not population:
+        return 0
+    from collections import Counter, defaultdict
+
+    def band(age: Any) -> str:
+        try:
+            a = int(age)
+        except (TypeError, ValueError):
+            return "?"
+        for lo, hi in ((18, 24), (25, 34), (35, 44), (45, 54), (55, 64)):
+            if lo <= a <= hi:
+                return f"{lo}-{hi}"
+        return "65+" if a >= 65 else "<18"
+
+    people = [e for e in entities if PERSONA_LABEL in e.labels]
+    by_country: Dict[str, List[EntityNode]] = defaultdict(list)
+    for e in people:
+        by_country[str((e.attributes or {}).get("country") or "")].append(e)
+    n_weighted = 0
+    for country, group in by_country.items():
+        target = population.get(country) or population.get(country.lower()) or {}
+        if not target:
+            continue
+        weights = {}
+        for dim, getter in (("age", lambda e: band(((e.attributes or {}).get(SYNTHETIC_PROFILE_KEY) or {}).get("age"))),
+                            ("gender", lambda e: str(((e.attributes or {}).get(SYNTHETIC_PROFILE_KEY) or {}).get("gender") or "").lower())):
+            shares = {str(k).lower(): float(v) for k, v in (target.get(dim) or {}).items()}
+            if not shares:
+                continue
+            tot = sum(shares.values()) or 1.0
+            sample = Counter(getter(e) for e in group)
+            for e in group:
+                cell = getter(e)
+                t = shares.get(str(cell).lower(), 0.0) / tot
+                s_ = sample[cell] / len(group)
+                weights[e.uuid] = weights.get(e.uuid, 1.0) * ((t / s_) if (t and s_) else 1.0)
+        if not weights:
+            continue
+        mean = sum(weights.values()) / len(weights)
+        for e in group:
+            e.attributes["weight"] = round(max(0.2, min(5.0, weights.get(e.uuid, 1.0) / mean)), 3)
+            n_weighted += 1
+    return n_weighted
 
 
 def _dedupe_name(name: str, taken: set) -> str:
@@ -588,7 +870,7 @@ def _dedupe_name(name: str, taken: set) -> str:
 
 def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, context: str,
                       progress: Optional[Callable[[int, int, str], None]] = None,
-                      parallel: int = 4) -> List[EntityNode]:
+                      parallel: int = 4, product: Optional[Dict[str, Any]] = None) -> List[EntityNode]:
     """Synthetic individual entities for every segment, plus community accounts when communities exist."""
     rng = random.Random(spec.seed)
     if spec.auto and not spec.segments:
@@ -632,9 +914,16 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         for k, slot in enumerate(slots):
             row = rows[k] if k < len(rows) else {}
             entities.append(_to_entity(seg, slot, row, taken, len(entities)))
+    fixed = fix_duplicates(entities, rng)
+    report = diversity_report(entities)
+    if fixed or report["flagged"]:
+        logger.info(f"persona planner: stereotype guard changed {fixed} people; low-variety segments: {report['flagged'] or 'none'}")
     if spec.interview:
-        n = run_interviews(client, model, entities, context, progress=progress, parallel=parallel)
+        n = run_interviews(client, model, entities, context, progress=progress, parallel=parallel, product=product,
+                           probes=spec.probes)
         logger.info(f"persona planner: interviewed {n} people")
+    if spec.population:
+        logger.info(f"persona planner: population weights for {population_weights(entities, spec.population)} people")
     if spec.communities:
         assign_communities(entities, spec, rng)
         entities.extend(community_accounts(spec, taken))
@@ -807,6 +1096,7 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "languages": attrs.get("languages") or [], "platform_habits": attrs.get("platform_habits"),
             "phone": attrs.get("phone"), "data_plan": attrs.get("data_plan"),
             "interview_summary": attrs.get("interview_summary"),
+            "bde": attrs.get("bde"), "weight": attrs.get("weight", 1.0),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out

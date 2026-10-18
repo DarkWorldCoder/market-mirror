@@ -244,6 +244,25 @@ def start_pitch():
                                               "rebuttals": sorted(rebuttals)}})
 
 
+@simulation_bp.route('/calibrate', methods=['POST'])
+def calibrate_panel():
+    """POST {synthetic: [rows], real: [rows], key?} rows = {segment, country, gender, age, y in [0,1]}
+    -> overlap, per-subgroup calibration, verdict, AIPW-corrected rate (synchronous, no LLM)."""
+    from ..services import calibration
+    data = request.get_json() or {}
+    syn, real = data.get("synthetic") or [], data.get("real") or []
+    if not isinstance(syn, list) or not isinstance(real, list) or not syn or not real:
+        return jsonify({"success": False, "error": "synthetic and real rows are required"}), 400
+    try:
+        out = calibration.diagnose([r for r in syn if isinstance(r, dict) and "y" in r],
+                                   [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"))
+        out["field"] = data.get("field")
+        return jsonify({"success": True, "data": out})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"calibrate failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/ideas', methods=['POST'])
 def generate_ideas():
     """POST {brand?, brief?, ads?: [rows from an ad-account export or a connected ads tool] | ads_summary?,

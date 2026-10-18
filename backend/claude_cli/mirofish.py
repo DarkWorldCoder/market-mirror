@@ -335,7 +335,7 @@ def read_messages(v: Optional[str]) -> List[str]:
 def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
                 platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
-                limit: Optional[int] = None, ssr: bool = True) -> Dict[str, Any]:
+                limit: Optional[int] = None, ssr: bool = True, retest: int = 0) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
 
     ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers)."""
@@ -380,9 +380,40 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         ok = sum(1 for r in responses if r["answer"])
         log(f"survey: {min(start + batch, len(people))}/{len(people)} asked, {ok} usable answers")
     ssr_info = step_ssr(c, responses) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
+    retest_info = None
+    if retest:
+        # test-retest reliability (the figure the persona papers report): re-ask some people "a week later"
+        import random as _random
+        answered = [r for r in responses if r.get("answer")]
+        sample = _random.Random(11).sample(answered, min(int(retest), len(answered)))
+        again = [{"agent_id": r["agent_id"], "platform": platform,
+                  "prompt": "A week has passed since a researcher last asked you about this. They ask again; answer afresh "
+                            "as you feel today, without trying to remember what you said.\n\n"
+                            + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency)} for r in sample]
+        agree = interest_close = 0
+        if again:
+            try:
+                res = c.data("POST", "/api/simulation/interview/batch",
+                             json={"simulation_id": simulation_id, "interviews": again, "platform": platform, "timeout": wait_s},
+                             timeout=wait_s + 90)
+                texts = marketing.interview_texts(res)
+            except CLIError as e:
+                log(f"survey: retest failed: {e}")
+                texts = {}
+            for r in sample:
+                a2 = marketing.parse_answer(texts.get(r["agent_id"]), len(messages)) if texts.get(r["agent_id"]) else None
+                if a2:
+                    agree += int(a2.get("would_convert") == r["answer"].get("would_convert"))
+                    if a2.get("interest") is not None and r["answer"].get("interest") is not None:
+                        interest_close += int(abs(a2["interest"] - r["answer"]["interest"]) <= 2)
+                    r["retest_answer"] = a2
+        retest_info = {"n": len(sample), "agreement_pct": round(100.0 * agree / len(sample), 1) if sample else None,
+                       "interest_within_2_pct": round(100.0 * interest_close / len(sample), 1) if sample else None}
+        log(f"survey: retest of {len(sample)} people: {retest_info['agreement_pct']}% gave the same verdict")
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
-              "platform": platform, "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "responses": responses}
+              "platform": platform, "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
+              "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     return {"survey": os.path.join(os.path.abspath(out_dir), "survey.json"), "asked": len(responses),
@@ -939,7 +970,7 @@ def cmd_live(c: Optional[Client], a) -> Any:
 def cmd_survey(c: Client, a) -> Any:
     out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
-                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr)
+                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr, retest=a.retest)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -1118,7 +1149,7 @@ def cmd_market_test(c: Client, a) -> Any:
             msgs = read_messages("@" + mp) if mp != msgs or msgs.startswith("@") else read_messages(msgs)
         state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
                                       msgs or [], bool(survey.get("split")), survey.get("pricing"),
-                                      ssr=survey.get("ssr", True) is not False)
+                                      ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0))
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -1310,6 +1341,52 @@ def cmd_understand(c: Client, a) -> Any:
             "for_whom": [x.get("segment") for x in prof.get("for_whom") or []], "pricing": prof.get("pricing"),
             "likely_objections": [o.get("text") for o in prof.get("likely_objections") or []],
             "unknowns": prof.get("unknowns"), "method": prof.get("method")}
+
+
+def cmd_calibrate(c: Client, a) -> Any:
+    """Check the run's survey against real answers (CSV) and write calibration.json with the verdict + corrected rate."""
+    import csv
+    out_dir = a.run_dir
+    bundle = exporter.load_run_dir(out_dir)
+    meta = marketing.agent_meta(bundle)
+    field = a.field
+    synthetic = []
+    for r in (bundle.get("survey") or {}).get("responses") or []:
+        ans = r.get("answer") or {}
+        if not ans:
+            continue
+        m = meta.get(int(r.get("agent_id", -1)), {})
+        v = ans.get(field)
+        y = {"yes": 1.0, "maybe": 0.5, "no": 0.0}.get(v) if isinstance(v, str) else (float(v) / 10 if isinstance(v, (int, float)) else None)
+        if y is None:
+            continue
+        synthetic.append({"segment": m.get("segment"), "country": m.get("country"), "gender": m.get("gender"), "age": m.get("age"), "y": y})
+    mapping = dict(x.split("=", 1) for x in (a.map or []) if "=" in x)
+    real = []
+    try:
+        with open(a.real, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                def col(k):
+                    return row.get(mapping.get(k, k))
+                v = str(col("y") or col(field) or "").strip().lower()
+                y = {"yes": 1.0, "maybe": 0.5, "no": 0.0, "1": 1.0, "0": 0.0, "true": 1.0, "false": 0.0}.get(v)
+                if y is None:
+                    try:
+                        y = float(v)
+                        y = y / 10 if y > 1 else y
+                    except ValueError:
+                        continue
+                real.append({"segment": col("segment"), "country": col("country"), "gender": col("gender"), "age": col("age"), "y": y})
+    except OSError as e:
+        raise CLIError(f"calibrate: cannot read {a.real}: {e}")
+    if not synthetic or not real:
+        raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
+    log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
+    res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field}, timeout=300)
+    save_json(out_dir, "calibration", res)
+    return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
+            "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
+            "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -1555,6 +1632,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--batch", type=int, default=40, help="people per interview call (default %(default)s)")
     s.add_argument("--wait-s", type=int, default=600, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
+    s.add_argument("--retest", type=int, default=0, help="re-ask N people a week later (simulated) and report agreement")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
     s.add_argument("--run-dir", help="where survey.json and the dashboard go (default mirofish_runs/<simulation>)")
@@ -1634,6 +1712,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away and a corrected rate")
+    s.add_argument("--run-dir", required=True)
+    s.add_argument("--real", required=True, help="CSV with columns segment,country,gender,age,y (yes/maybe/no or 0-1)")
+    s.add_argument("--map", nargs="*", help="column mapping, e.g. segment=Audience y=Converted")
+    s.add_argument("--field", default="would_convert", help="survey field to compare (default %(default)s)")
+    s.add_argument("--by", default="segment", help="subgroup key for the per-group verdicts (segment|country)")
+
     s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
     s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
     s.add_argument("--docs", nargs="*", help="local .md/.txt files (no project needed)")
@@ -1671,7 +1756,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand,
+    "understand": cmd_understand, "calibrate": cmd_calibrate,
 }
 
 

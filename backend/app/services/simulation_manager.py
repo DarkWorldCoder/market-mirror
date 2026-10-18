@@ -520,9 +520,9 @@ class SimulationManager:
             if prof:
                 context = (pp.render_text(prof) + "\n\n" + context)[:14000]
         except Exception:  # noqa: BLE001 - the profile is optional
-            pass
+            prof = None
         personas = persona_planner.generate_personas(
-            client, Config.LLM_MODEL_NAME, spec, requirement, context,
+            client, Config.LLM_MODEL_NAME, spec, requirement, context, product=prof,
             progress=persona_progress, parallel=max(1, min(parallel, 6)))
         kept = persona_planner.select_graph_entities(
             filtered.entities, spec, persona_planner.spec_countries(spec))

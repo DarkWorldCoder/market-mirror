@@ -96,7 +96,9 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         f'"purchase_text": "verdict: would you actually {goal_txt}? then why", '
         '"recommend_text": "verdict: would you tell a friend or family member about it? then why", '
         '"noticed": true, "interest": 0-10, "trust": 0-10, "would_click": "yes|maybe|no", '
-        '"would_convert": "yes|maybe|no", "recommend": 0-10, '
+        '"would_convert": "yes|maybe|no", '
+        '"chances": {"click": {"yes": 0-100, "maybe": 0-100, "no": 0-100}, "convert": {"yes": 0-100, "maybe": 0-100, "no": 0-100}} '
+        '(your honest odds, each set adding to 100: people are rarely certain), "recommend": 0-10, '
         f"{msg_fields}{price_fields}"
         '"main_objection": "your biggest hesitation, one sentence", '
         '"objection_type": "price|trust|relevance|timing|effort|unclear|privacy|language|none|other", '
@@ -191,6 +193,26 @@ def _message_key(v: Any, n_messages: int = 0) -> Optional[str]:
     return s[:60]
 
 
+def _chances(v: Any) -> Optional[Dict[str, float]]:
+    """{"yes": 60, "maybe": 30, "no": 10} -> normalised probabilities (verbalized sampling, arXiv 2510.01171)."""
+    if not isinstance(v, dict):
+        return None
+    vals = {}
+    for k in ("yes", "maybe", "no"):
+        x = v.get(k)
+        if isinstance(x, str):
+            m = re.search(r"\d+(\.\d+)?", x)
+            x = float(m.group(0)) if m else None
+        if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0:
+            vals[k] = float(x)
+    if not vals:
+        return None
+    tot = sum(vals.values())
+    if tot <= 0:
+        return None
+    return {k: round(vals.get(k, 0.0) / tot, 3) for k in ("yes", "maybe", "no")}
+
+
 def parse_answer(response: Any, n_messages: int = 0) -> Optional[Dict[str, Any]]:
     """Normalise one interview reply into survey fields, or None if nothing usable came back."""
     data = _extract_json(response if not isinstance(response, dict) else json.dumps(response))
@@ -215,6 +237,11 @@ def parse_answer(response: Any, n_messages: int = 0) -> Optional[Dict[str, Any]]
         "quote": str(data.get("quote") or "").strip()[:300],
         "message_reaction": _score(data.get("message_reaction")),
     }
+    ch = data.get("chances") if isinstance(data.get("chances"), dict) else {}
+    for key in ("click", "convert"):
+        pc = _chances(ch.get(key))
+        if pc:
+            out[f"p_{key}"] = pc
     texts = {scale: str(data.get(field) or "").strip()[:400] for scale, field in TEXT_FIELDS.items()}
     texts = {k: v for k, v in texts.items() if v}
     if texts:
@@ -362,6 +389,14 @@ def pool_ssr(rows: List[Dict[str, Any]], scale: str) -> Optional[Dict[str, Any]]
     return out
 
 
+def _sd(xs: List[float]) -> float:
+    import math
+    if not xs:
+        return 0.0
+    m = sum(xs) / len(xs)
+    return math.sqrt(sum((x - m) ** 2 for x in xs) / len(xs))
+
+
 def _intent_mean(stats: Dict[str, Any]) -> float:
     """SSR purchase mean of a group (0 without SSR): the tie-breaker when stated yes shares are equal."""
     return ((stats.get("ssr") or {}).get("purchase") or {}).get("mean") or 0.0
@@ -383,10 +418,21 @@ def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             yes, maybe, _ = conv_probs(r)
             if yes or maybe:
                 msgs[r["message_key"]] += 2 * yes + maybe
+    pconv = [r["p_convert"]["yes"] for r in rows if isinstance(r.get("p_convert"), dict)]
+    pclick = [r["p_click"]["yes"] for r in rows if isinstance(r.get("p_click"), dict)]
+    weights = [float(r.get("weight") or 1.0) for r in rows]
+    weighted = None
+    if any(abs(w - 1.0) > 1e-6 for w in weights) and sum(weights) > 0:
+        weighted = round(100.0 * sum(w * conv_probs(r)[0] for w, r in zip(weights, rows)) / sum(weights), 1)
     return {
         "n": n,
         "interest": _avg([r.get("interest") for r in rows]),
         "trust": _avg([r.get("trust") for r in rows]),
+        # distribution-first: the mean stated chance of a yes, and how spread the chances are inside the group
+        "expected_convert_yes": round(100.0 * sum(pconv) / len(pconv), 1) if pconv else None,
+        "expected_click_yes": round(100.0 * sum(pclick) / len(pclick), 1) if pclick else None,
+        "convert_spread": round(_sd(pconv), 3) if len(pconv) >= 3 else None,
+        "weighted_convert_yes": weighted,
         "click_yes": _pct(click[YES], n), "click_maybe": _pct(click[MAYBE], n),
         "convert_yes": _pct(sum(p[0] for p in probs), n), "convert_maybe": _pct(sum(p[1] for p in probs), n),
         "convert_no": _pct(sum(p[2] for p in probs), n),
@@ -423,7 +469,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                      "assigned": r.get("assigned_message"),
                      "segment": m.get("segment") or "Unassigned", "country": m.get("country") or "Unknown",
                      "communities": m.get("communities") or [], "age_band": age_band(m.get("age")),
-                     "gender": m.get("gender"), "acted": acted.get(aid, 0)})
+                     "gender": m.get("gender"), "acted": acted.get(aid, 0), "weight": m.get("weight", 1.0)})
 
     split_mode = survey.get("mode") == "split"
     for r in rows:
@@ -459,6 +505,16 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
          round(sum(conv_probs(r)[0] for r in rows if r.get("would_click") == YES))),
     ]
     out["ssr"] = (survey.get("ssr") or {}) if any(r.get("ssr") for r in rows) else None
+    out["retest"] = survey.get("retest")
+    # mode-collapse check (arXiv 2607.18310): inside a segment, stated chances should not all be the same number
+    segs_p: Dict[str, List[float]] = defaultdict(list)
+    for r in rows:
+        if isinstance(r.get("p_convert"), dict):
+            segs_p[r["segment"]].append(r["p_convert"]["yes"])
+    disp = [{"segment": k, "n": len(v), "sd": round(_sd(v), 3), "collapsed": len(v) >= 5 and _sd(v) < 0.08}
+            for k, v in segs_p.items()]
+    out["dispersion"] = {"by_segment": disp, "collapsed_segments": [d["segment"] for d in disp if d["collapsed"]],
+                         "method": "verbalized chances"} if disp else None
 
     def breakdown(keyfn) -> List[Dict[str, Any]]:
         groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -1176,7 +1232,7 @@ def summary_block(a: Dict[str, Any]) -> Dict[str, Any]:
                 "engagement_by_segment": a.get("engagement_by_segment")}
     keep = ("has_survey", "people", "engaged", "answered", "offer", "goal", "overall", "funnel", "verdicts",
             "by_segment", "by_country", "by_community", "by_age", "objections", "messages_ranked", "split_test",
-            "message_grid", "pricing", "playbook", "ssr")
+            "message_grid", "pricing", "playbook", "ssr", "dispersion", "retest")
     out = {k: a.get(k) for k in keep}
     out["objections"] = [{k: v for k, v in x.items() if k != "examples"} for x in a.get("objections") or []]
     if out.get("pricing"):

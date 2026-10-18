@@ -202,6 +202,13 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "calibrate", "description": (
+        "Check a run's simulated survey against real answers (absolute path to a CSV with segment,country,gender,age,y where y is "
+        "yes/maybe/no or 0-1; 50-300 rows is enough): covariate overlap, per-audience calibration, a trust / correct / walk-away "
+        "verdict and an AIPW-corrected rate. Writes calibration.json into the run folder."),
+     "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "real_csv": {"type": "string"},
+                                                      "field": {"type": "string"}, "by": {"type": "string"},
+                                                      "map": {"type": "array", "items": {"type": "string"}}}, "required": ["run", "real_csv"]}},
     {"name": "cli", "description": "Advanced: run any MarketMirror CLI command as a background job, e.g. ['survey','--simulation','sim_x','--offer','...']. See CLAUDE.md in the engine.",
      "inputSchema": {"type": "object", "properties": {"args": {"type": "array", "items": {"type": "string"}}}, "required": ["args"]}},
 ]
@@ -299,6 +306,16 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         if a.get("n"):
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
+        return r["stdout"].strip() or r["stderr"].strip()
+    if name == "calibrate":
+        run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
+        args = ["cli", "calibrate", "--run-dir", run_dir, "--real", a["real_csv"]]
+        for k in ("field", "by"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("map"):
+            args += ["--map", *[str(x) for x in a["map"]]]
+        r = sh(args, timeout=300)
         return r["stdout"].strip() or r["stderr"].strip()
     if name == "cli":
         return job(["cli", *[str(x) for x in a["args"]]], "cli " + " ".join(map(str, a["args"][:2])))

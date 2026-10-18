@@ -3,6 +3,7 @@
 import json
 import os
 import random
+import re
 import shutil
 import sys
 import tempfile
@@ -174,6 +175,25 @@ class DashboardTest(unittest.TestCase):
         self.assertLess(page.index('id="report"'), page.index('id="results"'))      # report with downloads comes first
         self.assertIn('data-dl="survey_answers.csv"', page)
         self.assertIn("leads.csv", page)
+        # Phase E1: insights under the headings, shared kpi tiles, sortable tables, the people filter
+        for anchor in ("results", "playbook", "funnel", "audiences", "objections", "messages", "pricing", "voices", "report"):   # no SSR here
+            sec = re.search(rf'<section id="{anchor}">(.*?)</section>', page, re.S).group(1)
+            self.assertIn('<div class="section-head">', sec, anchor)
+            self.assertIn('class="callout insight"', sec, anchor)
+            self.assertLess(sec.index("</h2>"), sec.index("callout insight"), anchor)
+        self.assertIn("is the blocker for", page)
+        self.assertIn("Decision:", page)
+        self.assertRegex(page, r'<div class="kpis hero"><div class="kpi">')
+        self.assertIn('<div class="kpi hl"><div class="v">', page)
+        self.assertNotIn("hero-stats", page)
+        self.assertIn('<details class="tv"><summary>Show the numbers</summary><div class="tbl"><table class="sortable">', page)
+        self.assertIn('<table class="sortable"><thead><tr><th>Segment</th>', page)
+        self.assertIn('data-filter-root data-filter-noun="people"', page)
+        for frag in ('data-filter="segment"', 'data-filter="country"', 'data-filter="verdict"',
+                     'data-filter="lead" data-filter-op="min"', 'data-filter-out="lead"'):
+            self.assertIn(frag, page)
+        self.assertRegex(page, r'<div class="person" data-item data-order="0" data-segment="Nepal students" data-country="Nepal" '
+                               r'data-verdict="(yes|maybe|no)" data-lead="\d+">')
         summary = json.load(open(paths["summary_json"]))
         self.assertTrue(summary["marketing"]["split_test"])
         self.assertNotIn("curves", summary["marketing"]["pricing"])
@@ -187,3 +207,31 @@ class DashboardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DistributionFirstTest(unittest.TestCase):
+    def test_chances_parse_and_aggregate(self):
+        a = mk.parse_answer('{"would_convert": "maybe", "chances": {"convert": {"yes": 20, "maybe": "50%", "no": 30}, "click": {"yes": 70, "no": 30}}}')
+        self.assertEqual(a["p_convert"], {"yes": 0.2, "maybe": 0.5, "no": 0.3})
+        self.assertEqual(a["p_click"]["maybe"], 0.0)
+        self.assertIsNone(mk.parse_answer('{"would_convert": "no", "chances": {"convert": {"yes": -1}}}').get("p_convert"))
+        b = make_survey_bundle()
+        for i, r in enumerate(b["survey"]["responses"]):
+            seg = next(x for x in b["config"]["persona_index"] if x["agent_id"] == r["agent_id"])["segment"]
+            same = seg == "Nepal parents"                       # one segment answers with identical chances: collapse
+            r["answer"]["p_convert"] = {"yes": 0.3, "maybe": 0.5, "no": 0.2} if same else {"yes": round((i % 7) / 7, 2), "maybe": 0.2, "no": 0.1}
+        a = mk.analyze(b)
+        self.assertIsNotNone(a["overall"]["expected_convert_yes"])
+        self.assertEqual(a["dispersion"]["collapsed_segments"], ["Nepal parents"])
+        self.assertIn("dispersion", mk.summary_block(a))
+        self.assertIn("convert_spread", a["by_segment"][0])
+
+    def test_population_weights_change_the_weighted_rate(self):
+        b = make_survey_bundle()
+        for x in b["config"]["persona_index"]:
+            if x.get("kind") == "persona":
+                x["weight"] = 3.0 if x["segment"] == "Bangladesh students" else 0.5
+        a = mk.analyze(b)
+        o = a["overall"]
+        self.assertIsNotNone(o["weighted_convert_yes"])
+        self.assertGreater(o["weighted_convert_yes"], o["convert_yes"])   # the high-converting group weighs more

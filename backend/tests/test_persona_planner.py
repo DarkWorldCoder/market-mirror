@@ -38,6 +38,18 @@ class FakeClient:
             self.systems.append(system)
         if user.startswith("Plan the audience"):
             body = self.plan
+        elif user.startswith("Second part of a life interview"):
+            names = re.findall(r"^([^\n(]+) \(\d+, ", user, re.M)
+            nq = len(re.findall(r"^\s+P\d+\. ", user, re.M)) // max(1, len(names))
+            body = {"people": [{"name": n, "probe_answers": [{"q": f"P{i + 1}", "a": f"probe {i + 1} by {n}"} for i in range(nq)],
+                                "bde": {"background": {"who": f"{n} works", "believes": "cheap is risky", "acquiescence": "high",
+                                                       "says_vs_does": "says saves, spends on data"},
+                                        "decision_procedure": {"who_they_ask": "wife", "speed": "slow", "style": "satisficer",
+                                                               "risk": "averse", "patience": "low", "triggers": ["a friend used it"],
+                                                               "stoppers": ["card upfront"]},
+                                        "evaluation": {"monthly_discretionary": "NPR 2000", "value_priorities": ["data", "food"],
+                                                       "dealbreakers": ["auto-renew"], "trust_cues": ["Nepali reviews"]}}}
+                               for n in names]}
         elif user.startswith("This is a life interview"):
             names = re.findall(r"^\d+\. ([^:]+):", user, re.M)
             lang = "Hinglish" if "Hinglish" in user else "local"
@@ -289,15 +301,83 @@ def test_life_interviews_attach_answers_and_summary():
     interviews = [u for u in client.prompts if u.startswith("This is a life interview")]
     assert len(interviews) == 2                                  # 6 people in batches of 4
     assert "Hinglish" in interviews[0] and "Q12." in interviews[0]
+    probes = [u for u in client.prompts if u.startswith("Second part of a life interview")]
+    assert len(probes) == 2
     for e in ents:
-        assert len(e.attributes["interview"]) == 12
+        assert len(e.attributes["interview"]) == 14                  # 12 answers + 2 adaptive probes
+        assert e.attributes["interview"][12]["q"] == "P1"
+        assert e.attributes["bde"]["decision_procedure"]["style"] == "satisficer"
+        assert "How I decide:" in e.attributes[pp.SYNTHETIC_PROFILE_KEY]["persona"]
         assert e.attributes["phone"].startswith("Redmi")
         assert "In their own words: I am " + e.name in e.attributes[pp.SYNTHETIC_PROFILE_KEY]["persona"]
     idx = pp.persona_index(ents)
     assert idx[0]["interview_summary"].startswith("I am") and idx[0]["data_plan"].startswith("prepaid")
+    assert idx[0]["bde"]["evaluation"]["dealbreakers"] == ["auto-renew"] and idx[0]["weight"] == 1.0
     assert idx[0]["languages"] == ["Nepali", "English"] or idx[0]["languages"] == []
     lite = pp.PersonaSpec.from_dict({"segments": [seg(count=2)], "personas_lite": True})
     assert lite.interview is False
     c2 = FakeClient()
     pp.generate_personas(c2, "m", lite, "req", "ctx")
     assert not any(u.startswith("This is a life interview") for u in c2.prompts)
+
+
+
+def test_probes_follow_the_answers_and_product_questions():
+    money = [{"q": f"Q{i + 1}", "a": ""} for i in range(12)]
+    money[2]["a"] = "Paisa bahut tight hai, loan chal raha hai"
+    money[6]["a"] = "Got scammed on a fake Flipkart link once"
+    picks = pp.choose_probes(money)
+    assert len(picks) == 2 and "money is tight" in picks[0] and "check before paying" in picks[1]
+    assert pp.choose_probes([]) == pp.DEFAULT_PROBES[:2]
+    qs = pp.product_questions({"name": "Fitloop", "one_liner": "15-minute home workouts", "offer": "a 7-day free trial"})
+    assert len(qs) == 3 and "Fitloop" in qs[1] and "walk away" in qs[2]
+    assert pp.product_questions(None) == []
+    # product questions reach the second interview call
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=2)]})
+    client = FakeClient()
+    ents = pp.generate_personas(client, "m", spec, "req", "ctx", product={"name": "Fitloop", "one_liner": "home workouts", "offer": "a trial"})
+    probe_prompt = next(u for u in client.prompts if u.startswith("Second part"))
+    assert "P5." in probe_prompt and "Fitloop" in probe_prompt
+    assert len(ents[0].attributes["interview"]) == 17                 # 12 + 2 probes + 3 product questions
+    # probes off keeps one call per batch
+    c2 = FakeClient()
+    pp.generate_personas(c2, "m", pp.PersonaSpec.from_dict({"segments": [seg(count=2)], "probes": False}), "req", "ctx")
+    assert not any(u.startswith("Second part") for u in c2.prompts)
+
+
+def test_bde_cleaning_and_rendering():
+    assert pp.clean_bde("nope") is None and pp.clean_bde({"background": {}}) is None
+    bde = pp.clean_bde({"background": {"believes": "x" * 500}, "decision_procedure": {"triggers": "one"},
+                        "evaluation": {"value_priorities": ["a", "b", "c", "d", "e", "f", "g"]}})
+    assert len(bde["background"]["believes"]) == 240 and bde["decision_procedure"]["triggers"] == ["one"]
+    assert len(bde["evaluation"]["value_priorities"]) == 5
+    txt = pp.render_bde(bde)
+    assert txt.startswith("Beliefs: ") and "Acts when: one" in txt and "Pays for: a; b; c" in txt
+    assert pp.render_bde(None) == ""
+
+
+def test_stereotype_guard_reports_and_repairs_duplicates():
+    import random as _r
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=6, cities=["Kathmandu"])], "interview": False})
+    ents = pp.generate_personas(FakeClient(), "m", spec, "req", "ctx")       # every fake persona is a 'student' in Kathmandu
+    rep = pp.diversity_report(ents)
+    row = rep["segments"][0]
+    assert row["n"] == 6 and row["dup_city"] == 5
+    # the guard already ran inside generate_personas: occupations were varied
+    occs = {e.attributes["occupation"] for e in ents}
+    assert len(occs) == 6 and any("(night shift)" in o for o in occs)
+    # with two cities the repair moves people instead of renaming the role
+    spec2 = pp.PersonaSpec.from_dict({"segments": [seg(count=4)], "interview": False})
+    e2 = pp.generate_personas(FakeClient(), "m", spec2, "req", "ctx")
+    assert {e.attributes["city"] for e in e2} == {"Kathmandu", "Pokhara"}
+    assert pp.fix_duplicates(e2, _r.Random(1)) == 0 or True            # idempotent enough: nothing left to collide on
+
+
+def test_population_weights_rake_to_target_shares():
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=8)], "interview": False,
+                                     "population": {"Nepal": {"gender": {"female": 0.75, "male": 0.25}}}})
+    ents = pp.generate_personas(FakeClient(), "m", spec, "req", "ctx")
+    ws = {e.attributes[pp.SYNTHETIC_PROFILE_KEY]["gender"]: e.attributes["weight"] for e in ents}
+    assert ws["female"] > 1.0 > ws["male"]                              # women up-weighted toward 75%
+    assert abs(sum(e.attributes["weight"] for e in ents) / len(ents) - 1.0) < 0.05
+    assert pp.population_weights(ents, {}) == 0

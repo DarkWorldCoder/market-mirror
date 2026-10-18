@@ -75,6 +75,40 @@ class ExportTests(unittest.TestCase):
         self.assertNotRegex(h, r"<script[^>]+src=")          # no external scripts
         self.assertNotRegex(h, r"<link[^>]+stylesheet")       # no external CSS
         self.assertLess(len(h.encode()), 2_000_000)
+        self.assertNotIn("http://", h.split("<body>")[0].split("<meta")[0])   # nothing fetched from the network
+
+    def test_theme_tokens_and_switcher(self):
+        h = self.html
+        head = h.split("</head>")[0]
+        self.assertIn("localStorage.getItem('mm-theme')", head)                 # pre-paint theme script
+        self.assertLess(head.index("mm-theme"), head.index("<style>"))
+        style = head.split("<style>")[1].split("</style>")[0]
+        self.assertEqual(style.count("--bg:#eeeeea"), 1)                       # light palette once ...
+        self.assertEqual(style.count("--bg:#0d0d0c"), 2)                       # ... dark block under both selectors
+        self.assertGreater(style.rindex(":root{"), style.index(".sf-feed"))     # tokens loaded last
+        self.assertIn('<button type="button" class="theme-btn" data-theme-toggle', h)
+        self.assertLess(h.index("data-theme-toggle"), h.index('<nav class="toc"'))
+        used = set(re.findall(r"var\((--[a-z0-9-]+)", h))
+        defined = set(re.findall(r"(--[a-z0-9-]+):", style))
+        self.assertEqual(used - defined, set())                                # no undefined custom properties
+        self.assertIn("prefers-reduced-motion", style)
+        self.assertIn(":focus-visible", style)
+
+    def test_scrollspy_sortable_tables_and_filter_roots(self):
+        h = self.html
+        self.assertIn('<nav class="toc" data-scrollspy aria-label="Sections">', h)
+        self.assertIn("data-scrollspy", h.split("<script>")[-1])              # UI_JS is on the page
+        self.assertLess(h.index("window.MM="), h.index("window.MM.theme()"))  # ui script before the chart scripts
+        self.assertIn('<table class="personas sortable">', h)
+        self.assertIn('data-sort="num" aria-sort="none" scope="col"', h)
+        self.assertIn('data-filter-root data-filter-noun="posts"', h)          # social feed uses the generic filter root
+        self.assertIn('data-filter="segment"', h)
+        self.assertIn("data-filter-count", h)
+        self.assertEqual(h.count('class="callout insight"'), h.count('role="note"'))
+        self.assertGreaterEqual(h.count('class="callout insight"'), 2)        # timeline + graph insights on the fixture
+        self.assertIn('<div class="kpis auto">', h)                            # run-details tiles are kpi tiles
+        self.assertNotIn('class="tile"', h)
+        self.assertNotIn("hero-stats", h)
 
     def test_sections(self):
         for sid in ["overview", "graph", "timeline", "agents", "socialfeed", "report"]:   # fixture has a feed story
@@ -86,6 +120,8 @@ class ExportTests(unittest.TestCase):
         self.assertIn("Lena Park", self.html)                 # persona table
         self.assertIn("Top posts", self.html)
         self.assertIn("<h2>2. Key actors</h2>", self.html)    # rendered report
+        for sid in ["agents", "timeline", "graph", "overview", "socialfeed", "report"]:
+            self.assertRegex(self.html, rf'<section id="{sid}"><div class="section-head">')
         self.assertIn("var(--other)", self.html)              # >8 entity types fold into Other
 
     def test_empty_bundle_renders(self):
@@ -131,7 +167,7 @@ class CLITests(unittest.TestCase):
     def test_parser_has_all_commands(self):
         p = mirofish.build_parser()
         for cmd in ["health", "run", "upload", "build-graph", "create-sim", "prepare", "start", "status",
-                    "report", "chat", "interview", "list", "export", "pitch", "ideas", "quickstart", "captions", "understand"]:
+                    "report", "chat", "interview", "list", "export", "pitch", "ideas", "quickstart", "captions", "understand", "calibrate"]:
             self.assertIn(cmd, mirofish.COMMANDS)
         a = p.parse_args(["run", "--seed", "a.md", "--requirement", "q", "--max-rounds", "3", "--platform", "reddit"])
         self.assertEqual((a.max_rounds, a.platform), (3, "reddit"))
