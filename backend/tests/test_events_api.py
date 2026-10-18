@@ -73,3 +73,28 @@ def test_captions_endpoint(client, monkeypatch):
     assert cap["id"] == "in_1" and cap["text"].startswith("Cheaper than chai\n15-min")
     assert cap["hashtags"] == ["fit", "homeworkout"] and cap["format"] == "reel"
     assert c.post("/api/simulation/captions", json={}).status_code == 400
+
+
+def test_context_updates_allowed_while_running(tmp_path, monkeypatch):
+    from app import create_app
+    from app.config import Config
+    from app.services.simulation_manager import SimulationManager
+    monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(SimulationManager, "SIMULATION_DATA_DIR", str(tmp_path))
+    sim = tmp_path / "sim_c"
+    sim.mkdir()
+    (sim / "state.json").write_text(json.dumps({"simulation_id": "sim_c", "project_id": "p", "graph_id": "g", "status": "running"}))
+    (sim / "simulation_config.json").write_text(json.dumps({"persona_index": [], "event_config": {}}))
+    (sim / "run_state.json").write_text(json.dumps({"runner_status": "running", "current_round": 2}))
+    app = create_app()
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    assert c.put("/api/simulation/sim_c/context", json={}).status_code == 400
+    r = c.put("/api/simulation/sim_c/context", json={"text": "Competitor dropped its price", "source": "news"})
+    assert r.status_code == 200
+    d = r.get_json()["data"]
+    assert d["running"] is True and d["context_updates"][0]["round"] == 3      # next round by default
+    r = c.put("/api/simulation/sim_c/context", json={"text": "Later", "round": 6})
+    assert len(r.get_json()["data"]["context_updates"]) == 2
+    assert c.get("/api/simulation/sim_c/context").get_json()["data"]["context_updates"][1]["round"] == 6
+    assert c.put("/api/simulation/nope/context", json={"text": "x"}).status_code == 404

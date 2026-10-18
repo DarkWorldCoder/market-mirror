@@ -493,6 +493,46 @@ def _runner_status(sim_dir: str) -> str:
         return ""
 
 
+@simulation_bp.route('/<simulation_id>/context', methods=['PUT', 'GET'])
+def simulation_context(simulation_id: str):
+    """PUT {text, source?, round?} appends a context update (news, what people say today, a competitor move) to
+    event_config.context_updates; the runner re-reads the file every round and every persona card carries it from
+    that round on. Allowed while the simulation runs: that is the point. GET lists the updates."""
+    try:
+        sim_dir = _sim_dir(simulation_id)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    cfg_path = os.path.join(sim_dir, "simulation_config.json")
+    if not os.path.exists(cfg_path):
+        return jsonify({"success": False, "error": "prepare the simulation first (no simulation_config.json)"}), 400
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    ev = cfg.setdefault("event_config", {})
+    ups = ev.setdefault("context_updates", [])
+    if request.method == "GET":
+        return jsonify({"success": True, "data": {"context_updates": ups}})
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text") or "").strip()
+    if not text:
+        return jsonify({"success": False, "error": "text is required"}), 400
+    try:
+        rnd = int(data.get("round")) if data.get("round") is not None else None
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "round must be an integer"}), 400
+    if rnd is None:                                            # default: from the next round on
+        try:
+            with open(os.path.join(sim_dir, "run_state.json"), encoding="utf-8") as f:
+                rnd = int((json.load(f).get("current_round") or 0)) + 1
+        except (OSError, ValueError, TypeError):
+            rnd = 0
+    ups.append({"round": rnd, "text": text[:400], "source": str(data.get("source") or "")[:60]})
+    tmp = cfg_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, cfg_path)
+    return jsonify({"success": True, "data": {"context_updates": ups, "running": _runner_status(sim_dir) == "running"}})
+
+
 @simulation_bp.route('/<simulation_id>/events', methods=['PUT', 'GET'])
 def simulation_events(simulation_id: str):
     """PUT {posts:[{agent, content, platform?}], events:[{round, agent, content, platform?, label?}]}

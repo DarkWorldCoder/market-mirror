@@ -1558,6 +1558,22 @@ def cmd_research(c: Optional[Client], a) -> Any:
             "voices": res["voices"], "notes": summ.get("notes"), "next": f"add {res['files']['md']} to the scenario seeds; voices.json grounds the personas and feeds"}
 
 
+def cmd_context(c: Client, a) -> Any:
+    """Push what people are saying today (news, a competitor move, a real thread) into a running simulation."""
+    if a.text is None and not a.list:
+        raise CLIError("context: give --text or --list")
+    if a.list:
+        return c.data("GET", f"/api/simulation/{a.simulation}/context")
+    body: Dict[str, Any] = {"text": read_text_arg(a.text) or ""}
+    if a.round is not None:
+        body["round"] = a.round
+    if a.source:
+        body["source"] = a.source
+    res = c.data("PUT", f"/api/simulation/{a.simulation}/context", json=body, timeout=60)
+    log(f"context: {len(res.get('context_updates') or [])} update(s) on file; simulation {'running' if res.get('running') else 'not running'}")
+    return res
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas, a.personas_lite)  # fail fast on a bad spec file
@@ -1882,6 +1898,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--text", help="the update, or @file")
+    s.add_argument("--round", type=int, help="from which round (default: the next one)")
+    s.add_argument("--source", help="where it comes from, e.g. 'r/fitness today'")
+    s.add_argument("--list", action="store_true", help="list the updates on file")
+
     s = sub.add_parser("research", help="what real people say: Hacker News, App Store reviews, Reddit (when reachable), pages -> research.md + voices.json")
     s.add_argument("--query", required=True, help="product, category or competitor, e.g. 'home workout app'")
     s.add_argument("--sources", default="hn,appstore,reddit", help="comma list: hn, appstore, reddit")
@@ -1968,7 +1991,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
 }
 
 

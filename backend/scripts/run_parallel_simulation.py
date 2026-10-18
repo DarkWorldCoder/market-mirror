@@ -606,7 +606,10 @@ class ParallelIPCHandler:
 def load_config(config_path: str) -> Dict[str, Any]:
     """加载配置文件"""
     with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+        cfg = json.load(f)
+    if isinstance(cfg, dict):
+        cfg["_config_path"] = os.path.abspath(config_path)   # for live context updates
+    return cfg
 
 
 # 需要过滤掉的非核心动作类型（这些动作对分析价值较低）

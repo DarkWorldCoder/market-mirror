@@ -33,6 +33,7 @@ Speed knobs (environment variables, all optional):
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import warnings
@@ -137,11 +138,40 @@ def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
     return budget, mood
 
 
+def context_updates(config_path: Optional[str], round_num: int) -> List[Dict[str, Any]]:
+    """event_config.context_updates [{round?, text, source?}] from the live config file: the ones due by this round."""
+    if not config_path:
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            ups = ((json.load(f).get("event_config") or {}).get("context_updates") or [])
+    except (OSError, ValueError):
+        return []
+    out = []
+    for u in ups:
+        if not isinstance(u, dict) or not str(u.get("text") or "").strip():
+            continue
+        try:
+            due = int(u.get("round")) if u.get("round") is not None else 0
+        except (TypeError, ValueError):
+            due = 0
+        if due <= round_num:
+            out.append({"round": due, "text": str(u["text"]).strip()[:400], "source": str(u.get("source") or "")[:60]})
+    return out[-3:]                                           # the latest few matter; older news fades
+
+
+def set_context(text: str, platform: Optional[str] = None) -> None:
+    _state(platform)["context"] = [{"round": 0, "text": text, "source": ""}] if text else []
+
+
 def begin_round(round_num: int, hour: int, platform: Optional[str] = None) -> None:
-    """Refresh every agent's budget and mood for the coming round on this platform (deterministic for a seed)."""
+    """Refresh every agent's budget and mood for the coming round on this platform (deterministic for a seed),
+    and pick up any context the operator pushed while the run is going (PUT /api/simulation/<sid>/context)."""
     st = _state(platform)
     rng = st["rng"]
     st["round"], st["hour"] = round_num, hour
+    if st.get("config_path"):
+        st["context"] = context_updates(st["config_path"], round_num)
     for aid in list(st["cards"]):
         st["budgets"][aid], st["moods"][aid] = round_flavour(aid, round_num, hour, rng, st["activity"])
 
@@ -151,8 +181,13 @@ def session_line(agent_id: int, platform: Optional[str] = None) -> str:
     budget = st["budgets"].get(agent_id, 1)
     mood = st["moods"].get(agent_id, "relaxed")
     hour = st["hour"]
-    return (f"Right now it is about {hour:02d}:00 and you feel {mood}. You have time for at most {budget} "
+    line = (f"Right now it is about {hour:02d}:00 and you feel {mood}. You have time for at most {budget} "
             f"action(s) this session. If nothing deserves a reply, do_nothing.")
+    ctx = st.get("context") or []
+    if ctx:
+        news = " ".join(f"{c['text']}" + (f" (via {c['source']})" if c.get("source") else "") for c in ctx)
+        line = f"What people around you are saying today: {news}\n{line}"
+    return line
 
 
 def card_for(agent_id: int, platform: Optional[str] = None) -> str:
@@ -168,13 +203,17 @@ def _agents_of(agent_graph: Any) -> List[Any]:
 
 
 def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: Optional[str] = None,
-            memory_window: Optional[int] = None, token_limit: Optional[int] = None) -> int:
+            memory_window: Optional[int] = None, token_limit: Optional[int] = None,
+            config_path: Optional[str] = None) -> int:
     """Attach cards to the agents in `agent_graph`, tag them with their platform, bound their chat memory
-    and patch SocialEnvironment.to_text_prompt once. Returns the number of agents that got a card."""
+    and patch SocialEnvironment.to_text_prompt once. Returns the number of agents that got a card.
+    config_path: the live simulation_config.json, re-read every round for operator context updates."""
     st = _state(platform)
     st["cards"] = persona_cards(config)
     st["activity"] = activity_levels(config)
     st["rng"] = random.Random(seed)
+    st["config_path"] = config_path or (config or {}).get("_config_path")
+    st["context"] = []
     begin_round(0, 12, platform)
     n = 0
     for agent in _agents_of(agent_graph):

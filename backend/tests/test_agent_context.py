@@ -1,5 +1,6 @@
 """Persona cards per round (agent_context) and scheduled brand posts (event_schedule), without OASIS."""
 
+import json
 import asyncio
 import os
 import random
@@ -281,3 +282,24 @@ def test_memory_window_patch_applies_to_camel_memory():
     assert roles == [("system", None), ("user", None), ("assistant", "c2"), ("function", "c2")]
     msgs, _ = mem.get_context()
     assert [m["role"] for m in msgs][:3] == ["system", "user", "assistant"] and len(msgs) == 4
+
+
+def test_context_updates_reach_the_session_line(tmp_path):
+    cfg_path = tmp_path / "simulation_config.json"
+    cfg_path.write_text(json.dumps({"event_config": {"context_updates": [
+        {"round": 2, "text": "A competitor just made its trial card-free.", "source": "r/fitness"},
+        {"round": 5, "text": "Later news", "source": ""}]}}))
+    ac.reset()
+    st = ac._state("reddit")
+    st["cards"] = ac.persona_cards(CONFIG)
+    st["config_path"] = str(cfg_path)
+    ac.begin_round(1, 18, platform="reddit")
+    assert "saying today" not in ac.session_line(1, "reddit")
+    ac.begin_round(3, 19, platform="reddit")
+    line = ac.session_line(1, "reddit")
+    assert line.startswith("What people around you are saying today: A competitor just made its trial card-free. (via r/fitness)")
+    assert "Later news" not in line
+    assert ac.context_updates(str(cfg_path), 9)[-1]["text"] == "Later news"
+    assert ac.context_updates(None, 3) == [] and ac.context_updates(str(tmp_path / "missing.json"), 3) == []
+    ac.set_context("", "reddit")
+    assert "saying today" not in ac.session_line(1, "reddit")

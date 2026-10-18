@@ -42,6 +42,8 @@ The engine lives in `~/.market-mirror/engine` unless `MARKET_MIRROR_HOME` says o
 | CRM, survey results, interviews, support tickets, reviews | export or paste | seed files; quote real objections |
 | Landing page | fetch it; time how long it loads on mobile; list form fields | the feed test `landing` block |
 
+Run the `research` MCP tool first (query = the product, category or a competitor; country = the App Store storefront that matters): it writes `research.md` (themes with linked quotes) and `voices.json`. Reddit usually blocks the tool; when the result says so, open the relevant subreddits with your own browser or search tools and add what you find as seed files. Put `"research": "<scenario>/research"` in `market_test.json` so the personas, feeds, report and test ideas draw on the real quotes. During a run, `push_context` sends one or two sentences of live reality (a thread you just read, a competitor move, news) into every persona card from the next round on.
+
 Put everything in a scenario folder: `bash "$MM" scenario <name> file1 file2 ...` (gitignored inside the engine).
 
 ## 3. Define the audience (persona spec)

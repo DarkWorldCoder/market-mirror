@@ -202,6 +202,12 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "push_context", "description": (
+        "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
+        "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
+        "one or two sentences; the runner re-reads the file every round. Use it to ground the rounds in live reality."),
+     "inputSchema": {"type": "object", "properties": {"simulation_id": {"type": "string"}, "text": {"type": "string"}, "round": {"type": "integer"},
+                                                      "source": {"type": "string"}}, "required": ["simulation_id", "text"]}},
     {"name": "research", "description": (
         "What real people say about a product, category or competitor, from public keyless sources: Hacker News stories and "
         "comments, App Store listings and recent reviews for a country storefront (in, ph, ke, us...), Reddit public search when "
@@ -347,6 +353,14 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         if a.get("n"):
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
+        return r["stdout"].strip() or r["stderr"].strip()
+    if name == "push_context":
+        args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
+        if a.get("round") is not None:
+            args += ["--round", str(int(a["round"]))]
+        if a.get("source"):
+            args += ["--source", str(a["source"])]
+        r = sh(args, timeout=60)
         return r["stdout"].strip() or r["stderr"].strip()
     if name == "research":
         args = ["cli", "research", "--query", a["query"]]
