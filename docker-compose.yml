@@ -1,14 +1,29 @@
 services:
-  mirofish:
-    image: ghcr.io/666ghj/mirofish:latest
-    # 加速镜像（如拉取缓慢可替换上方地址）
-    # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
-    container_name: mirofish
-    env_file:
-      - .env
+  backend:
+    build: .
+    container_name: marketmirror
+    env_file: .env                     # LLM_API_KEY=... (or the gateway settings below)
     ports:
-      - "3000:3000"
       - "5001:5001"
-    restart: unless-stopped
     volumes:
-      - ./backend/uploads:/app/backend/uploads
+      - ./backend/uploads:/app/backend/uploads     # knowledge graph, simulations, embedding model, calibration store
+      - ./mirofish_runs:/app/mirofish_runs         # run folders with dashboards and reports
+      - ./scenarios:/app/scenarios                 # your inputs
+    restart: unless-stopped
+
+  live:
+    build: .
+    container_name: marketmirror-live
+    command: ["backend/.venv/bin/python", "backend/claude_cli/mirofish.py", "live", "--host", "0.0.0.0", "--interval", "10"]
+    environment:
+      - MIROFISH_URL=http://backend:5001
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./mirofish_runs:/app/mirofish_runs
+    depends_on:
+      - backend
+
+  # No API key? Run on your Claude Code or ChatGPT login instead (personal use): the CLI must be logged in on the host,
+  # so run the gateway on the host (python backend/gateway/local_gateway.py --backend claude) and point LLM_BASE_URL at
+  # http://host.docker.internal:5055/v1 in .env.

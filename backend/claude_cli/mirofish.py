@@ -1227,8 +1227,15 @@ def cmd_market_test(c: Client, a) -> Any:
             summary = json.load(f)
     except (OSError, ValueError, KeyError):
         pass
-    return {"stage": "done", "steps": steps, "simulation_id": sid, "dashboard": state["export"]["html"],
-            "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
+    result = {"stage": "done", "steps": steps, "simulation_id": sid, "dashboard": state["export"]["html"],
+              "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
+    hook = notify_webhook({"event": "market_test.finished", "name": cfg.get("name"), "title": cfg.get("title"), "run_dir": state["out_dir"],
+                           "simulation_id": sid, "decision": summary.get("decision"), "steps": steps,
+                           "files": {k: v for k, v in (state.get("export") or {}).items() if isinstance(v, str)}},
+                          cfg.get("webhook"))
+    if hook:
+        result["webhook"] = hook
+    return result
 
 
 def cmd_captions(c: Client, a) -> Any:
@@ -1457,6 +1464,9 @@ def cmd_test(c: Client, a) -> Any:
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(f"test: {e}")
     log(f"test: {res['verdict']}")
+    notify_webhook({"event": "test.finished", "name": exp["name"], "type": exp["type"], "run_dir": os.path.abspath(out_dir),
+                    "winner": res.get("winner"), "lift": res.get("lift"), "clear_winner": res.get("clear_winner"), "verdict": res.get("verdict")},
+                   exp["extra"].get("webhook"))
     if not a.no_export and os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return {k: v for k, v in res.items() if k != "variants"} | {"variants": [{k: r.get(k) for k in ("id", "value", "margin", "n", "unit")} for r in res["variants"]],
@@ -1511,6 +1521,8 @@ def cmd_study(c: Client, a) -> Any:
     with open(os.path.join(root, "study.html"), "w", encoding="utf-8") as f:
         f.write(study_mod.render_html(summary, exporter.markdown_to_html, exporter.CSS, st.get("brand") or "", links))
     conc = summary.get("conclusion") or {}
+    notify_webhook({"event": "study.finished", "name": st["name"], "study_dir": os.path.abspath(root), "conclusion": conc,
+                    "cells": len(summary.get("cells") or [])}, spec.get("webhook"))
     return {"study": os.path.abspath(root), "summary": os.path.join(os.path.abspath(root), "study_summary.json"),
             "report": os.path.join(os.path.abspath(root), "study_report.md"), "html": os.path.join(os.path.abspath(root), "study.html"),
             "cells": len(summary.get("cells") or []), "conclusion": conc}
@@ -1572,6 +1584,31 @@ def cmd_context(c: Client, a) -> Any:
     res = c.data("PUT", f"/api/simulation/{a.simulation}/context", json=body, timeout=60)
     log(f"context: {len(res.get('context_updates') or [])} update(s) on file; simulation {'running' if res.get('running') else 'not running'}")
     return res
+
+
+def notify_webhook(payload: Dict[str, Any], url: Optional[str] = None, retries: int = 3) -> Optional[Dict[str, Any]]:
+    """POST a JSON summary to MIROFISH_WEBHOOK_URL (or `url`) when a run, study or test finishes; 3 tries, never raises."""
+    target = url or os.environ.get("MIROFISH_WEBHOOK_URL")
+    if not target:
+        return None
+    try:
+        import requests
+    except ImportError:
+        return {"url": target, "sent": False, "error": "requests not installed"}
+    body = {"event": payload.get("event") or "finished", "sent_at": datetime.now().isoformat(), **payload}
+    last = ""
+    for attempt in range(retries):
+        try:
+            r = requests.post(target, json=body, timeout=20, headers={"User-Agent": "MarketMirror/0.3 webhook"})
+            if r.status_code < 300:
+                log(f"webhook: delivered to {target} ({r.status_code})")
+                return {"url": target, "sent": True, "status": r.status_code}
+            last = f"HTTP {r.status_code}"
+        except Exception as e:  # noqa: BLE001
+            last = str(e)[:120]
+        time.sleep(1.5 * (attempt + 1))
+    log(f"webhook: not delivered to {target}: {last}")
+    return {"url": target, "sent": False, "error": last}
 
 
 def cmd_run(c: Client, a) -> Any:

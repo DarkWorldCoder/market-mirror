@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main", "claude-edition"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install
+        working-directory: backend
+        run: uv sync --python 3.12 --frozen
+      - name: Lint (errors only)
+        working-directory: backend
+        run: uv run --no-sync ruff check --select E9,F63,F7,F82 app claude_cli scripts tests || true
+      - name: Tests (mocked LLM; no API key needed)
+        working-directory: backend
+        env:
+          MEMORY_EMBEDDINGS: "false"
+          LLM_API_KEY: "test"
+        run: uv run --no-sync python -m pytest tests claude_cli/tests -q -x --timeout=900
+      - name: API docs are up to date
+        run: |
+          backend/.venv/bin/python backend/scripts/gen_api_docs.py
+          git diff --exit-code docs/API.md docs/openapi.json
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plugin and marketplace manifests are valid JSON
+        run: |
+          python3 -c "import json;json.load(open('plugin/.claude-plugin/plugin.json'));json.load(open('.claude-plugin/marketplace.json'));print('ok')"
+      - name: Skill front matter present
+        run: head -3 plugin/skills/market-mirror/SKILL.md | grep -q '^name: market-mirror'

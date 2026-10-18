@@ -344,6 +344,17 @@ Always stop after `prepare` and look at the people before spending on the rest. 
 
 Claude runs through Anthropic's OpenAI-compatible endpoint. Memory is a free local knowledge graph (SQLite with BM25 and local multilingual embeddings), so no Zep account is needed. `CLAUDE.md` is the full operating guide for agents, and `HANDOFF.md` lists known gaps. Run the tests with `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`.
 
+## Integrate it anywhere
+
+- **REST API**: every test, report and prediction is an endpoint on `http://localhost:5001` ([docs/API.md](docs/API.md), [docs/openapi.json](docs/openapi.json); regenerate with `backend/scripts/gen_api_docs.py`). Long jobs return a task id to poll.
+- **Webhooks**: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`, a study spec or a test spec) and the CLI posts a JSON summary when a run, study or test finishes (three tries): wire it to n8n, Zapier, Slack or your CRM.
+- **Python SDK**: `pip install -e sdk`, then `from marketmirror import MarketMirror` ([sdk/README.md](sdk/README.md)): REST methods one to one, plus `quickstart`, `market_test`, `study`, `run_test`, `research` and `results` wrappers.
+- **Docker**: `docker compose up` starts the backend (port 5001) and the live dashboard (port 5050) with your `.env`; `backend/uploads`, `mirofish_runs` and `scenarios` are mounted from the host.
+- **Agents**: the Claude Code plugin (`/plugin marketplace add DarkWorldCoder/market-mirror`), the MCP server for any MCP client, and a Codex package in [codex/](codex/README.md). Publishing steps: [docs/PUBLISHING.md](docs/PUBLISHING.md).
+- **CI**: GitHub Actions runs the test suite (mocked model, no key) and checks the API docs on every push.
+
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · security: [SECURITY.md](SECURITY.md) · changes: [CHANGELOG.md](CHANGELOG.md).
+
 ## Credits and license
 
 MarketMirror is built on [MiroFish](https://github.com/666ghj/MiroFish) (simulation engine, AGPL-3.0) and [OASIS](https://github.com/camel-ai/oasis) (social simulation). The original MiroFish README is kept at [docs/MIROFISH-UPSTREAM.md](docs/MIROFISH-UPSTREAM.md). The dashboard embeds [Apache ECharts](https://echarts.apache.org) 5.5.1 (Apache-2.0, see `backend/claude_cli/vendor/`). MarketMirror is released under AGPL-3.0.

@@ -1,0 +1,1352 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MarketMirror API",
+    "version": "0.3.0",
+    "description": "Marketing and sales simulation on simulated buyers. Long jobs return task ids."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5001"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Product understanding"
+    },
+    {
+      "name": "Real voices"
+    },
+    {
+      "name": "Tests on simulated people"
+    },
+    {
+      "name": "Inside the rounds"
+    },
+    {
+      "name": "Analysis and reports"
+    },
+    {
+      "name": "Reliability and prediction"
+    },
+    {
+      "name": "Background tasks"
+    }
+  ],
+  "paths": {
+    "/api/graph/profile": {
+      "post": {
+        "summary": "Product profile from text/url/ads (no project)",
+        "tags": [
+          "Product understanding"
+        ],
+        "responses": {
+          "200": {
+            "description": "product profile + quickstart_answers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "text": "...",
+                "url": "https://...",
+                "ads_summary": {},
+                "name": "Brand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/graph/project/{project_id}/profile": {
+      "post": {
+        "summary": "Create or reuse the project's product profile (seeds the market map before the graph build)",
+        "tags": [
+          "Product understanding"
+        ],
+        "responses": {
+          "200": {
+            "description": "product profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://...",
+                "ads_summary": {},
+                "refresh": false,
+                "name": "Brand"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "The project's product profile",
+        "tags": [
+          "Product understanding"
+        ],
+        "responses": {
+          "200": {
+            "description": "product profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/graph/project/{project_id}/voices": {
+      "put": {
+        "summary": "Attach real voices (from research) to a project",
+        "tags": [
+          "Real voices"
+        ],
+        "responses": {
+          "200": {
+            "description": "{stored}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "voices": [
+                  {
+                    "text": "...",
+                    "source": "appstore",
+                    "sentiment": "neg",
+                    "country": "in"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "The project's voices",
+        "tags": [
+          "Real voices"
+        ],
+        "responses": {
+          "200": {
+            "description": "{voices}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/feed-test": {
+      "post": {
+        "summary": "Ads in realistic feeds (attention gate, split test, landing page, projections); background task",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "creatives": [
+                  {
+                    "id": "fb1",
+                    "platform": "facebook",
+                    "text": "..."
+                  }
+                ],
+                "landing": {},
+                "benchmarks": {},
+                "seeds": 3,
+                "exposures": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/feed-test": {
+      "get": {
+        "summary": "Feed-test result",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "feed_test.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/email-test": {
+      "post": {
+        "summary": "Email campaign test in simulated inboxes; background task",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "emails": [
+                  {
+                    "id": "a",
+                    "from_name": "Brand",
+                    "subject": "...",
+                    "body": "...",
+                    "send_time": "morning"
+                  }
+                ],
+                "list_size": 10000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/email-test": {
+      "get": {
+        "summary": "Email-test result",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "email_test.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/pitch": {
+      "post": {
+        "summary": "Sales rehearsal: pitch every simulated buyer, then rebuttals; background task (needs a live environment)",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "script": "...",
+                "rebuttals": {
+                  "price": "...",
+                  "*": "..."
+                },
+                "channel": "dm"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/pitch": {
+      "get": {
+        "summary": "Pitch result",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "pitch.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/interview/batch": {
+      "post": {
+        "summary": "Ask simulated people anything (the survey uses it); needs a live environment",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{results:[{agent_id, response}]}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "interviews": [
+                  {
+                    "agent_id": 1,
+                    "prompt": "..."
+                  }
+                ],
+                "platform": "reddit"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/ssr": {
+      "post": {
+        "summary": "Free-text answers to 1-5 rating distributions (semantic similarity rating)",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{results:[{pmf, mean, sd}]}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "items": [
+                  {
+                    "id": "1",
+                    "scale": "purchase",
+                    "text": "Maybe: if it is really free"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/events": {
+      "put": {
+        "summary": "Brand posts and scheduled launch events for the rounds",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{initial_posts, scheduled_events}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "posts": [
+                  {
+                    "agent": "Brand",
+                    "platform": "both",
+                    "content": "..."
+                  }
+                ],
+                "events": [
+                  {
+                    "round": 2,
+                    "agent": "Brand",
+                    "content": "..."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "The configured posts and events",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{initial_posts, scheduled_events}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/{simulation_id}/context": {
+      "put": {
+        "summary": "Push live context into a running simulation (from the next round on)",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{context_updates, running}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "text": "A competitor dropped its price",
+                "source": "news",
+                "round": 3
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Context updates on file",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{context_updates}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/{simulation_id}/feed-story": {
+      "get": {
+        "summary": "Every post of the simulation with authors, rounds, likes, quotes, comments; brand posts strip",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "feed_story.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/analyst-panel": {
+      "post": {
+        "summary": "Independent anonymized analysts over the run's material; background task",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "material": {},
+                "analysts": 5,
+                "brief": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/analyst-panel": {
+      "get": {
+        "summary": "Panel result",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "analyst_panel.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/market-report": {
+      "post": {
+        "summary": "Plain-language report (one call, number-guarded); background task",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "material": {
+                  "summary": {}
+                },
+                "brand": "Brand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/market-report": {
+      "get": {
+        "summary": "Report result (sections, action_plan, markdown)",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "market_report.json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/ideas": {
+      "post": {
+        "summary": "Next test ideas from real ad rows and a run (synchronous)",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "{ideas, evidence, markdown}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "brand": "Brand",
+                "ads": [
+                  {
+                    "Ad name": "A",
+                    "Spend": 100,
+                    "Impressions": 10000,
+                    "Clicks": 120
+                  }
+                ],
+                "run_summary": {},
+                "profile": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/captions": {
+      "post": {
+        "summary": "Platform-native captions from a brief (synchronous)",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "{captions}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "brief": "...",
+                "platform": "instagram",
+                "n": 6,
+                "objections": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/calibrate": {
+      "post": {
+        "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate (synchronous)",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{verdict, overlap, calibration, corrected}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "synthetic": [
+                  {
+                    "segment": "..",
+                    "country": "..",
+                    "gender": "..",
+                    "age": 30,
+                    "y": 1
+                  }
+                ],
+                "real": [],
+                "key": "segment",
+                "field": "would_convert"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/predict": {
+      "post": {
+        "summary": "Predictions with intervals, scaled by the calibration store (synchronous)",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{predictions, calibrated}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "brand": "Brand",
+                "summary": {},
+                "feed_test": {},
+                "email_test": {},
+                "targets": {
+                  "ctr": 2
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/forecast": {
+      "post": {
+        "summary": "30/60/90-day adoption forecast from the best ad and the rounds' word of mouth",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{curve, customers_total, cac, k_factor}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "feed_test": {},
+                "feed_story": {},
+                "spend": 500,
+                "days": 90
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/calibration-pairs": {
+      "post": {
+        "summary": "Store real-vs-simulated pairs (backtest, calibrate, your own stats)",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{stored}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "brand": "Brand",
+                "metric": "ctr",
+                "pairs": [
+                  {
+                    "sim": 4.0,
+                    "real": 2.1,
+                    "label": "ad A"
+                  }
+                ],
+                "source": "backtest"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Fits per metric (?brand=)",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{pairs, brands, fits}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/simulation/study-report": {
+      "post": {
+        "summary": "One-call report over a study summary (number-guarded)",
+        "tags": [
+          "Analysis and reports"
+        ],
+        "responses": {
+          "200": {
+            "description": "{markdown, method}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "summary": {},
+                "brand": "Brand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/market-task/status": {
+      "post": {
+        "summary": "Status of a background task",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{status, progress, message, result}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "task_id": "..."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
