@@ -212,6 +212,8 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 | **Sales pitch rehearsal** | pitch or call script, rebuttals per objection type (`## price`, `## trust`, `## any`) | `pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` |
 | **What to test next** | Ads Manager export, or rows from a connected ads tool, plus a previous run | `ideas --ads export.csv --run-dir mirofish_runs/x --brand Acme` |
 | **Plain-language report** | a finished run | `report --simulation <id> --run-dir mirofish_runs/x` (written by `market-test` automatically) |
+| **Reliability check** | nothing extra | `survey ... --retest 20`: twenty people answer again a simulated week later; agreement is reported |
+| **Trust / correct / walk away** | 50-300 real answers (CSV: segment, country, gender, age, y) | `calibrate --run-dir mirofish_runs/x --real answers.csv [--map y=Converted]` -> `calibration.json` with the verdict per audience and an AIPW-corrected rate |
 | **Second opinion** | anything above | `panel --analysts 5` |
 
 <details>
@@ -236,7 +238,7 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 }
 ```
 
-Up to 500 people per segment and 2,000 in total. `--auto-personas N` plans segments and communities for you.
+Up to 500 people per segment and 2,000 in total. `--auto-personas N` plans segments and communities for you. Optional keys: `"probes": false` skips the second interview call (adaptive follow-ups, product questions, BDE card); `"population": {"India": {"age": {"18-24": 0.32, "25-34": 0.28, ...}, "gender": {"female": 0.49, "male": 0.51}}}` rakes each person's `weight` to the census-like shares you give, so weighted rates reflect the real mix (bring the shares from your census or ad-platform reach data; none are shipped).
 
 **creatives.json**
 

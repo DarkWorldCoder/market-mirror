@@ -121,7 +121,7 @@ def test_generate_personas_uses_fixed_demographics_and_unique_names():
     client = FakeClient(duplicate_names=True)
     ents = pp.generate_personas(client, "m", spec, "How do Nepali families react?", "context")
     assert len(ents) == 11
-    assert len(client.prompts) == 2                     # 8 in one call, then 3
+    assert len(client.prompts) == 3                     # 5 + 3 students, then 3 parents (MAX_PER_CALL = 5)
     assert all("never use the name" in s for s in client.systems)
     names = [e.name for e in ents]
     assert len(set(names)) == 11                        # duplicates from the LLM are renamed

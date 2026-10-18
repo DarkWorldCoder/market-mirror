@@ -29,7 +29,8 @@ from __future__ import annotations
 import json
 import random
 import re
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -42,7 +43,7 @@ logger = get_logger('mirofish.persona_planner')
 SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
-MAX_PER_CALL = 8
+MAX_PER_CALL = 5                 # shorter calls: a retry costs less and segments finish sooner
 MAX_TOTAL_PERSONAS = 2000
 # Traits spread evenly across each segment (like ages and genders) so personas do not collapse
 # toward one "typical" respondent. Override per spec ("diversity") or per segment.
@@ -891,7 +892,6 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     total = sum(len(j[1]) for j in jobs)
 
     taken: set = set()
-    results: Dict[int, List[Dict[str, Any]]] = {}
     done = 0
 
     def run(job_idx: int):
@@ -901,27 +901,57 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         rows = data.get("personas") if isinstance(data, dict) else data
         return job_idx, [r for r in (rows or []) if isinstance(r, dict)]
 
-    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-        for job_idx, rows in pool.map(run, range(len(jobs))):
-            results[job_idx] = rows
-            done += len(jobs[job_idx][1])
-            if progress:
-                progress(done, total, jobs[job_idx][0].label)
+    # Pipelined: as soon as every persona job of a segment has returned, that segment is checked for stereotypes
+    # and its interviews start, while other segments are still being written (F-speed item 3).
+    seg_jobs: Dict[str, int] = {}
+    for seg, _, _ in jobs:
+        seg_jobs[seg.label] = seg_jobs.get(seg.label, 0) + 1
+    seg_entities: Dict[str, List[Tuple[int, List[EntityNode]]]] = {}
+    by_job: Dict[int, List[EntityNode]] = {}
+    interview_futures = []
+    interview_done: Dict[str, int] = {}
+    lock = threading.Lock()
+    fixed_total = 0
 
-    entities: List[EntityNode] = []
-    for job_idx, (seg, slots, _comms) in enumerate(jobs):
-        rows = results.get(job_idx, [])
-        for k, slot in enumerate(slots):
-            row = rows[k] if k < len(rows) else {}
-            entities.append(_to_entity(seg, slot, row, taken, len(entities)))
-    fixed = fix_duplicates(entities, rng)
+    def interview_progress(label: str):
+        def cb(d: int, t: int, what: str):
+            with lock:
+                interview_done[label] = d
+                total_done = sum(interview_done.values())
+            if progress:
+                progress(total_done, total, what)
+        return cb
+
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool, \
+            ThreadPoolExecutor(max_workers=max(1, parallel)) as ipool:
+        futures = [pool.submit(run, i) for i in range(len(jobs))]
+        for fut in as_completed(futures):
+            job_idx, rows = fut.result()
+            seg, slots, _comms = jobs[job_idx]
+            ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k)
+                    for k, slot in enumerate(slots)]
+            by_job[job_idx] = ents
+            done += len(slots)
+            if progress:
+                progress(done, total, seg.label)
+            seg_entities.setdefault(seg.label, []).append((job_idx, ents))
+            if len(seg_entities[seg.label]) == seg_jobs[seg.label]:
+                group = [e for _, es in sorted(seg_entities[seg.label], key=lambda x: x[0]) for e in es]
+                fixed_total += fix_duplicates(group, rng)
+                if spec.interview:
+                    interview_futures.append(ipool.submit(
+                        run_interviews, client, model, group, context, progress=interview_progress(seg.label),
+                        parallel=max(2, parallel // 2), product=product, probes=spec.probes))
+        interviewed = sum(f.result() for f in interview_futures)
+
+    entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]
+    for i, e in enumerate(entities):                               # agent id = position: renumber the uuids in order
+        e.uuid = f"persona_{i:04d}"
     report = diversity_report(entities)
-    if fixed or report["flagged"]:
-        logger.info(f"persona planner: stereotype guard changed {fixed} people; low-variety segments: {report['flagged'] or 'none'}")
+    if fixed_total or report["flagged"]:
+        logger.info(f"persona planner: stereotype guard changed {fixed_total} people; low-variety segments: {report['flagged'] or 'none'}")
     if spec.interview:
-        n = run_interviews(client, model, entities, context, progress=progress, parallel=parallel, product=product,
-                           probes=spec.probes)
-        logger.info(f"persona planner: interviewed {n} people")
+        logger.info(f"persona planner: interviewed {interviewed} people")
     if spec.population:
         logger.info(f"persona planner: population weights for {population_weights(entities, spec.population)} people")
     if spec.communities:

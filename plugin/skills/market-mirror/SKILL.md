@@ -58,7 +58,7 @@ Write `<scenario>/personas.json`. Each segment gets real people with ages spread
  "keep_entities": ["Your brand name"]}
 ```
 
-No spec? `--auto-personas 30` lets Claude plan segments and communities from the question. Up to 500 per segment and 2,000 in total are allowed; start with 20-40 and scale once the setup is right. `diversity` (top level or per segment) overrides the trait lists.
+Every person is then interviewed (12 life questions, 2 adaptive follow-ups, 3 questions about the product) and distilled into a BDE card (how they decide, what they pay for); add `"probes": false` to skip the second call, `"population": {country: {age/gender shares}}` to weight people to a real population mix. No spec? `--auto-personas 30` lets Claude plan segments and communities from the question. Up to 500 per segment and 2,000 in total are allowed; start with 20-40 and scale once the setup is right. `diversity` (top level or per segment) overrides the trait lists.
 
 ## 4. All in one (fastest)
 
@@ -104,6 +104,8 @@ People answer interest, trust, purchase intent and recommendation in their own w
 **G. Sales pitch rehearsal.** Seed: the pitch deck or call script and real objections from the CRM. Write `pitch.md` and `rebuttals.md` (`## price`, `## trust`, `## effort`, `## relevance`, `## privacy`, `## any`), then `cli pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` (or the `pitch` MCP tool; needs a live environment, so run rounds first). Every simulated buyer answers in their own voice, objects, asks a question back; objectors hear the matching rebuttal and say whether it moved them. Report the pitch score, the objections the rebuttals cannot handle ("fix first"), the hot leads with the best time to reach them, and the by-audience table. Lead scores also appear on the People cards and in `leads.csv`.
 
 **I. What to test next (from real data).** If the session has an ads connector (Meta, Google, TikTok), pull the ads with spend, impressions, clicks, conversions, country and age, and call the `ideas` MCP tool with those rows (or `cli ideas --rows @rows.json`), plus `--run-dir` of the last run and `--brand`. Without a connector use the user's export: `cli ideas --ads export.csv --run-dir mirofish_runs/<name>`. Each idea cites its evidence and carries the MarketMirror config to simulate it first; present them as a prioritised list and offer to run the top one.
+
+**J. Is the panel trustworthy here?** Two checks, both cheap. `cli survey ... --retest 20` reports how many of twenty people give the same verdict a simulated week later (quote it as the reliability figure). When the user has 50-300 real answers (a real survey, Ads Manager results, email stats) export them as a CSV with segment, country, gender, age and y (yes/maybe/no or 0-1) and run the `calibrate` MCP tool (or `cli calibrate --run-dir ... --real answers.csv`): it returns trust / correct / walk-away per audience, the overlap between the real customers and the simulated panel, and a corrected rate with its standard error. Report the verdict before any number from that run, and use the corrected rate when the verdict is "correct".
 
 **H. Second opinion.** `cli panel --simulation <id> --analysts 5 --brief "what we need to decide"`: independent analysts (performance marketer, brand strategist, sales lead, psychologist, sceptical data analyst, ...) each read the anonymized posts, comments, feed reactions and survey answers alone. Report the consensus and where they disagree.
 

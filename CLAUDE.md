@@ -75,10 +75,13 @@ Interviews work only while the simulation environment is still alive (`status` s
 
 | Goal | Command |
 |---|---|
+| personas: what the planner does | balanced slots -> persona call (5 per call) -> stereotype guard -> life interview (12 questions) -> second call per 4 people: 2 adaptive probes + 3 product questions + the BDE card (background / decision procedure / evaluation) stored in `persona_index[].bde`; `personas.json` keys `probes`, `population` (raked `weight`), `personas_lite` (no interviews) |
 | concrete personas + communities | `$C run ... --personas scenarios/x/personas.json` (or `--auto-personas 30`), `--stop-after prepare` first |
 | ads in realistic feeds | `$C feedtest --simulation sim_x --creatives @scenarios/x/creatives.json [--exposures 2] [--seeds 3] [--landing @..] [--benchmarks @past_ads.json]` |
 | buyer survey / split test / price | `$C survey --simulation sim_x --offer ".." --goal ".." --messages @msgs.txt --split --pricing USD` (needs a started simulation; free-text answers are mapped to 1-5 distributions by `POST /api/simulation/ssr`, `--no-ssr` to skip) |
 | analyst panel | `$C panel --simulation sim_x --analysts 5 --brief ".."` |
+| test-retest reliability | `$C survey ... --retest 20` (or `"retest": 20` in the market-test survey block): agreement a simulated week later |
+| calibrate against real answers | `$C calibrate --run-dir mirofish_runs/x --real answers.csv [--map y=Converted segment=Audience] [--field would_convert] [--by segment]` -> `calibration.json` (overlap, per-audience trust/correct/walk-away, AIPW-corrected rate) |
 | past ads to seed + benchmarks | `$C ads-import export.csv --out scenarios/x/past_ads.md` |
 | backtest vs real ads | `$C backtest --run-dir mirofish_runs/x --actuals scenarios/x/past_ads.json` |
 | understand the product first | `$C understand --project proj_x` or `--docs a.md b.md --url https://...` (`product_profile.json`; `market-test` does it after upload; every later prompt reads it) |

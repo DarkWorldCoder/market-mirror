@@ -523,7 +523,7 @@ class SimulationManager:
             prof = None
         personas = persona_planner.generate_personas(
             client, Config.LLM_MODEL_NAME, spec, requirement, context, product=prof,
-            progress=persona_progress, parallel=max(1, min(parallel, 6)))
+            progress=persona_progress, parallel=max(1, min(parallel, 16)))
         kept = persona_planner.select_graph_entities(
             filtered.entities, spec, persona_planner.spec_countries(spec))
         dropped = [e.name for e in filtered.entities if e not in kept]
