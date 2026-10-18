@@ -1,0 +1,617 @@
+"""
+Persona planner: synthetic, demographically grounded individual agents and the
+communities they gather in.
+
+The knowledge graph alone tends to turn countries, platforms and campaigns into
+"agents" and yields very few real people. The planner adds concrete individuals
+for each audience segment the user describes (or that Claude infers from the
+simulation requirement): a fixed count per segment, ages spread evenly across
+the segment's range, a balanced gender mix, rotating cities, and realistic
+local names.
+
+Communities (Facebook groups, WhatsApp chats, subreddits, clubs...) split people
+the way real life does. Each persona joins up to N matching communities and
+inherits their norms, each community can get an admin/page account, and an
+in-group follow graph is seeded before round 1 so feeds are mostly in-group,
+with a small cross-group bridge rate.
+
+Names are invented and culturally plausible for the segment's country. The
+prompt forbids real or public people; personas are never built from real
+individuals' data.
+
+Each persona becomes an EntityNode whose attributes carry a ready profile under
+SYNTHETIC_PROFILE_KEY, so the normal profile and config pipeline treats it like
+any other agent without a second LLM call.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import re
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, asdict
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+from ..utils.logger import get_logger
+from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+from .zep_entity_reader import EntityNode
+
+logger = get_logger('mirofish.persona_planner')
+
+SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
+PERSONA_LABEL = "SyntheticPersona"
+COMMUNITY_LABEL = "SyntheticCommunity"
+MAX_PER_CALL = 6
+MAX_TOTAL_PERSONAS = 200
+MBTI = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+        "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
+
+
+# --------------------------------------------------------------------------
+# Spec
+# --------------------------------------------------------------------------
+
+def _int(v: Any, default: int) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float(v: Any, default: float) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _str_list(v: Any) -> List[str]:
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [x.strip() for x in v.split(",") if x.strip()]
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
+def _type_name(v: Any) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", str(v))
+    return "".join(w[:1].upper() + w[1:] for w in words) or "Person"
+
+
+@dataclass
+class PersonaSegment:
+    label: str
+    count: int = 5
+    country: str = ""
+    cities: List[str] = field(default_factory=list)
+    age_min: int = 18
+    age_max: int = 65
+    role: str = ""
+    entity_type: str = "Person"
+    languages: List[str] = field(default_factory=list)
+    platforms: List[str] = field(default_factory=list)
+    gender_mix: str = "balanced"          # balanced | female | male | share of women 0-1
+    notes: str = ""                        # real data, attitudes, what is known about this group
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PersonaSegment":
+        if not isinstance(d, dict) or not str(d.get("label") or "").strip():
+            raise ValueError("each persona segment needs a non-empty 'label'")
+        age_min, age_max = _int(d.get("age_min"), 18), _int(d.get("age_max"), 65)
+        if age_min > age_max:
+            age_min, age_max = age_max, age_min
+        return cls(
+            label=str(d["label"]).strip(),
+            count=max(1, min(_int(d.get("count"), 5), 50)),
+            country=str(d.get("country") or "").strip(),
+            cities=_str_list(d.get("cities")),
+            age_min=max(10, age_min),
+            age_max=min(100, age_max),
+            role=str(d.get("role") or "").strip(),
+            entity_type=_type_name(d.get("entity_type") or "Person"),
+            languages=_str_list(d.get("languages")),
+            platforms=_str_list(d.get("platforms")),
+            gender_mix=str(d.get("gender_mix") or "balanced").strip().lower(),
+            notes=str(d.get("notes") or "").strip(),
+        )
+
+
+@dataclass
+class CommunitySpec:
+    name: str
+    kind: str = "online group"            # facebook_group | whatsapp_group | subreddit | forum | local_club ...
+    description: str = ""
+    norms: str = ""                        # tone, rules, what gets shared, how members treat ads/outsiders
+    segments: List[str] = field(default_factory=list)    # segment labels whose members join
+    countries: List[str] = field(default_factory=list)   # or: anyone from these countries may join
+    join_share: float = 1.0                # share of matching personas who join
+    account: bool = True                   # add an admin/page account that posts for the group
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CommunitySpec":
+        if not isinstance(d, dict) or not str(d.get("name") or "").strip():
+            raise ValueError("each community needs a non-empty 'name'")
+        return cls(
+            name=str(d["name"]).strip(),
+            kind=str(d.get("kind") or "online group").strip(),
+            description=str(d.get("description") or "").strip(),
+            norms=str(d.get("norms") or "").strip(),
+            segments=_str_list(d.get("segments")),
+            countries=_str_list(d.get("countries")),
+            join_share=max(0.0, min(1.0, _float(d.get("join_share", 1.0), 1.0))),
+            account=bool(d.get("account", True)),
+        )
+
+
+@dataclass
+class PersonaSpec:
+    segments: List[PersonaSegment] = field(default_factory=list)
+    communities: List[CommunitySpec] = field(default_factory=list)
+    auto: bool = False                 # let the LLM plan segments (and communities) from the requirement
+    auto_total: int = 24               # personas to aim for in auto mode
+    auto_communities: bool = True      # in auto mode, also plan communities when none are given
+    max_communities_per_person: int = 2
+    in_group_follows: int = 6          # each member follows up to this many fellow members
+    bridge_rate: float = 0.05          # chance of also following someone outside one's communities
+    graph_agents: str = "auto"         # all | none | auto (drop places/platforms/campaigns/group labels)
+    keep_entities: List[str] = field(default_factory=list)   # graph entity names to always keep
+    seed: int = 7
+
+    @classmethod
+    def from_dict(cls, d: Optional[Dict[str, Any]]) -> Optional["PersonaSpec"]:
+        if not d:
+            return None
+        if not isinstance(d, dict):
+            raise ValueError("persona_spec must be a JSON object")
+        mode = str(d.get("graph_agents") or "auto").lower()
+        if mode not in ("all", "none", "auto"):
+            raise ValueError("persona_spec.graph_agents must be all, none or auto")
+        segs = [PersonaSegment.from_dict(s) for s in (d.get("segments") or [])]
+        spec = cls(
+            segments=segs,
+            communities=[CommunitySpec.from_dict(c) for c in (d.get("communities") or [])],
+            auto=bool(d.get("auto", not segs)),
+            auto_total=max(4, min(_int(d.get("auto_total"), 24), MAX_TOTAL_PERSONAS)),
+            auto_communities=bool(d.get("auto_communities", True)),
+            max_communities_per_person=max(1, min(_int(d.get("max_communities_per_person"), 2), 5)),
+            in_group_follows=max(0, min(_int(d.get("in_group_follows"), 6), 50)),
+            bridge_rate=max(0.0, min(1.0, _float(d.get("bridge_rate", 0.05), 0.05))),
+            graph_agents=mode,
+            keep_entities=_str_list(d.get("keep_entities")),
+            seed=_int(d.get("seed"), 7),
+        )
+        total = sum(s.count for s in spec.segments)
+        if total > MAX_TOTAL_PERSONAS:
+            raise ValueError(f"persona_spec asks for {total} personas; the limit is {MAX_TOTAL_PERSONAS}")
+        return spec
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+# --------------------------------------------------------------------------
+# Deterministic demographic slots
+# --------------------------------------------------------------------------
+
+def _female_share(mix: str) -> float:
+    if mix in ("female", "women", "f"):
+        return 1.0
+    if mix in ("male", "men", "m"):
+        return 0.0
+    if mix in ("balanced", "", "mixed"):
+        return 0.5
+    return max(0.0, min(1.0, _float(mix, 0.5)))
+
+
+def demographic_slots(seg: PersonaSegment, rng: random.Random) -> List[Dict[str, Any]]:
+    """Ages spread evenly over [age_min, age_max], genders by gender_mix, cities round-robin."""
+    n = seg.count
+    span = seg.age_max - seg.age_min
+    ages = [seg.age_min + round(span * (i + 0.5) / n) for i in range(n)]
+    women = round(n * _female_share(seg.gender_mix))
+    genders = ["female"] * women + ["male"] * (n - women)
+    rng.shuffle(genders)
+    rng.shuffle(ages)
+    cities = seg.cities or [""]
+    offset = rng.randrange(len(cities))
+    return [{"age": ages[i], "gender": genders[i], "city": cities[(i + offset) % len(cities)],
+             "mbti": rng.choice(MBTI)} for i in range(n)]
+
+
+# --------------------------------------------------------------------------
+# Graph entity filtering
+# --------------------------------------------------------------------------
+
+_ABSTRACT_TYPES = {
+    "location", "country", "region", "city", "place", "geography", "market", "platform",
+    "socialmediaplatform", "socialmedia", "website", "app", "product", "campaign", "adset",
+    "advertisement", "ad", "event", "topic", "concept", "policy", "document", "page",
+}
+_ABSTRACT_NAME = re.compile(
+    r"\b(targeting|ad ?sets?|campaigns?|interest category|page admins?|guide page|landing page|"
+    r"segment [a-z0-9]|segments?|audience|broad|set [a-z])\b", re.I)
+_PEOPLE_GROUP = re.compile(r"\b(students?|parents?|users?|customers?|people|families|voters?|residents?|"
+                           r"teachers?|employees?|consumers?|citizens?|youth|adults?|seniors?)\b", re.I)
+_PLATFORMS = {"facebook", "instagram", "meta", "tiktok", "youtube", "twitter", "x", "reddit", "whatsapp",
+              "messenger", "threads", "linkedin", "google", "snapchat", "telegram", "wechat", "line"}
+
+
+def is_abstract_entity(entity: EntityNode, countries: Sequence[str] = ()) -> bool:
+    """True for graph entities that should not speak as agents once synthetic personas exist."""
+    etype = (entity.get_entity_type() or "").lower()
+    name = (entity.name or "").strip()
+    low = name.lower()
+    if etype in _ABSTRACT_TYPES or low in _PLATFORMS:
+        return True
+    if low in {c.lower() for c in countries if c}:
+        return True
+    if _ABSTRACT_NAME.search(name):
+        return True
+    # "Indonesian parents", "Students", "Parents (40-55)": generic groups the personas replace
+    if _PEOPLE_GROUP.search(name) and len(re.findall(r"[A-Za-z]+", name)) <= 4:
+        return True
+    return False
+
+
+def select_graph_entities(entities: List[EntityNode], spec: PersonaSpec,
+                          countries: Sequence[str] = ()) -> List[EntityNode]:
+    keep = {k.lower() for k in spec.keep_entities}
+    if spec.graph_agents == "all":
+        return list(entities)
+    if spec.graph_agents == "none":
+        return [e for e in entities if e.name.lower() in keep]
+    return [e for e in entities if e.name.lower() in keep or not is_abstract_entity(e, countries)]
+
+
+def spec_countries(spec: PersonaSpec) -> List[str]:
+    out = {s.country for s in spec.segments if s.country}
+    for c in spec.communities:
+        out.update(c.countries)
+    return sorted(out)
+
+
+# --------------------------------------------------------------------------
+# LLM calls
+# --------------------------------------------------------------------------
+
+SYSTEM_PROMPT = (
+    "You design realistic synthetic personas for social simulation research. Every person you write is "
+    "fictional: invent names that are common and culturally plausible for the given country and age, and "
+    "never use the name, likeness or biography of a real or public person. Ground attitudes in the context "
+    "and notes provided, include disagreement and indifference as well as enthusiasm, and avoid stereotypes "
+    "beyond what the notes support. Return only valid JSON."
+)
+
+
+def _llm_json(client, model: str, prompt: str, temperature: float = 0.8, max_tokens: int = 8000) -> Any:
+    last: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            resp = create_chat_completion(
+                client, model=model,
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+                temperature=max(0.2, temperature - 0.2 * attempt), max_tokens=max_tokens,
+            )
+            return parse_json_block(extract_chat_completion_text(resp))
+        except Exception as e:  # noqa: BLE001 - retried, then surfaced
+            last = e
+            logger.warning(f"persona LLM call failed (attempt {attempt + 1}): {str(e)[:120]}")
+    raise RuntimeError(f"persona generation failed: {last}")
+
+
+def parse_json_block(text: str) -> Any:
+    text = (text or "").strip()
+    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if m:
+        text = m.group(1).strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        starts = [i for i in (text.find("{"), text.find("[")) if i >= 0]
+        if not starts:
+            raise
+        start = min(starts)
+        end = max(text.rfind("}"), text.rfind("]"))
+        return json.loads(text[start:end + 1])
+
+
+_SEGMENT_SCHEMA = (
+    '{"label": "...", "count": N, "country": "...", "cities": ["..."], "age_min": N, "age_max": N, '
+    '"role": "...", "entity_type": "Student|Parent|Customer|Voter|Person|...", "languages": ["..."], '
+    '"platforms": ["..."], "gender_mix": "balanced", "notes": "what is known about this group from the '
+    'context, including any real results"}'
+)
+_COMMUNITY_SCHEMA = (
+    '{"name": "realistic group name", "kind": "facebook_group|whatsapp_group|subreddit|forum|'
+    'instagram_community|local_club|...", "description": "...", "norms": "tone, rules, what members share '
+    'and how they treat ads and outsiders", "segments": ["segment labels whose members join"], '
+    '"countries": ["..."], "join_share": 0.8, "account": true}'
+)
+
+
+def plan_segments(client, model: str, requirement: str, context: str, total: int,
+                  with_communities: bool = True) -> Tuple[List[PersonaSegment], List[CommunitySpec]]:
+    """Ask the LLM to split the audience into segments and the communities they gather in."""
+    communities_part = ""
+    schema = '{"segments": [' + _SEGMENT_SCHEMA + ']}'
+    if with_communities:
+        communities_part = (
+            "\nAlso propose 2-8 communities where these people actually gather (groups, chats, forums, clubs). "
+            "Communities should separate people the way real life does (by country, language, role, age, "
+            "interest), and some people should belong to two.\n")
+        schema = '{"segments": [' + _SEGMENT_SCHEMA + '], "communities": [' + _COMMUNITY_SCHEMA + ']}'
+    prompt = (
+        "Plan the audience for a social media simulation.\n\n"
+        f"Simulation requirement:\n{requirement[:4000]}\n\n"
+        f"Background (excerpt of the seed documents):\n{context[:6000]}\n\n"
+        "Split the people who should be simulated into 3-8 segments that together cover every audience, "
+        "country and age group the requirement mentions (for example students and parents, younger and older "
+        "adults, each country separately). Include sceptics and bystanders where realistic. "
+        f"Aim for about {total} people in total.\n{communities_part}\nReturn JSON: {schema}"
+    )
+    data = _llm_json(client, model, prompt, temperature=0.4, max_tokens=5000)
+    raw = data.get("segments") if isinstance(data, dict) else data
+    segs = [PersonaSegment.from_dict(s) for s in (raw or []) if isinstance(s, dict) and s.get("label")]
+    if not segs:
+        raise RuntimeError("the persona planner returned no segments")
+    have = sum(s.count for s in segs)
+    if have and have != total:
+        for s in segs:
+            s.count = max(1, round(s.count * total / have))
+    comms: List[CommunitySpec] = []
+    if with_communities and isinstance(data, dict):
+        comms = [CommunitySpec.from_dict(c) for c in (data.get("communities") or [])
+                 if isinstance(c, dict) and c.get("name")]
+    return segs, comms
+
+
+def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requirement: str, context: str,
+                    avoid_names: Sequence[str], communities: Sequence[CommunitySpec] = ()) -> str:
+    people = "\n".join(
+        f"{i + 1}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
+        + f", MBTI {s['mbti']}" for i, s in enumerate(slots))
+    groups = ""
+    if communities:
+        groups = "\nCommunities people in this segment may belong to:\n" + "\n".join(
+            f"- {c.name} ({c.kind}): {c.description} Norms: {c.norms}" for c in communities) + "\n"
+    return f"""Write {len(slots)} distinct synthetic people for this audience segment of a social media simulation.
+
+Segment: {seg.label}
+Country: {seg.country or "as implied by the segment"}
+Role: {seg.role or seg.label}
+Languages: {", ".join(seg.languages) or "local norms"}
+Platforms they use: {", ".join(seg.platforms) or "typical for their age and country"}
+What we know about this group: {seg.notes or "see context"}
+{groups}
+Simulation requirement:
+{requirement[:2500]}
+
+Context from the seed documents:
+{context[:3500]}
+
+Use exactly these fixed demographics, in this order:
+{people}
+
+Rules:
+- Invent a realistic full name for each person: given name and family name common for their country,
+  region, religion mix and generation. Do not reuse or resemble these names: {", ".join(list(avoid_names)[-60:]) or "none"}.
+- Never use a real, famous or public person's name or biography.
+- Make them genuinely different: income, family situation, education, goals, how much they trust ads,
+  what they already know about the topic, and how they would react (some enthusiastic, some sceptical,
+  some indifferent or busy).
+- Write their voice the way they actually post: language mix, slang or formality, typical length.
+
+Return JSON: {{"personas": [{{
+  "name": "...", "age": N, "gender": "male|female", "city": "...", "country": "...",
+  "occupation": "...", "education": "...", "household": "...", "income_level": "low|lower-middle|middle|upper-middle|high",
+  "languages": ["..."], "platform_habits": "...", "decision_role": "...",
+  "attitude": "...", "concerns": ["..."], "what_persuades_them": "...", "voice": "...",
+  "example_post": "...", "interested_topics": ["..."],
+  "bio": "one-line social media bio",
+  "persona": "a 150-250 word description combining all of the above and how they relate to the topic"
+}}]}}"""
+
+
+def _dedupe_name(name: str, taken: set) -> str:
+    base = name.strip() or "Unnamed"
+    candidate, n = base, 2
+    while candidate.lower() in taken:
+        candidate = f"{base} {n}"
+        n += 1
+    taken.add(candidate.lower())
+    return candidate
+
+
+def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, context: str,
+                      progress: Optional[Callable[[int, int, str], None]] = None,
+                      parallel: int = 4) -> List[EntityNode]:
+    """Synthetic individual entities for every segment, plus community accounts when communities exist."""
+    rng = random.Random(spec.seed)
+    if spec.auto and not spec.segments:
+        segs, comms = plan_segments(client, model, requirement, context, spec.auto_total,
+                                    with_communities=spec.auto_communities and not spec.communities)
+        spec.segments = segs
+        if not spec.communities:
+            spec.communities = comms
+        logger.info(f"persona planner: {len(segs)} segments, {sum(s.count for s in segs)} personas, "
+                    f"{len(spec.communities)} communities")
+
+    jobs = []
+    for seg in spec.segments:
+        slots = demographic_slots(seg, rng)
+        seg_comms = [c for c in spec.communities if _matches(c, seg.label, seg.country)]
+        for start in range(0, len(slots), MAX_PER_CALL):
+            jobs.append((seg, slots[start:start + MAX_PER_CALL], seg_comms))
+    total = sum(len(j[1]) for j in jobs)
+
+    taken: set = set()
+    results: Dict[int, List[Dict[str, Any]]] = {}
+    done = 0
+
+    def run(job_idx: int):
+        seg, slots, comms = jobs[job_idx]
+        prompt = _persona_prompt(seg, slots, requirement, context, sorted(taken), comms)
+        data = _llm_json(client, model, prompt)
+        rows = data.get("personas") if isinstance(data, dict) else data
+        return job_idx, [r for r in (rows or []) if isinstance(r, dict)]
+
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
+        for job_idx, rows in pool.map(run, range(len(jobs))):
+            results[job_idx] = rows
+            done += len(jobs[job_idx][1])
+            if progress:
+                progress(done, total, jobs[job_idx][0].label)
+
+    entities: List[EntityNode] = []
+    for job_idx, (seg, slots, _comms) in enumerate(jobs):
+        rows = results.get(job_idx, [])
+        for k, slot in enumerate(slots):
+            row = rows[k] if k < len(rows) else {}
+            entities.append(_to_entity(seg, slot, row, taken, len(entities)))
+    if spec.communities:
+        assign_communities(entities, spec, rng)
+        entities.extend(community_accounts(spec, taken))
+    return entities
+
+
+def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], taken: set, idx: int) -> EntityNode:
+    name = _dedupe_name(str(row.get("name") or f"{seg.label} {idx + 1}"), taken)
+    country = str(row.get("country") or seg.country or "")
+    city = str(row.get("city") or slot.get("city") or "")
+    occupation = str(row.get("occupation") or seg.role or seg.label)
+    persona = str(row.get("persona") or "").strip()
+    details = {
+        "segment": seg.label, "role": seg.role, "city": city, "country": country,
+        "occupation": occupation, "education": row.get("education"), "household": row.get("household"),
+        "income_level": row.get("income_level"), "languages": row.get("languages") or seg.languages,
+        "platform_habits": row.get("platform_habits"), "decision_role": row.get("decision_role"),
+        "attitude": row.get("attitude"), "concerns": row.get("concerns"),
+        "what_persuades_them": row.get("what_persuades_them"), "voice": row.get("voice"),
+        "example_post": row.get("example_post"),
+    }
+    details = {k: v for k, v in details.items() if v not in (None, "", [])}
+    if not persona:
+        persona = f"{name}, {slot['age']}, {occupation} from {city or country}. " + " ".join(
+            f"{k.replace('_', ' ')}: {v}." for k, v in details.items() if k not in ("city", "country"))
+    else:
+        extras = []
+        if details.get("voice"):
+            extras.append(f"Writes like this: {details['voice']}")
+        if isinstance(details.get("concerns"), list):
+            extras.append(f"Concerns: {', '.join(map(str, details['concerns']))}.")
+        persona = " ".join([persona] + extras)
+    profile = {
+        "bio": str(row.get("bio") or f"{occupation}, {city or country}")[:280],
+        "persona": persona,
+        "age": int(slot["age"]),
+        "gender": slot["gender"],
+        "mbti": slot["mbti"],
+        "country": country,
+        "profession": occupation,
+        "interested_topics": _str_list(row.get("interested_topics")),
+    }
+    summary = (f"Synthetic persona ({seg.label}): {name}, {slot['age']}, {slot['gender']}, {occupation}, "
+               f"{city + ', ' if city else ''}{country}. {row.get('attitude') or ''}").strip()
+    return EntityNode(
+        uuid=f"persona_{idx:04d}",
+        name=name,
+        labels=["Entity", seg.entity_type, PERSONA_LABEL],
+        summary=summary,
+        attributes={**details, SYNTHETIC_PROFILE_KEY: profile},
+    )
+
+
+# --------------------------------------------------------------------------
+# Communities: membership, group accounts and the in-group follow graph
+# --------------------------------------------------------------------------
+
+def _matches(comm: CommunitySpec, seg_label: str, country: str) -> bool:
+    if comm.segments:
+        return seg_label.lower() in {x.lower() for x in comm.segments}
+    if comm.countries:
+        return bool(country) and any(c.lower() in country.lower() or country.lower() in c.lower()
+                                     for c in comm.countries)
+    return True
+
+
+def assign_communities(entities: List[EntityNode], spec: PersonaSpec, rng: random.Random) -> None:
+    """Give each persona up to max_communities_per_person matching communities and fold in the norms."""
+    for e in entities:
+        if PERSONA_LABEL not in e.labels:
+            continue
+        attrs = e.attributes
+        seg, country = str(attrs.get("segment") or ""), str(attrs.get("country") or "")
+        options = [c for c in spec.communities if _matches(c, seg, country)]
+        rng.shuffle(options)
+        joined = [c for c in options if rng.random() < c.join_share][:spec.max_communities_per_person]
+        attrs["communities"] = [c.name for c in joined]
+        prof = attrs.get(SYNTHETIC_PROFILE_KEY)
+        if joined and prof:
+            lines = "; ".join(f"{c.name} ({c.kind})" + (f", where {c.norms}" if c.norms else "") for c in joined)
+            prof["persona"] = (f"{prof['persona']} Member of: {lines}. Most of what they see and share comes "
+                               f"from these groups, and they talk the way members there do.")
+
+
+def community_accounts(spec: PersonaSpec, taken: set) -> List[EntityNode]:
+    out = []
+    for i, c in enumerate(spec.communities):
+        if not c.account:
+            continue
+        name = _dedupe_name(c.name, taken)
+        persona = (f"The admin/page account of {c.name}, a {c.kind}. {c.description} "
+                   f"Norms: {c.norms or 'not stated'}. Posts questions and updates for members, moderates, "
+                   f"shares what members care about, and reacts to outside content the way the group would.")
+        out.append(EntityNode(
+            uuid=f"community_{i:03d}", name=name,
+            labels=["Entity", "Community", COMMUNITY_LABEL],
+            summary=f"Community account: {c.name} ({c.kind}). {c.description}".strip(),
+            attributes={"community": c.name, "kind": c.kind, "communities": [c.name],
+                        SYNTHETIC_PROFILE_KEY: {
+                            "bio": (f"{c.kind}: {c.description}" if c.description else c.kind)[:280],
+                            "persona": persona, "age": 30, "gender": "other", "mbti": "ESFJ",
+                            "country": ", ".join(c.countries), "profession": f"{c.kind} admin",
+                            "interested_topics": [c.name]}},
+        ))
+    return out
+
+
+def build_community_config(entities: List[EntityNode], spec: PersonaSpec,
+                           rng: Optional[random.Random] = None) -> Dict[str, Any]:
+    """Map communities to final agent ids and build the follow edges to seed before round 1.
+
+    `entities` must be in final agent order (agent id = index)."""
+    rng = rng or random.Random(spec.seed + 1)
+    members: Dict[str, List[int]] = {c.name: [] for c in spec.communities}
+    accounts: Dict[str, int] = {}
+    for idx, e in enumerate(entities):
+        if COMMUNITY_LABEL in e.labels:
+            accounts[e.attributes.get("community")] = idx
+            continue
+        for name in e.attributes.get("communities") or []:
+            if name in members:
+                members[name].append(idx)
+    people = [i for i, e in enumerate(entities) if PERSONA_LABEL in e.labels]
+    groups_of = {i: {n for n, ids in members.items() if i in ids} for i in people}
+    follows = set()
+    for name, ids in members.items():
+        acc = accounts.get(name)
+        for a in ids:
+            if acc is not None:
+                follows.add((a, acc))
+            peers = [b for b in ids if b != a]
+            for b in rng.sample(peers, min(spec.in_group_follows, len(peers))):
+                follows.add((a, b))
+    if spec.bridge_rate > 0:
+        for a in people:
+            outsiders = [b for b in people if b != a and not (groups_of[a] & groups_of[b])]
+            if outsiders and rng.random() < spec.bridge_rate:
+                follows.add((a, rng.choice(outsiders)))
+    return {
+        "communities": [{"name": c.name, "kind": c.kind, "description": c.description, "norms": c.norms,
+                         "account_id": accounts.get(c.name), "member_ids": members.get(c.name, [])}
+                        for c in spec.communities],
+        "follows": [list(f) for f in sorted(follows)],
+        "in_group_follows": spec.in_group_follows,
+        "bridge_rate": spec.bridge_rate,
+    }

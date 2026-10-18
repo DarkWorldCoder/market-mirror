@@ -497,6 +497,14 @@ def prepare_simulation():
         entity_types_list = data.get('entity_types')
         use_llm_for_profiles = data.get('use_llm_for_profiles', True)
         parallel_profile_count = data.get('parallel_profile_count', 5)
+        persona_spec = data.get('persona_spec')
+        if persona_spec:
+            # Claude edition: validate early so a bad spec fails the request, not the background task
+            from ..services.persona_planner import PersonaSpec
+            try:
+                PersonaSpec.from_dict(persona_spec)
+            except ValueError as e:
+                return jsonify({"success": False, "error": f"invalid persona_spec: {e}"}), 400
         
         # ========== 同步获取实体数量（在后台任务启动前） ==========
         # 这样前端在调用prepare后立即就能获取到预期Agent总数
@@ -617,7 +625,8 @@ def prepare_simulation():
                     defined_entity_types=entity_types_list,
                     use_llm_for_profiles=use_llm_for_profiles,
                     progress_callback=progress_callback,
-                    parallel_profile_count=parallel_profile_count
+                    parallel_profile_count=parallel_profile_count,
+                    persona_spec=persona_spec
                 )
 
                 if result_state.status == SimulationStatus.FAILED:

@@ -156,6 +156,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from community_seed import seed_community_follows, max_trace_rowid
 
 try:
     from camel.models import ModelFactory
@@ -1193,6 +1194,10 @@ async def run_twitter_simulation(
     total_actions = 0
     last_rowid = 0  # 跟踪数据库中最后处理的行号（使用 rowid 避免 created_at 格式差异）
     
+    # Claude edition: in-group follows first, so communities shape every feed from round 1
+    if await seed_community_follows(result.env, config, ManualAction, ActionType, log_info):
+        last_rowid = max_trace_rowid(db_path)
+
     # 执行初始事件
     event_config = config.get("event_config", {})
     initial_posts = event_config.get("initial_posts", [])
@@ -1384,6 +1389,10 @@ async def run_reddit_simulation(
     total_actions = 0
     last_rowid = 0  # 跟踪数据库中最后处理的行号（使用 rowid 避免 created_at 格式差异）
     
+    # Claude edition: in-group follows first, so communities shape every feed from round 1
+    if await seed_community_follows(result.env, config, ManualAction, ActionType, log_info):
+        last_rowid = max_trace_rowid(db_path)
+
     # 执行初始事件
     event_config = config.get("event_config", {})
     initial_posts = event_config.get("initial_posts", [])

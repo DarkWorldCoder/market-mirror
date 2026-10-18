@@ -17,6 +17,7 @@ from ..utils.logger import get_logger
 from .zep_entity_reader import ZepEntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
 from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
+from . import persona_planner
 from ..utils.locale import t
 
 logger = get_logger('mirofish.simulation')
@@ -249,7 +250,8 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        persona_spec: Optional[Dict[str, Any]] = None
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -313,6 +315,16 @@ class SimulationManager:
                     total=filtered.filtered_count
                 )
             
+            # ========== Claude edition: synthetic personas and communities ==========
+            spec = persona_planner.PersonaSpec.from_dict(persona_spec) if persona_spec else None
+            if spec is not None:
+                filtered = self._apply_persona_spec(
+                    spec, filtered, simulation_requirement, document_text, sim_dir,
+                    parallel_profile_count, progress_callback)
+                state.entities_count = filtered.filtered_count
+                state.entity_types = list(filtered.entity_types)
+                self._save_simulation_state(state)
+
             if filtered.filtered_count == 0:
                 state.status = SimulationStatus.FAILED
                 state.error = "没有找到符合条件的实体，请检查图谱是否正确构建"
@@ -441,8 +453,16 @@ class SimulationManager:
             
             # 保存配置文件
             config_path = os.path.join(sim_dir, "simulation_config.json")
+            config_json = sim_params.to_json()
+            if spec is not None:
+                config_dict = json.loads(config_json)
+                config_dict["persona_spec"] = spec.to_dict()
+                if spec.communities:
+                    config_dict["community_config"] = persona_planner.build_community_config(
+                        filtered.entities, spec)
+                config_json = json.dumps(config_dict, ensure_ascii=False, indent=2)
             with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(sim_params.to_json())
+                f.write(config_json)
             
             state.config_generated = True
             state.config_reasoning = sim_params.generation_reasoning
@@ -476,6 +496,42 @@ class SimulationManager:
             self._save_simulation_state(state)
             raise
     
+    def _apply_persona_spec(self, spec, filtered: FilteredEntities, requirement: str, document_text: str,
+                            sim_dir: str, parallel: int, progress_callback=None) -> FilteredEntities:
+        """Generate synthetic personas (and community accounts) and merge them with real graph actors.
+
+        Agent ids are list positions, so the order here (kept graph entities, then personas, then
+        community accounts) is the order used for profiles, config and the follow graph."""
+        from openai import OpenAI
+
+        def persona_progress(done, total, label):
+            if progress_callback:
+                progress_callback("generating_profiles", int(done / max(total, 1) * 40),
+                                  f"Personas {done}/{total}: {label}", current=done, total=total,
+                                  item_name=label)
+
+        client = OpenAI(api_key=Config.LLM_API_KEY, base_url=Config.LLM_BASE_URL)
+        context = (document_text or "")[:12000]
+        personas = persona_planner.generate_personas(
+            client, Config.LLM_MODEL_NAME, spec, requirement, context,
+            progress=persona_progress, parallel=max(1, min(parallel, 6)))
+        kept = persona_planner.select_graph_entities(
+            filtered.entities, spec, persona_planner.spec_countries(spec))
+        dropped = [e.name for e in filtered.entities if e not in kept]
+        entities = kept + personas
+        with open(os.path.join(sim_dir, "persona_plan.json"), "w", encoding="utf-8") as f:
+            json.dump({"spec": spec.to_dict(), "kept_graph_entities": [e.name for e in kept],
+                       "dropped_graph_entities": dropped,
+                       "personas": [{"name": e.name, "labels": e.labels,
+                                     **{k: v for k, v in e.attributes.items()
+                                        if k != persona_planner.SYNTHETIC_PROFILE_KEY}} for e in personas]},
+                      f, ensure_ascii=False, indent=2)
+        logger.info(f"persona spec: kept {len(kept)} graph entities, dropped {len(dropped)}, "
+                    f"added {len(personas)} synthetic agents")
+        types = {e.get_entity_type() for e in entities if e.get_entity_type()}
+        return FilteredEntities(entities=entities, entity_types=types,
+                                total_count=filtered.total_count, filtered_count=len(entities))
+
     def get_simulation(self, simulation_id: str) -> Optional[SimulationState]:
         """获取模拟状态"""
         return self._load_simulation_state(simulation_id)

@@ -613,6 +613,10 @@ class RedditSimulationRunner:
         self.ipc_handler = IPCHandler(self.simulation_dir, self.env, self.agent_graph)
         self.ipc_handler.update_status("running")
         
+        # Claude edition: in-group follows first, so communities shape every feed from round 1
+        from community_seed import seed_community_follows
+        await seed_community_follows(self.env, self.config, ManualAction, ActionType)
+
         # 执行初始事件
         event_config = self.config.get("event_config", {})
         initial_posts = event_config.get("initial_posts", [])

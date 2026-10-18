@@ -27,6 +27,7 @@ from ..utils.zep import (
     normalize_zep_search_query,
 )
 from .zep_entity_reader import EntityNode, ZepEntityReader
+from .persona_planner import SYNTHETIC_PROFILE_KEY
 
 logger = get_logger('mirofish.oasis_profile')
 
@@ -231,7 +232,11 @@ class OasisProfileGenerator:
     # 个人类型实体（需要生成具体人设）
     INDIVIDUAL_ENTITY_TYPES = [
         "student", "alumni", "professor", "person", "publicfigure", 
-        "expert", "faculty", "official", "journalist", "activist"
+        "expert", "faculty", "official", "journalist", "activist",
+        # Claude edition: common audience roles that are individuals, not organisations
+        "parent", "customer", "consumer", "user", "voter", "resident", "citizen", "employee",
+        "teacher", "doctor", "nurse", "patient", "investor", "farmer", "worker", "influencer",
+        "creator", "candidate", "applicant", "buyer", "seller", "driver", "member", "fan",
     ]
     
     # 群体/机构类型实体（需要生成群体代表人设）
@@ -293,6 +298,29 @@ class OasisProfileGenerator:
         # 基础信息
         name = entity.name
         user_name = self._generate_username(name)
+
+        # Claude edition: personas from the persona planner already carry a full profile
+        synthetic = (entity.attributes or {}).get(SYNTHETIC_PROFILE_KEY)
+        if isinstance(synthetic, dict):
+            return OasisAgentProfile(
+                user_id=user_id,
+                user_name=user_name,
+                name=name,
+                bio=synthetic.get("bio") or f"{entity_type}: {name}",
+                persona=synthetic.get("persona") or entity.summary,
+                karma=random.randint(50, 3000),
+                friend_count=random.randint(30, 600),
+                follower_count=random.randint(20, 800),
+                statuses_count=random.randint(20, 1500),
+                age=synthetic.get("age"),
+                gender=synthetic.get("gender"),
+                mbti=synthetic.get("mbti"),
+                country=synthetic.get("country"),
+                profession=synthetic.get("profession"),
+                interested_topics=synthetic.get("interested_topics") or [],
+                source_entity_uuid=entity.uuid,
+                source_entity_type=entity_type,
+            )
         
         # 构建上下文信息
         context = self._build_entity_context(entity)
@@ -755,7 +783,7 @@ class OasisProfileGenerator:
 3. age: 年龄数字（必须是整数）
 4. gender: 性别，必须是英文: "male" 或 "female"
 5. mbti: MBTI类型（如INTJ、ENFP等）
-6. country: 国家（使用中文，如"中国"）
+6. country: 国家名称（使用与输出语言一致的语言）
 7. profession: 职业
 8. interested_topics: 感兴趣话题数组
 
@@ -804,7 +832,7 @@ class OasisProfileGenerator:
 3. age: 固定填30（机构账号的虚拟年龄）
 4. gender: 固定填"other"（机构账号使用other表示非个人）
 5. mbti: MBTI类型，用于描述账号风格，如ISTJ代表严谨保守
-6. country: 国家（使用中文，如"中国"）
+6. country: 国家名称（使用与输出语言一致的语言）
 7. profession: 机构职能描述
 8. interested_topics: 关注领域数组
 

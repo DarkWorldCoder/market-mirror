@@ -221,11 +221,13 @@ def step_create_sim(c: Client, project_id: str, graph_id: Optional[str], platfor
 
 def step_prepare(c: Client, simulation_id: str, wait: bool = True, timeout: float = 3600, interval: float = 5,
                  parallel: int = 5, entity_types: Optional[List[str]] = None, use_llm: bool = True,
-                 force: bool = False) -> Dict[str, Any]:
+                 force: bool = False, persona_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     payload: Dict[str, Any] = {"simulation_id": simulation_id, "use_llm_for_profiles": use_llm,
                                "parallel_profile_count": parallel, "force_regenerate": force}
     if entity_types:
         payload["entity_types"] = entity_types
+    if persona_spec:
+        payload["persona_spec"] = persona_spec
     data = c.data("POST", "/api/simulation/prepare", json=payload, timeout=300)
     if data.get("already_prepared"):
         log("prepare: already prepared")
@@ -587,10 +589,29 @@ def cmd_create_sim(c: Client, a) -> Any:
     return step_create_sim(c, a.project, a.graph, a.platform)
 
 
+def load_persona_spec(path: Optional[str], auto: Optional[int]) -> Optional[Dict[str, Any]]:
+    """--personas FILE (JSON: segments, communities, ...) and/or --auto-personas N."""
+    spec: Optional[Dict[str, Any]] = None
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+        except (OSError, ValueError) as e:
+            raise CLIError(f"cannot read persona spec {path}: {e}")
+        if not isinstance(spec, dict):
+            raise CLIError(f"persona spec {path} must be a JSON object")
+    if auto:
+        spec = dict(spec or {})
+        spec.setdefault("auto", True)
+        spec["auto_total"] = auto
+    return spec
+
+
 def cmd_prepare(c: Client, a) -> Any:
     return step_prepare(c, a.simulation, wait=not a.no_wait, timeout=a.timeout, interval=a.interval,
                         parallel=a.parallel, entity_types=a.entity_types, use_llm=not a.no_llm_profiles,
-                        force=a.force)
+                        force=a.force or bool(a.personas or a.auto_personas),
+                        persona_spec=load_persona_spec(a.personas, a.auto_personas))
 
 
 def cmd_start(c: Client, a) -> Any:
@@ -751,6 +772,7 @@ def cmd_live(c: Optional[Client], a) -> Any:
 
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
+    load_persona_spec(a.personas, a.auto_personas)  # fail fast on a bad spec file
     out_dir = a.out or default_run_dir()
     os.makedirs(out_dir, exist_ok=True)
     log(f"run: artifacts -> {os.path.abspath(out_dir)}")
@@ -775,7 +797,8 @@ def cmd_run(c: Client, a) -> Any:
         checkpoint()
 
         step_prepare(c, sim["simulation_id"], timeout=a.timeout, interval=a.interval, parallel=a.parallel,
-                     entity_types=a.entity_types)
+                     entity_types=a.entity_types,
+                     persona_spec=load_persona_spec(a.personas, a.auto_personas))
         if a.stop_after == "prepare":
             log("run: --stop-after prepare; not starting the simulation")
         else:
@@ -847,6 +870,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--title", help="dashboard title")
     s.add_argument("--parallel", type=int, default=5, help="parallel profile generation")
     s.add_argument("--entity-types", nargs="+", help="only turn these entity types into agents (fewer agents = cheaper)")
+    s.add_argument("--personas", help="persona spec JSON: audience segments (country, ages, role, count) and "
+                                      "communities; see docs/personas.md")
+    s.add_argument("--auto-personas", type=int, metavar="N",
+                   help="let Claude plan about N personas (and their communities) from the requirement")
     s.add_argument("--no-graph-memory", action="store_true", help="don't write agent activity back into the graph")
     s.add_argument("--no-report", action="store_true", help="skip report generation")
     s.add_argument("--stop-after", choices=["prepare", "simulate"], help="stop the pipeline early")
@@ -878,6 +905,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--parallel", type=int, default=5)
     s.add_argument("--entity-types", nargs="+")
     s.add_argument("--no-llm-profiles", action="store_true", help="rule-based profiles (cheaper, lower quality)")
+    s.add_argument("--personas", help="persona spec JSON: audience segments (country, ages, role, count) and "
+                                      "communities; see docs/personas.md")
+    s.add_argument("--auto-personas", type=int, metavar="N",
+                   help="let Claude plan about N personas (and their communities) from the requirement")
     s.add_argument("--force", action="store_true", help="regenerate even if prepared")
     waitopts(s)
 
