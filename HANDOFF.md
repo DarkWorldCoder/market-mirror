@@ -23,7 +23,8 @@ Your own inputs go in `scenarios/<name>/` (gitignored). Runs go to `mirofish_run
 - [x] OASIS rounds start and run; community follows are seeded on both platforms.
 - [x] Survey, SSR ratings, analyst panel, plain-language report (`market_report.json`, method `llm`) on the Fitloop demo run.
 - [x] Social feed from the OASIS databases (`feed_story.json`, 77 posts, 3 brand posts) on the Fitloop demo run.
-- [ ] Launch run with `posts`/`events` and the pitch rehearsal: `mirofish_runs/fitloop_launch/` (see its `run_manifest.json`); check `pitch.json` and the brand-posts strip.
+- [x] Launch run with `posts`/`events` and the pitch rehearsal on 28 people (`mirofish_runs/fitloop_launch/`): brand posts land at their rounds on both platforms with replies per country; `pitch.json` scored.
+- [x] 150-person run from `quickstart --answers` (`mirofish_runs/fitloop/`, sim `sim_4e650375af47`): 13 min for the people, 41 min for feed test + 6 rounds + survey + pitch + panel + report; about 1,500 Claude calls; dashboard 3.9 MB. The market-map ontology (Brand, Competitor, Product, Community, segments) was used for it.
 
 ## Known gaps / next steps
 - Done: survey ratings come from free text mapped to anchor statements (SSR, arXiv 2510.08338, `backend/app/services/ssr.py`), and `feedtest --seeds N` reports ranges. Not yet checked on a real run: the anchor sets and the decision thresholds on the SSR mean (go >= 3.5, iterate >= 2.7) are first guesses; tune them with a backtest or real survey data.

@@ -280,14 +280,16 @@ Everything runs on your own Anthropic key. Defaults use `claude-haiku-4-5`.
 - **Survey:** one call per person. Mapping the free-text answers to ratings runs on the local embedding model and is free.
 - **Panel:** one call per analyst. **Pitch:** one call per person, plus one per objector for the rebuttal. **Report** and **ideas:** one call each.
 
-Rough totals for a full `market-test` (feed test with 2 seeds, 6 rounds, survey, pitch, panel, report) on `claude-haiku-4-5`, which is a few dollars at most for the small size:
+Measured on the Fitloop runs (`claude-haiku-4-5`, 12 parallel calls, feed test with 5 ads, 6 rounds with launch posts, survey with split test and price questions, pitch with rebuttals, 5 analysts, report). Calls are counted from the logs (one per feed exposure that caught the eye, one per logged agent action, one per survey or pitch answer); dollar figures are estimates from those counts at Haiku list prices, so check your Anthropic console for the exact bill.
 
-| Size | People | Claude calls (about) | Wall time (about) |
-|---|---|---|---|
-| small | 20 | 400 | 15 min |
-| medium | 60 | 1,200 | 40 min |
-| large | 150 | 3,000 | 1.5-2 h |
-| max | 2,000 | 40,000+ | hours; raise `--parallel`, run one platform |
+| Size | People | Claude calls (about) | Wall time (measured) | Cost (about) |
+|---|---|---|---|---|
+| small | 28 | 500 | 26 min (14 for the people, 12 for the tests) | 3 USD |
+| medium | 60 | 800 | 40 min | 5 USD |
+| large | 150 | 1,500 | 54 min (13 for the people, 41 for the tests) | 10 USD |
+| max | 2,000 | 20,000+ | hours; run one platform, fewer rounds, raise `--parallel` | 100+ USD |
+
+In the 150-person run, 64% of agent turns were a scroll past (`do_nothing`), which is what keeps the rounds cheap and the feeds realistic.
 
 Always stop after `prepare` and look at the people before spending on the rest. `--parallel` defaults to your CPU count.
 
