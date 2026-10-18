@@ -457,6 +457,7 @@ class SimulationManager:
             if spec is not None:
                 config_dict = json.loads(config_json)
                 config_dict["persona_spec"] = spec.to_dict()
+                config_dict["persona_index"] = persona_planner.persona_index(filtered.entities)
                 if spec.communities:
                     config_dict["community_config"] = persona_planner.build_community_config(
                         filtered.entities, spec)

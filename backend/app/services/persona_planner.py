@@ -42,8 +42,8 @@ logger = get_logger('mirofish.persona_planner')
 SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
-MAX_PER_CALL = 6
-MAX_TOTAL_PERSONAS = 200
+MAX_PER_CALL = 8
+MAX_TOTAL_PERSONAS = 2000
 MBTI = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
         "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
 
@@ -103,7 +103,7 @@ class PersonaSegment:
             age_min, age_max = age_max, age_min
         return cls(
             label=str(d["label"]).strip(),
-            count=max(1, min(_int(d.get("count"), 5), 50)),
+            count=max(1, min(_int(d.get("count"), 5), 500)),
             country=str(d.get("country") or "").strip(),
             cities=_str_list(d.get("cities")),
             age_min=max(10, age_min),
@@ -615,3 +615,20 @@ def build_community_config(entities: List[EntityNode], spec: PersonaSpec,
         "in_group_follows": spec.in_group_follows,
         "bridge_rate": spec.bridge_rate,
     }
+
+
+def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
+    """Per-agent metadata (agent id = position) for marketing breakdowns by segment, country, community."""
+    out = []
+    for idx, e in enumerate(entities):
+        attrs = e.attributes or {}
+        prof = attrs.get(SYNTHETIC_PROFILE_KEY) or {}
+        kind = "persona" if PERSONA_LABEL in e.labels else "community" if COMMUNITY_LABEL in e.labels else "graph"
+        out.append({
+            "agent_id": idx, "name": e.name, "kind": kind, "entity_type": e.get_entity_type(),
+            "segment": attrs.get("segment"), "country": attrs.get("country") or prof.get("country"),
+            "city": attrs.get("city"), "age": prof.get("age"), "gender": prof.get("gender"),
+            "occupation": attrs.get("occupation"), "income_level": attrs.get("income_level"),
+            "decision_role": attrs.get("decision_role"), "communities": attrs.get("communities") or [],
+        })
+    return out

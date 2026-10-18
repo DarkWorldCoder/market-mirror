@@ -42,11 +42,28 @@ from typing import Any, Dict, List, Optional, Tuple
 # Loading
 # --------------------------------------------------------------------------
 
+try:  # marketing layer (stdlib only)
+    import marketing  # type: ignore
+except ImportError:  # pragma: no cover - imported as a package
+    from . import marketing  # type: ignore
+
+VENDOR_ECHARTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "echarts.min.js")
+
+
+def _echarts_inline() -> str:
+    """Apache ECharts (Apache-2.0), inlined so the dashboard stays one self-contained, offline file."""
+    try:
+        with open(VENDOR_ECHARTS, "r", encoding="utf-8") as f:
+            return f.read().replace("</script", "<\\/script")
+    except OSError:
+        return ""
+
+
 RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report",
+    "report", "survey",
 ]
 
 
@@ -991,6 +1008,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
 
     md = report_markdown(report)
     summary = build_summary(bundle, graph_stats, rounds, series_totals, profiles)
+    mk = marketing.analyze(bundle)
+    summary["marketing"] = marketing.summary_block(mk)
+    mk_sections = marketing.render_sections(mk)
 
     req = summary.get("simulation_requirement") or ""
     page_title = title or (summary.get("report_title") or project.get("name") or "MiroFish simulation")
@@ -1064,21 +1084,26 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
 
     report_html = markdown_to_html(md) if md else '<p class="empty">No report generated for this run yet.</p>'
 
-    nav = [("overview", "Overview"), ("graph", "Knowledge graph"), ("timeline", "Timeline"),
-           ("agents", "Agents"), ("posts", "Posts"), ("report", "Report")]
+    nav = [(a, b) for a, b, _ in mk_sections] + [("report", "Report"), ("posts", "Conversations"),
+                                                  ("agents", "People"), ("timeline", "Activity"),
+                                                  ("graph", "Knowledge graph"), ("overview", "Run details")]
     body = [
         '<div class="wrap">',
-        f'<header class="top"><div><div class="muted small">MiroFish · swarm simulation dashboard</div>'
-        f'<h1>{esc(page_title)}</h1>' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "") + "</div></header>",
+        f'<header class="top"><div><div class="muted small">MarketMirror · simulated market test</div>'
+        f'<h1>{esc(page_title)}</h1>' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "") + "</div>"
+        + marketing.hero_stats(mk) + "</header>",
         '<nav class="toc">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
-        f'<section id="overview"><h2>Overview</h2>{tiles_html}{meta_html}</section>',
-        f'<section id="graph"><h2>Knowledge graph</h2>{graph_html}'
-        + (f'<div style="margin-top:14px">{ontology_html}</div>' if ontology_html else "") + "</section>",
-        f'<section id="timeline"><h2>Simulation timeline</h2>{timeline_section}</section>',
-        f'<section id="agents"><h2>Agents</h2>{stance_html}<div style="margin-top:14px">'
+        *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
+        f'<section id="report"><h2>Analyst report</h2><article class="report">{report_html}</article></section>',
+        f'<section id="posts"><h2>What people posted</h2>{posts_html}</section>',
+        '<h2 class="divider">Behind the simulation</h2>',
+        f'<section id="agents"><h2>The simulated people</h2>{stance_html}<div style="margin-top:14px">'
         f'{render_personas(profiles, actions_by_agent)}</div></section>',
-        f'<section id="posts"><h2>Top posts &amp; comments</h2>{posts_html}</section>',
-        f'<section id="report"><h2>Prediction report</h2><article class="report">{report_html}</article></section>',
+        f'<section id="timeline"><h2>Activity over time</h2>{timeline_section}</section>',
+        f'<section id="graph"><h2>Knowledge graph</h2><p class="muted small">Who and what the seed documents '
+        f'mention, and how they relate. Personas are built on top of this.</p>{graph_html}'
+        + (f'<div style="margin-top:14px">{ontology_html}</div>' if ontology_html else "") + "</section>",
+        f'<section id="overview"><h2>Run details</h2>{tiles_html}{meta_html}</section>',
         f'<footer>Generated {esc(summary["generated_at"])} by MiroFish claude_cli exporter</footer>',
         "</div>", '<div id="tip" role="tooltip"></div>',
     ]
@@ -1086,9 +1111,10 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{esc(page_title)}</title>\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
-        f"<style>{CSS}</style>\n</head>\n<body>\n"
+        f"<style>{CSS}{marketing.MARKETING_CSS}</style>\n</head>\n<body>\n"
         + "\n".join(body)
-        + f"\n<script>{JS}</script>\n</body>\n</html>\n"
+        + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
+        + f"\n<script>{JS}{marketing.MARKETING_JS}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary
 

@@ -14,7 +14,7 @@ MF="<this skill's folder>/scripts/mf.sh"   # e.g. ~/.claude/skills/mirofish/scri
 bash "$MF" help
 ```
 
-The engine lives in `~/.mirofish/mirofish-claude` unless `MIROFISH_HOME` says otherwise. `bash "$MF" home` prints it.
+The engine lives in `~/.mirofish/mirofish-gtm` unless `MIROFISH_HOME` says otherwise. `bash "$MF" home` prints it.
 
 ## 1. Set up (first time, then just `doctor`)
 

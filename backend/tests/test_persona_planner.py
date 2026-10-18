@@ -70,7 +70,7 @@ def test_spec_validation():
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "graph_agents": "some"})
     with pytest.raises(ValueError):
-        pp.PersonaSpec.from_dict({"segments": [seg(count=50)] * 5})
+        pp.PersonaSpec.from_dict({"segments": [seg(count=500)] * 5})
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "communities": [{"kind": "x"}]})
     spec = pp.PersonaSpec.from_dict({"segments": [seg(age_min=60, age_max=40)]})
@@ -103,7 +103,7 @@ def test_generate_personas_uses_fixed_demographics_and_unique_names():
     client = FakeClient(duplicate_names=True)
     ents = pp.generate_personas(client, "m", spec, "How do Nepali families react?", "context")
     assert len(ents) == 11
-    assert len(client.prompts) == 3                     # 8 -> 6 + 2, then 3
+    assert len(client.prompts) == 2                     # 8 in one call, then 3
     assert all("never use the name" in s for s in client.systems)
     names = [e.name for e in ents]
     assert len(set(names)) == 11                        # duplicates from the LLM are renamed

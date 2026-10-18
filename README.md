@@ -35,8 +35,8 @@ Install the `mirofish` skill and ask Claude things like "simulate how parents in
 In Claude Code:
 
 ```
-/plugin marketplace add DarkWorldCoder/mirofish-claude
-/plugin install mirofish@mirofish-claude
+/plugin marketplace add DarkWorldCoder/mirofish-gtm
+/plugin install mirofish@mirofish-gtm
 ```
 
 Or copy `plugin/skills/mirofish/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/). Keep your own inputs in `scenarios/<name>/`, which is gitignored.

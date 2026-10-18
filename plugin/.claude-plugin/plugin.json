@@ -1,11 +1,11 @@
 {
-  "name": "mirofish",
-  "description": "Run MiroFish swarm simulations from Claude: download the engine, feed it any documents and a question, watch the agents live, and read the prediction report.",
+  "name": "market-mirror",
+  "description": "Simulate your buyers: personas by country, age and community react to your ads, then a buyer survey measures intent, objections, the winning message and price. Live sales and marketing dashboard.",
   "version": "0.1.0",
   "author": {
     "name": "DarkWorldCoder"
   },
-  "homepage": "https://github.com/DarkWorldCoder/mirofish-claude",
-  "repository": "https://github.com/DarkWorldCoder/mirofish-claude",
+  "homepage": "https://github.com/DarkWorldCoder/market-mirror",
+  "repository": "https://github.com/DarkWorldCoder/market-mirror",
   "license": "AGPL-3.0"
 }

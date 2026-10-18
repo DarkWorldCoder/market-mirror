@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import exporter  # noqa: E402
+import marketing  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
@@ -300,6 +301,76 @@ def step_report(c: Client, simulation_id: str, force: bool = False, wait: bool =
 # --------------------------------------------------------------------------
 # Collecting artifacts for export
 # --------------------------------------------------------------------------
+
+def read_messages(v: Optional[str]) -> List[str]:
+    """Messages/ads to test: text or @file. JSON list, or blocks separated by '---', or one per line."""
+    text = read_text_arg(v) if v else None
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return [str(x).strip() for x in data if str(x).strip()]
+    except ValueError:
+        pass
+    parts = [p.strip() for p in text.split("\n---")] if "\n---" in text else text.splitlines()
+    import re as _re
+    return [_re.sub(r"^\s*(\d+[.)]|[-*])\s+", "", p).strip() for p in parts if p.strip()]
+
+
+def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
+                messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
+                platform: Optional[str] = None, batch: int = 8, wait_s: int = 240,
+                limit: Optional[int] = None) -> Dict[str, Any]:
+    """Ask every simulated person the buyer survey through the interview API; save survey.json."""
+    messages = messages or []
+    if split and len(messages) < 2:
+        raise CLIError("--split needs at least two messages (--messages @file)")
+    cfg = _try("config", lambda: c.data("GET", f"/api/simulation/{simulation_id}/config")) or {}
+    sim = _try("simulation", lambda: c.data("GET", f"/api/simulation/{simulation_id}")) or {}
+    if not platform:
+        platform = "reddit" if sim.get("enable_reddit", True) else "twitter"
+    prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{simulation_id}/profiles",
+                                           params={"platform": platform})) or {}
+    meta = marketing.agent_meta({"config": cfg, f"profiles_{platform}": prof.get("profiles") or []})
+    people = marketing.people_ids(meta)
+    if limit:
+        people = people[:limit]
+    if not people:
+        raise CLIError("survey: no simulated people found (prepare the simulation first)")
+    assigned = marketing.assign_messages(people, len(messages)) if split else {}
+    log(f"survey: asking {len(people)} people on {platform}"
+        + (f", split test across {len(messages)} messages" if split else "")
+        + (f", with price questions in {currency}" if currency else ""))
+    responses: List[Dict[str, Any]] = []
+    for start in range(0, len(people), max(1, batch)):
+        chunk = people[start:start + batch]
+        interviews = [{"agent_id": aid, "platform": platform,
+                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
+                      for aid in chunk]
+        try:
+            res = c.data("POST", "/api/simulation/interview/batch",
+                         json={"simulation_id": simulation_id, "interviews": interviews, "platform": platform,
+                               "timeout": wait_s}, timeout=wait_s + 90)
+            texts = marketing.interview_texts(res)
+        except CLIError as e:
+            log(f"survey: batch {start // batch + 1} failed: {e}")
+            texts = {}
+        for aid in chunk:
+            raw = texts.get(aid)
+            responses.append({"agent_id": aid, "name": (meta.get(aid) or {}).get("name"),
+                              "assigned_message": assigned.get(aid), "raw": raw,
+                              "answer": marketing.parse_answer(raw, len(messages)) if raw else None})
+        ok = sum(1 for r in responses if r["answer"])
+        log(f"survey: {min(start + batch, len(people))}/{len(people)} asked, {ok} usable answers")
+    survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
+              "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
+              "platform": platform, "asked_at": datetime.now().isoformat(), "responses": responses}
+    save_json(out_dir, "survey", survey)
+    answered = sum(1 for r in responses if r["answer"])
+    return {"survey": os.path.join(os.path.abspath(out_dir), "survey.json"), "asked": len(responses),
+            "answered": answered}
+
 
 def save_json(out_dir: str, name: str, data: Any) -> None:
     os.makedirs(out_dir, exist_ok=True)
@@ -770,9 +841,21 @@ def cmd_live(c: Optional[Client], a) -> Any:
     return {"run_dir": os.path.abspath(run_dir), "stopped": True}
 
 
+def cmd_survey(c: Client, a) -> Any:
+    out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
+    res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
+                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit)
+    if not a.no_export:
+        collect(c, out_dir, simulation_id=a.simulation)
+        res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
+    return res
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas)  # fail fast on a bad spec file
+    if a.split and len(read_messages(a.messages)) < 2:
+        raise CLIError("--split needs at least two messages (--messages @file)")
     out_dir = a.out or default_run_dir()
     os.makedirs(out_dir, exist_ok=True)
     log(f"run: artifacts -> {os.path.abspath(out_dir)}")
@@ -806,6 +889,10 @@ def cmd_run(c: Client, a) -> Any:
                             force=True, timeout=a.run_timeout, interval=a.interval)
             state["runner_status"] = rs.get("runner_status")
             checkpoint()
+            if a.survey or a.offer or a.goal or a.messages or a.pricing:
+                state["survey"] = step_survey(c, sim["simulation_id"], out_dir, a.offer or "", a.goal or "",
+                                              read_messages(a.messages), a.split, a.pricing)
+                checkpoint()
             if a.stop_after != "simulate" and not a.no_report:
                 rep = step_report(c, sim["simulation_id"], timeout=a.timeout, interval=a.interval)
                 state["report_id"] = rep.get("report_id")
@@ -877,6 +964,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-graph-memory", action="store_true", help="don't write agent activity back into the graph")
     s.add_argument("--no-report", action="store_true", help="skip report generation")
     s.add_argument("--stop-after", choices=["prepare", "simulate"], help="stop the pipeline early")
+    s.add_argument("--survey", action="store_true", help="after the rounds, ask everyone the buyer survey")
+    s.add_argument("--offer", help="what is being sold or promoted, e.g. 'CSCA.ai free mock test'")
+    s.add_argument("--goal", help="the conversion you care about, e.g. 'sign up for the free mock test'")
+    s.add_argument("--messages", help="ads/messages to test: text or @file (JSON list, '---' blocks, or one per line)")
+    s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
+    s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
     s.add_argument("--close-env", action="store_true", help="close the simulation env at the end (disables interviews)")
     s.add_argument("--timeout", type=float, default=3600, help="timeout per async step (s)")
     s.add_argument("--run-timeout", type=float, default=4 * 3600, help="timeout for the simulation run (s)")
@@ -975,6 +1068,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="output HTML path (default <run-dir>/dashboard.html)")
     s.add_argument("--title")
 
+    s = sub.add_parser("survey", help="buyer survey of every simulated person: intent, objections, best message, price")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--offer", help="what is being sold or promoted, e.g. 'CSCA.ai free mock test'")
+    s.add_argument("--goal", help="the conversion you care about, e.g. 'sign up for the free mock test'")
+    s.add_argument("--messages", help="ads/messages to test: text or @file (JSON list, '---' blocks, or one per line)")
+    s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
+    s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
+    s.add_argument("--platform", choices=["twitter", "reddit"], help="which platform's agents to ask (default reddit)")
+    s.add_argument("--batch", type=int, default=8, help="people per interview call (default %(default)s)")
+    s.add_argument("--wait-s", type=int, default=240, help="server-side timeout per batch (s)")
+    s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
+    s.add_argument("--run-dir", help="where survey.json and the dashboard go (default mirofish_runs/<simulation>)")
+    s.add_argument("--no-export", action="store_true", help="don't re-collect and re-export the dashboard")
+    s.add_argument("--title")
+
     s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
     s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")
     s.add_argument("--runs-root", default="mirofish_runs", help="where runs live (default %(default)s)")
@@ -993,7 +1101,7 @@ COMMANDS = {
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
-    "export": cmd_export, "live": cmd_live,
+    "export": cmd_export, "live": cmd_live, "survey": cmd_survey,
 }
 
 

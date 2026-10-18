@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# mf.sh - helper for agents running MiroFish (swarm simulation) on any machine.
+# mm.sh - MarketMirror helper for agents: simulated buyers, ad/message/price tests (MiroFish engine).
 #
-#   mf.sh setup                 clone or update the engine, install Python deps, create .env
-#   mf.sh doctor                check repo, deps, API key (never printed) and backend
-#   mf.sh start | stop          start or stop the backend (port 5001)
-#   mf.sh scenario NAME FILE... copy documents into <home>/scenarios/NAME/ and print that folder
-#   mf.sh cli ARGS...           run the MiroFish CLI from the engine folder (see its --help)
-#   mf.sh live [ARGS...]        serve the live dashboard on http://127.0.0.1:5050/ (foreground)
-#   mf.sh home                  print the engine folder
+#   mm.sh setup                 clone or update the engine, install Python deps, create .env
+#   mm.sh doctor                check repo, deps, API key (never printed) and backend
+#   mm.sh start | stop          start or stop the backend (port 5001)
+#   mm.sh scenario NAME FILE... copy documents into <home>/scenarios/NAME/ and print that folder
+#   mm.sh cli ARGS...           run the MiroFish CLI from the engine folder (see its --help)
+#   mm.sh live [ARGS...]        serve the live dashboard on http://127.0.0.1:5050/ (foreground)
+#   mm.sh home                  print the engine folder
 #
-# Environment: MIROFISH_HOME (default ~/.mirofish/mirofish-claude),
-#              MIROFISH_REPO (default https://github.com/DarkWorldCoder/mirofish-claude.git)
+# Environment: MARKET_MIRROR_HOME (default ~/.market-mirror/engine; MIROFISH_HOME also accepted),
+#              MARKET_MIRROR_REPO (default https://github.com/DarkWorldCoder/market-mirror.git)
 set -euo pipefail
 
-REPO_URL="${MIROFISH_REPO:-https://github.com/DarkWorldCoder/mirofish-claude.git}"
-HOME_DIR="${MIROFISH_HOME:-$HOME/.mirofish/mirofish-claude}"
+REPO_URL="${MARKET_MIRROR_REPO:-${MIROFISH_REPO:-https://github.com/DarkWorldCoder/market-mirror.git}}"
+HOME_DIR="${MARKET_MIRROR_HOME:-${MIROFISH_HOME:-$HOME/.market-mirror/engine}}"
 PY="$HOME_DIR/backend/.venv/bin/python"
 CLI="$HOME_DIR/backend/claude_cli/mirofish.py"
 
@@ -38,14 +38,14 @@ backend_up() { curl -fsS -m 3 "${MIROFISH_URL:-http://localhost:5001}/health" >/
 
 doctor() {
   local ok=1
-  [ -d "$HOME_DIR/.git" ] && say "engine:  $HOME_DIR" || { say "engine:  missing (run: mf.sh setup)"; ok=0; }
-  [ -x "$PY" ] && say "python:  $("$PY" --version 2>&1)" || { say "python:  deps not installed (run: mf.sh setup)"; ok=0; }
+  [ -d "$HOME_DIR/.git" ] && say "engine:  $HOME_DIR" || { say "engine:  missing (run: mm.sh setup)"; ok=0; }
+  [ -x "$PY" ] && say "python:  $("$PY" --version 2>&1)" || { say "python:  deps not installed (run: mm.sh setup)"; ok=0; }
   local k; k=$(key_status); say "api key: $k"; case $k in set*) ;; *) ok=0 ;; esac
   if [ -f "$HOME_DIR/.env" ]; then
     say "model:   $(grep -E '^LLM_MODEL_NAME=' "$HOME_DIR/.env" | cut -d= -f2- || true)"
     say "memory:  $(grep -E '^MEMORY_BACKEND=' "$HOME_DIR/.env" | cut -d= -f2- || true)"
   fi
-  backend_up && say "backend: running" || say "backend: stopped (run: mf.sh start)"
+  backend_up && say "backend: running" || say "backend: stopped (run: mm.sh start)"
   [ $ok -eq 1 ] && say "ready" || { say "not ready"; return 1; }
 }
 
@@ -67,26 +67,26 @@ case "$cmd" in
     ;;
   doctor) doctor ;;
   start)
-    [ -x "$PY" ] || die "not set up yet (run: mf.sh setup)"
+    [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
     case $(key_status) in set*) ;; *) die "no API key: $(key_status)" ;; esac
     cd "$HOME_DIR" && bash backend/claude_cli/start_server.sh
     ;;
   stop) cd "$HOME_DIR" && bash backend/claude_cli/stop_server.sh ;;
   scenario)
-    name="${1:-}"; [ -n "$name" ] || die "usage: mf.sh scenario NAME FILE..."; shift
+    name="${1:-}"; [ -n "$name" ] || die "usage: mm.sh scenario NAME FILE..."; shift
     case "$name" in .*|*[!A-Za-z0-9._-]*) die "scenario name must start with a letter or digit and use only letters, digits, . _ -" ;; esac
     dir="$HOME_DIR/scenarios/$name"; mkdir -p "$dir"
     for f in "$@"; do [ -f "$f" ] || die "not a file: $f"; cp "$f" "$dir/"; done
     echo "$dir"
     ;;
   cli)
-    [ -x "$PY" ] || die "not set up yet (run: mf.sh setup)"
+    [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
     cd "$HOME_DIR" && exec "$PY" "$CLI" "$@"
     ;;
   live)
-    [ -x "$PY" ] || die "not set up yet (run: mf.sh setup)"
+    [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
     cd "$HOME_DIR" && exec "$PY" "$CLI" live "$@"
     ;;
   help|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) die "unknown command '$cmd' (try: mf.sh help)" ;;
+  *) die "unknown command '$cmd' (try: mm.sh help)" ;;
 esac
