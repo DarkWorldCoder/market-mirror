@@ -77,6 +77,25 @@ def test_rate_maps_free_text_to_the_right_end_of_the_scale():
     assert emb.calls == calls + 1                         # anchors are embedded once per model and cached
 
 
+def test_lead_sentence_keeps_only_the_opening_verdict():
+    assert ssr.lead_sentence("Probably not. The auto-renewal worries me.") == "Probably not."
+    assert ssr.lead_sentence("  Maybe!  Only if reviews are good.") == "Maybe!"
+    assert ssr.lead_sentence("Yes, at 4.5 a month it is cheaper than a gym") == "Yes, at 4.5 a month it is cheaper than a gym"
+    assert ssr.lead_sentence("नहीं। मुझे भरोसा नहीं है।") == "नहीं।"                      # Devanagari danda
+    assert ssr.lead_sentence("不会。太贵了。") == "不会。"                                  # CJK full stop, no space
+    assert ssr.lead_sentence("Honestly? Maybe 20-30% likely.") == "Honestly?"         # joining scored worse
+    assert ssr.lead_sentence("No") == "No" and ssr.lead_sentence("   ") == "" and ssr.lead_sentence(None) == ""
+
+
+def test_rate_embeds_only_the_first_sentence():
+    emb = FakeEmbedder()
+    text = "I would definitely do it. There is no way I definitely would not, I will certainly not go ahead."
+    lead, full = ssr.rate([("purchase", text)], embedder=emb)[0], ssr.rate([("purchase", text)], embedder=emb, lead_only=False)[0]
+    assert lead == ssr.rate([("purchase", "I would definitely do it.")], embedder=emb)[0]
+    assert lead["mean"] > full["mean"] and lead["pmf"][4] == max(lead["pmf"])   # trailing reasons no longer drag it down
+    assert ssr.ANCHORS_VERSION != "2026-10-ssr-v1"                                   # cached ratings are marked stale
+
+
 def test_rate_raises_when_embeddings_are_unavailable():
     with pytest.raises(ssr.SSRUnavailable):
         ssr.rate([("purchase", "yes")], embedder=FakeEmbedder(available=False))

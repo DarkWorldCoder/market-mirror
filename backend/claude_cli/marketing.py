@@ -6,8 +6,10 @@ marketing.py - turn a MiroFish run into marketing and sales answers.
    objection, what would change their mind, a quote). Answers are parsed from the
    agents' interview replies. Interest, trust, purchase intent and recommendation
    are first answered in free text; the backend maps each text to a 5-point rating
-   distribution by embedding similarity (SSR, arXiv 2510.08338). The stated
-   numbers are kept and used only when no SSR rating exists.
+   distribution by embedding similarity (SSR, arXiv 2510.08338). The SSR
+   purchase mean drives intent; "would convert" shares are always the stated
+   yes|maybe|no, because the SSR top-2 share counts a 50-50 answer as about half
+   a yes. Stated 0-10 numbers are used only when no SSR rating exists.
 2. Analysis: funnel, intent by segment / country / community / age band / gender,
    objections, winning messages, voice-of-customer quotes, plain-language verdicts.
 3. HTML sections for the dashboard (stdlib only, same CSS tokens as exporter.py).
@@ -36,8 +38,10 @@ OBJECTION_LABELS = {
 TEXT_FIELDS = {"purchase": "purchase_text", "interest": "interest_text", "trust": "trust_text",
                "recommend": "recommend_text"}
 SSR_SCALES = tuple(TEXT_FIELDS)
-# SSR purchase-intent mean (1-5) cut-offs shared by the playbook priority and the decision card
-SSR_GO_MEAN, SSR_ITERATE_MEAN = 3.5, 2.7
+# SSR purchase-intent mean (1-5) cut-offs shared by the playbook priority and the decision card.
+# Verdict-first probes score "Probably not" 2.65, "Maybe" 3.52-3.60, "Probably yes" 3.72, "Yes, definitely" 4.1-4.25,
+# so go needs more than a room of maybes and iterate needs more than a room of probably-nots.
+SSR_GO_MEAN, SSR_ITERATE_MEAN = 3.7, 3.1
 AGE_BANDS = [(0, 17, "Under 18"), (18, 24, "18-24"), (25, 34, "25-34"), (35, 44, "35-44"),
              (45, 54, "45-54"), (55, 64, "55-64"), (65, 200, "65+")]
 
@@ -72,21 +76,23 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         "unsure or not interested.\n\n"
         f"{msg_block}"
         f"The action we care about: {goal_txt}.\n\n"
-        "First answer the four questions in your own words, one or two sentences each, in the language you "
-        "normally use. Say how you really feel, including how sure or unsure you are; do not be polite. "
-        "Then give the quick numbers.\n"
+        "First answer the four *_text questions in your own words. Write them in English, or in your "
+        "language's own script (for example Devanagari for Hindi); never in romanized or mixed-language text "
+        "such as Hinglish or Taglish. Open each with a direct verdict, exactly one of: No / Probably not / "
+        "Maybe / Probably yes / Yes, definitely. Then give one reason in one sentence. Say how you really "
+        "feel; do not be polite. Then give the quick numbers.\n"
         "Reply with only this JSON, no other text (numbers as plain numbers):\n"
-        '{"interest_text": "how interested are you in this, and why", '
-        '"trust_text": "do you trust it, and why or why not", '
-        f'"purchase_text": "would you actually {goal_txt}? how likely, honestly", '
-        '"recommend_text": "would you tell a friend or family member about it", '
+        '{"interest_text": "verdict: are you interested in this? then why", '
+        '"trust_text": "verdict: do you trust it? then why or why not", '
+        f'"purchase_text": "verdict: would you actually {goal_txt}? then why", '
+        '"recommend_text": "verdict: would you tell a friend or family member about it? then why", '
         '"noticed": true, "interest": 0-10, "trust": 0-10, "would_click": "yes|maybe|no", '
         '"would_convert": "yes|maybe|no", "recommend": 0-10, '
         f"{msg_fields}{price_fields}"
         '"main_objection": "your biggest hesitation, one sentence", '
         '"objection_type": "price|trust|relevance|timing|effort|unclear|privacy|language|none|other", '
         '"would_change_mind": "what would make you say yes, one sentence", '
-        '"quote": "one sentence in your own voice about it"}'
+        '"quote": "one sentence about it in your own voice and the language you normally use"}'
     )
 
 
@@ -325,12 +331,8 @@ def _avg(xs: List[Optional[float]]) -> Optional[float]:
 
 
 def conv_probs(r: Dict[str, Any]) -> Tuple[float, float, float]:
-    """(yes, maybe, no) for one person: from the SSR purchase distribution (probably or definitely /
-    might / probably or definitely not) when present, else the stated yes|maybe|no."""
-    pi = (r.get("ssr") or {}).get("purchase")
-    if pi and isinstance(pi.get("pmf"), list) and len(pi["pmf"]) == 5:
-        p = pi["pmf"]
-        return p[3] + p[4], p[2], p[0] + p[1]
+    """(yes, maybe, no) for one person from the stated would_convert. Not from the SSR distribution: its
+    top-2 share gives a 50-50 answer about half a yes and ran 3x the stated yes share on a real run."""
     v = r.get("would_convert")
     return float(v == YES), float(v == MAYBE), float(v == NO)
 
@@ -349,6 +351,11 @@ def pool_ssr(rows: List[Dict[str, Any]], scale: str) -> Optional[Dict[str, Any]]
         out.update({"top2": round(100 * (avg[3] + avg[4]), 1), "middle": round(100 * avg[2], 1),
                     "bottom2": round(100 * (avg[0] + avg[1]), 1)})
     return out
+
+
+def _intent_mean(stats: Dict[str, Any]) -> float:
+    """SSR purchase mean of a group (0 without SSR): the tie-breaker when stated yes shares are equal."""
+    return ((stats.get("ssr") or {}).get("purchase") or {}).get("mean") or 0.0
 
 
 def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -451,7 +458,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                 if k:
                     groups[k].append(r)
         res = [{"key": k, **_group_stats(v)} for k, v in groups.items()]
-        return sorted(res, key=lambda x: (-(x["convert_yes"] or 0), -(x["interest"] or 0), -x["n"]))
+        return sorted(res, key=lambda x: (-(x["convert_yes"] or 0), -_intent_mean(x), -(x["interest"] or 0), -x["n"]))
 
     out["by_segment"] = breakdown(lambda r: [r["segment"]])
     out["by_country"] = breakdown(lambda r: [r["country"]])
@@ -486,11 +493,11 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         out["messages_ranked"] = sorted(
             [{"key": k, "label": _message_label(k, messages), "votes": len(v), "share": _pct(len(v), base),
               **{f: s for f, s in _group_stats(v).items() if f in ("convert_yes", "convert_maybe", "convert_no",
-                                                                   "click_yes", "interest", "trust")},
+                                                                   "click_yes", "interest", "trust", "ssr")},
               "reaction": _avg([r.get("message_reaction") for r in v]),
               "segments": [s for s, _ in Counter(r["segment"] for r in v if r.get("would_convert") == YES).most_common(3)]}
              for k, v in msg_rows.items()],
-            key=lambda x: (-(x["convert_yes"] or 0), -(x["reaction"] or 0), -(x["interest"] or 0)))
+            key=lambda x: (-(x["convert_yes"] or 0), -_intent_mean(x), -(x["reaction"] or 0), -(x["interest"] or 0)))
     else:
         out["messages_ranked"] = sorted(
             [{"key": k, "label": _message_label(k, messages), "votes": len(v), "share": _pct(len(v), base),
@@ -643,8 +650,8 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
     pi = (o.get("ssr") or {}).get("purchase") if o else None
     if pi:
         out.append(f"Purchase intent from free-text answers: {pi['mean']:.1f}/5 (spread ±{pi['sd']:.1f}). "
-                   f"{_fmt_pct(o.get('convert_yes'))} probably or definitely would {_goal_verb(a.get('goal'))}, "
-                   f"{_fmt_pct(o.get('convert_maybe'))} might.")
+                   f"{_fmt_pct(o.get('convert_yes'))} say they would {_goal_verb(a.get('goal'))}, "
+                   f"{_fmt_pct(o.get('convert_maybe'))} maybe.")
     elif o:
         out.append(f"{_fmt_pct(o.get('convert_yes'))} of the people surveyed say they would "
                    f"{_goal_verb(a.get('goal'))}, and {_fmt_pct(o.get('convert_maybe'))} more are on the fence.")
@@ -657,8 +664,9 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
                    f"interest {best['interest']}/10). Least open: {worst['key']} ({_fmt_pct(worst['convert_maybe'])} maybe).")
     elif len(segs) >= 2:
         best, worst = segs[0], segs[-1]
-        out.append(f"Best audience: {best['key']} ({_fmt_pct(best['convert_yes'])} would convert, "
-                   f"interest {best['interest']}/10). Weakest: {worst['key']} ({_fmt_pct(worst['convert_yes'])}).")
+        out.append(f"Best audience: {best['key']} ({_fmt_pct(best['convert_yes'])} said they would {_goal_verb(a.get('goal'))}"
+                   + (f", intent {_intent_mean(best):.1f}/5" if _intent_mean(best) else f", interest {best['interest']}/10")
+                   + f"). Weakest: {worst['key']} ({_fmt_pct(worst['convert_yes'])}).")
     objs = a.get("objections") or []
     if objs:
         top = objs[0]
@@ -674,7 +682,8 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
         if len(msgs) > 1:
             tail = f" vs {_fmt_pct(msgs[-1]['convert_yes'])} for the weakest ({msgs[-1]['key']})"
         out.append(f"Split test winner: {trunc_text(m['label'], 90)}, {_fmt_pct(m['convert_yes'])} of the people "
-                   f"who saw it would convert{tail}.")
+                   f"who saw it said they would {_goal_verb(a.get('goal'))}"
+                   + (f" (intent {_intent_mean(m):.1f}/5)" if _intent_mean(m) else "") + f"{tail}.")
     elif msgs:
         m = msgs[0]
         out.append(f"Most persuasive message: {trunc_text(m['label'], 90)} "
@@ -937,10 +946,10 @@ def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
 
 
 def _breakdown_block_ssr(rows: List[Dict[str, Any]], label: str) -> str:
-    """Breakdown when free-text ratings exist: intent shares from SSR, then mean ±spread per scale (1-5)."""
+    """Breakdown when free-text ratings exist: stated yes/maybe/no shares, then SSR mean ±spread per scale (1-5)."""
     spec = {"cats": [r["key"] for r in rows], "yes": [r["convert_yes"] or 0 for r in rows],
             "maybe": [r["convert_maybe"] or 0 for r in rows], "no": [r["convert_no"] or 0 for r in rows]}
-    ch = chart("intent", spec, 64 + 34 * len(rows), f"Purchase intent by {label.lower()}")
+    ch = chart("intent", spec, 64 + 34 * len(rows), f"Would convert by {label.lower()}")
     best = max(((r.get("ssr") or {}).get("purchase") or {}).get("mean") or 0 for r in rows)
     body = "".join(
         f'<tr><td class="{"best" if (((r.get("ssr") or {}).get("purchase") or {}).get("mean") or 0) == best and best > 0 else ""}">'
@@ -951,11 +960,11 @@ def _breakdown_block_ssr(rows: List[Dict[str, Any]], label: str) -> str:
         f'<td>{_e(r["top_message"] or "–")}</td></tr>' for r in rows)
     table = (f'<div class="tbl" style="margin-top:10px"><table><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
              '<th class="num">Intent 1-5</th><th class="num">Interest 1-5</th><th class="num">Trust 1-5</th>'
-             '<th class="num">Recommend 1-5</th><th class="num">Probably or definitely</th><th class="num">Would click</th>'
+             '<th class="num">Recommend 1-5</th><th class="num">Would convert</th><th class="num">Would click</th>'
              '<th>Top objection</th><th>Best message</th></tr></thead>'
              f'<tbody>{body}</tbody></table></div><p class="muted small">1-5 scores come from free-text answers (SSR): '
-             'mean ± spread (standard deviation of the answers). Blue = probably or definitely, grey = might, red = '
-             'probably or definitely not.</p>')
+             'mean ± spread (standard deviation of the answers). Would convert and the bars are the stated answer: '
+             'blue = yes, grey = maybe, red = no.</p>')
     return ch + table
 
 
@@ -1060,7 +1069,7 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         return (name, f'{o[key]}/10' if o.get(key) is not None else "–", "average", False)
     if ssr.get("purchase"):
         intent = ("Would " + _goal_verb(a.get("goal")), _fmt_pct(o["convert_yes"]),
-                  f'probably or definitely; intent {ssr["purchase"]["mean"]:.1f}/5', True)
+                  f'said yes, +{_fmt_pct(o["convert_maybe"])} maybe; intent {ssr["purchase"]["mean"]:.1f}/5', True)
     else:
         intent = ("Would " + _goal_verb(a.get("goal")), _fmt_pct(o["convert_yes"]), f'+{_fmt_pct(o["convert_maybe"])} maybe', True)
     if ssr.get("recommend"):
@@ -1095,7 +1104,8 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
         cards = "".join(
             f'<div class="play p-{p["priority"]}"><div class="play-h"><strong>{_e(p["segment"])}</strong>'
             f'<span class="pill {"accent" if p["priority"] == "high" else "mint" if p["priority"] == "medium" else ""}">'
-            f'{_e(p["priority"])} priority · {_fmt_pct(p["convert_yes"])} yes · {_fmt_pct(p.get("convert_maybe"))} maybe</span></div><dl>'
+            f'{_e(p["priority"])} priority · ' + (f'intent {p["intent"]["mean"]:.1f}/5 · ' if p.get("intent") else "")
+            + f'{_fmt_pct(p["convert_yes"])} said yes · {_fmt_pct(p.get("convert_maybe"))} maybe</span></div><dl>'
             + (f'<dt>Lead with</dt><dd>{_e(trunc_text(p["lead_with"], 160))}</dd>' if p.get("lead_with") else "")
             + (f'<dt>Pre-empt</dt><dd>{_e(p["preempt"])}</dd>' if p.get("preempt") else "")
             + (f'<dt>Answer with</dt><dd>{_e(trunc_text(p["answer_with"], 200))}</dd>' if p.get("answer_with") else "")

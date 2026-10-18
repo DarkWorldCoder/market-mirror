@@ -79,6 +79,17 @@ class SurveyTextTest(unittest.TestCase):
         self.assertLess(p.index("purchase_text"), p.index('"interest": 0-10'))
         self.assertIn("would you actually sign up", p)
 
+    def test_prompt_asks_for_verdict_first_answers_in_english_or_native_script(self):
+        p = mk.survey_prompt("Free practice test", "sign up")
+        self.assertIn("No / Probably not / Maybe / Probably yes / Yes, definitely", p)
+        self.assertIn("English", p)
+        self.assertIn("own script", p)
+        self.assertIn("never in romanized", p)
+        self.assertNotIn("in the language you normally use. Say", p)                 # the old free-language rule is gone
+        quote = p[p.index('"quote"'):]
+        self.assertIn("own voice", quote)
+        self.assertIn("language you normally use", quote)                            # the quote stays in their voice
+
     def test_parse_answer_keeps_texts_and_accepts_text_only(self):
         a = mk.parse_answer('{"purchase_text": " Probably not. ", "interest_text": "", "interest": 6, "would_convert": "no"}')
         self.assertEqual(a["texts"], {"purchase": "Probably not."})
@@ -111,8 +122,9 @@ class SurveyTextTest(unittest.TestCase):
             self.assertGreater(a0["ssr"]["purchase"]["mean"], a1["ssr"]["purchase"]["mean"])
             self.assertEqual(a1["would_convert"], "yes")                    # stated number kept as the fallback
             a = mk.analyze({"config": {"persona_index": c.data("GET", "/config")["persona_index"]}, "survey": survey})
-            self.assertLess(a["overall"]["convert_yes"], 100)               # SSR, not the over-positive stated "yes"
+            self.assertEqual(a["overall"]["convert_yes"], 100)              # "would convert" is the stated yes share
             self.assertEqual(a["overall"]["stated_convert_yes"], 100)
+            self.assertLess(a["overall"]["ssr"]["purchase"]["mean"], 4)     # while intent comes from the free text
 
             down = mirofish.step_survey(StubClient(ssr_down=True), "sim_x", d, "offer", "sign up", [])
             self.assertEqual(down["ssr_rated"], 0)
@@ -133,7 +145,8 @@ class SSRAnalysisTest(unittest.TestCase):
         pi = o["ssr"]["purchase"]
         self.assertEqual(pi["n"], a["answered"])
         self.assertTrue(1 <= pi["mean"] <= 5 and pi["sd"] > 0)
-        self.assertAlmostEqual(pi["top2"], o["convert_yes"], places=0)
+        self.assertEqual(o["convert_yes"], o["stated_convert_yes"])          # not the SSR top-2 share
+        self.assertIn("top2", pi)                                              # which stays in the pooled distribution
         self.assertIsNone(o["nps"])                                          # word of mouth = recommend mean instead
         segs = {s["key"]: s for s in a["by_segment"]}
         # Bangladesh students mostly said yes in the fixture, Nepal parents mostly no
@@ -148,12 +161,53 @@ class SSRAnalysisTest(unittest.TestCase):
     def test_playbook_and_decision_share_the_intent_cutoffs(self):
         # a mean between the iterate and go cut-offs is "medium" in the playbook and "iterate" on the decision card
         for mean, priority, vote in ((mk.SSR_GO_MEAN, "high", "go"), (mk.SSR_ITERATE_MEAN + 0.05, "medium", "iterate"),
-                                     (mk.SSR_ITERATE_MEAN - 0.05, "low", "no-go")):
+                                     (mk.SSR_ITERATE_MEAN - 0.05, "low", "no-go"),
+                                     # verdict-first probe means: "Probably yes" 3.72, "Maybe, 50-50" 3.52, "Probably not" 2.65
+                                     (3.72, "high", "go"), (3.52, "medium", "iterate"), (2.65, "low", "no-go")):
             pi = {"n": 4, "mean": mean, "sd": 1.0}
             seg = {"key": "S", "n": 4, "convert_yes": 0, "convert_maybe": 50, "interest": 5, "ssr": {"purchase": pi}}
             self.assertEqual(mk.playbook({"by_segment": [seg]}, [])[0]["priority"], priority)
             d = feed_view.decision({}, {"has_survey": True, "overall": {"ssr": {"purchase": pi}, "convert_yes": 0}})
             self.assertEqual(next(s for s in d["signals"] if s["name"] == "Buyer survey")["vote"], vote)
+
+    def test_would_convert_labels_use_the_stated_yes_share(self):
+        # everyone says "maybe" while the free text maps to a confident distribution: no tile, verdict, card or
+        # split-test line may present the SSR top-2 share as people who would convert
+        b = with_ssr(make_survey_bundle())
+        for r in b["survey"]["responses"]:
+            r["answer"]["would_convert"] = "maybe"
+            r["answer"]["ssr"]["purchase"] = ssr_result(PMF["yes"])
+        a = mk.analyze(b)
+        o = a["overall"]
+        self.assertEqual((o["convert_yes"], o["convert_maybe"]), (0, 100))
+        self.assertGreater(o["ssr"]["purchase"]["top2"], 70)
+        page = "".join(h for _, _, h in mk.render_sections(a)) + " ".join(a["verdicts"])
+        self.assertNotIn("probably or definitely", page.lower())
+        self.assertIn("0% say they would sign up", a["verdicts"][0])
+        secs = dict((k, h) for k, _, h in mk.render_sections(a))
+        self.assertIn("said yes, +100% maybe; intent", secs["results"])
+        self.assertIn("0% said yes · 100% maybe", secs["playbook"])
+        self.assertIn("intent 4.2/5", secs["playbook"])
+        self.assertTrue(all(m["convert_yes"] == 0 for m in a["messages_ranked"]))
+        self.assertTrue(any(v.startswith("No message produced a firm yes") for v in a["verdicts"]))
+        d = feed_view.decision(b, a)
+        self.assertIn("(0% said yes)", next(s for s in d["signals"] if s["name"] == "Buyer survey")["detail"])
+
+    def test_best_audience_and_split_winner_use_stated_yes_with_intent_tiebreak(self):
+        b = with_ssr(make_survey_bundle())
+        a = mk.analyze(b)
+        best = a["by_segment"][0]
+        self.assertEqual(best["convert_yes"], best["stated_convert_yes"])
+        line = next(v for v in a["verdicts"] if v.startswith("Best audience"))
+        self.assertIn(f"{best['convert_yes']:.0f}% said they would sign up", line)
+        self.assertIn("intent", line)
+        win = next(v for v in a["verdicts"] if v.startswith("Split test winner"))
+        self.assertIn(f"{a['messages_ranked'][0]['convert_yes']:.0f}% of the people who saw it said they would", win)
+        self.assertNotIn("would convert", win)
+        # equal stated yes shares: the higher SSR intent ranks first
+        lo, hi = {"key": "A", "convert_yes": 10, "ssr": {"purchase": {"mean": 3.0}}}, {"key": "B", "convert_yes": 10,
+                                                                                         "ssr": {"purchase": {"mean": 3.8}}}
+        self.assertEqual(sorted([lo, hi], key=lambda x: (-x["convert_yes"], -mk._intent_mean(x)))[0]["key"], "B")
 
     def test_without_ssr_numbers_are_unchanged(self):
         a = mk.analyze(make_survey_bundle())

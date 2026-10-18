@@ -597,7 +597,7 @@ def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, A
         mean = pi["mean"]
         signals.append({"name": "Buyer survey", "vote": "go" if mean >= SSR_GO_MEAN else "iterate" if mean >= SSR_ITERATE_MEAN else "no-go",
                         "detail": f"purchase intent {mean:.1f}/5 ± {pi['sd']:.1f} from free-text answers "
-                                  f"({o.get('convert_yes') or 0:.0f}% probably or definitely), n={pi['n']}",
+                                  f"({o.get('convert_yes') or 0:.0f}% said yes), n={pi['n']}",
                         "n": pi["n"]})
     elif mk.get("has_survey") and o.get("convert_yes") is not None:
         v = o["convert_yes"]

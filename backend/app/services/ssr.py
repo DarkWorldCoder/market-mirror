@@ -18,11 +18,19 @@ scale point (1 = most negative, 5 = most positive). For one anchor set:
 and the distribution is the average over anchor sets. The embedder is the
 local multilingual fastembed model also used by the memory graph, so answers
 in any language map onto the English anchors at no API cost.
+
+Only the first sentence of an answer is embedded. The survey asks every answer
+to open with a verdict ("No / Probably not / Maybe / Probably yes / Yes,
+definitely") followed by a reason; the reasons and conditions ("only if the
+reviews…") pull every answer toward the middle of the scale. On 40 hand-labelled
+answers from a real run, embedding the first sentence raised the Pearson r of
+the purchase mean against the labels from 0.22 to 0.57.
 """
 
 from __future__ import annotations
 
 import math
+import re
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -33,7 +41,7 @@ from ..utils.logger import get_logger
 logger = get_logger("mirofish.ssr")
 
 POINTS = 5
-ANCHORS_VERSION = "2026-10-ssr-v1"
+ANCHORS_VERSION = "2026-10-ssr-v2-lead-sentence"
 
 # scale -> anchor sets; each set lists one statement per point, from 1 (lowest) to 5 (highest)
 ANCHORS: Dict[str, List[List[str]]] = {
@@ -77,6 +85,16 @@ ANCHORS: Dict[str, List[List[str]]] = {
     ],
 }
 SCALES = tuple(ANCHORS)
+
+# Latin sentence ends need a following space (keeps "4.5" whole); danda and CJK stops do not
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[\u0964\u0965\u3002\uff01\uff1f])\s*")
+
+
+def lead_sentence(text: str) -> str:
+    """The verdict an answer opens with: its first sentence. (Joining a lead-in such as "Honestly?" to the
+    next sentence was tried and lowered the correlation with hand labels from 0.57 to 0.39.)"""
+    parts = [p.strip() for p in _SENTENCE_SPLIT.split(str(text or "").strip()) if p.strip()]
+    return parts[0] if parts else ""
 
 
 class SSRUnavailable(RuntimeError):
@@ -150,8 +168,9 @@ def describe(pmf: Sequence[float]) -> Dict[str, Any]:
 
 
 def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1.0,
-         epsilon: float = 0.0) -> List[Optional[Dict[str, Any]]]:
+         epsilon: float = 0.0, lead_only: bool = True) -> List[Optional[Dict[str, Any]]]:
     """[(scale, text)] -> one {pmf, mean, sd, score10} per item, or None for empty text / unknown scale.
+    lead_only: embed only the answer's first sentence (its verdict), see lead_sentence.
 
     Raises SSRUnavailable when the embedding model cannot be used."""
     embedder = embedder or get_embedder()
@@ -162,7 +181,7 @@ def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1
             if scale in ANCHORS and text is not None and str(text).strip()]
     if not todo:
         return out
-    vecs = _embed(embedder, [t for _, _, t in todo])
+    vecs = _embed(embedder, [lead_sentence(t) if lead_only else t for _, _, t in todo])
     for (i, scale, _), v in zip(todo, vecs):
         anchors = anchor_matrix(embedder, scale)
         sims = anchors @ v                                                  # (sets, points)
