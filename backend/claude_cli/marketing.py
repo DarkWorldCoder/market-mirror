@@ -36,6 +36,8 @@ OBJECTION_LABELS = {
 TEXT_FIELDS = {"purchase": "purchase_text", "interest": "interest_text", "trust": "trust_text",
                "recommend": "recommend_text"}
 SSR_SCALES = tuple(TEXT_FIELDS)
+# SSR purchase-intent mean (1-5) cut-offs shared by the playbook priority and the decision card
+SSR_GO_MEAN, SSR_ITERATE_MEAN = 3.5, 2.7
 AGE_BANDS = [(0, 17, "Under 18"), (18, 24, "18-24"), (25, 34, "25-34"), (35, 44, "35-44"),
              (45, 54, "45-54"), (55, 64, "55-64"), (65, 200, "65+")]
 
@@ -602,7 +604,7 @@ def playbook(a: Dict[str, Any], rows: List[Dict[str, Any]]) -> List[Dict[str, An
         pi = (s.get("ssr") or {}).get("purchase")
         if pi:      # free-text intent: rank on the 1-5 mean (top-2-box shares run high for undecided people)
             score = 25 * (pi["mean"] - 1)
-            priority = "high" if pi["mean"] >= 3.5 else "medium" if pi["mean"] >= 2.8 else "low"
+            priority = "high" if pi["mean"] >= SSR_GO_MEAN else "medium" if pi["mean"] >= SSR_ITERATE_MEAN else "low"
         else:
             score = (s["convert_yes"] or 0) + 0.3 * (s["convert_maybe"] or 0)      # a maybe is partial interest
             priority = "high" if score >= 30 else "medium" if score >= 12 else "low"

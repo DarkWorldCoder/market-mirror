@@ -13,6 +13,11 @@ import json
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
+try:  # stdlib only
+    from marketing import SSR_GO_MEAN, SSR_ITERATE_MEAN  # type: ignore
+except ImportError:  # pragma: no cover - imported as a package
+    from .marketing import SSR_GO_MEAN, SSR_ITERATE_MEAN  # type: ignore
+
 PLATFORM_LABEL = {"facebook": "Facebook", "instagram": "Instagram", "reddit": "Reddit", "tiktok": "TikTok",
                   "linkedin": "LinkedIn", "x": "X"}
 REACTION_EMOJI = {"like": "👍", "love": "❤️", "care": "🤗", "haha": "😆", "wow": "😮", "sad": "😢", "angry": "😡",
@@ -590,7 +595,7 @@ def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, A
     if mk.get("has_survey") and pi:
         # free-text purchase intent mapped to a 1-5 scale (SSR): judge the mean, not the top-box share
         mean = pi["mean"]
-        signals.append({"name": "Buyer survey", "vote": "go" if mean >= 3.5 else "iterate" if mean >= 2.7 else "no-go",
+        signals.append({"name": "Buyer survey", "vote": "go" if mean >= SSR_GO_MEAN else "iterate" if mean >= SSR_ITERATE_MEAN else "no-go",
                         "detail": f"purchase intent {mean:.1f}/5 ± {pi['sd']:.1f} from free-text answers "
                                   f"({o.get('convert_yes') or 0:.0f}% probably or definitely), n={pi['n']}",
                         "n": pi["n"]})

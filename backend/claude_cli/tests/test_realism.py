@@ -145,6 +145,16 @@ class SSRAnalysisTest(unittest.TestCase):
         sb = mk.summary_block(a)
         self.assertTrue(sb["ssr"]["used"])
 
+    def test_playbook_and_decision_share_the_intent_cutoffs(self):
+        # a mean between the iterate and go cut-offs is "medium" in the playbook and "iterate" on the decision card
+        for mean, priority, vote in ((mk.SSR_GO_MEAN, "high", "go"), (mk.SSR_ITERATE_MEAN + 0.05, "medium", "iterate"),
+                                     (mk.SSR_ITERATE_MEAN - 0.05, "low", "no-go")):
+            pi = {"n": 4, "mean": mean, "sd": 1.0}
+            seg = {"key": "S", "n": 4, "convert_yes": 0, "convert_maybe": 50, "interest": 5, "ssr": {"purchase": pi}}
+            self.assertEqual(mk.playbook({"by_segment": [seg]}, [])[0]["priority"], priority)
+            d = feed_view.decision({}, {"has_survey": True, "overall": {"ssr": {"purchase": pi}, "convert_yes": 0}})
+            self.assertEqual(next(s for s in d["signals"] if s["name"] == "Buyer survey")["vote"], vote)
+
     def test_without_ssr_numbers_are_unchanged(self):
         a = mk.analyze(make_survey_bundle())
         self.assertEqual(a["overall"]["ssr"], {})
