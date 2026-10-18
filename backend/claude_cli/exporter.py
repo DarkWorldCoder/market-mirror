@@ -65,7 +65,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest",
 ]
 
 
@@ -1027,7 +1027,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     mk_sections.append(feed_view.downloads_section(files))
 
     req = summary.get("simulation_requirement") or ""
-    page_title = title or (summary.get("report_title") or project.get("name") or "MiroFish simulation")
+    page_title = title or (bundle.get("run_manifest") or {}).get("title") or (
+        summary.get("report_title") or project.get("name") or "MarketMirror simulation")
     page_title = trunc(page_title, 70)
 
     tiles = [

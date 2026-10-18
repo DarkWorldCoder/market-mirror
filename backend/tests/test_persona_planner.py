@@ -206,7 +206,9 @@ def test_select_graph_entities_drops_places_platforms_and_group_labels():
         ("Facebook", "Organization"), ("Travel & Tourism page admins", "Person"),
         ("Indonesian parents", "Parent"), ("Southeast Asia broad targeting set", "Organization"),
         ("Instagram", "SocialMediaPlatform"), ("Tribhuvan University", "University"),
-        ("Parents (40–55)", "Parent")]]
+        ("Parents (40–55)", "Parent"), ("Nepal #8", "AdCampaign"), ("Free score check ad concept", "Organization"),
+        ("Sign Up", "Action"), ("ai", "Organization"), ("Mock Test Service", "Product"),
+        ("Chinese Government Scholarships", "Organization")]]
     spec = pp.PersonaSpec.from_dict({"segments": [seg()], "keep_entities": ["Facebook"]})
     kept = [e.name for e in pp.select_graph_entities(ents, spec, ["Nepal", "Indonesia"])]
     assert kept == ["CSCA.ai", "WiseAdmit", "Facebook", "Tribhuvan University"]
@@ -249,3 +251,12 @@ def test_seed_community_follows_runs_one_step():
     assert acts["agent0"] == [("FOLLOW", {"followee_id": 1}), ("FOLLOW", {"followee_id": 2})]
     assert acts["agent1"] == ("FOLLOW", {"followee_id": 0})
     assert asyncio.run(community_seed.seed_community_follows(env, {}, MA, AT)) == 0
+
+
+def test_short_runs_start_at_peak_hours():
+    tc = {"time_config": {"minutes_per_round": 60, "peak_hours": [19, 20, 21, 22, 23]}}
+    assert community_seed.start_offset_minutes(tc, 3) == 19 * 60          # 3 rounds: 19:00-21:00
+    assert community_seed.start_offset_minutes(tc, 8) == 16 * 60          # ends inside the peak
+    assert community_seed.start_offset_minutes(tc, 48) == 0               # a day or more: from midnight
+    assert community_seed.start_offset_minutes({"time_config": {"start_hour": 9}}, 3) == 9 * 60
+    assert community_seed.start_offset_minutes({}, 2) == 19 * 60

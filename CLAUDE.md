@@ -1,4 +1,6 @@
-# MiroFish — operating guide for Claude
+# MarketMirror (MiroFish engine) — operating guide for Claude
+
+MarketMirror adds marketing and sales testing on top of the MiroFish engine: persona planning, feed tests, buyer surveys, pricing, ROI projections, past-ads import, backtests and an analyst panel (section 3b). The installable skill is `plugin/skills/market-mirror/SKILL.md` and holds the recipes.
 
 MiroFish is a swarm-simulation engine. You give it seed documents plus a prediction question. It builds a knowledge graph, turns entities into LLM agents, simulates them on a Twitter-like and a Reddit-like platform, and then writes a prediction report. This edition runs headless, so you never need the Vue UI: drive the Flask backend (port 5001) with `backend/claude_cli/mirofish.py` and show the user the self-contained HTML dashboard it exports.
 
@@ -59,6 +61,19 @@ $C run --seed brief.md data.pdf \
 
 Interviews work only while the simulation environment is still alive (`status` shows `env.env_alive`). It stays alive after a run finishes until `close-env`, `stop` or a server restart.
 
+## 3b. MarketMirror commands
+
+| Goal | Command |
+|---|---|
+| concrete personas + communities | `$C run ... --personas scenarios/x/personas.json` (or `--auto-personas 30`), `--stop-after prepare` first |
+| ads in realistic feeds | `$C feedtest --simulation sim_x --creatives @scenarios/x/creatives.json [--exposures 2] [--landing @..] [--benchmarks @past_ads.json]` |
+| buyer survey / split test / price | `$C survey --simulation sim_x --offer ".." --goal ".." --messages @msgs.txt --split --pricing USD` (needs a started simulation) |
+| analyst panel | `$C panel --simulation sim_x --analysts 5 --brief ".."` |
+| past ads to seed + benchmarks | `$C ads-import export.csv --out scenarios/x/past_ads.md` |
+| backtest vs real ads | `$C backtest --run-dir mirofish_runs/x --actuals scenarios/x/past_ads.json` |
+
+Results land in the run folder (`feed_test.json`, `survey.json`, `analyst_panel.json`, `backtest.json`) and in the dashboard, which also writes CSV/JSON/Markdown downloads next to `dashboard.html`. API: `backend/app/api/market.py`. Persona spec, creatives and benchmark formats are documented in `README.md` and the skill. Report simulated numbers as directions with their margins, never as measurements.
+
 ## 4. Export and show the dashboard
 
 ```bash
@@ -75,7 +90,7 @@ $C live                                   # follows the newest run under mirofis
 $C live --run-dir mirofish_runs/x         # or a specific run; --simulation sim_x also works
 ```
 
-`live` serves the same dashboard at `http://127.0.0.1:5050/` (`--port` or `MIROFISH_LIVE_PORT` to change it). Every `--interval` seconds (default 10) it re-collects the run from the backend and re-renders the page; the open page reloads itself only when something changed, keeps its scroll position, and shows the current stage in a corner badge (graph build, preparing agents, round N/M, report, done). In the Claude desktop app, open it in the browser pane with `preview_start` and the `.claude/launch.json` entry `mirofish-live`. `--offline` re-renders saved JSON without calling the backend.
+`live` serves the same dashboard at `http://127.0.0.1:5050/` (`--port` or `MIROFISH_LIVE_PORT` to change it). Every `--interval` seconds (default 10) it re-collects the run from the backend and re-renders the page; the open page reloads itself only when something changed, keeps its scroll position, and shows the current stage in a corner badge (graph build, preparing agents, round N/M, report, done). In the Claude desktop app, open it in the browser pane with `preview_start` and the `.claude/launch.json` entry `market-mirror-live`. `--offline` re-renders saved JSON without calling the backend.
 
 ### Scenario inputs
 

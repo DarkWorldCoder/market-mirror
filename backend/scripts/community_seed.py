@@ -60,3 +60,23 @@ def max_trace_rowid(db_path: str) -> int:
             conn.close()
     except sqlite3.Error:
         return 0
+
+
+def start_offset_minutes(config: Dict[str, Any], total_rounds: int) -> int:
+    """Simulated clock start. time_config.start_hour wins; otherwise a run shorter than a day starts at
+    the first peak hour, so short test runs are not spent entirely in the middle of the night."""
+    tc = (config or {}).get("time_config") or {}
+    if tc.get("start_hour") is not None:
+        try:
+            return (int(tc["start_hour"]) % 24) * 60
+        except (TypeError, ValueError):
+            return 0
+    minutes = int(tc.get("minutes_per_round") or 60)
+    if total_rounds * minutes >= 24 * 60:
+        return 0
+    peaks = sorted(int(h) for h in (tc.get("peak_hours") or [19, 20, 21, 22]) if str(h).lstrip("-").isdigit())
+    if not peaks:
+        return 19 * 60
+    span_h = max(1, (total_rounds * minutes) // 60)
+    # start early enough that the run ends inside the evening peak when it is long enough to reach it
+    return max(0, (peaks[0] - max(0, span_h - len(peaks)))) % 24 * 60

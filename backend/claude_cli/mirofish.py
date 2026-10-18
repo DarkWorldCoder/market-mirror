@@ -920,7 +920,8 @@ def cmd_run(c: Client, a) -> Any:
     out_dir = a.out or default_run_dir()
     os.makedirs(out_dir, exist_ok=True)
     log(f"run: artifacts -> {os.path.abspath(out_dir)}")
-    state: Dict[str, Any] = {"out_dir": os.path.abspath(out_dir), "started_at": datetime.now().isoformat()}
+    state: Dict[str, Any] = {"out_dir": os.path.abspath(out_dir), "started_at": datetime.now().isoformat(),
+                             **({"title": a.title} if a.title else {})}
 
     def checkpoint():
         save_json(out_dir, "run_manifest", state)

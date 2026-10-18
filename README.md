@@ -1,228 +1,221 @@
 <div align="center">
 
-<img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish Logo" width="75%"/>
+# MarketMirror
 
-<a href="https://trendshift.io/repositories/16144" target="_blank"><img src="https://trendshift.io/api/badge/repositories/16144" alt="666ghj%2FMiroFish | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+**Test ads, messages, prices and launches on simulated buyers before you spend.**
 
-简洁通用的群体智能引擎，预测万物
-</br>
-<em>A Simple and Universal Swarm Intelligence Engine, Predicting Anything</em>
+Diverse AI personas scroll realistic Facebook, Instagram, Reddit, TikTok, LinkedIn and X feeds, react to your ads, answer a buyer survey and argue in their own communities. You get a marketing and sales dashboard: who converts, which message wins, what stops people, what they would pay, and what your budget would return.
 
-<a href="https://www.shanda.com/" target="_blank"><img src="./static/image/shanda_logo.png" alt="666ghj%2FMiroFish | Shanda" height="40"/></a>
+Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · built on the [MiroFish](https://github.com/666ghj/MiroFish) swarm-simulation engine
 
-[![GitHub Stars](https://img.shields.io/github/stars/666ghj/MiroFish?style=flat-square&color=DAA520)](https://github.com/666ghj/MiroFish/stargazers)
-[![GitHub Watchers](https://img.shields.io/github/watchers/666ghj/MiroFish?style=flat-square)](https://github.com/666ghj/MiroFish/watchers)
-[![GitHub Forks](https://img.shields.io/github/forks/666ghj/MiroFish?style=flat-square)](https://github.com/666ghj/MiroFish/network)
-[![Docker](https://img.shields.io/badge/Docker-Build-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/666ghj/MiroFish)
-
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white)](http://discord.gg/ePf5aPaHnA)
-[![X](https://img.shields.io/badge/X-Follow-000000?style=flat-square&logo=x&logoColor=white)](https://x.com/mirofish_ai)
-[![Instagram](https://img.shields.io/badge/Instagram-Follow-E4405F?style=flat-square&logo=instagram&logoColor=white)](https://www.instagram.com/mirofish_ai/)
-
-[English](./README.md) | [中文文档](./README-ZH.md)
+<img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard: verdicts, conversion, click and trust numbers" width="92%"/>
 
 </div>
 
-## 🤖 Claude Edition
+## What you can do with it
 
-This branch can run MiroFish **headless**, driven by Claude or any agent with a shell. It runs on Claude models and needs no Zep account.
+| Question | MarketMirror answer | How |
+|---|---|---|
+| Which ad or creative should get the budget? | Thumb-stop rate, CTR, engagement, hides and comments per creative, split-tested per platform | **Feed test** in platform-styled feeds |
+| Which message or offer converts, for whom? | Would-convert by segment, country, community, age and gender; winning message per audience | **Buyer survey** with true split tests |
+| What should we charge? | Acceptable price range, sweet spot and "never pay" price by segment | **Van Westendorp** price questions |
+| Where do we lose people after the click? | Page load on each person's network vs their patience, form drop-off with reasons | **Landing-page step** |
+| What will this cost per lead, and does it pay back? | Impressions, clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback | **Projections** calibrated to your real CPM and CTR |
+| What did our past ads actually do? | Best and worst ad sets, cost per conversion, landing-page loss, benchmarks | **`ads-import`** for Meta / Google Ads exports |
+| Can we trust the simulation for this market? | Rank correlation and winner match against real ad results | **`backtest`** |
+| What do the objections sound like, and how do we answer them? | Objections by audience in the buyers' own words, "what would change my mind", a sales playbook per audience | **Survey + playbook + interviews** |
+| Does a second opinion agree? | Independent analysts (performance, brand, sales, psychology, data, local market) each read the anonymized evidence alone | **Analyst panel** |
 
-### Use it as a Claude skill
+## See it
 
-Install the `mirofish` skill and ask Claude things like "simulate how parents in Jakarta react to this ad" or "run a swarm prediction on this policy PDF". The skill downloads this engine on first use, sets it up, asks for your Anthropic key, runs the simulation in two cost-safe stages, and shows a live dashboard.
+<table>
+<tr>
+<td width="50%"><img src="docs/images/feed-test.png" alt="Feed test: a Facebook ad mock with simulated reactions and comments, plus metrics"/><br><b>Feed test.</b> Each ad shown as it looks on the platform, with the reactions and comments simulated people left. Press <i>Replay the scroll</i> to watch them scroll past, stop, react or click, one by one.</td>
+<td width="50%"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience"/><br><b>Playbook.</b> Per audience: priority, what to lead with, the objection to pre-empt, how to answer it, the community to seed it in, and a proof line.</td>
+</tr>
+<tr>
+<td><img src="docs/images/audiences.png" alt="Would-convert chart by segment with margins of error"/><br><b>Audiences.</b> Would-convert, maybe and no by segment, country, community, age and gender, with 95% margins and small-sample flags.</td>
+<td><img src="docs/images/personas.png" alt="Table of simulated people with names, ages, countries and roles"/><br><b>People.</b> Every simulated person: realistic local name, age, city, upbringing, education, income, thinking style, communities.</td>
+</tr>
+</table>
+
+Screenshots are from a real run: a free exam-prep offer tested on students and parents in Bangladesh, Nepal and Indonesia, seeded with that brand's real Meta ad results.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Your material<br/>briefs, ads, landing page,<br/>past ad exports, CRM notes"] --> B["Knowledge graph<br/>who and what matters"]
+    A --> C["Persona planner<br/>segments, ages, upbringing,<br/>education, income, thinking style,<br/>communities"]
+    B --> C
+    C --> D["Feed test<br/>FB / IG / Reddit / TikTok /<br/>LinkedIn / X feeds"]
+    C --> E["Social simulation<br/>posts, comments, follows<br/>inside communities"]
+    D --> F["Landing page<br/>load time vs patience,<br/>form drop-off"]
+    E --> G["Buyer survey<br/>intent, objections, split test,<br/>price"]
+    D & F & G --> H["Analyst panel<br/>independent reviewers"]
+    D & F & G & H --> I["Dashboard + reports<br/>funnel, ROI, playbook,<br/>CSV / MD / JSON / PDF"]
+```
+
+1. **Personas.** You describe audience segments (country, age range, role, count, languages, platforms, what you know about them). Every segment gets concrete people: ages spread across the range, balanced genders, rotating cities, and balanced upbringing (city, small town, village, migrant family), education, income, thinking style (analytical, sceptical, price-hunter, early adopter, traditional, busy...), tech comfort and media diet. Each person has one deliberate contradiction so nobody reads like a stereotype, and a realistic local name that is invented, never a real person. Or let Claude plan the segments from your question.
+2. **Communities.** People join the groups where they actually talk (a parents' WhatsApp group, a subreddit, a Facebook group) and pick up each group's norms. Members follow each other before the simulation starts, so feeds are mostly in-group, with a small cross-group bridge.
+3. **Feed test.** Each person scrolls a feed of local organic posts with one test ad, the way each platform shows ads. See [How realistic is it?](#how-realistic-is-it) for what keeps this honest.
+4. **Social simulation (optional).** Personas post, comment and follow on simulated Twitter and Reddit for a few rounds (the MiroFish / OASIS engine), so word of mouth and group dynamics play out.
+5. **Buyer survey.** Everyone answers the same questionnaire: interest, trust, would click, would convert, recommend, the message that works (or a single assigned message in a split test), main objection, what would change their mind, a quote, and optional price questions.
+6. **Analyst panel.** Several analysts with different lenses each read the anonymized evidence alone, then the panel reports where they agree.
+7. **Dashboard.** One self-contained HTML file (Apache ECharts inlined, works offline), live while the run happens, with downloads for every report.
+
+## Quick start
+
+### As a Claude skill (recommended)
 
 In Claude Code:
 
 ```
-/plugin marketplace add DarkWorldCoder/mirofish-gtm
-/plugin install mirofish@mirofish-gtm
+/plugin marketplace add DarkWorldCoder/market-mirror
+/plugin install market-mirror@market-mirror
 ```
 
-Or copy `plugin/skills/mirofish/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/). Keep your own inputs in `scenarios/<name>/`, which is gitignored.
+Then just ask, for example: *"Test these three Facebook ads on parents in Jakarta and Surabaya; here is our landing page and last month's Ads Manager export."* The skill downloads the engine, sets it up, asks for your Anthropic key, plans personas, stops to show them to you before spending, runs the tests and opens the live dashboard. It also pulls real data from tools you have connected (Meta Ads, Google Ads, Semrush, web search, your CRM exports).
 
-- **Config** (`.env`): `LLM_PROVIDER=claude`, `LLM_API_KEY=<Anthropic key>`, `LLM_MODEL_NAME=claude-haiku-4-5`, `MEMORY_BACKEND=local` (a local SQLite knowledge graph, so no Zep key).
-- **Memory**: the default `local` backend builds the graph with Claude and searches it with hybrid BM25 + local multilingual embeddings (`fastembed`, CPU, free). It also merges duplicate entities (aliases, name variants, embedding similarity). `MEMORY_BACKEND=cognee` swaps in [Cognee](https://github.com/topoteretes/cognee), which runs as a sidecar in its own venv: `backend/memory_sidecar/cognee_sidecar.sh setup && backend/memory_sidecar/cognee_sidecar.sh start`. `MEMORY_BACKEND=zep` keeps the legacy Zep Cloud path.
-- **Server**: `backend/claude_cli/start_server.sh` starts the Flask API on :5001 in the background and waits for `/health`. `stop_server.sh` stops it.
-- **CLI**: `python backend/claude_cli/mirofish.py run --seed brief.md --requirement "What happens if ...?" --max-rounds 5` runs the whole pipeline: ontology, graph, agents, simulation, report. Each step is also a subcommand: `upload`, `build-graph`, `create-sim`, `prepare`, `start`, `status`, `report`, `chat`, `interview`, `list`, `export`. Output is JSON.
-- **Dashboard**: `mirofish.py export --simulation sim_x --out dashboard.html` writes one self-contained HTML file with no JavaScript dependencies and light/dark support. It contains the knowledge graph, agent personas, the activity timeline, top posts and the rendered report, and can be shared or published as-is.
+You can also copy `plugin/skills/market-mirror/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/).
 
-See [CLAUDE.md](./CLAUDE.md) for the full agent operating guide and cost tips.
-
-## ⚡ Overview
-
-**MiroFish** is a next-generation AI prediction engine powered by multi-agent technology. By extracting seed information from the real world (such as breaking news, policy drafts, or financial signals), it automatically constructs a high-fidelity parallel digital world. Within this space, thousands of intelligent agents with independent personalities, long-term memory, and behavioral logic freely interact and undergo social evolution. You can inject variables dynamically from a "God's-eye view" to precisely deduce future trajectories — **rehearse the future in a digital sandbox, and win decisions after countless simulations**.
-
-> You only need to: Upload seed materials (data analysis reports or interesting novel stories) and describe your prediction requirements in natural language</br>
-> MiroFish will return: A detailed prediction report and a deeply interactive high-fidelity digital world
-
-### Our Vision
-
-MiroFish is dedicated to creating a swarm intelligence mirror that maps reality. By capturing the collective emergence triggered by individual interactions, we break through the limitations of traditional prediction:
-
-- **At the Macro Level**: We are a rehearsal laboratory for decision-makers, allowing policies and public relations to be tested at zero risk
-- **At the Micro Level**: We are a creative sandbox for individual users — whether deducing novel endings or exploring imaginative scenarios, everything can be fun, playful, and accessible
-
-From serious predictions to playful simulations, we let every "what if" see its outcome, making it possible to predict anything.
-
-## 🌐 Live Demo
-
-Welcome to visit our online demo environment and experience a prediction simulation on trending public opinion events we've prepared for you: [mirofish-live-demo](https://666ghj.github.io/mirofish-demo/)
-
-## 📸 Screenshots
-
-<div align="center">
-<table>
-<tr>
-<td><img src="./static/image/Screenshot/运行截图1.png" alt="Screenshot 1" width="100%"/></td>
-<td><img src="./static/image/Screenshot/运行截图2.png" alt="Screenshot 2" width="100%"/></td>
-</tr>
-<tr>
-<td><img src="./static/image/Screenshot/运行截图3.png" alt="Screenshot 3" width="100%"/></td>
-<td><img src="./static/image/Screenshot/运行截图4.png" alt="Screenshot 4" width="100%"/></td>
-</tr>
-<tr>
-<td><img src="./static/image/Screenshot/运行截图5.png" alt="Screenshot 5" width="100%"/></td>
-<td><img src="./static/image/Screenshot/运行截图6.png" alt="Screenshot 6" width="100%"/></td>
-</tr>
-</table>
-</div>
-
-## 🎬 Demo Videos
-
-### 1. Wuhan University Public Opinion Simulation + MiroFish Project Introduction
-
-<div align="center">
-<a href="https://www.bilibili.com/video/BV1VYBsBHEMY/" target="_blank"><img src="./static/image/武大模拟演示封面.png" alt="MiroFish Demo Video" width="75%"/></a>
-
-Click the image to watch the complete demo video for prediction using BettaFish-generated "Wuhan University Public Opinion Report"
-</div>
-
-### 2. Dream of the Red Chamber Lost Ending Simulation
-
-<div align="center">
-<a href="https://www.bilibili.com/video/BV1cPk3BBExq" target="_blank"><img src="./static/image/红楼梦模拟推演封面.jpg" alt="MiroFish Demo Video" width="75%"/></a>
-
-Click the image to watch MiroFish's deep prediction of the lost ending based on hundreds of thousands of words from the first 80 chapters of "Dream of the Red Chamber"
-</div>
-
-> **Financial Prediction**, **Political News Prediction** and more examples coming soon...
-
-## 🔄 Workflow
-
-1. **Graph Building**: Seed extraction & Individual/collective memory injection & GraphRAG construction
-2. **Environment Setup**: Entity relationship extraction & Persona generation & Agent configuration injection
-3. **Simulation**: Dual-platform parallel simulation & Auto-parse prediction requirements & Dynamic temporal memory updates
-4. **Report Generation**: ReportAgent with rich toolset for deep interaction with post-simulation environment
-5. **Deep Interaction**: Chat with any agent in the simulated world & Interact with ReportAgent
-
-## 🚀 Quick Start
-
-### Option 1: Source Code Deployment (Recommended)
-
-#### Prerequisites
-
-| Tool | Version | Description | Check Installation |
-|------|---------|-------------|-------------------|
-| **Node.js** | 18+ | Frontend runtime, includes npm | `node -v` |
-| **Python** | ≥3.11, ≤3.12 | Backend runtime | `python --version` |
-| **uv** | Latest | Python package manager | `uv --version` |
-
-#### 1. Configure Environment Variables
+### By hand
 
 ```bash
-# Copy the example configuration file
-cp .env.example .env
+git clone https://github.com/DarkWorldCoder/market-mirror && cd market-mirror
+cp .env.example .env                 # set LLM_API_KEY=<your Anthropic key>
+cd backend && uv sync --python 3.12 && cd ..
+bash backend/claude_cli/start_server.sh
+alias mm="backend/.venv/bin/python backend/claude_cli/mirofish.py"
 
-# Edit the .env file and fill in the required API keys
+# 1. personas (stop before paid rounds and look at them)
+mm run --seed scenarios/acme/brief.md scenarios/acme/past_ads.md \
+       --requirement @scenarios/acme/question.txt --personas scenarios/acme/personas.json \
+       --stop-after prepare --out mirofish_runs/acme
+mm profiles --simulation <sim_id> --brief
+
+# 2. ads in real-looking feeds, with landing page, projections and ROI
+mm feedtest --simulation <sim_id> --creatives @scenarios/acme/creatives.json --exposures 2
+
+# 3. a few rounds of social simulation, then the buyer survey (split test + price)
+mm start  --simulation <sim_id> --max-rounds 3
+mm survey --simulation <sim_id> --offer "Acme Pro trial" --goal "start a free trial" \
+          --messages @scenarios/acme/messages.txt --split --pricing USD
+
+# 4. second opinion, then watch everything live
+mm panel --simulation <sim_id> --analysts 5 --brief "Which audience and message get the budget?"
+mm live                              # http://127.0.0.1:5050/
 ```
 
-**Required Environment Variables:**
+Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so is `mirofish_runs/`.
 
-```env
-# LLM API Configuration (supports any LLM API with OpenAI SDK format)
-# Recommended: Alibaba Qwen-plus model via Bailian Platform: https://bailian.console.aliyun.com/
-# High consumption, try simulations with fewer than 40 rounds first
-LLM_API_KEY=your_api_key
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL_NAME=qwen-plus
+## Recipes
 
-# Zep Cloud Configuration
-# Free monthly quota is sufficient for simple usage: https://app.getzep.com/
-ZEP_API_KEY=your_zep_api_key
+| Recipe | You provide | Run |
+|---|---|---|
+| **Ad / creative test** | ads (text, headline, CTA, image or description, platform, targeting) | `feedtest --creatives @creatives.json` |
+| **Message / offer split test** | 2+ messages, the conversion goal | `survey --messages @messages.txt --split` |
+| **Price test** | offer description, currency | `survey --pricing USD` |
+| **Landing page check** | load time, language, form fields, price | `landing` block in `creatives.json` |
+| **Spend, CPL and ROI** | CPM and budget (or an ads export); optional lead value, close rate, deal value, margin | `benchmarks` block, or `--benchmarks @past_ads.json` |
+| **Past-ads analysis** | Meta Ads Manager / Google Ads CSV or JSON export | `ads-import export.csv --out scenarios/x/past_ads.md` |
+| **Backtest** | 3+ past ads recreated as creatives with `"real_ad"` names | `backtest --run-dir ... --actuals past_ads.json` |
+| **Product or feature launch** | announcement, pricing page, competitor notes | `run` + `survey --messages` with positioning lines |
+| **Sales objections and pitch** | pitch or call script, real CRM objections | `survey`, then `interview --agent <id> --prompt "<pitch>"` |
+| **Second opinion** | anything above | `panel --analysts 5` |
+
+<details>
+<summary><b>Input formats</b> (personas.json, creatives.json)</summary>
+
+**personas.json**
+
+```json
+{
+  "segments": [
+    {"label": "Indonesia parents", "count": 8, "country": "Indonesia", "cities": ["Jakarta", "Surabaya"],
+     "age_min": 40, "age_max": 55, "role": "parent who decides on study abroad", "entity_type": "Parent",
+     "languages": ["Bahasa Indonesia"], "platforms": ["Facebook", "WhatsApp"],
+     "notes": "Real ads: 4 sign-ups at $1.86 each", "gender_mix": "balanced",
+     "diversity": {"income": ["lower-middle", "middle", "upper-middle"]}}
+  ],
+  "communities": [
+    {"name": "Orang Tua Peduli Pendidikan", "kind": "facebook_group", "segments": ["Indonesia parents"],
+     "norms": "parents compare schools and costs; polite but cautious", "join_share": 0.9, "account": true}
+  ],
+  "keep_entities": ["Your brand"], "graph_agents": "auto", "in_group_follows": 6, "bridge_rate": 0.05
+}
 ```
 
-#### 2. Install Dependencies
+Up to 500 people per segment and 2,000 in total. `--auto-personas N` plans segments and communities for you.
 
-```bash
-# One-click installation of all dependencies (root + frontend + backend)
-npm run setup:all
+**creatives.json**
+
+```json
+{
+  "creatives": [
+    {"id": "fb1", "platform": "facebook", "format": "image", "page": "Acme", "link": "https://acme.com",
+     "text": "Primary text...", "headline": "Headline", "cta": "Sign up",
+     "media": "what the image or video shows", "image": "optional/local/image.png",
+     "segments": ["optional targeting"], "countries": ["optional"], "real_ad": "optional name in your ads export"}
+  ],
+  "landing": {"load_seconds": 3.5, "language": "English", "shows": "what the page shows",
+              "form_fields": ["full name", "email", "phone number"], "price": "free", "steps": 1},
+  "benchmarks": {"facebook": {"cpm": 2.1, "ctr": 1.4, "budget": 500, "currency": "USD",
+                              "lead_value": 12, "close_rate": 0.1, "deal_value": 300, "gross_margin": 0.8, "monthly_value": 25}}
+}
 ```
 
-Or install step by step:
+Platforms: `facebook`, `instagram`, `reddit`, `tiktok`, `linkedin`, `x`. Several creatives on one platform are split-tested automatically.
+</details>
 
-```bash
-# Install Node dependencies (root + frontend)
-npm run setup
+## The dashboard
 
-# Install Python dependencies (backend, auto-creates virtual environment)
-npm run setup:backend
-```
+Sections, in order: **Results** (plain-language verdicts and headline numbers), **Playbook**, **Feed test** (post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph and run details.
 
-#### 3. Start Services
+**Downloads:** the dashboard (HTML), print or save as PDF, the analyst report (Markdown), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), and all key numbers (JSON). The same files are written next to `dashboard.html`.
 
-```bash
-# Start both frontend and backend (run from project root)
-npm run dev
-```
+## How realistic is it?
 
-**Service URLs:**
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:5001`
+LLM personas are known to be too positive, too uniform and too eager to engage. MarketMirror builds in the fixes published research supports:
 
-**Start Individually:**
+- **Attention is decided in code, not by the model.** Whether an ad catches someone's eye at all comes from a per-platform prior and that person's ad avoidance. Most exposures are a quick scroll past and never reach the model ([attention research](https://www.amplified.co/insight/blog-attention-science-paid-social-strategy); [simulated users over-engage](https://arxiv.org/html/2508.21740v2)).
+- **Leaving is the default.** Scrolling past is listed first, and each person's habits are stated as facts ("you comment about once a month"; "you rarely click ads"), drawn from skewed distributions ([non-buyers are over-simulated](https://arxiv.org/abs/2606.20708)).
+- **Probabilities as well as single choices.** For each ad, people also state how likely they are to click, react, comment, share or hide. Expected rates are reported next to the realised counts.
+- **Diversity by construction.** Upbringing, education, income, thinking style, tech comfort and media diet are spread evenly across each segment, with one contradiction per person ([twins are less varied than humans](https://arxiv.org/html/2509.19088v4)).
+- **Social proof is damped.** Everyone sees reaction counts, but only about a third open the comments ([LLM agents over-follow the crowd](https://arxiv.org/html/2411.11581v3)).
+- **Frequency and wear-out.** People can see an ad several times, are told so, and notice it less each time.
+- **The click is not the conversion.** Page load on the person's likely network, their patience, the page language and the form fields all decide whether a click becomes a lead.
+- **Calibration and validation.** Projections can be calibrated to your real platform CTR and CPM, `backtest` scores the simulation against your real ads, every rate shows a 95% margin, and small samples are flagged.
 
-```bash
-npm run backend   # Start backend only
-npm run frontend  # Start frontend only
-```
+**Limits.** Simulated people are not real people. Persona panels can still misjudge real click-through rates ([study](https://arxiv.org/abs/2609.25010)), and price answers from models are unreliable without real price data ([MSI](https://www.msi.org/working-paper/using-llms-for-market-research-2/)). Use MarketMirror to rank options, find objections and plan tests, then confirm with a small real budget. When a backtest disagrees with reality, trust reality.
 
-### Option 2: Docker Deployment
+## Costs
 
-```bash
-# 1. Configure environment variables (same as source deployment)
-cp .env.example .env
+Everything runs on your own Anthropic key. Defaults use `claude-haiku-4-5`.
 
-# 2. Pull image and start
-docker compose up -d
-```
+- **Personas:** about one call per 8 people.
+- **Feed test:** one call per exposure that catches someone's eye (typically 15-35%), plus one per click for the landing page.
+- **Rounds:** one call per active agent per round.
+- **Survey:** one call per person.
+- **Panel:** one call per analyst.
 
-Reads `.env` from root directory by default, maps ports `3000 (frontend) / 5001 (backend)`
+Always stop after `prepare` and look at the people before spending on the rest.
 
-> Mirror address for faster pulling is provided as comments in `docker-compose.yml`, replace if needed.
+## Under the hood
 
-## 📬 Join the Conversation
+| Part | Where |
+|---|---|
+| Persona planner, communities, follow graph | `backend/app/services/persona_planner.py` |
+| Feed test, landing page, projections and ROI | `backend/app/services/feed_test.py` |
+| Analyst panel | `backend/app/services/analyst_panel.py` |
+| API | `backend/app/api/market.py` (+ upstream `simulation.py`) |
+| CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
+| Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
+| Dashboard | `backend/claude_cli/exporter.py`, `feed_view.py`, `vendor/echarts.min.js` |
+| Claude skill | `plugin/skills/market-mirror/` |
 
-<div align="center">
-<img src="./static/image/QQ群.png" alt="QQ Group" width="60%"/>
-</div>
+Claude runs through Anthropic's OpenAI-compatible endpoint. Memory is a free local knowledge graph (SQLite with BM25 and local multilingual embeddings), so no Zep account is needed. `CLAUDE.md` is the full operating guide for agents, and `HANDOFF.md` lists known gaps. Run the tests with `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`.
 
-&nbsp;
+## Credits and license
 
-The MiroFish team is recruiting full-time/internship positions. If you're interested in multi-agent simulation and LLM applications, feel free to send your resume to: **mirofish@shanda.com**
-
-## 📄 Acknowledgments
-
-**MiroFish has received strategic support and incubation from Shanda Group!**
-
-MiroFish's simulation engine is powered by **[OASIS (Open Agent Social Interaction Simulations)](https://github.com/camel-ai/oasis)**, We sincerely thank the CAMEL-AI team for their open-source contributions!
-
-## 📈 Project Statistics
-
-<a href="https://github.com/666ghj/MiroFish">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="static/image/star-history-dark.svg" />
-   <source media="(prefers-color-scheme: light)" srcset="static/image/star-history-light.svg" />
-   <img alt="666ghj/MiroFish Star History Chart" src="static/image/star-history-light.svg" />
- </picture>
-</a>
+MarketMirror is built on [MiroFish](https://github.com/666ghj/MiroFish) (swarm-intelligence engine, AGPL-3.0) and [OASIS](https://github.com/camel-ai/oasis) (social simulation). The original MiroFish README is kept at [docs/MIROFISH-UPSTREAM.md](docs/MIROFISH-UPSTREAM.md). The dashboard embeds [Apache ECharts](https://echarts.apache.org) 5.5.1 (Apache-2.0, see `backend/claude_cli/vendor/`). MarketMirror is released under AGPL-3.0.

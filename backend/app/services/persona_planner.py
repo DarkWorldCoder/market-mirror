@@ -272,16 +272,27 @@ _PLATFORMS = {"facebook", "instagram", "meta", "tiktok", "youtube", "twitter", "
               "messenger", "threads", "linkedin", "google", "snapchat", "telegram", "wechat", "line"}
 
 
+_NOT_ACTOR_TYPE = ("campaign", "adset", "advert", "platform", "product", "service", "concept", "event", "test",
+                   "exam", "program", "offer", "feature", "page", "topic", "policy", "document", "location", "country",
+                   "region", "city", "market", "segment", "audience", "metric", "action", "message", "creative")
+_NOT_ACTOR_NAME = re.compile(
+    r"#\d|\bconcepts?\b|\bsign[- ]?ups?\b|\btests?\b|\bads?\b|\bservices?\b|\bprograms?\b|\bscholarships?\b|"
+    r"\bchallenge\b|\bguide\b|\bexplainer\b|\bcheck\b|\bofferings?\b", re.I)
+
+
 def is_abstract_entity(entity: EntityNode, countries: Sequence[str] = ()) -> bool:
-    """True for graph entities that should not speak as agents once synthetic personas exist."""
+    """True for graph entities that should not speak as agents once synthetic personas exist:
+    places, platforms, campaigns, products, concepts and generic audience labels."""
     etype = (entity.get_entity_type() or "").lower()
     name = (entity.name or "").strip()
     low = name.lower()
-    if etype in _ABSTRACT_TYPES or low in _PLATFORMS:
+    if etype in _ABSTRACT_TYPES or any(t in etype for t in _NOT_ACTOR_TYPE) or low in _PLATFORMS:
         return True
     if low in {c.lower() for c in countries if c}:
         return True
-    if _ABSTRACT_NAME.search(name):
+    if _ABSTRACT_NAME.search(name) or _NOT_ACTOR_NAME.search(name):
+        return True
+    if len(re.sub(r"[^a-z0-9]", "", low)) <= 3:          # fragments like "ai", "SCA"
         return True
     # "Indonesian parents", "Students", "Parents (40-55)": generic groups the personas replace
     if _PEOPLE_GROUP.search(name) and len(re.findall(r"[A-Za-z]+", name)) <= 4:

@@ -1,87 +1,111 @@
 ---
-name: mirofish
-description: Run MiroFish swarm simulations. Turn any documents (briefs, ad copy, product pages, news, policies, PDFs) plus a question into a crowd of AI personas who react on a simulated Twitter and Reddit, then get a prediction report and a live dashboard. Use when the user wants to simulate how an audience, market, customers, voters or the public would react; test ads, messages, launches or announcements on personas; run a focus group or swarm prediction; or mentions MiroFish. Downloads and sets up the engine on first use. Needs a shell and an Anthropic API key.
+name: market-mirror
+description: MarketMirror - test marketing and sales decisions on simulated buyers before spending. Builds diverse personas (country, age, upbringing, education, income, thinking style, communities) from any documents, then runs ad and creative tests in realistic Facebook/Instagram/Reddit/TikTok/LinkedIn/X feeds, split tests of messages, buyer surveys (intent, objections, NPS), price testing (Van Westendorp), landing-page drop-off, spend/ROI/cost-per-lead projections calibrated to real ad data, past-ad analysis and backtests, an independent analyst panel, and a sales playbook per audience, all in a live dashboard with downloadable reports. Use when the user wants to test ads, messages, offers, prices, launches, positioning or sales pitches on an audience; predict how customers, students, parents, voters or the public will react; analyse past ad performance; estimate cost per lead or ROI; or mentions MarketMirror or MiroFish. Needs a shell and an Anthropic API key.
 ---
 
-# MiroFish swarm simulation
+# MarketMirror
 
-MiroFish reads seed documents, builds a knowledge graph, turns the people and groups in it into LLM agents, lets them post, comment and react over several rounds, and writes a prediction report. Everything runs locally against the user's own Anthropic key.
+MarketMirror simulates buyers. Concrete personas react to your material in realistic social feeds and answer a buyer survey, and you get a marketing and sales dashboard: who converts, what message wins, what stops people, what they would pay, and what spend would return. It runs locally on the user's own Anthropic key (engine: MiroFish, AGPL-3.0).
 
-All commands go through the helper script next to this file:
+All commands go through the helper next to this file:
 
 ```bash
-MF="<this skill's folder>/scripts/mf.sh"   # e.g. ~/.claude/skills/mirofish/scripts/mf.sh
-bash "$MF" help
+MM="<this skill's folder>/scripts/mm.sh"     # e.g. ~/.claude/skills/market-mirror/scripts/mm.sh
+bash "$MM" help
 ```
 
-The engine lives in `~/.mirofish/mirofish-gtm` unless `MIROFISH_HOME` says otherwise. `bash "$MF" home` prints it.
+The engine lives in `~/.market-mirror/engine` unless `MARKET_MIRROR_HOME` says otherwise.
+
+## 0. Ground rules
+
+- Simulated people are not real people. Always say so when reporting, show the sample size, and prefer directions ("Bangladesh students look strongest") over precise claims. The dashboard shows 95% margins and flags small samples; repeat them.
+- Ground everything you can in real data (section 2). Ungrounded runs are brainstorming, not evidence.
+- Never print, echo or grep the API key. Ask the user to put it in `<engine>/.env`, or write it there with a file edit if they paste it.
+- Spend control: always stop after `prepare` and show the personas first. Say roughly how many Claude calls the next step makes before running rounds, surveys or feed tests.
 
 ## 1. Set up (first time, then just `doctor`)
 
-1. Run `bash "$MF" setup`. It clones the engine, installs Python 3.12 dependencies with `uv`, and creates `.env`. If `uv` is missing, tell the user the install options it prints and wait.
-2. Run `bash "$MF" doctor`. If it says the key is missing, ask the user to open `<home>/.env` and replace `your_api_key_here` on the `LLM_API_KEY` line, or to export `ANTHROPIC_API_KEY`. Recommend a new key with a spending limit.
-   - Never print, echo, cat or grep the key, and never put it in a command line. If the user pastes a key in chat, write it into `.env` with a file edit and do not repeat it.
-3. Run `bash "$MF" start` to start the backend. It must say `started`.
+1. `bash "$MM" setup` clones the engine, installs Python 3.12 deps with `uv`, creates `.env`. If `uv` is missing, relay the install options it prints.
+2. `bash "$MM" doctor`. If the key is missing, ask the user to set `LLM_API_KEY` in `<engine>/.env` (a new key with a spending limit is best).
+3. `bash "$MM" start` starts the backend on port 5001.
+4. `bash "$MM" live` (in the background) serves the live dashboard at `http://127.0.0.1:5050/`. In the Claude desktop app open it in the browser pane; elsewhere give the user the link.
 
-The default model is `claude-haiku-4-5` (cheap). For a final, higher-quality report the user can set `LLM_MODEL_NAME` to a Sonnet model in `.env`, then restart with `stop` and `start`.
+## 2. Gather real data first (use whatever tools this session has)
 
-## 2. Prepare the scenario
+| Source | How | Becomes |
+|---|---|---|
+| Ad accounts (Meta Ads, Google Ads connectors) | pull ads, ad sets, spend, impressions, clicks, landing page views, results, by country/age/placement | a CSV/JSON export, then `cli ads-import` |
+| Ads Manager export the user has | `cli ads-import export.csv --out <scenario>/past_ads.md` | seed file + `past_ads.json` benchmarks |
+| SEO/market tools (Semrush etc.), web search | competitors, keywords, prices, reviews, audience size | a Markdown seed file |
+| CRM, survey results, interviews, support tickets, reviews | export or paste | seed files; quote real objections |
+| Landing page | fetch it; time how long it loads on mobile; list form fields | the feed test `landing` block |
 
-1. Collect the user's material: files they name, documents in the conversation, or pages they ask you to fetch. Supported seed formats are `.md`, `.txt` and `.pdf`. Save anything that only exists in chat as a Markdown file first.
-2. Copy it into a scenario folder: `bash "$MF" scenario <name> file1.md file2.pdf`. It prints the folder.
-3. Write the prediction question to `<folder>/requirement.txt`. A good question names:
-   - who should be simulated, with concrete personas (country, age, role, what they care about)
-   - what they see or experience
-   - what to predict, as a short numbered list
-   - "Keep the simulation under N rounds."
-   Ground personas in any real data the user has (results, survey answers, past campaigns) and put that data in a seed file too.
+Put everything in a scenario folder: `bash "$MM" scenario <name> file1 file2 ...` (gitignored inside the engine).
 
-Scenario folders are gitignored inside the engine, so client data never ends up in the repo.
+## 3. Define the audience (persona spec)
 
-## 3. Run in two stages (protects the user's money)
+Write `<scenario>/personas.json`. Each segment gets real people with ages spread over the range, balanced genders, rotating cities, and balanced upbringing, education, income, thinking style, tech comfort and media diet; each person also gets one deliberate contradiction and realistic local names (never real people).
 
-Use absolute paths for seeds. Run long commands in the background.
-
-```bash
-bash "$MF" cli run --seed <folder>/a.md <folder>/b.pdf \
-  --requirement @<folder>/requirement.txt \
-  --platform parallel --max-rounds 10 --stop-after prepare --out mirofish_runs/<name>
+```json
+{"segments": [
+  {"label": "Nepal parents", "count": 8, "country": "Nepal", "cities": ["Kathmandu", "Pokhara"], "age_min": 40, "age_max": 55,
+   "role": "parent paying for study abroad", "entity_type": "Parent", "languages": ["Nepali"], "platforms": ["Facebook", "Viber"],
+   "notes": "Real ads: 603 clicks, 0 sign-ups"}],
+ "communities": [
+  {"name": "Nepali Abhibhawak Samuha", "kind": "viber_group", "segments": ["Nepal parents"], "norms": "forward warnings; trust people they know"}],
+ "keep_entities": ["Your brand name"]}
 ```
 
-This builds the graph and creates the agents, then stops before the paid rounds. The first graph build also downloads a ~220 MB embedding model, which can take several minutes.
+No spec? `--auto-personas 30` lets Claude plan segments and communities from the question. Up to 500 per segment and 2,000 in total are allowed; start with 20-40 and scale once the setup is right. `diversity` (top level or per segment) overrides the trait lists.
 
-Then show the user the agents and ask before spending more:
+## 4. Pick a recipe
 
-```bash
-bash "$MF" cli profiles --simulation <simulation_id> --brief
-```
-
-`simulation_id` is in `<home>/mirofish_runs/<name>/run_manifest.json`. If the personas are wrong, fix the seed or question and rerun stage one. Use `--entity-types` to keep only useful agent types and lower the cost.
-
-Once the user agrees:
+Run stage one for every recipe, then show the personas (`cli profiles --simulation <id> --brief`) before spending more:
 
 ```bash
-bash "$MF" cli start --simulation <simulation_id> --max-rounds 10
-bash "$MF" cli report --simulation <simulation_id>
-bash "$MF" cli export --simulation <simulation_id> --out mirofish_runs/<name>/dashboard.html
+bash "$MM" cli run --seed <abs paths...> --requirement @<scenario>/requirement.txt \
+  --personas <scenario>/personas.json --platform parallel --max-rounds 5 --stop-after prepare --out mirofish_runs/<name>
 ```
 
-## 4. Show the results
+`simulation_id` is in `<engine>/mirofish_runs/<name>/run_manifest.json`.
 
-- **Live while it runs:** start `bash "$MF" live` in the background. It follows the newest run and serves a self-refreshing dashboard at `http://127.0.0.1:5050/`. In the Claude desktop app, open that URL in the browser pane. Elsewhere, give the user the link.
-- **Final dashboard:** `<home>/mirofish_runs/<name>/dashboard.html` is one self-contained file. Publish it as an Artifact if that tool exists, otherwise send the file.
-- **Summary:** read `summary.json` and `report.md` next to the dashboard and answer the user's numbered questions directly. Say where the simulation agrees or disagrees with any real data they gave you, and remind them it is a simulation of personas, not real users.
-- **Follow-ups:** `cli chat --simulation <id> --message "..."` asks the report agent. `cli interview --simulation <id> --agent 3 --prompt "..."` questions one persona while the environment is still alive.
+**A. Ad and creative test (feed test).** Write `<scenario>/creatives.json`:
+```json
+{"creatives": [{"id": "fb1", "platform": "facebook", "format": "image", "page": "Brand", "text": "...", "headline": "...",
+                "cta": "Sign up", "media": "what the image shows", "image": "optional local image path",
+                "segments": ["optional targeting"], "real_ad": "optional real ad name for backtests"}],
+ "landing": {"load_seconds": 3.5, "language": "English", "shows": "...", "form_fields": ["name", "email", "phone"], "price": "free"},
+ "benchmarks": {"facebook": {"cpm": 2.1, "ctr": 1.4, "budget": 500, "currency": "USD",
+                             "lead_value": 12, "close_rate": 0.1, "deal_value": 300, "gross_margin": 0.8}}}
+```
+Then `bash "$MM" cli feedtest --simulation <id> --creatives @<scenario>/creatives.json --exposures 2`. Several creatives on one platform are split-tested automatically (each person sees one). Output: thumb-stop, CTR (realised and expected), engagement, hides, comments in the persona's voice, landing-page funnel with drop reasons, and spend projections: clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback. Benchmarks from `ads-import` calibrate CTR to reality.
 
-## 5. Costs and cleanup
+**B. Message or offer test (buyer survey).** Needs the simulation running: `cli start --simulation <id> --max-rounds 3`, then
+`cli survey --simulation <id> --offer "..." --goal "sign up for X" --messages @<scenario>/messages.txt --split`.
+`--split` gives each person one message (a real A/B test); without it people pick their favourite.
 
-- Start with `--max-rounds 3-10` and a short seed. Agent count equals graph entities, so long seeds mean many agents.
-- Every graph build, agent profile, round and report calls Claude on the user's key. Say roughly what a step will do before running rounds.
-- `bash "$MF" stop` stops the backend and any running simulation. Stop the `live` server when done.
+**C. Price test.** Add `--pricing USD` (any currency) to the survey: acceptable range, sweet spot, and "never pay" price by segment. Treat it as low confidence unless calibrated with real price data.
+
+**D. Past-ads analysis.** `cli ads-import <export.csv or .json> --out <scenario>/past_ads.md`. Read the seed it writes (best and worst ad sets, cost per conversion, landing-page loss), use it as a seed file, and pass `past_ads.json` as `--benchmarks` to the feed test.
+
+**E. Backtest (is the simulation any good here?).** Recreate 3+ past ads as creatives with `"real_ad": "<ad name in the export>"`, run the feed test, then `cli backtest --run-dir mirofish_runs/<name> --actuals <scenario>/past_ads.json`. Report the rank correlation, whether the winner matched, and the calibration factor. If it does not match, say the simulation is not predictive for this market yet.
+
+**F. Product or feature launch.** Seed: the launch announcement, pricing page and competitor notes. Requirement: who reacts how, what they misunderstand, which feature matters, what would make them switch. Run rounds (C as well if pricing matters), then the survey with the positioning lines as `--messages --split`.
+
+**G. Sales objections and pitch.** Seed: the pitch deck or call script and real objections from the CRM. Run the survey with candidate pitches as messages, then `cli interview --simulation <id> --agent <id> --prompt "<your pitch>. What would you say back?"` for the strongest objectors. The playbook section turns this into "lead with / pre-empt / answer with / seed it in" per audience.
+
+**H. Second opinion.** `cli panel --simulation <id> --analysts 5 --brief "what we need to decide"`: independent analysts (performance marketer, brand strategist, sales lead, psychologist, sceptical data analyst, ...) each read the anonymized posts, comments, feed reactions and survey answers alone. Report the consensus and where they disagree.
+
+## 5. Show the results
+
+- Live: the browser pane at `http://127.0.0.1:5050/` updates as steps finish.
+- Final: `<engine>/mirofish_runs/<name>/dashboard.html` (one offline file). Publish it as an Artifact if available, otherwise send the file. Its Downloads section exports the report (Markdown), every survey answer and feed session (CSV), metrics (JSON) and print-to-PDF; the same files sit next to it.
+- In chat: lead with the decision (which audience, which message, what to fix first, expected cost per lead), then the evidence and its limits. Quote real comments from personas, labelled as simulated.
+
+## 6. Costs and cleanup
+
+Feed tests call Claude only for exposures that catch someone's eye (most do not), plus one call per click for the landing page. Rounds cost one call per active agent per round; surveys one per person; the panel one per analyst. `claude-haiku-4-5` is the cheap default; use a Sonnet model for final reports. `bash "$MM" stop` stops everything.
 
 ## Troubleshooting
 
-- `doctor` is the first check for anything.
-- Backend log: `<home>/backend/logs/server.out` (some lines are in Chinese; they are upstream log messages).
-- A failed `run` still exports what it has and records the error in `run_manifest.json`.
-- More detail: `<home>/CLAUDE.md` (full operating guide) and `<home>/HANDOFF.md` (known gaps).
+`bash "$MM" doctor` first. Backend log: `<engine>/backend/logs/server.out`. A failed `run` still exports what it has. More detail: `<engine>/CLAUDE.md`.

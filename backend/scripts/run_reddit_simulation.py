@@ -654,7 +654,9 @@ class RedditSimulationRunner:
         
         for round_num in range(total_rounds):
             simulated_minutes = round_num * minutes_per_round
-            simulated_hour = (simulated_minutes // 60) % 24
+            from community_seed import start_offset_minutes  # Claude edition: start short runs at peak hours
+            simulated_hour = ((simulated_minutes + start_offset_minutes(
+                self.config, total_rounds)) // 60) % 24
             simulated_day = simulated_minutes // (60 * 24) + 1
             
             active_agents = self._get_active_agents_for_round(

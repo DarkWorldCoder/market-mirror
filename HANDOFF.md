@@ -1,55 +1,43 @@
-# HANDOFF: MiroFish Claude Edition (read this first)
+# HANDOFF: MarketMirror (read this first)
 
-This handoff is for the next Claude Code session. Read this file, then `CLAUDE.md`, which has the full operating guide.
+This handoff is for the next Claude Code session. Read this file, then `CLAUDE.md` (operating guide) and `plugin/skills/market-mirror/SKILL.md` (recipes).
 
 ## What this repo is
-This is a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) (AGPL-3.0), a swarm-intelligence simulation engine: AI personas react to seed documents on a simulated Twitter/Reddit, and the run ends in a prediction report. It is a generic base: no client or campaign data lives in the repo. Branch `main` adds:
+MarketMirror tests marketing and sales decisions on simulated buyers. It is a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) (AGPL-3.0) with:
 
-1. **Claude as the LLM.** `LLM_PROVIDER=claude` is the default and uses Anthropic's OpenAI-compatible endpoint `https://api.anthropic.com/v1/`.
-   - Files: `backend/app/config.py` and `backend/app/utils/openai_chat_compat.py`. These drop `response_format` (JSON is requested in the prompt instead) and set a default `max_tokens`.
-   - OASIS agents use camel `OPENAI_COMPATIBLE_MODEL`, set up in `backend/scripts/run_*_simulation.py`.
-2. **Free memory instead of Zep Cloud.** `MEMORY_BACKEND=local` is the default.
-   - `backend/app/utils/local_graph.py`: an SQLite drop-in for the Zep SDK. It does entity/relation extraction with Claude, plus hybrid search: BM25 combined with multilingual fastembed embeddings, computed locally for free (`backend/app/utils/embeddings.py`).
-   - `MEMORY_BACKEND=cognee`: Cognee runs as a separate service (`backend/memory_sidecar/`) because its dependencies conflict with camel-ai's.
-   - `MEMORY_BACKEND=zep`: the original Zep Cloud behaviour.
-3. **Claude-controllable CLI.** `backend/claude_cli/mirofish.py` runs the full pipeline headless.
-   - `export` writes a self-contained `dashboard.html` (knowledge graph, personas, per-round charts, report) that can be published as a claude.ai Artifact.
-   - `live` serves that dashboard on `http://127.0.0.1:5050/` and refreshes it while a run progresses, so the Claude desktop app's browser pane can show it (`.claude/launch.json` entry `mirofish-live`).
-4. **Tests.** Run `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`. They use a mocked LLM.
+1. **Claude as the LLM** through Anthropic's OpenAI-compatible endpoint (`backend/app/config.py`, `backend/app/utils/openai_chat_compat.py`).
+2. **Free local memory** instead of Zep Cloud (`backend/app/utils/local_graph.py`, `embeddings.py`; optional Cognee sidecar).
+3. **Persona planner** (`backend/app/services/persona_planner.py`): segments, balanced diversity traits, contradictions, communities, follow graph, and a filter that drops non-actor graph entities.
+4. **Feed test** (`backend/app/services/feed_test.py`): platform feeds with attention gating, habits, stated probabilities, damped social proof, wear-out, landing page, projections, ROI economics.
+5. **Analyst panel** (`backend/app/services/analyst_panel.py`) and **API** (`backend/app/api/market.py`).
+6. **CLI** (`backend/claude_cli/mirofish.py`, `market_cli.py`): run, survey, feedtest, panel, ads-import, backtest, live, export.
+7. **Dashboard** (`backend/claude_cli/exporter.py`, `marketing.py`, `feed_view.py`, vendored ECharts): one offline HTML file plus CSV/JSON/MD downloads.
+8. **Claude skill / plugin** (`plugin/`, `.claude-plugin/marketplace.json`).
 
-## Where your own inputs go
-Put private scenario inputs (seed documents, the prediction question, ad copy, earlier results) in `scenarios/<name>/`. That folder is gitignored, so client data stays on your machine. Run outputs go to `mirofish_runs/`, which is also gitignored.
+Your own inputs go in `scenarios/<name>/` (gitignored). Runs go to `mirofish_runs/` (gitignored).
 
-## Status / what is NOT done yet
-- [x] **Runs against a real Claude key.** The ontology step works with `claude-haiku-4-5` through the OpenAI-compatible endpoint.
-- [ ] **Full run not yet verified end to end.** Graph build, agent preparation, simulation rounds and the report still need a complete real run. Expect fixes in `openai_chat_compat.py` or the camel model setup (tool-calling parameters, unsupported request fields).
-- [ ] The first graph build downloads the ~220 MB embedding model into `backend/uploads/models`; it can take several minutes.
-- [ ] Simulation activity written back into the graph by the local backend (`start` default) is untested with a real LLM; the CLI flag `--no-graph-memory` turns it off.
-- [ ] Known upstream frontend bug: `frontend/src/api/report.js` calls `getReportStatus` with GET, but the backend route is POST-only.
-- [ ] Local memory limits:
-  - no temporal invalidation of old facts
-  - the multilingual embedding model truncates at 128 tokens
-  - the Cognee path doesn't extract ontology attributes
+## Verified with real Claude (claude-haiku-4-5)
+- [x] Ontology, graph build (local memory), persona planning with communities, agent preparation.
+- [x] Feed test end to end, including landing page drop-off.
+- [x] OASIS rounds start and run; community follows are seeded on both platforms.
+- [ ] Survey and analyst panel on a real run: check the latest run folder; if `survey.json` exists they worked.
+- [ ] Report generation (ReportAgent) on real Claude.
+
+## Known gaps / next steps
+- Survey ratings are asked directly. Research (arXiv 2510.08338) shows free text mapped to anchor statements by embedding similarity matches humans far better; implement with the local fastembed model.
+- No multi-seed runs yet: run the same test with several seeds and report the spread.
+- Pricing (Van Westendorp) answers from LLMs are low-confidence without real price data.
+- The upstream Vue frontend is not updated for MarketMirror (the dashboard replaces it). Upstream bug: `frontend/src/api/report.js` calls `getReportStatus` with GET, the route is POST-only.
+- Local memory: no temporal invalidation of old facts; multilingual embedding truncates at 128 tokens.
 
 ## First run
 ```bash
-cp .env.example .env    # set LLM_API_KEY=<Anthropic key>; keep LLM_PROVIDER=claude, MEMORY_BACKEND=local
+cp .env.example .env    # LLM_API_KEY=<Anthropic key>
 cd backend && uv sync --python 3.12 && cd ..
 bash backend/claude_cli/start_server.sh
-backend/.venv/bin/python backend/claude_cli/mirofish.py run \
-  --seed scenarios/<name>/seed.md \
-  --requirement @scenarios/<name>/requirement.txt \
-  --platform parallel --max-rounds 10 --stop-after prepare --out mirofish_runs/<name>
-backend/.venv/bin/python backend/claude_cli/mirofish.py live   # watch it at http://127.0.0.1:5050/
+alias mm="backend/.venv/bin/python backend/claude_cli/mirofish.py"
+mm run --seed scenarios/x/brief.md --requirement @scenarios/x/question.txt --personas scenarios/x/personas.json \
+       --stop-after prepare --out mirofish_runs/x --title "X market test"
+mm feedtest --simulation <id> --creatives @scenarios/x/creatives.json --run-dir mirofish_runs/x
+mm live      # http://127.0.0.1:5050/
 ```
-Check the agents after `--stop-after prepare`, then run the rounds with `start --simulation <id> --max-rounds 10`.
-
-## Repo map (new or changed)
-- `CLAUDE.md`: operating guide (setup, CLI, live view, export and publish, memory backends, costs)
-- `HANDOFF.md`: this file
-- `.claude/launch.json`: browser-pane launch entry for the live dashboard
-- `.claude-plugin/marketplace.json` and `plugin/`: the installable `mirofish` Claude skill (`plugin/skills/mirofish/SKILL.md`, helper `scripts/mf.sh`)
-- `backend/claude_cli/`: `mirofish.py` (CLI), `exporter.py` (dashboard), `start_server.sh`, `stop_server.sh`, `tests/`
-- `backend/app/utils/local_graph.py`, `embeddings.py`, `cognee_graph.py`: memory backends
-- `backend/memory_sidecar/`: Cognee sidecar (`cognee_sidecar.sh setup|start|stop|status`)
-- `.env.example`: all settings, with English comments
