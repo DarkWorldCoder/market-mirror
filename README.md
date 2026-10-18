@@ -31,25 +31,26 @@ Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/feed-test.png" alt="Feed test: a Facebook ad mock with simulated reactions and comments, plus metrics"/><br><b>Feed test.</b> Each ad shown as it looks on the platform, with the reactions and comments simulated people left. Press <i>Replay the scroll</i> to watch them scroll past, stop, react or click, one by one.</td>
-<td width="50%"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience"/><br><b>Playbook.</b> Per audience: priority, what to lead with, the objection to pre-empt, how to answer it, the community to seed it in, and a proof line.</td>
+<td width="50%"><img src="docs/images/feed-test.png" alt="Feed test: a TikTok ad mock with simulated reactions and comments, plus metrics"/><br><b>Feed test.</b> Each ad looks the way it does on the platform, with the reactions and comments simulated people left. Press <i>Replay the scroll</i> to watch them scroll past, stop, react or click, one by one.</td>
+<td width="50%"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience"/><br><b>Playbook.</b> For each audience: priority, what to lead with, the objection to pre-empt, how to answer it, the community to seed it in, and a proof line.</td>
 </tr>
 <tr>
-<td><img src="docs/images/audiences.png" alt="Would-convert chart by segment with margins of error"/><br><b>Audiences.</b> Would-convert, maybe and no by segment, country, community, age and gender, with 95% margins and small-sample flags.</td>
-<td><img src="docs/images/analysts.png" alt="Independent analyst panel with themes and multilingual evidence"/><br><b>Analyst panel.</b> Five analysts work alone on the anonymized evidence. Themes are backed by quotes, here in Bangla, Nepali and Bahasa.</td>
+<td><img src="docs/images/audiences.png" alt="Would-convert chart by segment with margins of error"/><br><b>Audiences.</b> Would convert, maybe and no by segment, country, community, age and gender, with 95% margins and small-sample flags.</td>
+<td><img src="docs/images/analysts.png" alt="Independent analyst panel with themes and evidence"/><br><b>Analyst panel.</b> Five analysts each work alone on the anonymized evidence. Every theme is backed by quotes from the simulated people.</td>
 </tr>
 <tr>
+<td><img src="docs/images/pricing.png" alt="Price sensitivity curves with acceptable range"/><br><b>Pricing.</b> Van Westendorp curves: the acceptable range, the sweet spot and the "never pay" price by segment.</td>
 <td><img src="docs/images/objections.png" alt="Objections chart and quotes"/><br><b>Objections.</b> What stops people, how often, in their own words, and what would change their mind.</td>
-<td><img src="docs/images/personas.png" alt="Table of simulated people with names, ages, countries and roles"/><br><b>People.</b> Every simulated person: realistic local name, age, city, upbringing, education, income, thinking style, communities.</td>
 </tr>
 </table>
 
-**From a real run.** A free exam-prep offer (CSCA.ai) was tested on 30 students and parents in Bangladesh, Nepal and Indonesia, seeded with the brand's real Meta ad results:
-- **Decision:** iterate, low confidence. All three signals agreed.
-- **Survey:** nobody committed and 48% said maybe.
-- **Biggest blocker:** trust and scam fears, raised by 69%.
-- **Analysts:** all five said iterate, with an average success chance of 28%.
-- **Landing page:** the simulated drop-offs matched the real account. A slow page lost people, an English-only page lost Indonesian students, and a phone-number field read as a scam signal.
+**Demo run.** These screenshots come from a real run on **Fitloop**, a made-up home-workout app with a 7-day card-required trial at $4.99 a month. It was tested on 28 simulated young professionals, parents and students in India, the Philippines and Kenya, across Facebook, Instagram, TikTok and Reddit ads. The brand, the audiences and the pilot numbers in its brief are all invented.
+- **Decision:** iterate, low confidence. The survey and the analysts said iterate; the best Instagram ad said go.
+- **Survey:** nobody committed and 61% said maybe. Trust was the biggest blocker, mostly about entering card details for a "free" trial.
+- **Analysts:** all five said iterate, with an average success chance of 25%. Their themes: free YouTube workouts set the bar, old phones and prepaid data plans worry people, and the adaptive-coaching claim needs proof.
+- **Price:** the acceptable range was $3 to $15, with a sweet spot around $5.
+
+These numbers come from simulated people. Two runs in a row produced no firm "yes", so treat absolute rates as pessimistic until a backtest calibrates them, and use the run to rank options and find objections.
 
 ## How it works
 

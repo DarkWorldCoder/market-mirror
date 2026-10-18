@@ -123,11 +123,11 @@ def post_mock(cr: Dict[str, Any], m: Dict[str, Any]) -> str:
                 f'<div class="pm-muted pm-pad">💬 {_count("comment", m.get("comments", 0), " comments")} · Share</div>'
                 f'{_comments_html(comments, "reddit")}</div></div>')
     if p == "tiktok":
-        return (f'<div class="pm pm-tt">{_media(cr, tall=True)}<div class="pm-ttrail">'
+        return (f'<div class="pm pm-tt"><div class="pm-ttstage">{_media(cr, tall=True)}<div class="pm-ttrail">'
                 f'<span>♥<small>{_count("react", n_react)}</small></span><span>💬<small>{_count("comment", m.get("comments", 0))}</small></span>'
                 f'<span>🔖<small>{_count("save", m.get("saves", 0))}</small></span><span>➦<small>{_count("share", m.get("shares", 0))}</small></span></div>'
                 f'<div class="pm-ttcap"><b>@{_e(page.replace(" ", "").lower())}</b><div>{_e(_t(cr.get("text"), 150))}</div>'
-                f'<div class="pm-ttsp">Sponsored</div><div class="pm-ttbtn">{cta}</div></div>'
+                f'<div class="pm-ttsp">Sponsored</div><div class="pm-ttbtn">{cta}</div></div></div>'
                 f'{_comments_html(comments, "ig", 3)}</div>')
     if p == "x":
         return (f'<div class="pm pm-x"><div class="pm-h">{_avatar(page)}<div><b>{_e(page)}</b> '
@@ -489,8 +489,10 @@ FEED_CSS = """
 .pm-rdbody{flex:1;min-width:0;padding:8px 10px}.pm-rdt{font-weight:600;font-size:1.02rem;margin:4px 0}.pm-rdtext{font-size:.9rem;margin-bottom:6px}
 .pm-promo{color:#0079d3;font-weight:600}.pm-rdbtn{display:inline-block;margin:8px 0;border:1px solid #0079d3;color:#0079d3;border-radius:999px;padding:4px 14px;font-weight:700;font-size:.82rem}
 .pm-rc{border-left:2px solid #edeff1;padding:4px 0 4px 10px;font-size:.86rem}.pm-rc-h{color:#7c7c7c;font-size:.76rem}
-.pm-tt{position:relative;background:#000;color:#fff;border:0}.pm-tt .pm-media.ph{background:linear-gradient(160deg,#111,#3a1c5c 60%,#7a1f4b)}
-.pm-ttrail{position:absolute;right:8px;bottom:120px;display:grid;gap:12px;text-align:center;font-size:1.3rem}
+.pm-tt{background:#000;color:#fff;border:0}.pm-ttstage{position:relative}
+.pm-tt .pm-media.tall{aspect-ratio:auto;height:440px;max-height:none;width:100%}
+.pm-tt .pm-media.ph{padding:18px 64px 120px 18px}.pm-tt .pm-media.ph{background:linear-gradient(160deg,#111,#3a1c5c 60%,#7a1f4b)}
+.pm-ttrail{position:absolute;right:8px;bottom:110px;display:grid;gap:12px;text-align:center;font-size:1.3rem}
 .pm-ttrail small{display:block;font-size:.7rem}
 .pm-ttcap{position:absolute;left:10px;right:60px;bottom:12px;font-size:.85rem;text-shadow:0 1px 2px rgba(0,0,0,.6)}
 .pm-ttsp{font-size:.7rem;opacity:.8}.pm-ttbtn{background:#fe2c55;border-radius:4px;padding:6px 10px;font-weight:700;text-align:center;margin-top:6px}
