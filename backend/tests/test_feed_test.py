@@ -211,3 +211,62 @@ def test_attention_gate_exposures_and_expected_rates():
     assert gated and all(not s["ad"]["stopped"] and s["ad"]["p_click"] == 0 for s in gated)
     later = [u for u in feed_prompts if "scrolled past this same ad" in u]
     assert later                                                  # repeat exposures are told so
+
+
+class MeteredFakeLLM(FakeLLM):
+    """Same behaviour, plus token usage on every response like the real API."""
+
+    def create(self, **kw):
+        resp = super().create(**kw)
+        resp.usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20)
+        return resp
+
+
+def test_multi_seed_reports_range_per_creative_and_cost():
+    llm = MeteredFakeLLM()
+    cs = ft.normalize_creatives(CREATIVES)
+    seeds = ft.seed_list(5, 3)
+    assert len(set(seeds)) == 3 and seeds[0] == 5
+    res = ft.run_multi_seed(llm, "m", cs, people(12), seeds=seeds, waves=2, exposures=2, parallel=4)
+    single = ft.run_feed_test(FakeLLM(), "m", cs, people(12), seed=5, waves=2, exposures=2, parallel=4)
+    ms = res["multi_seed"]
+    assert ms["n"] == 3 and ms["seeds"] == seeds
+    assert res["feeds"] == 3 * single["feeds"]
+    assert {s["seed"] for s in res["sessions"]} == set(seeds)
+    # spread: every creative has mean and min-max range across seeds for the headline metrics
+    assert set(ms["spread"]) == {"ig1", "ig2", "fb1", "rd1"}
+    for cid, sp in ms["spread"].items():
+        for k in ("expected_ctr", "thumb_stop", "engagement_rate"):
+            assert sp[k]["min"] <= sp[k]["mean"] <= sp[k]["max"] and len(sp[k]["values"]) == 3, (cid, k)
+    assert any(sp["thumb_stop"]["max"] > sp["thumb_stop"]["min"] for sp in ms["spread"].values())  # seeds differ
+    assert sum(ms["winner_counts"].values()) == 3 and 0 <= ms["winner_agreement"] <= 100
+    # cost: every Claude call is counted, per seed and in total
+    assert ms["usage"]["calls"] == len(llm.prompts) == res["usage"]["calls"]
+    assert sum(ps["usage"]["calls"] for ps in ms["per_seed"]) == ms["usage"]["calls"]
+    assert ms["usage"]["input_tokens"] == 100 * ms["usage"]["calls"]
+    assert ms["usage"]["output_tokens"] == 20 * ms["usage"]["calls"]
+    # the replay keeps one seed so nobody scrolls past twice; metrics pool all seeds
+    per = res["summary"]["per_creative"]["rd1"]
+    assert per["impressions"] == 3 * single["summary"]["per_creative"]["rd1"]["impressions"]
+    assert len(per["events"]) == ms["per_seed"][0]["per_creative"]["rd1"]["impressions"]
+
+
+def test_single_seed_is_a_plain_run():
+    res = ft.run_multi_seed(FakeLLM(), "m", ft.normalize_creatives(CREATIVES), people(12), seeds=[7], waves=1, exposures=1)
+    assert "multi_seed" not in res and res["seed"] == 7 and res["usage"]["calls"] > 0
+
+
+def test_feed_test_api_validates_seeds(tmp_path, monkeypatch):
+    from app import create_app
+    from app.api import market
+    app = create_app()
+    app.config.update(TESTING=True)
+    monkeypatch.setattr(market, "_sim_dir", lambda sid: str(tmp_path))
+    monkeypatch.setattr(market, "_people", lambda sid: (people(4), {}))
+    started = {}
+    monkeypatch.setattr(market, "_start", lambda kind, sid, work: started.setdefault("work", work) and "task_1")
+    c = app.test_client()
+    r = c.post("/api/simulation/feed-test", json={"simulation_id": "sim_x", "creatives": CREATIVES, "seeds": "many"})
+    assert r.status_code == 400
+    r = c.post("/api/simulation/feed-test", json={"simulation_id": "sim_x", "creatives": CREATIVES, "seeds": 50})
+    assert r.status_code == 200 and r.get_json()["data"]["seeds"] == 10          # capped

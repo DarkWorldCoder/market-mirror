@@ -6,6 +6,10 @@ MarketMirror API: marketing tests that run on a prepared simulation's personas.
     GET  /api/simulation/<simulation_id>/feed-test
     POST /api/simulation/analyst-panel         {simulation_id, material:{...}, analysts?, brief?}
     GET  /api/simulation/<simulation_id>/analyst-panel
+    POST /api/simulation/ssr                   {items:[{id, scale, text}], temperature?}  (synchronous)
+
+The feed test takes `seeds` (repeat with different seeds and report the spread)
+or `seed` (one run with that seed).
 
 Long work runs in a background thread tracked by the shared TaskManager; results
 are saved as JSON in the simulation folder so exports can pick them up later.
@@ -95,6 +99,11 @@ def start_feed_test():
         return jsonify({"success": False, "error": str(e)}), 400
     if not people:
         return jsonify({"success": False, "error": "no personas yet: prepare the simulation first"}), 400
+    try:
+        seed = int(data.get("seed") or 5)
+        n_seeds = max(1, min(int(data.get("seeds") or 1), 10))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "seed and seeds must be integers"}), 400
     limit = data.get("max_personas")
     if isinstance(limit, int) and limit > 0:
         people = people[:limit]
@@ -103,17 +112,41 @@ def start_feed_test():
     context = json.dumps((cfg.get("persona_spec") or {}).get("segments") or [], ensure_ascii=False)[:2000]
 
     def work(progress):
-        return feed_test.run_feed_test(_client(), Config.LLM_MODEL_NAME, creatives, people, context=context,
-                                       organic_per_feed=organic, parallel=parallel, progress=progress,
-                                       waves=int(data.get("waves") or 3), landing=landing,
-                                       exposures=int(data.get("exposures") or 2),
-                                       attention_gate=data.get("attention_gate", True) is not False,
-                                       benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None)
+        return feed_test.run_multi_seed(_client(), Config.LLM_MODEL_NAME, creatives, people,
+                                        seeds=feed_test.seed_list(seed, n_seeds), context=context,
+                                        organic_per_feed=organic, parallel=parallel, progress=progress,
+                                        waves=int(data.get("waves") or 3), landing=landing,
+                                        exposures=int(data.get("exposures") or 2),
+                                        attention_gate=data.get("attention_gate", True) is not False,
+                                        benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None)
 
     task_id = _start("feed-test", sid, work)
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
-                                              "feeds": feeds, "creatives": len(creatives)}})
+                                              "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
+
+
+@simulation_bp.route('/ssr', methods=['POST'])
+def semantic_similarity_rating():
+    """Map free-text survey answers to 5-point rating distributions (arXiv 2510.08338)."""
+    from ..services import ssr
+    data = request.get_json() or {}
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 5000:
+        return jsonify({"success": False, "error": "items must be a list of {id, scale, text} (max 5000)"}), 400
+    rows = [it if isinstance(it, dict) else {} for it in items]
+    try:
+        temperature = float(data.get("temperature") or 1.0)
+        rated = ssr.rate([(str(r.get("scale") or ""), r.get("text")) for r in rows], temperature=temperature)
+    except ssr.SSRUnavailable as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    embedder = ssr.get_embedder()
+    return jsonify({"success": True, "data": {
+        "model": getattr(embedder, "model_name", None), "anchors_version": ssr.ANCHORS_VERSION,
+        "scales": list(ssr.SCALES), "temperature": temperature,
+        "results": [{"id": r.get("id"), "scale": r.get("scale"), **res} for r, res in zip(rows, rated) if res]}})
 
 
 @simulation_bp.route('/analyst-panel', methods=['POST'])

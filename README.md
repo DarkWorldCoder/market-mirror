@@ -70,7 +70,7 @@ flowchart LR
 2. **Communities.** People join the groups where they actually talk (a parents' WhatsApp group, a subreddit, a Facebook group) and pick up each group's norms. Members follow each other before the simulation starts, so feeds are mostly in-group, with a small cross-group bridge.
 3. **Feed test.** Each person scrolls a feed of local organic posts with one test ad, the way each platform shows ads. See [How realistic is it?](#how-realistic-is-it) for what keeps this honest.
 4. **Social simulation (optional).** Personas post, comment and follow on simulated Twitter and Reddit for a few rounds (the MiroFish / OASIS engine), so word of mouth and group dynamics play out.
-5. **Buyer survey.** Everyone answers the same questionnaire: interest, trust, would click, would convert, recommend, the message that works (or a single assigned message in a split test), main objection, what would change their mind, a quote, and optional price questions.
+5. **Buyer survey.** Everyone answers the same questionnaire: interest, trust, purchase intent and whether they would recommend it, first in their own words and then as quick numbers; would click, the message that works (or a single assigned message in a split test), main objection, what would change their mind, a quote, and optional price questions. The free-text answers become rating distributions (see [How realistic is it?](#how-realistic-is-it)).
 6. **Analyst panel.** Several analysts with different lenses each read the anonymized evidence alone, then the panel reports where they agree.
 7. **Dashboard.** One self-contained HTML file (Apache ECharts inlined, works offline), live while the run happens, with downloads for every report.
 
@@ -106,6 +106,7 @@ claude mcp add market-mirror -- python3 /path/to/market-mirror/plugin/skills/mar
   "requirement": "question.txt",
   "personas": "personas.json",
   "creatives": "creatives.json",
+  "seeds_n": 3,
   "rounds": 3,
   "survey": {"offer": "Acme Pro trial", "goal": "start a free trial", "messages": "messages.txt", "split": true, "pricing": "USD"},
   "panel": {"analysts": 5, "brief": "Which audience and message get the budget, and should we launch?"},
@@ -134,7 +135,7 @@ mm run --seed scenarios/acme/brief.md scenarios/acme/past_ads.md \
 mm profiles --simulation <sim_id> --brief
 
 # 2. ads in real-looking feeds, with landing page, projections and ROI
-mm feedtest --simulation <sim_id> --creatives @scenarios/acme/creatives.json --exposures 2
+mm feedtest --simulation <sim_id> --creatives @scenarios/acme/creatives.json --exposures 2 --seeds 3
 
 # 3. a few rounds of social simulation, then the buyer survey (split test + price)
 mm start  --simulation <sim_id> --max-rounds 3
@@ -152,7 +153,7 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 
 | Recipe | You provide | Run |
 |---|---|---|
-| **Ad / creative test** | ads (text, headline, CTA, image or description, platform, targeting) | `feedtest --creatives @creatives.json` |
+| **Ad / creative test** | ads (text, headline, CTA, image or description, platform, targeting) | `feedtest --creatives @creatives.json --seeds 3` |
 | **Message / offer split test** | 2+ messages, the conversion goal | `survey --messages @messages.txt --split` |
 | **Price test** | offer description, currency | `survey --pricing USD` |
 | **Landing page check** | load time, language, form fields, price | `landing` block in `creatives.json` |
@@ -171,15 +172,15 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 ```json
 {
   "segments": [
-    {"label": "Indonesia parents", "count": 8, "country": "Indonesia", "cities": ["Jakarta", "Surabaya"],
-     "age_min": 40, "age_max": 55, "role": "parent who decides on study abroad", "entity_type": "Parent",
-     "languages": ["Bahasa Indonesia"], "platforms": ["Facebook", "WhatsApp"],
-     "notes": "Real ads: 4 sign-ups at $1.86 each", "gender_mix": "balanced",
+    {"label": "Philippines parents", "count": 8, "country": "Philippines", "cities": ["Manila", "Cebu City"],
+     "age_min": 35, "age_max": 50, "role": "parent who wants to get fit at home", "entity_type": "Parent",
+     "languages": ["Tagalog", "English"], "platforms": ["Facebook"],
+     "notes": "Pilot: cheapest cost per trial; many drop at the card step", "gender_mix": "balanced",
      "diversity": {"income": ["lower-middle", "middle", "upper-middle"]}}
   ],
   "communities": [
-    {"name": "Orang Tua Peduli Pendidikan", "kind": "facebook_group", "segments": ["Indonesia parents"],
-     "norms": "parents compare schools and costs; polite but cautious", "join_share": 0.9, "account": true}
+    {"name": "Fit Pinoy Community", "kind": "facebook_group", "segments": ["Philippines parents"],
+     "norms": "encouraging, Taglish posts, before/after photos", "join_share": 0.9, "account": true}
   ],
   "keep_entities": ["Your brand"], "graph_agents": "auto", "in_group_follows": 6, "bridge_rate": 0.05
 }
@@ -205,11 +206,13 @@ Up to 500 people per segment and 2,000 in total. `--auto-personas N` plans segme
 ```
 
 Platforms: `facebook`, `instagram`, `reddit`, `tiktok`, `linkedin`, `x`. Several creatives on one platform are split-tested automatically.
+
+In the `market-test` config, `seeds` lists your documents and `seeds_n` is how many times to repeat the feed test with different random seeds (same as `feedtest --seeds N`).
 </details>
 
 ## The dashboard
 
-Sections, in order: **Decision** (go / iterate / no-go), **Results** (plain-language verdicts and headline numbers), **Playbook**, **Feed test** (post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph (documents, people, segments, communities and countries, all connected) and run details.
+Sections, in order: **Decision** (go / iterate / no-go), **Results** (plain-language verdicts and headline numbers), **Ratings** (free-text answers as 1-5 distributions, mean ± spread per audience), **Playbook**, **Feed test** (range across seeds, post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph (documents, people, segments, communities and countries, all connected) and run details.
 
 **Downloads:** the dashboard (HTML), print or save as PDF, the analyst report (Markdown), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), and all key numbers (JSON). The same files are written next to `dashboard.html`.
 
@@ -220,11 +223,15 @@ LLM personas are known to be too positive, too uniform and too eager to engage. 
 - **Attention is decided in code, not by the model.** Whether an ad catches someone's eye at all comes from a per-platform prior and that person's ad avoidance. Most exposures are a quick scroll past and never reach the model ([attention research](https://www.amplified.co/insight/blog-attention-science-paid-social-strategy); [simulated users over-engage](https://arxiv.org/html/2508.21740v2)).
 - **Leaving is the default.** Scrolling past is listed first, and each person's habits are stated as facts ("you comment about once a month"; "you rarely click ads"), drawn from skewed distributions ([non-buyers are over-simulated](https://arxiv.org/abs/2606.20708)).
 - **Probabilities as well as single choices.** For each ad, people also state how likely they are to click, react, comment, share or hide. Expected rates are reported next to the realised counts.
+- **Ratings from free text, not from numbers.** Asked for a 0-10 score or a yes/no, simulated people bunch up in the middle-positive range. In the buyer survey each person first answers interest, trust, purchase intent and recommendation in one or two sentences of their own. Each answer is embedded with the local multilingual model and compared with anchor statements for every point of a 1-5 scale ("I definitely would not do this" … "I would definitely do it", three anchor sets per scale); the similarities become a probability distribution over the five points. This is semantic similarity rating, which reproduced real purchase-intent distributions far better than direct ratings across 57 personal-care product surveys ([Maier et al. 2025](https://arxiv.org/abs/2510.08338)). The dashboard shows the distributions and mean ± spread per audience; "would convert" means probably or definitely. The stated numbers are kept and used only when the embedding model is unavailable (`survey --no-ssr` turns the mapping off). It costs no extra Claude calls.
+- **Spread, not a single run.** One run is one draw: who sees which ad, feed order, whose attention is caught and each person's habits all come from a random seed. `feedtest --seeds 3` (or `"seeds_n": 3` in `market-test`) repeats the test with different seeds and reports each creative's mean and min-max range for expected CTR, thumb-stop and engagement, and how often each creative ranked first. The decision card only says go (or no-go) when every seed agrees. Each seed's Claude calls and tokens are logged.
 - **Diversity by construction.** Upbringing, education, income, thinking style, tech comfort and media diet are spread evenly across each segment, with one contradiction per person ([twins are less varied than humans](https://arxiv.org/html/2509.19088v4)).
 - **Social proof is damped.** Everyone sees reaction counts, but only about a third open the comments ([LLM agents over-follow the crowd](https://arxiv.org/html/2411.11581v3)).
 - **Frequency and wear-out.** People can see an ad several times, are told so, and notice it less each time.
 - **The click is not the conversion.** Page load on the person's likely network, their patience, the page language and the form fields all decide whether a click becomes a lead.
 - **Calibration and validation.** Projections can be calibrated to your real platform CTR and CPM, `backtest` scores the simulation against your real ads, every rate shows a 95% margin, and small samples are flagged.
+
+Report a single-seed result as a direction only; with `--seeds 3` or more, quote the range.
 
 **Limits.** Simulated people are not real people. Persona panels can still misjudge real click-through rates ([study](https://arxiv.org/abs/2609.25010)), and price answers from models are unreliable without real price data ([MSI](https://www.msi.org/working-paper/using-llms-for-market-research-2/)). Use MarketMirror to rank options, find objections and plan tests, then confirm with a small real budget. When a backtest disagrees with reality, trust reality.
 
@@ -233,9 +240,9 @@ LLM personas are known to be too positive, too uniform and too eager to engage. 
 Everything runs on your own Anthropic key. Defaults use `claude-haiku-4-5`.
 
 - **Personas:** about one call per 8 people.
-- **Feed test:** one call per exposure that catches someone's eye (typically 15-35%), plus one per click for the landing page.
+- **Feed test:** one call per exposure that catches someone's eye (typically 15-35%), plus one per click for the landing page. `--seeds N` multiplies this by N; the log shows calls and tokens per seed.
 - **Rounds:** one call per active agent per round.
-- **Survey:** one call per person.
+- **Survey:** one call per person. Mapping the free-text answers to ratings runs on the local embedding model and is free.
 - **Panel:** one call per analyst.
 
 Always stop after `prepare` and look at the people before spending on the rest.
@@ -250,6 +257,7 @@ Always stop after `prepare` and look at the people before spending on the rest.
 | API | `backend/app/api/market.py` (+ upstream `simulation.py`) |
 | CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
 | Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
+| Free-text ratings (SSR) | `backend/app/services/ssr.py` |
 | Dashboard | `backend/claude_cli/exporter.py`, `feed_view.py`, `vendor/echarts.min.js` |
 | All-in-one command | `mirofish.py market-test` |
 | MCP server (agent tools) | `plugin/skills/market-mirror/scripts/mcp_server.py` |

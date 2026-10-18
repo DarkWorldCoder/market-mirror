@@ -332,8 +332,10 @@ def read_messages(v: Optional[str]) -> List[str]:
 def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
                 platform: Optional[str] = None, batch: int = 8, wait_s: int = 240,
-                limit: Optional[int] = None) -> Dict[str, Any]:
-    """Ask every simulated person the buyer survey through the interview API; save survey.json."""
+                limit: Optional[int] = None, ssr: bool = True) -> Dict[str, Any]:
+    """Ask every simulated person the buyer survey through the interview API; save survey.json.
+
+    ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers)."""
     messages = messages or []
     if split and len(messages) < 2:
         raise CLIError("--split needs at least two messages (--messages @file)")
@@ -374,13 +376,36 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                               "answer": marketing.parse_answer(raw, len(messages)) if raw else None})
         ok = sum(1 for r in responses if r["answer"])
         log(f"survey: {min(start + batch, len(people))}/{len(people)} asked, {ok} usable answers")
+    ssr_info = step_ssr(c, responses) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
-              "platform": platform, "asked_at": datetime.now().isoformat(), "responses": responses}
+              "platform": platform, "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     return {"survey": os.path.join(os.path.abspath(out_dir), "survey.json"), "asked": len(responses),
-            "answered": answered}
+            "answered": answered, "ssr_rated": ssr_info.get("mapped", 0)}
+
+
+def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000) -> Dict[str, Any]:
+    """Semantic similarity rating (arXiv 2510.08338): the backend embeds each free-text answer with the local
+    fastembed model and maps it to a 1-5 distribution. Attaches answer["ssr"]; never fails the survey."""
+    items = marketing.ssr_items(responses)
+    if not items:
+        return {"used": False, "reason": "no free-text answers"}
+    results: List[Dict[str, Any]] = []
+    info: Dict[str, Any] = {}
+    try:
+        for start in range(0, len(items), batch):
+            info = c.data("POST", "/api/simulation/ssr", json={"items": items[start:start + batch]}, timeout=600) or {}
+            results += info.get("results") or []
+    except CLIError as e:
+        log(f"survey: free-text rating (SSR) unavailable, using the stated numbers instead: {e}")
+        return {"used": False, "reason": str(e)[:300]}
+    mapped = marketing.attach_ssr(responses, results)
+    log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
+        f"(SSR, {info.get('model') or 'local embeddings'}; no Claude calls)")
+    return {"used": True, "method": "semantic similarity rating, arXiv 2510.08338", "model": info.get("model"),
+            "anchors_version": info.get("anchors_version"), "temperature": info.get("temperature"), "mapped": mapped}
 
 
 def save_json(out_dir: str, name: str, data: Any) -> None:
@@ -861,7 +886,7 @@ def cmd_live(c: Optional[Client], a) -> Any:
 def cmd_survey(c: Client, a) -> Any:
     out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
-                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit)
+                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -884,7 +909,7 @@ def cmd_feedtest(c: Client, a) -> Any:
     out_dir = _run_dir_for(a)
     try:
         res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
-                                  a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate)
+                                  a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate, a.seeds)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     return _reexport(c, a, out_dir, res)
@@ -1002,7 +1027,8 @@ def cmd_market_test(c: Client, a) -> Any:
         arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
         state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
                                                  int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                                                 int(cfg.get("parallel") or 8), int(cfg.get("exposures") or 2), True)
+                                                 int(cfg.get("parallel") or 8), int(cfg.get("exposures") or 2), True,
+                                                 int(cfg.get("seeds_n") or 1))
         steps.append("feed_test")
         checkpoint()
     survey = cfg.get("survey")
@@ -1020,7 +1046,8 @@ def cmd_market_test(c: Client, a) -> Any:
             mp = _cfg_path(base, msgs)
             msgs = read_messages("@" + mp) if mp != msgs or msgs.startswith("@") else read_messages(msgs)
         state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
-                                      msgs or [], bool(survey.get("split")), survey.get("pricing"))
+                                      msgs or [], bool(survey.get("split")), survey.get("pricing"),
+                                      ssr=survey.get("ssr", True) is not False)
         steps.append("survey")
         checkpoint()
     panel_cfg = cfg.get("panel")
@@ -1276,6 +1303,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--batch", type=int, default=8, help="people per interview call (default %(default)s)")
     s.add_argument("--wait-s", type=int, default=240, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
+    s.add_argument("--no-ssr", action="store_true",
+                   help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
     s.add_argument("--run-dir", help="where survey.json and the dashboard go (default mirofish_runs/<simulation>)")
     s.add_argument("--no-export", action="store_true", help="don't re-collect and re-export the dashboard")
     s.add_argument("--title")
@@ -1291,6 +1320,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-attention-gate", action="store_true",
                    help="ask about every exposure instead of deciding in code whether the ad is noticed")
     s.add_argument("--limit", type=int, help="only the first N personas (quick, cheap check)")
+    s.add_argument("--seeds", type=int, default=1,
+                   help="repeat with N different seeds and report each creative's range (N x the cost; default %(default)s)")
     s.add_argument("--parallel", type=int, default=8)
     s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")
     s.add_argument("--no-export", action="store_true")
@@ -1316,8 +1347,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
 
     s = sub.add_parser("market-test", help="all-in-one: personas -> feed test -> rounds -> survey -> panel -> dashboard")
-    s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, survey, panel, "
-                                  "approve_spend (see README)")
+    s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, seeds_n "
+                                  "(feed-test repeats), survey, panel, approve_spend (see README)")
 
     s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
     s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")

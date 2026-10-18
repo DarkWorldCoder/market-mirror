@@ -23,8 +23,10 @@ from __future__ import annotations
 import json
 import random
 import re
+import threading
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
@@ -270,6 +272,32 @@ def assign(creatives: List[Dict[str, Any]], people: List[Dict[str, Any]], seed: 
 # LLM calls
 # --------------------------------------------------------------------------
 
+class UsageMeter:
+    """Wraps an OpenAI-style client and counts calls and tokens, so every run reports what it cost."""
+
+    def __init__(self, client):
+        self._client = client
+        self._lock = threading.Lock()
+        self.calls = self.input_tokens = self.output_tokens = 0
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def __getattr__(self, name):            # base_url etc. for is_claude_target
+        return getattr(self._client, name)
+
+    def _create(self, **kw):
+        resp = self._client.chat.completions.create(**kw)
+        usage = getattr(resp, "usage", None)
+        with self._lock:
+            self.calls += 1
+            self.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
+            self.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
+        return resp
+
+    def snapshot(self) -> Dict[str, int]:
+        with self._lock:
+            return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+
+
 def _llm_json(client, model: str, system: str, prompt: str, temperature: float = 0.8, max_tokens: int = 3000) -> Any:
     last: Optional[Exception] = None
     for attempt in range(3):
@@ -417,6 +445,9 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
     benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections."""
+    meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
+    client = meter
+    start_usage = meter.snapshot()
     rng = random.Random(seed)
     plan = assign(creatives, people, seed)
     if not plan:
@@ -510,7 +541,10 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
     if landing:
         run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel)
+    end_usage = meter.snapshot()
+    usage = {k: end_usage[k] - start_usage[k] for k in end_usage}
     return {"creatives": creatives, "sessions": sessions, "landing": landing, "waves": waves, "exposures": exposures,
+            "seed": seed, "usage": usage,
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
                         "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
             "summary": summarize(creatives, sessions, benchmarks),
@@ -742,3 +776,73 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
                                           -(per[cid]["thumb_stop"] or 0)))
     return {"per_creative": per, "calibration": calib, "organic_baseline": {k: {kk: vv for kk, vv in v.items() if kk not in ("reactions",)}
                                                       for k, v in baseline.items()}, "ranked": ranked}
+
+
+# --------------------------------------------------------------------------
+# Multi-seed runs: the same test with different seeds, reported as a range
+# --------------------------------------------------------------------------
+
+SEED_METRICS = ("expected_ctr", "ctr", "thumb_stop", "engagement_rate", "expected_engagement", "hide_rate")
+
+
+def seed_list(seed: int = 5, n: int = 1) -> List[int]:
+    return [int(seed) + 7919 * i for i in range(max(1, int(n)))]
+
+
+def _spread(values: List[Optional[float]]) -> Optional[Dict[str, Any]]:
+    xs = [float(v) for v in values if v is not None]
+    if not xs:
+        return None
+    mean = sum(xs) / len(xs)
+    sd = (sum((x - mean) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5 if len(xs) > 1 else 0.0
+    return {"mean": round(mean, 2), "min": round(min(xs), 2), "max": round(max(xs), 2), "sd": round(sd, 2),
+            "values": [None if v is None else round(float(v), 2) for v in values]}
+
+
+def combine_runs(runs: List[Dict[str, Any]], benchmarks: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Pool the sessions of several seeds and keep, per creative, the mean and min-max range across seeds."""
+    first = runs[0]
+    sessions = [{**s, "seed": r.get("seed")} for r in runs for s in r["sessions"]]
+    summary = summarize(first["creatives"], sessions, benchmarks)
+    first_per = first["summary"]["per_creative"]
+    for cid, m in summary["per_creative"].items():
+        if cid in first_per:            # replay one seed, so the same person does not scroll past twice
+            m["events"] = first_per[cid]["events"]
+    per_seed = [{"seed": r.get("seed"), "usage": r.get("usage") or {}, "ranked": r["summary"]["ranked"],
+                 "failed": r.get("failed", 0),
+                 "per_creative": {cid: {k: m.get(k) for k in SEED_METRICS + ("impressions",)}
+                                  for cid, m in r["summary"]["per_creative"].items()}} for r in runs]
+    spread = {cid: {k: _spread([ps["per_creative"].get(cid, {}).get(k) for ps in per_seed]) for k in SEED_METRICS}
+              for cid in summary["per_creative"]}
+    winners = Counter(ps["ranked"][0] for ps in per_seed if ps["ranked"])
+    usage = {k: sum(int((r.get("usage") or {}).get(k, 0)) for r in runs) for k in ("calls", "input_tokens", "output_tokens")}
+    top = (summary.get("ranked") or [None])[0]
+    multi = {"n": len(runs), "seeds": [r.get("seed") for r in runs], "per_seed": per_seed, "spread": spread,
+             "winner_counts": dict(winners.most_common()),
+             "winner_agreement": round(100.0 * winners.get(top, 0) / len(runs)) if top else None, "usage": usage}
+    return {**first, "sessions": sessions, "summary": summary, "seed": first.get("seed"), "usage": usage,
+            "multi_seed": multi, "feeds": sum(r.get("feeds", 0) for r in runs),
+            "failed": sum(r.get("failed", 0) for r in runs),
+            "realism": {**first.get("realism", {}),
+                        "llm_feed_calls": sum((r.get("realism") or {}).get("llm_feed_calls", 0) for r in runs)}}
+
+
+def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: List[Dict[str, Any]],
+                   seeds: Optional[List[int]] = None, progress: Optional[Callable[[int, int], None]] = None,
+                   benchmarks: Optional[Dict[str, Any]] = None, **kw) -> Dict[str, Any]:
+    """Run the feed test once per seed (assignment, placements, attention and traits all change) and combine.
+
+    One seed returns the plain single-run result. Every run logs its Claude calls and tokens."""
+    seeds = list(seeds or [5])
+    meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
+    runs = []
+    for i, sd in enumerate(seeds):
+        def prog(done, total, i=i):
+            if progress:
+                progress(i * total + done, total * len(seeds))
+        r = run_feed_test(meter, model, creatives, people, seed=sd, progress=prog, benchmarks=benchmarks, **kw)
+        u = r["usage"]
+        logger.info(f"feed test seed {sd} ({i + 1}/{len(seeds)}): {u['calls']} Claude calls, "
+                    f"{u['input_tokens']} input / {u['output_tokens']} output tokens")
+        runs.append(r)
+    return runs[0] if len(runs) == 1 else combine_runs(runs, benchmarks)

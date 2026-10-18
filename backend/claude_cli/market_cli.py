@@ -69,7 +69,8 @@ def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval:
 
 def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_arg: Optional[str] = None,
              bench_arg: Optional[str] = None, waves: int = 3, organic: int = 5, limit: Optional[int] = None,
-             parallel: int = 8, exposures: int = 2, attention_gate: bool = True) -> Dict[str, Any]:
+             parallel: int = 8, exposures: int = 2, attention_gate: bool = True, seeds: int = 1) -> Dict[str, Any]:
+    """seeds > 1 repeats the test with different seeds and reports each creative's mean and min-max range."""
     spec = _load_json_arg(spec_arg)
     base_dir = os.path.dirname(os.path.abspath(spec_arg[1:])) if spec_arg.startswith("@") else os.getcwd()
     if isinstance(spec, list):
@@ -94,24 +95,51 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     if isinstance(bench, dict) and "benchmarks" in bench:
         bench = bench["benchmarks"]
     payload = {"simulation_id": simulation_id, "creatives": creatives, "waves": waves, "organic_per_feed": organic,
-               "exposures": exposures, "attention_gate": attention_gate,
+               "exposures": exposures, "attention_gate": attention_gate, "seeds": max(1, int(seeds or 1)),
                "parallel": parallel, **({"landing": landing} if landing else {}),
                **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {})}
     started = c.data("POST", "/api/simulation/feed-test", json=payload, timeout=120)
     log(f"feedtest: {started.get('feeds')} person-platform pairs x {exposures} exposures, {started.get('personas')} personas, "
         f"{started.get('creatives')} creatives, {waves} waves. Only exposures that catch the eye call Claude"
-        + (", plus one call per click for the landing page" if landing else ""))
+        + (", plus one call per click for the landing page" if landing else "")
+        + (f". Repeated with {seeds} seeds: about {seeds}x the calls of one run" if seeds > 1 else ""))
     wait_task(c, started["task_id"], "feedtest", log)
     result = c.data("GET", f"/api/simulation/{simulation_id}/feed-test")
+    log_cost(result, log)
     for cr in result.get("creatives") or []:
         if cr["id"] in images:
             cr["image"] = images[cr["id"]]
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "feed_test.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    return {"feed_test": os.path.join(os.path.abspath(out_dir), "feed_test.json"),
-            "personas": result.get("personas_tested"), "feeds": result.get("feeds"), "failed": result.get("failed"),
-            "ranked": (result.get("summary") or {}).get("ranked")}
+    out = {"feed_test": os.path.join(os.path.abspath(out_dir), "feed_test.json"),
+           "personas": result.get("personas_tested"), "feeds": result.get("feeds"), "failed": result.get("failed"),
+           "ranked": (result.get("summary") or {}).get("ranked"), "usage": result.get("usage")}
+    ms = result.get("multi_seed")
+    if ms:
+        out["seeds"] = ms.get("seeds")
+        out["winner_agreement"] = ms.get("winner_agreement")
+        out["ranges"] = {cid: {k: [v["min"], v["max"]] for k, v in sp.items()
+                               if v and k in ("expected_ctr", "thumb_stop", "engagement_rate")}
+                         for cid, sp in (ms.get("spread") or {}).items()}
+    return out
+
+
+def _usage_txt(u: Dict[str, Any]) -> str:
+    return (f"{u.get('calls', 0)} Claude calls, {u.get('input_tokens', 0):,} input / "
+            f"{u.get('output_tokens', 0):,} output tokens")
+
+
+def log_cost(result: Dict[str, Any], log) -> None:
+    """One log line per seed plus the total, so the spend of a multi-seed run stays visible."""
+    ms = result.get("multi_seed") or {}
+    for i, ps in enumerate(ms.get("per_seed") or []):
+        log(f"feedtest: seed {ps.get('seed')} ({i + 1}/{ms.get('n')}): {_usage_txt(ps.get('usage') or {})}")
+    if result.get("usage"):
+        log(f"feedtest: total cost {_usage_txt(result['usage'])}")
+    if ms.get("winner_agreement") is not None:
+        top = ((result.get("summary") or {}).get("ranked") or ["?"])[0]
+        log(f"feedtest: {top} ranked first in {ms['winner_agreement']}% of {ms.get('n')} seeds")
 
 
 # --------------------------------------------------------------------------
@@ -159,10 +187,13 @@ def build_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         if not a:
             continue
         m = meta.get(int(r.get("agent_id", -1))) or {}
-        text = a.get("quote") or a.get("main_objection")
+        text = " ".join(t for t in (a.get("quote"), (a.get("texts") or {}).get("purchase")) if t) or a.get("main_objection")
+        intent = ((a.get("ssr") or {}).get("purchase") or {}).get("mean")
         if text:
             material["survey"].append({"segment": m.get("segment") or "unknown", "text": text,
-                                       "extra": f"would convert: {a.get('would_convert')}; objection: {a.get('objection_type')}"})
+                                       "extra": (f"purchase intent {intent:.1f}/5" if intent is not None
+                                                 else f"would convert: {a.get('would_convert')}")
+                                                + f"; objection: {a.get('objection_type')}"})
     req = (bundle.get("project") or {}).get("simulation_requirement") or ""
     material["context"] = req[:3000]
     return material

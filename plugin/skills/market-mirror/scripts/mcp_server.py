@@ -85,7 +85,12 @@ def results(run: str) -> Dict[str, Any]:
            "files": sorted(f for f in os.listdir(run_dir) if f.endswith((".csv", ".json", ".md", ".html")))}
     ft = os.path.join(run_dir, "feed_test.json")
     if os.path.exists(ft):
-        summ = (json.load(open(ft, encoding="utf-8")).get("summary") or {})
+        ftj = json.load(open(ft, encoding="utf-8"))
+        summ = ftj.get("summary") or {}
+        ms = ftj.get("multi_seed") or {}
+        if ms:
+            out["feed_test_seeds"] = {"n": ms.get("n"), "winner_agreement": ms.get("winner_agreement"),
+                                      "usage": ms.get("usage"), "spread": ms.get("spread")}
         out["feed_test"] = {cid: {k: v for k, v in m.items() if k in (
             "impressions", "noticed", "thumb_stop", "ctr", "expected_ctr", "engagement_rate", "hide_rate", "landing", "projection")}
             for cid, m in (summ.get("per_creative") or {}).items()}
@@ -135,7 +140,7 @@ TOOLS = [
     {"name": "market_test", "description": (
         "All-in-one market test. Config keys: name, title, seeds (absolute paths to documents), requirement (text), "
         "personas (persona spec object or absolute path) or auto_personas (int), creatives (feed-test object with creatives, "
-        "landing, benchmarks), rounds (int), survey {offer, goal, messages (list), split, pricing}, panel {analysts, brief}, "
+        "landing, benchmarks), seeds_n (int, repeat the feed test with N seeds and report ranges), rounds (int), survey {offer, goal, messages (list), split, pricing}, panel {analysts, brief}, "
         "report (bool), simulation_id (reuse), approve_spend (bool). Without approve_spend it stops after creating the "
         "personas so you can show them to the user; then call again with simulation_id and approve_spend true. Background job."),
      "inputSchema": {"type": "object", "properties": {"config": {"type": "object"}}, "required": ["config"]}},

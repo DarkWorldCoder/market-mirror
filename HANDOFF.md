@@ -24,8 +24,7 @@ Your own inputs go in `scenarios/<name>/` (gitignored). Runs go to `mirofish_run
 - [ ] Report generation (ReportAgent) on real Claude.
 
 ## Known gaps / next steps
-- Survey ratings are asked directly. Research (arXiv 2510.08338) shows free text mapped to anchor statements by embedding similarity matches humans far better; implement with the local fastembed model.
-- No multi-seed runs yet: run the same test with several seeds and report the spread.
+- Done: survey ratings come from free text mapped to anchor statements (SSR, arXiv 2510.08338, `backend/app/services/ssr.py`), and `feedtest --seeds N` reports ranges. Not yet checked on a real run: the anchor sets and the decision thresholds on the SSR mean (go >= 3.5, iterate >= 2.7) are first guesses; tune them with a backtest or real survey data.
 - Pricing (Van Westendorp) answers from LLMs are low-confidence without real price data.
 - The upstream Vue frontend is not updated for MarketMirror (the dashboard replaces it). Upstream bug: `frontend/src/api/report.js` calls `getReportStatus` with GET, the route is POST-only.
 - Local memory: no temporal invalidation of old facts; multilingual embedding truncates at 128 tokens.

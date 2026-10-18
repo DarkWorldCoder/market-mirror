@@ -66,13 +66,13 @@ Interviews work only while the simulation environment is still alive (`status` s
 | Goal | Command |
 |---|---|
 | concrete personas + communities | `$C run ... --personas scenarios/x/personas.json` (or `--auto-personas 30`), `--stop-after prepare` first |
-| ads in realistic feeds | `$C feedtest --simulation sim_x --creatives @scenarios/x/creatives.json [--exposures 2] [--landing @..] [--benchmarks @past_ads.json]` |
-| buyer survey / split test / price | `$C survey --simulation sim_x --offer ".." --goal ".." --messages @msgs.txt --split --pricing USD` (needs a started simulation) |
+| ads in realistic feeds | `$C feedtest --simulation sim_x --creatives @scenarios/x/creatives.json [--exposures 2] [--seeds 3] [--landing @..] [--benchmarks @past_ads.json]` |
+| buyer survey / split test / price | `$C survey --simulation sim_x --offer ".." --goal ".." --messages @msgs.txt --split --pricing USD` (needs a started simulation; free-text answers are mapped to 1-5 distributions by `POST /api/simulation/ssr`, `--no-ssr` to skip) |
 | analyst panel | `$C panel --simulation sim_x --analysts 5 --brief ".."` |
 | past ads to seed + benchmarks | `$C ads-import export.csv --out scenarios/x/past_ads.md` |
 | backtest vs real ads | `$C backtest --run-dir mirofish_runs/x --actuals scenarios/x/past_ads.json` |
 
-Results land in the run folder (`feed_test.json`, `survey.json`, `analyst_panel.json`, `backtest.json`) and in the dashboard, which also writes CSV/JSON/Markdown downloads next to `dashboard.html`. API: `backend/app/api/market.py`. Persona spec, creatives and benchmark formats are documented in `README.md` and the skill. Report simulated numbers as directions with their margins, never as measurements.
+Results land in the run folder (`feed_test.json`, `survey.json`, `analyst_panel.json`, `backtest.json`) and in the dashboard, which also writes CSV/JSON/Markdown downloads next to `dashboard.html`. API: `backend/app/api/market.py`. Persona spec, creatives and benchmark formats are documented in `README.md` and the skill. Report simulated numbers as directions with their margins, never as measurements: the feed-test range across `--seeds` and the survey's SSR mean ± spread.
 
 ## 4. Export and show the dashboard
 

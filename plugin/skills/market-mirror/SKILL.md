@@ -1,6 +1,6 @@
 ---
 name: market-mirror
-description: MarketMirror - test marketing and sales decisions on simulated buyers before spending. Builds diverse personas (country, age, upbringing, education, income, thinking style, communities) from any documents, then runs ad and creative tests in realistic Facebook/Instagram/Reddit/TikTok/LinkedIn/X feeds, split tests of messages, buyer surveys (intent, objections, NPS), price testing (Van Westendorp), landing-page drop-off, spend/ROI/cost-per-lead projections calibrated to real ad data, past-ad analysis and backtests, an independent analyst panel, and a sales playbook per audience, all in a live dashboard with downloadable reports. Use when the user wants to test ads, messages, offers, prices, launches, positioning or sales pitches on an audience; predict how customers, students, parents, voters or the public will react; analyse past ad performance; estimate cost per lead or ROI; or mentions MarketMirror or MiroFish. Needs a shell and an Anthropic API key.
+description: MarketMirror - test marketing and sales decisions on simulated buyers before spending. Builds diverse personas (country, age, upbringing, education, income, thinking style, communities) from any documents, then runs ad and creative tests in realistic Facebook/Instagram/Reddit/TikTok/LinkedIn/X feeds, split tests of messages, buyer surveys (free-text intent mapped to rating distributions, objections, word of mouth), multi-seed ranges, price testing (Van Westendorp), landing-page drop-off, spend/ROI/cost-per-lead projections calibrated to real ad data, past-ad analysis and backtests, an independent analyst panel, and a sales playbook per audience, all in a live dashboard with downloadable reports. Use when the user wants to test ads, messages, offers, prices, launches, positioning or sales pitches on an audience; predict how customers, students, parents, voters or the public will react; analyse past ad performance; estimate cost per lead or ROI; or mentions MarketMirror or MiroFish. Needs a shell and an Anthropic API key.
 ---
 
 # MarketMirror
@@ -18,7 +18,7 @@ The engine lives in `~/.market-mirror/engine` unless `MARKET_MIRROR_HOME` says o
 
 ## 0. Ground rules
 
-- Simulated people are not real people. Always say so when reporting, show the sample size, and prefer directions ("Bangladesh students look strongest") over precise claims. The dashboard shows 95% margins and flags small samples; repeat them.
+- Simulated people are not real people. Always say so when reporting, show the sample size, and prefer directions ("parents in Manila look strongest") over precise claims. The dashboard shows 95% margins and flags small samples; repeat them.
 - Ground everything you can in real data (section 2). Ungrounded runs are brainstorming, not evidence.
 - Never print, echo or grep the API key. Ask the user to put it in `<engine>/.env`, or write it there with a file edit if they paste it.
 - Spend control: always stop after `prepare` and show the personas first. Say roughly how many Claude calls the next step makes before running rounds, surveys or feed tests.
@@ -48,11 +48,11 @@ Write `<scenario>/personas.json`. Each segment gets real people with ages spread
 
 ```json
 {"segments": [
-  {"label": "Nepal parents", "count": 8, "country": "Nepal", "cities": ["Kathmandu", "Pokhara"], "age_min": 40, "age_max": 55,
-   "role": "parent paying for study abroad", "entity_type": "Parent", "languages": ["Nepali"], "platforms": ["Facebook", "Viber"],
-   "notes": "Real ads: 603 clicks, 0 sign-ups"}],
+  {"label": "Kenya young professionals", "count": 8, "country": "Kenya", "cities": ["Nairobi", "Mombasa"], "age_min": 22, "age_max": 35,
+   "role": "young professional or freelancer", "entity_type": "Customer", "languages": ["English", "Swahili"], "platforms": ["Instagram", "TikTok"],
+   "notes": "Pilot: highest cost per trial; questions about data use"}],
  "communities": [
-  {"name": "Nepali Abhibhawak Samuha", "kind": "viber_group", "segments": ["Nepal parents"], "norms": "forward warnings; trust people they know"}],
+  {"name": "Nairobi Runners & Gym Rats", "kind": "whatsapp_group", "segments": ["Kenya young professionals"], "norms": "data-cost conscious; compare by price"}],
  "keep_entities": ["Your brand name"]}
 ```
 
@@ -60,7 +60,7 @@ No spec? `--auto-personas 30` lets Claude plan segments and communities from the
 
 ## 4. All in one (fastest)
 
-Write `<scenario>/market_test.json` (keys: name, title, seeds, requirement, personas or auto_personas, creatives, rounds, survey {offer, goal, messages, split, pricing}, panel {analysts, brief}, report, approve_spend) and run `bash "$MM" cli market-test <scenario>/market_test.json`. The first run stops after creating the people and prints them: show them to the user. Then add the printed `simulation_id` and `"approve_spend": true` and run again. If the MCP tools are available (`market_test`, `job_status`, `results`), use those instead of the shell.
+Write `<scenario>/market_test.json` (keys: name, title, seeds, requirement, personas or auto_personas, creatives, seeds_n (repeat the feed test with N seeds; 3 for anything you will report), rounds, survey {offer, goal, messages, split, pricing}, panel {analysts, brief}, report, approve_spend) and run `bash "$MM" cli market-test <scenario>/market_test.json`. The first run stops after creating the people and prints them: show them to the user. Then add the printed `simulation_id` and `"approve_spend": true` and run again. If the MCP tools are available (`market_test`, `job_status`, `results`), use those instead of the shell.
 
 The dashboard opens with a **go / iterate / no-go decision** combining every signal. Report it with its confidence and the "fix first" list.
 
@@ -84,11 +84,12 @@ bash "$MM" cli run --seed <abs paths...> --requirement @<scenario>/requirement.t
  "benchmarks": {"facebook": {"cpm": 2.1, "ctr": 1.4, "budget": 500, "currency": "USD",
                              "lead_value": 12, "close_rate": 0.1, "deal_value": 300, "gross_margin": 0.8}}}
 ```
-Then `bash "$MM" cli feedtest --simulation <id> --creatives @<scenario>/creatives.json --exposures 2`. Several creatives on one platform are split-tested automatically (each person sees one). Output: thumb-stop, CTR (realised and expected), engagement, hides, comments in the persona's voice, landing-page funnel with drop reasons, and spend projections: clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback. Benchmarks from `ads-import` calibrate CTR to reality.
+Then `bash "$MM" cli feedtest --simulation <id> --creatives @<scenario>/creatives.json --exposures 2 --seeds 3`. `--seeds N` repeats the test with N random seeds (N times the cost; the log prints Claude calls and tokens per seed) and reports each creative's mean and min-max range for expected CTR, thumb-stop and engagement, plus how often it ranked first. Use `--seeds 1` only for a quick check, and then report the result as a direction. Several creatives on one platform are split-tested automatically (each person sees one). Output: thumb-stop, CTR (realised and expected), engagement, hides, comments in the persona's voice, landing-page funnel with drop reasons, and spend projections: clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback. Benchmarks from `ads-import` calibrate CTR to reality.
 
 **B. Message or offer test (buyer survey).** Needs the simulation running: `cli start --simulation <id> --max-rounds 3`, then
 `cli survey --simulation <id> --offer "..." --goal "sign up for X" --messages @<scenario>/messages.txt --split`.
 `--split` gives each person one message (a real A/B test); without it people pick their favourite.
+People answer interest, trust, purchase intent and recommendation in their own words first; the backend maps each answer to a 1-5 distribution by similarity to anchor statements with the local embedding model (semantic similarity rating, arXiv 2510.08338; free, no Claude calls). The dashboard's Ratings section shows the distributions and mean ± spread per audience, and "would convert" means probably or definitely. Quote intent as "3.4/5 ± 1.1", not the stated 0-10 numbers, which run high. If the log says SSR is unavailable, the stated numbers are used: say so when reporting.
 
 **C. Price test.** Add `--pricing USD` (any currency) to the survey: acceptable range, sweet spot, and "never pay" price by segment. Treat it as low confidence unless calibrated with real price data.
 
@@ -106,11 +107,11 @@ Then `bash "$MM" cli feedtest --simulation <id> --creatives @<scenario>/creative
 
 - Live: the browser pane at `http://127.0.0.1:5050/` updates as steps finish.
 - Final: `<engine>/mirofish_runs/<name>/dashboard.html` (one offline file). Publish it as an Artifact if available, otherwise send the file. Its Downloads section exports the report (Markdown), every survey answer and feed session (CSV), metrics (JSON) and print-to-PDF; the same files sit next to it.
-- In chat: lead with the decision (which audience, which message, what to fix first, expected cost per lead), then the evidence and its limits. Quote real comments from personas, labelled as simulated.
+- In chat: lead with the decision (which audience, which message, what to fix first, expected cost per lead), then the evidence and its limits. Give ranges, not points: the feed-test range across seeds and the survey mean ± spread. If seeds disagree on the winning creative, call it a tie. Quote real comments from personas, labelled as simulated.
 
 ## 7. Costs and cleanup
 
-Feed tests call Claude only for exposures that catch someone's eye (most do not), plus one call per click for the landing page. Rounds cost one call per active agent per round; surveys one per person; the panel one per analyst. `claude-haiku-4-5` is the cheap default; use a Sonnet model for final reports. `bash "$MM" stop` stops everything.
+Feed tests call Claude only for exposures that catch someone's eye (most do not), plus one call per click for the landing page; `--seeds N` multiplies that by N. Rounds cost one call per active agent per round; surveys one per person; the panel one per analyst. `claude-haiku-4-5` is the cheap default; use a Sonnet model for final reports. `bash "$MM" stop` stops everything.
 
 ## Troubleshooting
 

@@ -4,7 +4,10 @@ marketing.py - turn a MiroFish run into marketing and sales answers.
 1. A post-run survey: every simulated person answers the same short questionnaire
    (interest, trust, would click, would convert, recommend, best message, main
    objection, what would change their mind, a quote). Answers are parsed from the
-   agents' interview replies.
+   agents' interview replies. Interest, trust, purchase intent and recommendation
+   are first answered in free text; the backend maps each text to a 5-point rating
+   distribution by embedding similarity (SSR, arXiv 2510.08338). The stated
+   numbers are kept and used only when no SSR rating exists.
 2. Analysis: funnel, intent by segment / country / community / age band / gender,
    objections, winning messages, voice-of-customer quotes, plain-language verdicts.
 3. HTML sections for the dashboard (stdlib only, same CSS tokens as exporter.py).
@@ -29,6 +32,10 @@ OBJECTION_LABELS = {
     "unclear": "Unclear what it is", "privacy": "Privacy / personal data", "language": "Language barrier",
     "none": "No objection", "other": "Other",
 }
+# free-text survey fields -> SSR scale (see backend/app/services/ssr.py)
+TEXT_FIELDS = {"purchase": "purchase_text", "interest": "interest_text", "trust": "trust_text",
+               "recommend": "recommend_text"}
+SSR_SCALES = tuple(TEXT_FIELDS)
 AGE_BANDS = [(0, 17, "Under 18"), (18, 24, "18-24"), (25, 34, "25-34"), (35, 44, "35-44"),
              (45, 54, "45-54"), (55, 64, "55-64"), (65, 200, "65+")]
 
@@ -63,8 +70,15 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         "unsure or not interested.\n\n"
         f"{msg_block}"
         f"The action we care about: {goal_txt}.\n\n"
+        "First answer the four questions in your own words, one or two sentences each, in the language you "
+        "normally use. Say how you really feel, including how sure or unsure you are; do not be polite. "
+        "Then give the quick numbers.\n"
         "Reply with only this JSON, no other text (numbers as plain numbers):\n"
-        '{"noticed": true, "interest": 0-10, "trust": 0-10, "would_click": "yes|maybe|no", '
+        '{"interest_text": "how interested are you in this, and why", '
+        '"trust_text": "do you trust it, and why or why not", '
+        f'"purchase_text": "would you actually {goal_txt}? how likely, honestly", '
+        '"recommend_text": "would you tell a friend or family member about it", '
+        '"noticed": true, "interest": 0-10, "trust": 0-10, "would_click": "yes|maybe|no", '
         '"would_convert": "yes|maybe|no", "recommend": 0-10, '
         f"{msg_fields}{price_fields}"
         '"main_objection": "your biggest hesitation, one sentence", '
@@ -184,13 +198,41 @@ def parse_answer(response: Any, n_messages: int = 0) -> Optional[Dict[str, Any]]
         "quote": str(data.get("quote") or "").strip()[:300],
         "message_reaction": _score(data.get("message_reaction")),
     }
+    texts = {scale: str(data.get(field) or "").strip()[:400] for scale, field in TEXT_FIELDS.items()}
+    texts = {k: v for k, v in texts.items() if v}
+    if texts:
+        out["texts"] = texts
     prices = {k: _price(data.get(k)) for k in ("price_too_cheap", "price_cheap", "price_expensive",
                                                 "price_too_expensive")}
     if any(v is not None for v in prices.values()):
         out.update(prices)
-    if out["interest"] is None and out["would_convert"] is None and out["would_click"] is None:
+    if out["interest"] is None and out["would_convert"] is None and out["would_click"] is None and not texts:
         return None
     return out
+
+
+def ssr_items(responses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Free-text answers to send to the backend SSR endpoint: [{id: "<response index>:<scale>", scale, text}]."""
+    items = []
+    for i, r in enumerate(responses):
+        for scale, text in ((r.get("answer") or {}).get("texts") or {}).items():
+            if scale in TEXT_FIELDS and text:
+                items.append({"id": f"{i}:{scale}", "scale": scale, "text": text})
+    return items
+
+
+def attach_ssr(responses: List[Dict[str, Any]], results: List[Dict[str, Any]]) -> int:
+    """Store each SSR result under answer["ssr"][scale]; returns how many answers got at least one rating."""
+    for res in results or []:
+        try:
+            i, scale = str(res.get("id")).split(":", 1)
+            ans = responses[int(i)].get("answer")
+        except (ValueError, IndexError):
+            continue
+        if ans is None or scale not in TEXT_FIELDS or not isinstance(res.get("pmf"), list):
+            continue
+        ans.setdefault("ssr", {})[scale] = {k: res.get(k) for k in ("pmf", "mean", "sd", "score10")}
+    return sum(1 for r in responses if (r.get("answer") or {}).get("ssr"))
 
 
 def interview_texts(result: Any) -> Dict[int, str]:
@@ -280,10 +322,38 @@ def _avg(xs: List[Optional[float]]) -> Optional[float]:
     return round(sum(xs) / len(xs), 1) if xs else None
 
 
+def conv_probs(r: Dict[str, Any]) -> Tuple[float, float, float]:
+    """(yes, maybe, no) for one person: from the SSR purchase distribution (probably or definitely /
+    might / probably or definitely not) when present, else the stated yes|maybe|no."""
+    pi = (r.get("ssr") or {}).get("purchase")
+    if pi and isinstance(pi.get("pmf"), list) and len(pi["pmf"]) == 5:
+        p = pi["pmf"]
+        return p[3] + p[4], p[2], p[0] + p[1]
+    v = r.get("would_convert")
+    return float(v == YES), float(v == MAYBE), float(v == NO)
+
+
+def pool_ssr(rows: List[Dict[str, Any]], scale: str) -> Optional[Dict[str, Any]]:
+    """Average the people's SSR distributions: n, pooled 5-point pmf, mean and spread (SD) on 1-5."""
+    import math
+    pm = [r["ssr"][scale]["pmf"] for r in rows if ((r.get("ssr") or {}).get(scale) or {}).get("pmf")]
+    if not pm:
+        return None
+    avg = [sum(p[k] for p in pm) / len(pm) for k in range(5)]
+    mean = sum((k + 1) * x for k, x in enumerate(avg))
+    sd = math.sqrt(max(sum(((k + 1) - mean) ** 2 * x for k, x in enumerate(avg)), 0.0))
+    out = {"n": len(pm), "pmf": [round(x, 3) for x in avg], "mean": round(mean, 2), "sd": round(sd, 2)}
+    if scale == "purchase":
+        out.update({"top2": round(100 * (avg[3] + avg[4]), 1), "middle": round(100 * avg[2], 1),
+                    "bottom2": round(100 * (avg[0] + avg[1]), 1)})
+    return out
+
+
 def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     n = len(rows)
-    conv = Counter(r.get("would_convert") for r in rows)
+    probs = [conv_probs(r) for r in rows]
     click = Counter(r.get("would_click") for r in rows)
+    ssr = {k: v for k, v in ((s, pool_ssr(rows, s)) for s in SSR_SCALES) if v}
     rec = [r.get("recommend") for r in rows if r.get("recommend") is not None]
     promoters = sum(1 for x in rec if x >= 9)
     detractors = sum(1 for x in rec if x <= 6)
@@ -291,15 +361,21 @@ def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     # best message: among people at least open to it (yes counts double), the message they saw or picked
     msgs = Counter()
     for r in rows:
-        if r.get("message_key") and r.get("would_convert") in (YES, MAYBE):
-            msgs[r["message_key"]] += 2 if r.get("would_convert") == YES else 1
+        if r.get("message_key"):
+            yes, maybe, _ = conv_probs(r)
+            if yes or maybe:
+                msgs[r["message_key"]] += 2 * yes + maybe
     return {
         "n": n,
         "interest": _avg([r.get("interest") for r in rows]),
         "trust": _avg([r.get("trust") for r in rows]),
         "click_yes": _pct(click[YES], n), "click_maybe": _pct(click[MAYBE], n),
-        "convert_yes": _pct(conv[YES], n), "convert_maybe": _pct(conv[MAYBE], n), "convert_no": _pct(conv[NO], n),
-        "nps": round(100.0 * (promoters - detractors) / len(rec)) if rec else None,
+        "convert_yes": _pct(sum(p[0] for p in probs), n), "convert_maybe": _pct(sum(p[1] for p in probs), n),
+        "convert_no": _pct(sum(p[2] for p in probs), n),
+        "stated_convert_yes": _pct(sum(1 for r in rows if r.get("would_convert") == YES), n),
+        # NPS needs a 0-10 answer; with free-text ratings, word of mouth is the SSR recommend mean instead
+        "nps": None if "recommend" in ssr else (round(100.0 * (promoters - detractors) / len(rec)) if rec else None),
+        "ssr": ssr,
         "top_objection": objections.most_common(1)[0][0] if objections else None,
         "top_message": msgs.most_common(1)[0][0] if msgs else None,
     }
@@ -362,8 +438,9 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         ("Answered the survey", base),
         ("Would click", sum(1 for r in rows if r.get("would_click") == YES)),
         (f"Would click and {_goal_verb(out['goal'])}",
-         sum(1 for r in rows if r.get("would_click") == YES and r.get("would_convert") == YES)),
+         round(sum(conv_probs(r)[0] for r in rows if r.get("would_click") == YES))),
     ]
+    out["ssr"] = (survey.get("ssr") or {}) if any(r.get("ssr") for r in rows) else None
 
     def breakdown(keyfn) -> List[Dict[str, Any]]:
         groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -418,6 +495,10 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
               "convert_yes": _pct(sum(1 for r in v if r.get("would_convert") == YES), len(v)),
               "segments": [s for s, _ in Counter(r["segment"] for r in v).most_common(3)]}
              for k, v in msg_rows.items()], key=lambda x: (-x["votes"], -(x["convert_yes"] or 0)))
+    for m in out["messages_ranked"]:
+        if not split:
+            v = msg_rows[m["key"]]
+            m["convert_yes"] = _pct(sum(conv_probs(r)[0] for r in v), len(v))
 
     # segment x message grid: which message for which audience
     grid: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
@@ -426,8 +507,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
             grid[r["segment"]][r["message_key"]].append(r)
     out["message_grid"] = {
         "messages": [m["key"] for m in out["messages_ranked"]],
-        "rows": [{"segment": seg_, "cells": {k: {"n": len(v), "convert_yes": _pct(sum(1 for r in v if r.get("would_convert") == YES), len(v)),
-                                              "convert_maybe": _pct(sum(1 for r in v if r.get("would_convert") == MAYBE), len(v))}
+        "rows": [{"segment": seg_, "cells": {k: {"n": len(v), "convert_yes": _pct(sum(conv_probs(r)[0] for r in v), len(v)),
+                                              "convert_maybe": _pct(sum(conv_probs(r)[1] for r in v), len(v))}
                                               for k, v in cells.items()}}
                  for seg_, cells in sorted(grid.items())],
     } if grid else None
@@ -518,11 +599,17 @@ def playbook(a: Dict[str, Any], rows: List[Dict[str, Any]]) -> List[Dict[str, An
         fixes = Counter(r["would_change_mind"].strip().rstrip(".") for r in seg_rows
                         if r.get("would_convert") != YES and r.get("would_change_mind"))
         hooks = [r.get("quote") for r in seg_rows if r.get("would_convert") == YES and r.get("quote")]
-        score = (s["convert_yes"] or 0) + 0.3 * (s["convert_maybe"] or 0)      # a maybe is partial interest
+        pi = (s.get("ssr") or {}).get("purchase")
+        if pi:      # free-text intent: rank on the 1-5 mean (top-2-box shares run high for undecided people)
+            score = 25 * (pi["mean"] - 1)
+            priority = "high" if pi["mean"] >= 3.5 else "medium" if pi["mean"] >= 2.8 else "low"
+        else:
+            score = (s["convert_yes"] or 0) + 0.3 * (s["convert_maybe"] or 0)      # a maybe is partial interest
+            priority = "high" if score >= 30 else "medium" if score >= 12 else "low"
         plays.append({
             "segment": s["key"], "n": s["n"], "convert_yes": s["convert_yes"], "convert_maybe": s["convert_maybe"],
-            "interest": s["interest"], "score": round(score, 1),
-            "priority": "high" if score >= 30 else "medium" if score >= 12 else "low",
+            "interest": s["interest"], "score": round(score, 1), "intent": pi,
+            "priority": priority,
             "lead_with": _message_label(lead, a.get("messages") or []) if lead else None,
             "preempt": OBJECTION_LABELS.get(s.get("top_objection")) if s.get("top_objection") else None,
             "answer_with": fixes.most_common(1)[0][0] if fixes else None,
@@ -551,7 +638,12 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
     """Plain-language headline findings."""
     out = []
     o = a.get("overall") or {}
-    if o:
+    pi = (o.get("ssr") or {}).get("purchase") if o else None
+    if pi:
+        out.append(f"Purchase intent from free-text answers: {pi['mean']:.1f}/5 (spread ±{pi['sd']:.1f}). "
+                   f"{_fmt_pct(o.get('convert_yes'))} probably or definitely would {_goal_verb(a.get('goal'))}, "
+                   f"{_fmt_pct(o.get('convert_maybe'))} might.")
+    elif o:
         out.append(f"{_fmt_pct(o.get('convert_yes'))} of the people surveyed say they would "
                    f"{_goal_verb(a.get('goal'))}, and {_fmt_pct(o.get('convert_maybe'))} more are on the fence.")
     segs = [s for s in a.get("by_segment") or [] if s["n"] >= 2]
@@ -589,7 +681,10 @@ def verdicts(a: Dict[str, Any]) -> List[str]:
     if pr and pr.get("acceptable_low") is not None and pr.get("acceptable_high") is not None:
         out.append(f"Acceptable price range: {pr['acceptable_low']:g} to {pr['acceptable_high']:g}"
                    + (f", sweet spot around {pr['optimal']:g}." if pr.get("optimal") is not None else "."))
-    if o.get("nps") is not None:
+    rec = (o.get("ssr") or {}).get("recommend")
+    if rec:
+        out.append(f"Would recommend it: {rec['mean']:.1f}/5 on average (spread ±{rec['sd']:.1f}).")
+    elif o.get("nps") is not None:
         out.append(f"Word of mouth score (NPS-style): {o['nps']:+d}.")
     return out
 
@@ -753,6 +848,15 @@ var B={
   series:[{type:'scatter',symbolSize:14,data:s.points,itemStyle:{color:t.bar,borderColor:t.card,borderWidth:2},
    label:{show:true,position:'right',color:t.ink2,formatter:function(p){return p.data[2];}},
    markLine:{silent:true,symbol:'none',lineStyle:{color:t.muted,type:'dashed'},data:[[{coord:[0,0]},{coord:[mx,mx]}]]}}]});},
+ likert:function(s,t){var op=[1,.55,1,.55,1],col=[t.no,t.no,t.maybe,t.yes,t.yes];
+  var ser=s.labels.map(function(name,k){return {name:name,type:'bar',stack:'l',barMaxWidth:20,data:s.rows.map(function(r){return r[k];}),
+   itemStyle:{color:col[k],opacity:op[k],borderColor:t.card,borderWidth:2,borderRadius:3},
+   label:{show:true,position:'inside',color:k===2?t.ink:'#fff',fontSize:11,formatter:function(p){return p.value>=12?Math.round(p.value)+'%':'';}}};});
+  return Object.assign(base(t),{grid:{left:8,right:16,top:36,bottom:4,containLabel:true},
+  legend:{top:0,left:0,icon:'roundRect',itemWidth:10,itemHeight:10,textStyle:{color:t.ink2}},
+  tooltip:Object.assign(base(t).tooltip,{trigger:'axis',axisPointer:{type:'shadow',shadowStyle:{color:'rgba(127,127,127,.08)'}},
+   valueFormatter:function(v){return Math.round(v)+'%';}}),
+  xAxis:valAxis(t,{max:100,axisLabel:{color:t.muted,formatter:'{value}%'}}),yAxis:catAxis(t,s.cats,{inverse:true}),series:ser});},
  price:function(s,t){var c=s.curves,mk=function(name,key,col,dash){return {name:name,type:'line',symbol:'none',smooth:false,
    data:c.prices.map(function(p,i){return [p,c[key][i]];}),lineStyle:{width:2,color:col,type:dash?'dashed':'solid'},itemStyle:{color:col},
    endLabel:{show:true,color:t.ink2,fontSize:11,formatter:name}};};
@@ -802,9 +906,16 @@ def _num(v: Any) -> str:
     return "–" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
 
+def _ms(pool: Optional[Dict[str, Any]]) -> str:
+    """'3.4 ±1.0' for a pooled SSR scale (mean and spread on 1-5)."""
+    return "–" if not pool else f'{pool["mean"]:.1f} ±{pool["sd"]:.1f}'
+
+
 def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
     if not rows:
         return '<p class="empty">No data.</p>'
+    if any(r.get("ssr") for r in rows):
+        return _breakdown_block_ssr(rows, label)
     spec = {"cats": [r["key"] for r in rows], "yes": [r["convert_yes"] or 0 for r in rows],
             "maybe": [r["convert_maybe"] or 0 for r in rows], "no": [r["convert_no"] or 0 for r in rows]}
     ch = chart("intent", spec, 64 + 34 * len(rows), f"Would convert by {label.lower()}")
@@ -821,6 +932,71 @@ def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
              '<th class="num">Interest</th><th class="num">Trust</th><th>Top objection</th><th>Best message</th>'
              f'</tr></thead><tbody>{body}</tbody></table></div>')
     return ch + table
+
+
+def _breakdown_block_ssr(rows: List[Dict[str, Any]], label: str) -> str:
+    """Breakdown when free-text ratings exist: intent shares from SSR, then mean ±spread per scale (1-5)."""
+    spec = {"cats": [r["key"] for r in rows], "yes": [r["convert_yes"] or 0 for r in rows],
+            "maybe": [r["convert_maybe"] or 0 for r in rows], "no": [r["convert_no"] or 0 for r in rows]}
+    ch = chart("intent", spec, 64 + 34 * len(rows), f"Purchase intent by {label.lower()}")
+    best = max(((r.get("ssr") or {}).get("purchase") or {}).get("mean") or 0 for r in rows)
+    body = "".join(
+        f'<tr><td class="{"best" if (((r.get("ssr") or {}).get("purchase") or {}).get("mean") or 0) == best and best > 0 else ""}">'
+        f'{_e(r["key"])}{_low_n(r["n"])}</td><td class="num">{r["n"]}</td>'
+        + "".join(f'<td class="num">{_e(_ms((r.get("ssr") or {}).get(sc)))}</td>' for sc in SSR_SCALES)
+        + f'<td class="num">{_pct_ci(r["convert_yes"], r["n"])}</td><td class="num">{_fmt_pct(r["click_yes"])}</td>'
+        f'<td>{_e(OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"))}</td>'
+        f'<td>{_e(r["top_message"] or "–")}</td></tr>' for r in rows)
+    table = (f'<div class="tbl" style="margin-top:10px"><table><thead><tr><th>{_e(label)}</th><th class="num">People</th>'
+             '<th class="num">Intent 1-5</th><th class="num">Interest 1-5</th><th class="num">Trust 1-5</th>'
+             '<th class="num">Recommend 1-5</th><th class="num">Probably or definitely</th><th class="num">Would click</th>'
+             '<th>Top objection</th><th>Best message</th></tr></thead>'
+             f'<tbody>{body}</tbody></table></div><p class="muted small">1-5 scores come from free-text answers (SSR): '
+             'mean ± spread (standard deviation of the answers). Blue = probably or definitely, grey = might, red = '
+             'probably or definitely not.</p>')
+    return ch + table
+
+
+LIKERT_LABELS = {"purchase": ["Definitely not", "Probably not", "Might or might not", "Probably", "Definitely"],
+                 "interest": ["Not at all", "Not really", "Somewhat", "Quite", "Very"],
+                 "trust": ["Not at all", "Doubtful", "Unsure", "Mostly", "Fully"],
+                 "recommend": ["Never", "Probably not", "Maybe", "Probably", "Definitely"]}
+SSR_SCALE_LABELS = {"purchase": "Purchase intent", "interest": "Interest", "trust": "Trust", "recommend": "Would recommend"}
+
+
+def ssr_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+    """Free-text ratings: answer distributions, mean ± spread per scale and per segment, stated numbers next to them."""
+    o = a.get("overall") or {}
+    ssr = o.get("ssr") or {}
+    if not ssr:
+        return None
+    pct = lambda p: [round(100 * x, 1) for x in p]          # noqa: E731
+    scales = [sc for sc in SSR_SCALES if sc in ssr]
+    stated = {"interest": o.get("interest"), "trust": o.get("trust")}
+    overall_rows = [[SSR_SCALE_LABELS[sc]] + [f"{x:.0f}%" for x in pct(ssr[sc]["pmf"])]
+                    + [_ms(ssr[sc]), f'{stated[sc]}/10' if stated.get(sc) is not None else "–"] for sc in scales]
+    dist = chart("likert", {"cats": [SSR_SCALE_LABELS[sc] for sc in scales], "labels": ["1", "2", "3", "4", "5"],
+                            "rows": [pct(ssr[sc]["pmf"]) for sc in scales]}, 64 + 38 * len(scales),
+                 "Distribution of free-text ratings on a 1-5 scale")
+    segs = [r for r in a.get("by_segment") or [] if (r.get("ssr") or {}).get("purchase")]
+    seg_html = ""
+    if segs:
+        seg_html = ('<h3 style="margin-top:18px">Purchase intent by audience</h3>'
+                    + chart("likert", {"cats": [r["key"] for r in segs], "labels": LIKERT_LABELS["purchase"],
+                                       "rows": [pct(r["ssr"]["purchase"]["pmf"]) for r in segs]}, 64 + 34 * len(segs),
+                            "Purchase intent distribution by segment")
+                    + _table_view(["Segment", "People"] + [SSR_SCALE_LABELS[sc] + " (1-5)" for sc in SSR_SCALES],
+                                  [[r["key"], r["n"]] + [_ms((r.get("ssr") or {}).get(sc)) for sc in SSR_SCALES] for r in segs],
+                                  "Show mean ± spread by segment"))
+    info = a.get("ssr") or {}
+    model = f' Embedding model: {info["model"]}.' if info.get("model") else ""
+    return ("ratings", "Ratings", '<h2>How they rate it, in their own words</h2><div class="card">'
+            '<p class="muted small">Every person first answered in one or two sentences. Each answer is mapped to a 1-5 '
+            'scale by its similarity to anchor statements ("I would definitely do it" … "I definitely would not"), which '
+            'gives a distribution instead of a single number (semantic similarity rating, arXiv 2510.08338). Direct '
+            f'numeric answers from simulated people bunch up and run positive; they are shown only for comparison.{_e(model)}</p>'
+            + dist + _table_view(["Scale", "1", "2", "3", "4", "5", "Mean ± spread", "Stated 0-10"], overall_rows,
+                                 "Show the distributions") + seg_html + "</div>")
 
 
 def _pct_ci(p: Optional[float], n: int) -> str:
@@ -873,12 +1049,28 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
     panel = ('<div class="panel"><div class="eyebrow">What the simulation says</div>'
              f'<div class="headline">{_e(verdicts_[0] if verdicts_ else "")}</div>'
              '<ul class="verdicts">' + "".join(f"<li>{_e(v)}</li>" for v in verdicts_[1:]) + "</ul></div>")
+    ssr = o.get("ssr") or {}
+
+    def scale_kpi(name: str, key: str):
+        if ssr.get(key):
+            return (name, f'{ssr[key]["mean"]:.1f}/5', f'±{ssr[key]["sd"]:.1f} spread, from free text'
+                    + (f' (stated {o[key]}/10)' if o.get(key) is not None else ""), False)
+        return (name, f'{o[key]}/10' if o.get(key) is not None else "–", "average", False)
+    if ssr.get("purchase"):
+        intent = ("Would " + _goal_verb(a.get("goal")), _fmt_pct(o["convert_yes"]),
+                  f'probably or definitely; intent {ssr["purchase"]["mean"]:.1f}/5', True)
+    else:
+        intent = ("Would " + _goal_verb(a.get("goal")), _fmt_pct(o["convert_yes"]), f'+{_fmt_pct(o["convert_maybe"])} maybe', True)
+    if ssr.get("recommend"):
+        wom = ("Word of mouth", f'{ssr["recommend"]["mean"]:.1f}/5', f'would recommend, ±{ssr["recommend"]["sd"]:.1f} spread', False)
+    else:
+        wom = ("Word of mouth", f'{o["nps"]:+d}' if o["nps"] is not None else "–", "NPS-style, −100 to +100", False)
     kpis = [
-        ("Would " + _goal_verb(a.get("goal")), _fmt_pct(o["convert_yes"]), f'+{_fmt_pct(o["convert_maybe"])} maybe', True),
+        intent,
         ("Would click", _fmt_pct(o["click_yes"]), f'+{_fmt_pct(o["click_maybe"])} maybe', False),
-        ("Interest", f'{o["interest"]}/10' if o["interest"] is not None else "–", "average", False),
-        ("Trust", f'{o["trust"]}/10' if o["trust"] is not None else "–", "average", False),
-        ("Word of mouth", f'{o["nps"]:+d}' if o["nps"] is not None else "–", "NPS-style, −100 to +100", False),
+        scale_kpi("Interest", "interest"),
+        scale_kpi("Trust", "trust"),
+        wom,
         ("People surveyed", str(a["answered"]), f'of {a["people"]} simulated · {a["engaged"]} joined the conversation', False),
     ]
     kpi_html = '<div class="kpis">' + "".join(
@@ -892,6 +1084,9 @@ def render_sections(a: Dict[str, Any]) -> List[Tuple[str, str, str]]:
                  + (f'<span class="pill sky">Split test of {len(a.get("messages") or [])} messages</span>' if a.get("split_test") else "")
                  + "</p>")
     sections.append(("results", "Results", f'<h2>Marketing results</h2>{offer}<div class="mm-top">{panel}{kpi_html}</div>'))
+    rs = ssr_section(a)
+    if rs:
+        sections.append(rs)
 
     plays = a.get("playbook") or []
     if plays:
@@ -1019,7 +1214,7 @@ def summary_block(a: Dict[str, Any]) -> Dict[str, Any]:
                 "engagement_by_segment": a.get("engagement_by_segment")}
     keep = ("has_survey", "people", "engaged", "answered", "offer", "goal", "overall", "funnel", "verdicts",
             "by_segment", "by_country", "by_community", "by_age", "objections", "messages_ranked", "split_test",
-            "message_grid", "pricing", "playbook")
+            "message_grid", "pricing", "playbook", "ssr")
     out = {k: a.get(k) for k in keep}
     out["objections"] = [{k: v for k, v in x.items() if k != "examples"} for x in a.get("objections") or []]
     if out.get("pricing"):

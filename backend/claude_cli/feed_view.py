@@ -153,20 +153,62 @@ def post_mock(cr: Dict[str, Any], m: Dict[str, Any]) -> str:
 # Feed test section
 # --------------------------------------------------------------------------
 
-def _metric_rows(m: Dict[str, Any], base: Optional[Dict[str, Any]]) -> str:
-    n = m.get("impressions") or 0
+def _range_txt(sp: Optional[Dict[str, Any]], n_seeds: int, digits: int = 1) -> str:
+    """'2.1-3.4% across 3 seeds' from a multi-seed spread, or empty."""
+    if not sp or n_seeds < 2:
+        return ""
+    return f'{sp["min"]:.{digits}f}–{sp["max"]:.{digits}f}% across {n_seeds} seeds'
+
+
+def _metric_rows(m: Dict[str, Any], base: Optional[Dict[str, Any]], spread: Optional[Dict[str, Any]] = None,
+                 n_seeds: int = 1) -> str:
+    # pooled seeds repeat the same people, so margins use the per-seed sample size
+    n = (m.get("impressions") or 0) // max(n_seeds, 1)
+    sp = spread or {}
+
+    def hint(key: str, default: str) -> str:
+        r = _range_txt(sp.get(key), n_seeds)
+        return f"{r}; {default}" if r and default else r or default
     rows = [
         ("Noticed the ad", pct_ci(m.get("noticed"), n), "caught their eye at all while scrolling") if m.get("noticed") is not None else None,
-        ("Thumb-stop", pct_ci(m.get("thumb_stop"), n), f'organic posts: {base.get("thumb_stop"):.0f}%' if base and base.get("thumb_stop") is not None else ""),
+        ("Thumb-stop", pct_ci(m.get("thumb_stop"), n), hint("thumb_stop", f'organic posts: {base.get("thumb_stop"):.0f}%' if base and base.get("thumb_stop") is not None else "")),
         ("Avg time when stopped", f'{m["avg_dwell"]}s' if m.get("avg_dwell") is not None else "–", ""),
         ("CTR", pct_ci(m.get("ctr"), n), f'{m.get("clicks", 0)} clicks'),
-        ("Expected CTR", f'{m["expected_ctr"]:.1f}%', "average of each person's stated click chance") if m.get("expected_ctr") is not None else None,
-        ("Engagement rate", pct_ci(m.get("engagement_rate"), n), "reactions, comments, shares, saves"),
+        ("Expected CTR", f'{m["expected_ctr"]:.1f}%', hint("expected_ctr", "average of each person's stated click chance")) if m.get("expected_ctr") is not None else None,
+        ("Engagement rate", pct_ci(m.get("engagement_rate"), n), hint("engagement_rate", "reactions, comments, shares, saves")),
         ("Comments / shares", f'{m.get("comments", 0)} / {m.get("shares", 0)}', ""),
         ("Hid the ad", pct_ci(m.get("hide_rate"), n), ""),
     ]
     return "".join(f'<tr><td>{_e(k)}</td><td class="num"><b>{_e(v)}</b></td><td class="muted small">{_e(h)}</td></tr>'
                    for k, v, h in (r for r in rows if r))
+
+
+def _seeds_html(ft: Dict[str, Any], ranked: List[str], labels: List[str]) -> str:
+    """Per creative: mean and min-max range across seeds, and how often it ranked first."""
+    ms = ft.get("multi_seed") or {}
+    spread, n = ms.get("spread") or {}, ms.get("n") or 0
+    if n < 2 or not spread:
+        return ""
+    wins = ms.get("winner_counts") or {}
+
+    def cell(sp):
+        return "–" if not sp else f'{sp["mean"]:.1f}% ({sp["min"]:.1f}–{sp["max"]:.1f})'
+    body = "".join(f'<tr><td>{_e(lbl)}</td>'
+                   + "".join(f'<td class="num">{_e(cell((spread.get(cid) or {}).get(k)))}</td>'
+                             for k in ("expected_ctr", "thumb_stop", "engagement_rate"))
+                   + f'<td class="num">{wins.get(cid, 0)} of {n}</td></tr>' for cid, lbl in zip(ranked, labels))
+    u = ms.get("usage") or {}
+    cost = (f' Cost of all {n} runs: {u.get("calls", 0):,} Claude calls, {u.get("input_tokens", 0):,} input and '
+            f'{u.get("output_tokens", 0):,} output tokens.') if u.get("calls") else ""
+    agree = ms.get("winner_agreement")
+    verdict = ("The winner is stable across seeds." if agree is not None and agree >= 80 else
+               "The winner changes between seeds: treat the ranking as a tie and test both for real." if agree is not None
+               else "")
+    return (f'<div class="card"><h3>Across {n} seeds</h3><p class="muted small">The same test repeated with different '
+            f'random seeds (who sees which ad, feed order, attention, habits). Mean and min–max range per creative. '
+            f'{_e(verdict)}{_e(cost)}</p><div class="tbl"><table><thead><tr><th>Creative</th><th class="num">Expected CTR</th>'
+            f'<th class="num">Thumb-stop</th><th class="num">Engagement</th><th class="num">Ranked first</th></tr></thead>'
+            f'<tbody>{body}</tbody></table></div></div>')
 
 
 def _landing_html(lf: Optional[Dict[str, Any]]) -> str:
@@ -222,6 +264,9 @@ def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
                                                                                     "unit": "%", "highlight": 0}, 40 + 34 * len(ranked), "CTR by creative") + "</div>"
                   + '<div class="card"><h3>Thumb-stop rate by creative</h3>' + chart("bars", {"cats": labels, "values": [per[c]["thumb_stop"] or 0 for c in ranked],
                                                                                               "unit": "%", "highlight": 0}, 40 + 34 * len(ranked), "Thumb-stop by creative") + "</div></div>")
+    ms = ft.get("multi_seed") or {}
+    n_seeds = ms.get("n") or 1
+    seeds_card = _seeds_html(ft, ranked, labels)
     cards = []
     for i, cid in enumerate(ranked):
         cr, m = creatives.get(cid, {"id": cid, "platform": "facebook", "text": cid}), per[cid]
@@ -241,9 +286,10 @@ def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
             f'<button type="button" class="replay" data-replay>▶ Replay the scroll</button></div>'
             f'<div class="pm-wrap" data-events="{_e(events)}">{post_mock(cr, m)}</div>'
             f'<ol class="scroll-log" data-role="log" aria-live="polite"></ol></div>'
-            f'<div class="ftc-r"><h3>{_e(cr.get("name") or cid)}{low_n_pill(n)}</h3>'
-            f'<p class="muted small">Shown to {n} simulated people in their own feed among organic posts.</p>'
-            f'<table class="kv-t"><tbody>{_metric_rows(m, base.get(cr.get("platform")))}</tbody></table>'
+            f'<div class="ftc-r"><h3>{_e(cr.get("name") or cid)}{low_n_pill(n // n_seeds)}</h3>'
+            f'<p class="muted small">Shown to {n // n_seeds} simulated people in their own feed among organic posts'
+            + (f', in each of {n_seeds} seeded runs ({n} impressions).' if n_seeds > 1 else '.') + '</p>'
+            f'<table class="kv-t"><tbody>{_metric_rows(m, base.get(cr.get("platform")), (ms.get("spread") or {}).get(cid), n_seeds)}</tbody></table>'
             f'{_landing_html(m.get("landing"))}{_projection_html(m.get("projection"))}{proof}'
             + (f'<details class="tv"><summary>By audience</summary><div class="tbl"><table><thead><tr><th>Audience</th><th class="num">Saw it</th>'
                f'<th class="num">Thumb-stop</th><th class="num">CTR</th><th class="num">Engagement</th></tr></thead><tbody>{seg_rows}</tbody></table></div></details>'
@@ -251,9 +297,11 @@ def feed_section(ft: Dict[str, Any], chart) -> Optional[Tuple[str, str, str]]:
             + (f'<details class="tv"><summary>What went through their heads</summary><ul class="small">{thoughts}</ul></details>' if thoughts else "")
             + "</div></div>")
     head = (f'<h2>Feed test</h2><p class="muted small">{ft.get("personas_tested", 0)} simulated people scrolled realistic feeds '
-            f'({ft.get("feeds", 0)} feeds, {ft.get("waves", 1)} waves; later waves saw earlier reactions). Ranges are 95% '
-            'margins of error; small samples are flagged.</p>')
-    return ("feedtest", "Feed test", head + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
+            f'({ft.get("feeds", 0)} feeds, {ft.get("waves", 1)} waves; later waves saw earlier reactions'
+            + (f'; repeated with {n_seeds} seeds' if n_seeds > 1 else '') + '). ± values are 95% '
+            'margins of error; small samples are flagged.'
+            + ('' if n_seeds > 1 else ' One seed only: run with --seeds 3 to see how much the result moves.') + '</p>')
+    return ("feedtest", "Feed test", head + seeds_card + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
 
 
 # --------------------------------------------------------------------------
@@ -344,15 +392,25 @@ def export_files(bundle: Dict[str, Any], mk: Dict[str, Any], report_md: str) -> 
         a = r.get("answer") or {}
         m = meta.get(int(r.get("agent_id", -1)), {})
         srows.append({"agent_id": r.get("agent_id"), "name": r.get("name"), "segment": m.get("segment"), "country": m.get("country"),
-                      "age": m.get("age"), "gender": m.get("gender"), "assigned_message": r.get("assigned_message"), **a})
+                      "age": m.get("age"), "gender": m.get("gender"), "assigned_message": r.get("assigned_message"),
+                      **{k: v for k, v in a.items() if k not in ("texts", "ssr")},
+                      **{f"{sc}_text": t for sc, t in (a.get("texts") or {}).items()},
+                      **{f"{sc}_ssr_mean": (v or {}).get("mean") for sc, v in (a.get("ssr") or {}).items()}})
     if srows:
         cols = ["agent_id", "name", "segment", "country", "age", "gender", "assigned_message", "interest", "trust", "would_click",
                 "would_convert", "recommend", "best_message", "message_reaction", "objection_type", "main_objection",
                 "would_change_mind", "quote", "price_too_cheap", "price_cheap", "price_expensive", "price_too_expensive"]
+        ssr_cols = [f"{sc}_{x}" for sc in ("purchase", "interest", "trust", "recommend") for x in ("text", "ssr_mean")]
+        cols += [c for c in ssr_cols if any(c in r for r in srows)]
         files["survey_answers.csv"] = _csv(srows, cols)
     if mk.get("by_segment"):
-        files["segments.csv"] = _csv(mk["by_segment"], ["key", "n", "convert_yes", "convert_maybe", "convert_no", "click_yes",
-                                                        "interest", "trust", "nps", "top_objection", "top_message"])
+        seg_rows = [{**r, **{f"{sc}_{x}": ((r.get("ssr") or {}).get(sc) or {}).get(x)
+                             for sc in ("purchase", "interest", "trust", "recommend") for x in ("mean", "sd")}}
+                    for r in mk["by_segment"]]
+        files["segments.csv"] = _csv(seg_rows, ["key", "n", "convert_yes", "convert_maybe", "convert_no", "click_yes",
+                                                "interest", "trust", "nps", "top_objection", "top_message"]
+                                     + ([f"{sc}_{x}" for sc in ("purchase", "interest", "trust", "recommend") for x in ("mean", "sd")]
+                                        if any(r.get("ssr") for r in mk["by_segment"]) else []))
     ft = bundle.get("feed_test") or {}
     if ft.get("sessions"):
         rows = [{"agent_id": s["agent_id"], "name": s["name"], "segment": s["segment"], "country": s["country"],
@@ -526,34 +584,53 @@ def augment_graph(graph: Dict[str, Any], config: Dict[str, Any], max_people: int
 def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     signals: List[Dict[str, Any]] = []
     o = mk.get("overall") or {}
-    if mk.get("has_survey") and o.get("convert_yes") is not None:
+    pi = (o.get("ssr") or {}).get("purchase")
+    if mk.get("has_survey") and pi:
+        # free-text purchase intent mapped to a 1-5 scale (SSR): judge the mean, not the top-box share
+        mean = pi["mean"]
+        signals.append({"name": "Buyer survey", "vote": "go" if mean >= 3.5 else "iterate" if mean >= 2.7 else "no-go",
+                        "detail": f"purchase intent {mean:.1f}/5 ± {pi['sd']:.1f} from free-text answers "
+                                  f"({o.get('convert_yes') or 0:.0f}% probably or definitely), n={pi['n']}",
+                        "n": pi["n"]})
+    elif mk.get("has_survey") and o.get("convert_yes") is not None:
         v = o["convert_yes"]
         score = v + 0.3 * (o.get("convert_maybe") or 0)          # a "maybe" is worth a fraction of a "yes"
         signals.append({"name": "Buyer survey", "vote": "go" if v >= 30 or score >= 40 else "iterate" if score >= 8 else "no-go",
                         "detail": f"{v:.0f}% would convert (+{o.get('convert_maybe') or 0:.0f}% maybe), n={mk.get('answered')}",
                         "n": mk.get("answered") or 0})
-    ft = (bundle.get("feed_test") or {}).get("summary") or {}
+    ftj = bundle.get("feed_test") or {}
+    ft = ftj.get("summary") or {}
     per, calib = ft.get("per_creative") or {}, ft.get("calibration") or {}
     if per:
         best_id = (ft.get("ranked") or list(per))[0]
         b = per[best_id]
-        creatives = {c["id"]: c for c in (bundle.get("feed_test") or {}).get("creatives") or []}
+        creatives = {c["id"]: c for c in ftj.get("creatives") or []}
         plat = creatives.get(best_id, {}).get("platform")
-        exp = b.get("expected_ctr")
+        ms = ftj.get("multi_seed") or {}
+        n_seeds = ms.get("n") or 1
+        sp = ((ms.get("spread") or {}).get(best_id) or {}).get("expected_ctr") if n_seeds > 1 else None
+        exp = sp["mean"] if sp else b.get("expected_ctr")
         hide = b.get("hide_rate") or 0
         vote = "iterate"
-        detail = f"best creative {best_id}: expected CTR {exp}%, hides {hide:.0f}%"
+        detail = f"best creative {best_id}: expected CTR {exp}%"
+        if sp:
+            detail += (f" (range {sp['min']}–{sp['max']}% across {n_seeds} seeds, ranked first in "
+                       f"{ms.get('winner_agreement')}% of them)")
+        detail += f", hides {hide:.0f}%"
         if calib.get(plat):
             vs = (exp or 0) * calib[plat]
             detail += f", about {vs:.1f}% after calibrating to your real CTR"
         if exp is not None:
             vote = "go" if exp >= 3 and hide < 15 else "no-go" if exp < 1 or hide >= 30 else "iterate"
+            if sp and ((vote == "go" and sp["min"] < 3) or (vote == "no-go" and sp["max"] >= 3)):
+                vote = "iterate"                                  # not robust across seeds
         lf = b.get("landing") or {}
         if lf.get("clicks"):
             detail += f"; page loaded for {lf.get('load_rate') or 0:.0f}% of clicks, {lf.get('converted', 0)} of {lf['clicks']} converted"
             if (lf.get("load_rate") or 0) < 60 and vote == "go":
                 vote = "iterate"
-        signals.append({"name": "Feed test", "vote": vote, "detail": detail, "n": b.get("impressions") or 0})
+        signals.append({"name": "Feed test", "vote": vote, "detail": detail,
+                        "n": (b.get("impressions") or 0) // n_seeds})
     pc = (bundle.get("analyst_panel") or {}).get("consensus") or {}
     if (pc.get("verdict") or {}).get("winner"):
         v = pc["verdict"]
