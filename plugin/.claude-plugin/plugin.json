@@ -1,7 +1,7 @@
 {
   "name": "market-mirror",
-  "description": "Simulate your buyers: personas by country, age and community react to your ads, then a buyer survey measures intent, objections, the winning message and price. Live sales and marketing dashboard.",
-  "version": "0.1.0",
+  "description": "MarketMirror: marketing and sales simulation and prediction. Simulated buyers from every country, age and background scroll your ads in real-looking feeds, react to your launch posts, answer a buyer survey (messages, price), hear your sales pitch and object; you get a plain-language report, a go/iterate/no-go decision, lead scores and next-test ideas from your real ad data.",
+  "version": "0.2.0",
   "author": {
     "name": "DarkWorldCoder"
   },

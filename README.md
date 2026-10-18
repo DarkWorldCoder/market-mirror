@@ -6,7 +6,7 @@
 
 Diverse AI personas scroll realistic Facebook, Instagram, Reddit, TikTok, LinkedIn and X feeds, react to your ads, answer a buyer survey and argue in their own communities. You get a marketing and sales dashboard: who converts, which message wins, what stops people, what they would pay, and what your budget would return.
 
-Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · built on the [MiroFish](https://github.com/666ghj/MiroFish) swarm-simulation engine
+Runs on Claude · works as a Claude Code skill and as MCP agent tools · one offline HTML dashboard · built on the [MiroFish](https://github.com/666ghj/MiroFish) simulation engine
 
 <img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard: verdicts, conversion, click and trust numbers" width="92%"/>
 
@@ -25,6 +25,10 @@ Runs on Claude · works as a Claude Code skill · one offline HTML dashboard · 
 | Can we trust the simulation for this market? | Rank correlation and winner match against real ad results | **`backtest`** |
 | What do the objections sound like, and how do we answer them? | Objections by audience in the buyers' own words, "what would change my mind", a sales playbook per audience | **Survey + playbook + interviews** |
 | Does a second opinion agree? | Independent analysts (performance, brand, sales, psychology, data, local market) each read the anonymized evidence alone | **Analyst panel** |
+| What will people say when we post or launch? | Your captions are posted inside the simulation on a schedule (teaser, launch, offer); simulated people from each country reply, quote and argue in their own languages | **Brand posts + launch calendar**, shown in the **Social feed** |
+| Is the sales pitch ready? | Every simulated buyer hears the pitch, objects, asks a question back; your rebuttals are scored per objection; hot leads with the best time to reach them | **Sales rehearsal** |
+| What should we test next? | Prioritised experiments from your real ad data (exports or rows from a connected ads tool) and the run, each citing its evidence, with the config to simulate it first | **Test ideas** |
+| Can someone who is not technical read this? | A plain-language report (what we tested, who we simulated, what happened, objections and answers, pricing, sales notes, action plan, limits), downloadable from its header | **Report** |
 | So, launch it or not? | **Go / iterate / no-go**, with confidence, the signal behind each vote and what to fix first | **Decision card** combining every test |
 
 ## See it
@@ -77,6 +81,17 @@ flowchart LR
 
 ## Quick start
 
+### Easiest: `quickstart`
+
+```bash
+git clone https://github.com/DarkWorldCoder/market-mirror && cd market-mirror
+cd backend && uv sync --python 3.12 && cd ..
+bash backend/claude_cli/start_server.sh
+backend/.venv/bin/python backend/claude_cli/mirofish.py quickstart
+```
+
+It asks nine plain questions (brand, what you sell, who buys and where, platforms, what to test, budget, how many people, past ad export, extra documents), creates `.env` and asks for your Anthropic key if there is none (typed hidden, never printed), writes a scenario folder with template ads, messages, a launch calendar, a pitch and rebuttals, builds the simulated people and stops before any paid step. Edit the templates, then run the printed command. Agents call it with `--answers @answers.json`, or through the `quickstart` MCP tool.
+
 ### As a Claude skill (recommended)
 
 In Claude Code:
@@ -92,7 +107,7 @@ You can also copy `plugin/skills/market-mirror/` into `~/.claude/skills/`. The s
 
 ### As agent tools (MCP)
 
-The plugin also starts an MCP server, so Claude Desktop, Claude Code or any MCP client gets these tools: `doctor`, `setup`, `start_backend`, `market_test` (everything in one call), `job_status`, `results`, `list_runs`, `start_live`, `ads_import`, `backtest` and `cli`. To add it by hand:
+The plugin also starts an MCP server, so Claude Desktop, Claude Code or any MCP client gets these tools: `doctor`, `setup`, `start_backend`, `quickstart`, `market_test` (everything in one call), `job_status`, `results`, `list_runs`, `start_live`, `ads_import`, `ideas` (pass rows you pulled from Meta/Google/TikTok Ads tools), `pitch`, `backtest` and `cli`. An agent with an ads connector can therefore read the account, propose tests, simulate them and report, without the user touching a file. To add it by hand:
 
 ```bash
 claude mcp add market-mirror -- python3 /path/to/market-mirror/plugin/skills/market-mirror/scripts/mcp_server.py
@@ -108,16 +123,20 @@ claude mcp add market-mirror -- python3 /path/to/market-mirror/plugin/skills/mar
   "personas": "personas.json",
   "creatives": "creatives.json",
   "seeds_n": 3,
-  "rounds": 3,
+  "posts": "posts.json", "events": "events.json",
+  "rounds": 6,
   "survey": {"offer": "Acme Pro trial", "goal": "start a free trial", "messages": "messages.txt", "split": true, "pricing": "USD"},
+  "pitch": {"script": "pitch.md", "rebuttals": "rebuttals.md", "channel": "dm"},
   "panel": {"analysts": 5, "brief": "Which audience and message get the budget, and should we launch?"},
+  "report": true,
   "approve_spend": false
 }
 ```
 
 ```bash
 mm market-test scenarios/acme/market_test.json   # 1st run: builds the people, then stops so you can check them
-# add "simulation_id" from the output and "approve_spend": true, run again: feed test, rounds, survey, panel, dashboard
+# add "simulation_id" from the output and "approve_spend": true, run again:
+# feed test -> brand posts + launch calendar inside 6 rounds -> survey -> pitch rehearsal -> analyst panel -> report -> dashboard
 ```
 
 ### By hand
@@ -161,8 +180,11 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 | **Spend, CPL and ROI** | CPM and budget (or an ads export); optional lead value, close rate, deal value, margin | `benchmarks` block, or `--benchmarks @past_ads.json` |
 | **Past-ads analysis** | Meta Ads Manager / Google Ads CSV or JSON export | `ads-import export.csv --out scenarios/x/past_ads.md` |
 | **Backtest** | 3+ past ads recreated as creatives with `"real_ad"` names | `backtest --run-dir ... --actuals past_ads.json` |
-| **Product or feature launch** | announcement, pricing page, competitor notes | `run` + `survey --messages` with positioning lines |
-| **Sales objections and pitch** | pitch or call script, real CRM objections | `survey`, then `interview --agent <id> --prompt "<pitch>"` |
+| **Product or feature launch** | announcement, your captions, a calendar (`events.json`: `[{"round": 2, "agent": "Brand", "platform": "both", "content": "..."}]`) | `run --posts @posts.json --events @events.json --max-rounds 6`; watch the **Social feed** |
+| **Captions in the platform's voice** | a brief (and a previous run's objections) | `captions --brief @brief.md --platform instagram --n 6` -> use as posts, creatives or messages |
+| **Sales pitch rehearsal** | pitch or call script, rebuttals per objection type (`## price`, `## trust`, `## any`) | `pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` |
+| **What to test next** | Ads Manager export, or rows from a connected ads tool, plus a previous run | `ideas --ads export.csv --run-dir mirofish_runs/x --brand Acme` |
+| **Plain-language report** | a finished run | `report --simulation <id> --run-dir mirofish_runs/x` (written by `market-test` automatically) |
 | **Second opinion** | anything above | `panel --analysts 5` |
 
 <details>
@@ -213,9 +235,11 @@ In the `market-test` config, `seeds` lists your documents and `seeds_n` is how m
 
 ## The dashboard
 
-Sections, in order: **Decision** (go / iterate / no-go), **Results** (plain-language verdicts and headline numbers), **Ratings** (free-text answers as 1-5 distributions, mean ± spread per audience), **Playbook**, **Feed test** (range across seeds, post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices** (quotes from would-buy and would-not-buy people), **Analysts**, **Backtest**, **Downloads**, then the analyst report, what people posted, the people themselves, activity over time, the knowledge graph (documents, people, segments, communities and countries, all connected) and run details.
+Sections, in order: **Decision** (go / iterate / no-go), **Report** (plain language, with every download button in its header), **Results** (verdicts and headline numbers), **Ratings** (free-text answers as 1-5 distributions, mean ± spread per audience), **Playbook**, **Sales rehearsal**, **Test ideas**, **Feed test** (range across seeds, post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Social feed** (every post of the simulation by platform, round, audience and country, with likes, quotes, reposts and comments; a brand-posts strip with reach and reply sentiment), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices**, **Analysts**, **Backtest**, then the people (cards with their interview summary, phone and data plan, groups, what they did, their objection and lead score), activity over time, the market map (brand, competitors, segments, communities, countries, objections and benefits, all connected) and run details.
 
-**Downloads:** the dashboard (HTML), print or save as PDF, the analyst report (Markdown), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), and all key numbers (JSON). The same files are written next to `dashboard.html`.
+**The report** is one Claude call over a compact fact sheet of the whole run (decision, ads, survey by audience, objections with quotes, pricing, panel, social feed, people). Its sections are fixed (what we tested, who we simulated, what happened on social media, ad results, survey results, objections and how to answer them, pricing, sales notes with ICP and first messages, action plan, limits and confidence), every number is checked against the fact sheet, and it is rendered deterministically to Markdown. If the model fails, a data-only version is written instead.
+
+**Downloads (in the report header):** this page (HTML), print or save as PDF, the report (Markdown), the action plan (JSON), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), lead scores (CSV), the sales rehearsal and the social feed (JSON), test ideas (Markdown) and all key numbers (JSON). The same files are written next to `dashboard.html`.
 
 ## How realistic is it?
 
@@ -244,9 +268,18 @@ Everything runs on your own Anthropic key. Defaults use `claude-haiku-4-5`.
 - **Feed test:** one call per exposure that catches someone's eye (typically 15-35%), plus one per click for the landing page. `--seeds N` multiplies this by N; the log shows calls and tokens per seed.
 - **Rounds:** one call per active agent per round.
 - **Survey:** one call per person. Mapping the free-text answers to ratings runs on the local embedding model and is free.
-- **Panel:** one call per analyst.
+- **Panel:** one call per analyst. **Pitch:** one call per person, plus one per objector for the rebuttal. **Report** and **ideas:** one call each.
 
-Always stop after `prepare` and look at the people before spending on the rest.
+Rough totals for a full `market-test` (feed test with 2 seeds, 6 rounds, survey, pitch, panel, report) on `claude-haiku-4-5`, which is a few dollars at most for the small size:
+
+| Size | People | Claude calls (about) | Wall time (about) |
+|---|---|---|---|
+| small | 20 | 400 | 15 min |
+| medium | 60 | 1,200 | 40 min |
+| large | 150 | 3,000 | 1.5-2 h |
+| max | 2,000 | 40,000+ | hours; raise `--parallel`, run one platform |
+
+Always stop after `prepare` and look at the people before spending on the rest. `--parallel` defaults to your CPU count.
 
 ## Under the hood
 
@@ -255,6 +288,12 @@ Always stop after `prepare` and look at the people before spending on the rest.
 | Persona planner, communities, follow graph | `backend/app/services/persona_planner.py` |
 | Feed test, landing page, projections and ROI | `backend/app/services/feed_test.py` |
 | Analyst panel | `backend/app/services/analyst_panel.py` |
+| Per-round persona cards, action budgets, brand posts and launch events inside OASIS | `backend/scripts/agent_context.py`, `event_schedule.py` |
+| Real post view (feed story) | `backend/app/services/feed_story.py`, dashboard `social_feed.py` |
+| Plain-language report | `backend/app/services/market_report.py`, dashboard `report_view.py` |
+| Sales rehearsal | `backend/app/services/pitch.py` |
+| Test ideas from real ad data | `backend/app/services/ideas.py` |
+| Quickstart wizard | `backend/claude_cli/quickstart.py` |
 | API | `backend/app/api/market.py` (+ upstream `simulation.py`) |
 | CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
 | Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
@@ -268,4 +307,4 @@ Claude runs through Anthropic's OpenAI-compatible endpoint. Memory is a free loc
 
 ## Credits and license
 
-MarketMirror is built on [MiroFish](https://github.com/666ghj/MiroFish) (swarm-intelligence engine, AGPL-3.0) and [OASIS](https://github.com/camel-ai/oasis) (social simulation). The original MiroFish README is kept at [docs/MIROFISH-UPSTREAM.md](docs/MIROFISH-UPSTREAM.md). The dashboard embeds [Apache ECharts](https://echarts.apache.org) 5.5.1 (Apache-2.0, see `backend/claude_cli/vendor/`). MarketMirror is released under AGPL-3.0.
+MarketMirror is built on [MiroFish](https://github.com/666ghj/MiroFish) (simulation engine, AGPL-3.0) and [OASIS](https://github.com/camel-ai/oasis) (social simulation). The original MiroFish README is kept at [docs/MIROFISH-UPSTREAM.md](docs/MIROFISH-UPSTREAM.md). The dashboard embeds [Apache ECharts](https://echarts.apache.org) 5.5.1 (Apache-2.0, see `backend/claude_cli/vendor/`). MarketMirror is released under AGPL-3.0.

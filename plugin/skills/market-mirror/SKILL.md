@@ -30,6 +30,8 @@ The engine lives in `~/.market-mirror/engine` unless `MARKET_MIRROR_HOME` says o
 3. `bash "$MM" start` starts the backend on port 5001.
 4. `bash "$MM" live` (in the background) serves the live dashboard at `http://127.0.0.1:5050/`. In the Claude desktop app open it in the browser pane; elsewhere give the user the link.
 
+**Fastest route for anyone (no files to write):** ask the user the nine quickstart questions in chat (brand; what they sell, for whom, at what price; who buys and where; platforms; what to test: ads, messages, price, launch, pitch; monthly budget; size small/medium/large; past ad export; extra documents), then `bash "$MM" cli quickstart --answers @answers.json` (or the `quickstart` MCP tool). It writes the scenario folder with template ads, messages, launch calendar, pitch and rebuttals, builds the simulated people and stops. Show the people and the `edit_first` list, improve the templates with real material (section 2) or `cli captions`, then run the printed `market-test` command with `"approve_spend": true`.
+
 ## 2. Gather real data first (use whatever tools this session has)
 
 | Source | How | Becomes |
@@ -60,7 +62,7 @@ No spec? `--auto-personas 30` lets Claude plan segments and communities from the
 
 ## 4. All in one (fastest)
 
-Write `<scenario>/market_test.json` (keys: name, title, seeds, requirement, personas or auto_personas, creatives, seeds_n (repeat the feed test with N seeds; 3 for anything you will report), rounds, survey {offer, goal, messages, split, pricing}, panel {analysts, brief}, report, approve_spend) and run `bash "$MM" cli market-test <scenario>/market_test.json`. The first run stops after creating the people and prints them: show them to the user. Then add the printed `simulation_id` and `"approve_spend": true` and run again. If the MCP tools are available (`market_test`, `job_status`, `results`), use those instead of the shell.
+Write `<scenario>/market_test.json` (keys: name, title, brand, seeds, requirement, personas or auto_personas, creatives, seeds_n (repeat the feed test with N seeds; 3 for anything you will report), posts and events (brand posts and a launch calendar inside the rounds), rounds, survey {offer, goal, messages, split, pricing}, pitch {script, rebuttals, channel}, panel {analysts, brief}, report, approve_spend) and run `bash "$MM" cli market-test <scenario>/market_test.json`. The first run stops after creating the people and prints them: show them to the user. Then add the printed `simulation_id` and `"approve_spend": true` and run again. If the MCP tools are available (`market_test`, `job_status`, `results`), use those instead of the shell.
 
 The dashboard opens with a **go / iterate / no-go decision** combining every signal. Report it with its confidence and the "fix first" list.
 
@@ -97,16 +99,18 @@ People answer interest, trust, purchase intent and recommendation in their own w
 
 **E. Backtest (is the simulation any good here?).** Recreate 3+ past ads as creatives with `"real_ad": "<ad name in the export>"`, run the feed test, then `cli backtest --run-dir mirofish_runs/<name> --actuals <scenario>/past_ads.json`. Report the rank correlation, whether the winner matched, and the calibration factor. If it does not match, say the simulation is not predictive for this market yet.
 
-**F. Product or feature launch.** Seed: the launch announcement, pricing page and competitor notes. Requirement: who reacts how, what they misunderstand, which feature matters, what would make them switch. Run rounds (C as well if pricing matters), then the survey with the positioning lines as `--messages --split`.
+**F. Product or feature launch.** Seed: the launch announcement, pricing page and competitor notes. Write the brand's own captions (`cli captions --brief @brief.md --platform instagram --n 6`, or the user's real ones) as `posts.json` (day 0) and `events.json` (`[{"round": 1, "agent": "<brand name>", "platform": "both", "content": "teaser"}, {"round": 2, ...launch}, {"round": 4, ...offer}]`), run 6+ rounds with `--posts @posts.json --events @events.json` (or the `posts`/`events` keys in `market_test.json`). The dashboard's **Social feed** then shows every post by platform, round, audience and country, and a brand-posts strip with reach, reply sentiment, best and worst reply. Then the survey with the positioning lines as `--messages --split`.
 
-**G. Sales objections and pitch.** Seed: the pitch deck or call script and real objections from the CRM. Run the survey with candidate pitches as messages, then `cli interview --simulation <id> --agent <id> --prompt "<your pitch>. What would you say back?"` for the strongest objectors. The playbook section turns this into "lead with / pre-empt / answer with / seed it in" per audience.
+**G. Sales pitch rehearsal.** Seed: the pitch deck or call script and real objections from the CRM. Write `pitch.md` and `rebuttals.md` (`## price`, `## trust`, `## effort`, `## relevance`, `## privacy`, `## any`), then `cli pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` (or the `pitch` MCP tool; needs a live environment, so run rounds first). Every simulated buyer answers in their own voice, objects, asks a question back; objectors hear the matching rebuttal and say whether it moved them. Report the pitch score, the objections the rebuttals cannot handle ("fix first"), the hot leads with the best time to reach them, and the by-audience table. Lead scores also appear on the People cards and in `leads.csv`.
+
+**I. What to test next (from real data).** If the session has an ads connector (Meta, Google, TikTok), pull the ads with spend, impressions, clicks, conversions, country and age, and call the `ideas` MCP tool with those rows (or `cli ideas --rows @rows.json`), plus `--run-dir` of the last run and `--brand`. Without a connector use the user's export: `cli ideas --ads export.csv --run-dir mirofish_runs/<name>`. Each idea cites its evidence and carries the MarketMirror config to simulate it first; present them as a prioritised list and offer to run the top one.
 
 **H. Second opinion.** `cli panel --simulation <id> --analysts 5 --brief "what we need to decide"`: independent analysts (performance marketer, brand strategist, sales lead, psychologist, sceptical data analyst, ...) each read the anonymized posts, comments, feed reactions and survey answers alone. Report the consensus and where they disagree.
 
 ## 6. Show the results
 
 - Live: the browser pane at `http://127.0.0.1:5050/` updates as steps finish.
-- Final: `<engine>/mirofish_runs/<name>/dashboard.html` (one offline file). Publish it as an Artifact if available, otherwise send the file. Its Downloads section exports the report (Markdown), every survey answer and feed session (CSV), metrics (JSON) and print-to-PDF; the same files sit next to it.
+- Final: `<engine>/mirofish_runs/<name>/dashboard.html` (one offline file). Publish it as an Artifact if available, otherwise send the file. The **Report** section (right under the decision) is written in plain language for non-technical readers and its header holds every download: this page, print/PDF, report (Markdown), action plan (JSON), survey answers and feed sessions (CSV), lead scores (CSV), pitch and social feed (JSON), test ideas, all numbers (JSON); the same files sit next to it (`market_report.md`, `leads.csv`, `pitch.json`, `ideas.md`...). The `results` MCP tool returns the report path, the action plan, pitch and ideas summaries.
 - In chat: lead with the decision (which audience, which message, what to fix first, expected cost per lead), then the evidence and its limits. Give ranges, not points: the feed-test range across seeds and the survey mean ± spread. If seeds disagree on the winning creative, call it a tie. Quote real comments from personas, labelled as simulated.
 
 ## 7. Costs and cleanup

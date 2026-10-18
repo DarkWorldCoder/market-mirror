@@ -724,7 +724,7 @@ def load_json_list(v: Optional[str], what: str) -> Optional[List[Dict[str, Any]]
     """@file.json or inline JSON list; also accepts {"posts": [...]} / {"events": [...]} wrappers."""
     if not v:
         return None
-    raw = _load_json_arg(v)
+    raw = market_cli._load_json_arg(v)
     if isinstance(raw, dict):
         raw = raw.get(what) or raw.get("captions") or raw.get("items")
     if not isinstance(raw, list):
@@ -1313,7 +1313,7 @@ def cmd_run(c: Client, a) -> Any:
 # --------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="mirofish", description="Headless CLI for the MiroFish swarm-simulation backend.")
+    p = argparse.ArgumentParser(prog="mirofish", description="MarketMirror: test ads, messages, prices, launches and sales pitches on simulated buyers (MiroFish engine). Start with: quickstart.")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="backend URL (default %(default)s, env MIROFISH_URL)")
     p.add_argument("--pretty", action="store_true", help="indent JSON output")
     p.add_argument("--lang", default="en", help="Accept-Language sent to the backend (en/zh), default en")

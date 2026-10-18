@@ -20,6 +20,19 @@ ANSWERS = {"brand": "Fitloop", "product": "A 15-minute home workout app for 4.99
            "tests": "ads, price, launch, pitch", "budget": "1,200 EUR", "size": "large"}
 
 
+class JsonListTests(unittest.TestCase):
+    def test_load_json_list_reads_files_and_wrappers(self):
+        import mirofish
+        d = tempfile.mkdtemp()
+        f = os.path.join(d, "posts.json")
+        json.dump({"posts": [{"agent": "Brand", "text": "hello"}]}, open(f, "w"))
+        rows = mirofish.load_json_list("@" + f, "posts")
+        self.assertEqual(rows[0]["content"], "hello")
+        self.assertEqual(mirofish.load_json_list('[{"agent": 1, "content": "x"}]', "events")[0]["agent"], 1)
+        with self.assertRaises(mirofish.CLIError):
+            mirofish.load_json_list('[{"agent": 1}]', "events")
+
+
 class QuickstartTests(unittest.TestCase):
     def test_build_scenario_writes_everything(self):
         d = tempfile.mkdtemp()

@@ -268,6 +268,7 @@ _ABSTRACT_TYPES = {
     "location", "country", "region", "city", "place", "geography", "market", "platform",
     "socialmediaplatform", "socialmedia", "website", "app", "product", "campaign", "adset",
     "advertisement", "ad", "event", "topic", "concept", "policy", "document", "page",
+    "objection", "benefit", "pricepoint", "price", "channel", "offer",   # market-map nodes from the ontology
 }
 _ABSTRACT_NAME = re.compile(
     r"\b(targeting|ad ?sets?|campaigns?|interest category|page admins?|guide page|landing page|"

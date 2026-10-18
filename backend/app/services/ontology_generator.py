@@ -72,6 +72,25 @@ ONTOLOGY_SYSTEM_PROMPT = """你是一个专业的知识图谱本体设计专家�
 - 主题/话题（如"学术诚信"、"教育改革"）
 - 观点/态度（如"支持方"、"反对方"）
 
+## Marketing and sales simulations (MarketMirror default)
+
+This engine is mostly used to simulate a **market**: a brand launching, advertising or selling something to buyers.
+When the documents describe a brand, product, offer, campaign, pricing, competitors or customers, build the ontology
+as a **market map** and prefer these types (rename to fit the text, keep exactly 10 in total, Person and Organization last):
+
+- Speaking subjects (they get social accounts and become agents): `Brand` (the company/product account), `Competitor`,
+  `CustomerSegment` subtypes that fit the text (e.g. `Parent`, `Student`, `SmallBusinessOwner`, `Customer`),
+  `Influencer`/`Creator`, `MediaOutlet`, `Community` (a group, forum, WhatsApp/Facebook group), `Retailer`/`Partner`.
+- Map nodes (allowed even though they cannot speak; they become graph nodes, never agents): `Product` or `Offer`,
+  `Objection` (a reason people hesitate: price, trust, effort...), `Benefit` (a reason they buy), `PricePoint`, `Channel`
+  (a platform or place where buyers see the brand).
+
+Preferred relations for a market map: `SELLS` (Brand -> Product), `COMPETES_WITH`, `TARGETS` (Brand -> segment),
+`OBJECTS_TO` (segment -> Objection), `VALUES` (segment -> Benefit), `USES_CHANNEL` (segment/Brand -> Channel),
+`PRICED_AT` (Product -> PricePoint), `RECOMMENDS`, `REVIEWS`, `MEMBER_OF` (person -> Community).
+Only when the documents are clearly about a public event rather than a market, fall back to the opinion-simulation
+guidance below.
+
 ## 输出格式
 
 请输出JSON格式，包含以下结构：
@@ -188,6 +207,7 @@ B. **具体类型（8个，根据文本内容设计）**：
 - OPPOSES: 反对
 - COLLABORATES_WITH: 合作
 - COMPETES_WITH: 竞争
+- SELLS / TARGETS / OBJECTS_TO / VALUES / USES_CHANNEL / PRICED_AT / RECOMMENDS / MEMBER_OF: 市场地图关系（见上）
 """
 
 
@@ -287,7 +307,7 @@ class OntologyGenerator:
 1. 必须正好输出10个实体类型
 2. 最后2个必须是兜底类型：Person（个人兜底）和 Organization（组织兜底）
 3. 前8个是根据文本内容设计的具体类型
-4. 所有实体类型必须是现实中可以发声的主体，不能是抽象概念
+4. 所有实体类型必须是现实中可以发声的主体，不能是抽象概念（例外：市场地图节点 Product/Offer、Objection、Benefit、PricePoint、Channel 允许存在，它们不会成为发声主体）
 5. 属性名不能使用 name、uuid、group_id、graph_id 等保留字，用 full_name、org_name 等替代
 """
         

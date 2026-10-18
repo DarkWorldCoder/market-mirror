@@ -1,8 +1,18 @@
 # MarketMirror (MiroFish engine) — operating guide for Claude
 
-MarketMirror adds marketing and sales testing on top of the MiroFish engine: persona planning, feed tests, buyer surveys, pricing, ROI projections, past-ads import, backtests and an analyst panel (section 3b). The installable skill is `plugin/skills/market-mirror/SKILL.md` and holds the recipes.
+MarketMirror is a marketing and sales simulation and prediction tool. You give it a brief, ads, messages, prices, a launch plan or a pitch; it builds diverse simulated buyers (interview-grounded personas with communities), lets them scroll realistic feeds, post and argue on simulated social platforms, answers a buyer survey, rehearses a sales pitch, and writes a plain-language report with a go / iterate / no-go decision. The installable skill is `plugin/skills/market-mirror/SKILL.md`; the MCP server is `plugin/skills/market-mirror/scripts/mcp_server.py`.
 
-MiroFish is a swarm-simulation engine. You give it seed documents plus a prediction question. It builds a knowledge graph, turns entities into LLM agents, simulates them on a Twitter-like and a Reddit-like platform, and then writes a prediction report. This edition runs headless, so you never need the Vue UI: drive the Flask backend (port 5001) with `backend/claude_cli/mirofish.py` and show the user the self-contained HTML dashboard it exports.
+Under the hood it is the MiroFish engine (knowledge graph -> LLM agents -> OASIS social simulation) running headless on Claude. Drive the Flask backend (port 5001) with `backend/claude_cli/mirofish.py` and show the user the self-contained HTML dashboard it exports.
+
+## 0. Fastest path
+
+```bash
+backend/claude_cli/start_server.sh
+python backend/claude_cli/mirofish.py quickstart            # asks 9 plain questions, also sets up .env / the API key
+python backend/claude_cli/mirofish.py quickstart --answers @answers.json   # for agents (keys: brand, product, buyers, platforms, tests, budget, size, past_ads, docs)
+```
+
+`quickstart` writes `scenarios/<brand>/` (brief, question, personas spec, two template captions per platform, messages, launch calendar, pitch and rebuttals, past-ads import) plus `market_test.json`, creates the simulated people and stops before any paid step. Edit the template files, then run the printed `market-test` command with `"approve_spend": true`.
 
 ## 1. Setup (once)
 
@@ -71,8 +81,14 @@ Interviews work only while the simulation environment is still alive (`status` s
 | analyst panel | `$C panel --simulation sim_x --analysts 5 --brief ".."` |
 | past ads to seed + benchmarks | `$C ads-import export.csv --out scenarios/x/past_ads.md` |
 | backtest vs real ads | `$C backtest --run-dir mirofish_runs/x --actuals scenarios/x/past_ads.json` |
+| platform-native captions | `$C captions --brief @brief.md --platform instagram --n 6 [--run-dir X]` (objections from the run are folded in; output usable as `posts`, creatives or messages) |
+| brand posts + launch calendar inside the rounds | `$C run ... --posts @posts.json --events @events.json` or `market_test.json` keys `posts` / `events` (`[{round, agent, platform, content}]`; `PUT /api/simulation/<sid>/events`) |
+| sales rehearsal (pitch + rebuttals) | `$C pitch --simulation sim_x --script @pitch.md --rebuttals @rebuttals.md [--channel call] [--segment ..]` (needs a live environment, like the survey) |
+| next test ideas from real ads + the run | `$C ideas --ads export.csv --run-dir mirofish_runs/x --brand X` (or `--rows @rows.json` with rows pulled from a connected ads tool) |
+| plain-language report | `$C report --simulation sim_x --run-dir mirofish_runs/x` (default engine `market`; `--engine upstream` for the old narrative report) |
+| real post view | `GET /api/simulation/<sid>/feed-story` -> `feed_story.json`, rendered as the dashboard's **Social feed** |
 
-Results land in the run folder (`feed_test.json`, `survey.json`, `analyst_panel.json`, `backtest.json`) and in the dashboard, which also writes CSV/JSON/Markdown downloads next to `dashboard.html`. API: `backend/app/api/market.py`. Persona spec, creatives and benchmark formats are documented in `README.md` and the skill. Report simulated numbers as directions with their margins, never as measurements: the feed-test range across `--seeds` and the survey's SSR mean ± spread.
+`market-test` runs all of this from one config (keys: `posts`, `events`, `creatives`, `rounds`, `survey`, `pitch {script, rebuttals, channel}`, `panel`, `report`). Results land in the run folder (`feed_test.json`, `survey.json`, `pitch.json`, `analyst_panel.json`, `backtest.json`, `feed_story.json`, `market_report.json/.md`, `ideas.json/.md`) and in the dashboard, which also writes CSV/JSON/Markdown downloads next to `dashboard.html`. API: `backend/app/api/market.py`. Persona spec, creatives and benchmark formats are documented in `README.md` and the skill. Report simulated numbers as directions with their margins, never as measurements: the feed-test range across `--seeds` and the survey's SSR mean ± spread.
 
 ## 4. Export and show the dashboard
 
@@ -81,7 +97,7 @@ $C export --simulation sim_x --out mirofish_runs/x/dashboard.html   # fetches ev
 $C export --run-dir mirofish_runs/x                                  # offline re-render from saved JSON
 ```
 
-The output is one HTML file with inline CSS, inline SVG and no external requests. It contains the knowledge graph (layout computed in Python, colored by entity type, relation labels toggleable), the persona table (stance, sentiment, activity), the actions-per-round chart, the action mix and most active agents, top posts and comments, and the rendered report. It adapts to light and dark mode and to phone width. **Publish `dashboard.html` with the Artifact tool**, or send it as a file, so the user can view it. `report.md` and `summary.json` (key numbers) are written next to it. Use `summary.json` for your own written summary.
+The output is one HTML file with inline CSS, inline SVG/ECharts and no external requests. Order: **Decision** -> **Report** (plain language; the download buttons sit in its header: this page, print/PDF, report MD, action plan JSON, survey answers CSV, feed sessions CSV, lead scores CSV, pitch JSON, test ideas, all numbers JSON) -> Results -> Playbook -> Sales rehearsal -> Test ideas -> Feed test -> **Social feed** (every post by platform, round, segment and country, with likes, quotes and comments; brand posts strip with reply sentiment) -> Funnel -> Audiences -> Objections -> Messages -> Pricing -> Voices -> Analysts -> Backtest, then the people cards (interview summary, phone, groups, lead score), activity, the market map (knowledge graph) and run details. It adapts to light and dark mode and to phone width. **Publish `dashboard.html` with the Artifact tool**, or send it as a file, so the user can view it. `report.md` and `summary.json` (key numbers) are written next to it. Use `summary.json` for your own written summary.
 
 ### Live view (watch a run while it happens)
 
