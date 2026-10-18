@@ -89,6 +89,8 @@ Interviews work only while the simulation environment is still alive (`status` s
 | brand posts + launch calendar inside the rounds | `$C run ... --posts @posts.json --events @events.json` or `market_test.json` keys `posts` / `events` (`[{round, agent, platform, content}]`; `PUT /api/simulation/<sid>/events`) |
 | sales rehearsal (pitch + rebuttals) | `$C pitch --simulation sim_x --script @pitch.md --rebuttals @rebuttals.md [--channel call] [--segment ..]` (needs a live environment, like the survey) |
 | next test ideas from real ads + the run | `$C ideas --ads export.csv --run-dir mirofish_runs/x --brand X` (or `--rows @rows.json` with rows pulled from a connected ads tool) |
+| email campaign test | `$C emailtest --simulation sim_x --emails @emails.json [--list-size N]` (`emails.json`: `{emails:[{id, from_name, subject, preheader, body, cta, send_time, segments, sequence:[{delay_days, subject, body}]}], list_size, benchmarks}`; `market-test` key `emails`) |
+| test anything from one spec | `$C test --simulation sim_x --spec @experiment.json [--brand X]` (`{type, name, variants, audience, metric, budget, rounds}`; types ad, message, price, offer, positioning, naming, landing, launch, pitch, email, creator_post, channel_mix) -> `experiment_result.json` |
 | plain-language report | `$C report --simulation sim_x --run-dir mirofish_runs/x` (default engine `market`; `--engine upstream` for the old narrative report) |
 | real post view | `GET /api/simulation/<sid>/feed-story` -> `feed_story.json`, rendered as the dashboard's **Social feed** |
 

@@ -202,6 +202,14 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "run_test", "description": (
+        "Test anything from one spec on a prepared simulation: type = ad | message | price | offer | positioning | naming | landing | "
+        "launch | pitch | email | creator_post | channel_mix; variants = the things to compare (ad creatives, message lines, prices, "
+        "offer wordings, names, landing pages, launch posts with rounds, pitch scripts, emails); audience {segments, countries}; "
+        "metric (default per type); budget {amount, cpm, currency}; rounds (launch). Returns one result shape for every type: each "
+        "variant's metric with a 95% margin, the winner, the lift, whether it is clear or a tie, and how to read it. Background job."),
+     "inputSchema": {"type": "object", "properties": {"simulation_id": {"type": "string"}, "spec": {"type": "object"}, "brand": {"type": "string"},
+                                                      "run": {"type": "string"}}, "required": ["simulation_id", "spec"]}},
     {"name": "email_test", "description": (
         "Email campaign test on the simulated people's inboxes: pass emails [{id, from_name, subject, preheader, body, cta, "
         "send_time (morning|midday|evening|night), segments?, sequence?: [{delay_days, subject, body}]}] plus optional list_size and "
@@ -317,6 +325,19 @@ def call(name: str, a: Dict[str, Any]) -> Any:
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
         return r["stdout"].strip() or r["stderr"].strip()
+    if name == "run_test":
+        run_dir = a.get("run")
+        run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
+        d = os.path.join(home(), "scenarios", "_tests")
+        os.makedirs(d, exist_ok=True)
+        sp = os.path.join(d, f"test_{uuid.uuid4().hex[:6]}.json")
+        json.dump(a["spec"], open(sp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        args = ["cli", "test", "--simulation", a["simulation_id"], "--spec", "@" + sp]
+        if a.get("brand"):
+            args += ["--brand", str(a["brand"])]
+        if run_dir:
+            args += ["--run-dir", run_dir]
+        return job(args, f"test {a['spec'].get('type', '')}")
     if name == "email_test":
         run_dir = a.get("run")
         run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None

@@ -1409,6 +1409,38 @@ def cmd_emailtest(c: Client, a) -> Any:
     return _reexport(c, a, out_dir, res)
 
 
+def cmd_test(c: Client, a) -> Any:
+    """One spec, any test type: ad, message, price, offer, positioning, naming, landing, launch, pitch, email, creator_post, channel_mix."""
+    import experiments
+    spec = market_cli._load_json_arg(a.spec)
+    try:
+        exp = experiments.normalize(spec)
+    except ValueError as e:
+        raise CLIError(f"test: {e}")
+    out_dir = a.run_dir or os.path.join("mirofish_runs", f"{a.simulation}_{re.sub(r'[^A-Za-z0-9._-]+', '_', exp['name'])}")
+    engines = {
+        "feedtest": lambda c_, sid, spec_arg, run_dir, log_, seeds=1: market_cli.feedtest(
+            c_, sid, spec_arg, run_dir, log_, None, None, 3, 5, a.limit, a.parallel, 2, True, seeds),
+        "survey": lambda c_, sid, run_dir, offer, goal, msgs, split, currency: step_survey(
+            c_, sid, run_dir, offer, goal, msgs, split, currency, None, a.batch, 600, a.limit, True),
+        "events": step_events,
+        "start": lambda c_, sid, max_rounds=6: step_start(c_, sid, "parallel", max_rounds, graph_memory=True, force=True),
+        "pitch": lambda c_, sid, run_dir, log_, script, rebuttals, product, channel: market_cli.pitch(
+            c_, sid, run_dir, log_, script, rebuttals, product, channel),
+        "emailtest": lambda c_, sid, spec_arg, run_dir, log_: market_cli.emailtest(c_, sid, spec_arg, run_dir, log_, 5, a.parallel, None, a.limit),
+        "collect": collect, "load_bundle": exporter.load_run_dir,
+    }
+    try:
+        res = experiments.run(c, exp, a.simulation, out_dir, log, engines, brand=a.brand or "")
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(f"test: {e}")
+    log(f"test: {res['verdict']}")
+    if not a.no_export and os.path.exists(os.path.join(out_dir, "run_manifest.json")):
+        res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
+    return {k: v for k, v in res.items() if k != "variants"} | {"variants": [{k: r.get(k) for k in ("id", "value", "margin", "n", "unit")} for r in res["variants"]],
+                                                              "result_file": os.path.join(os.path.abspath(out_dir), "experiment_result.json")}
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas, a.personas_lite)  # fail fast on a bad spec file
@@ -1732,6 +1764,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("test", help="test anything from one spec: ad, message, price, offer, positioning, naming, landing, launch, pitch, email, creator_post, channel_mix")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--spec", required=True, help="@experiment.json: {type, name, variants[], audience{segments,countries}, metric, budget, rounds, ...}")
+    s.add_argument("--brand", help="brand name (poster of launch posts, product in pitches)")
+    s.add_argument("--run-dir", help="where results go (default mirofish_runs/<simulation>_<name>)")
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
+    s.add_argument("--batch", type=int, default=40)
+    s.add_argument("--limit", type=int, help="only the first N people")
+    s.add_argument("--no-export", action="store_true")
+
     s = sub.add_parser("emailtest", help="email campaign test: subject lines, senders, send times, sequences in simulated inboxes")
     s.add_argument("--simulation", required=True)
     s.add_argument("--emails", required=True, help="@emails.json: {emails:[{id, from_name, subject, preheader, body, cta, send_time, sequence:[...]}], list_size, benchmarks}")
@@ -1787,7 +1829,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test,
 }
 
 

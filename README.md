@@ -20,6 +20,7 @@ Runs on Claude · works as a Claude Code skill and as MCP agent tools · one off
 | Which message or offer converts, for whom? | Would-convert by segment, country, community, age and gender; winning message per audience | **Buyer survey** with true split tests |
 | What should we charge? | Acceptable price range, sweet spot and "never pay" price by segment | **Van Westendorp** price questions |
 | Where do we lose people after the click? | Page load on each person's network vs their patience, form drop-off with reasons | **Landing-page step** |
+| Which subject line, sender and send time get opened and clicked? | Every simulated person gets a realistic inbox for the day; an attention gate decides opens, each opened mail gets a real reaction (skim, read, click, reply, unsubscribe, spam) with honest odds; sequences run over days; projection from your list size to leads | **Email test** |
 | What will this cost per lead, and does it pay back? | Impressions, clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback | **Projections** calibrated to your real CPM and CTR |
 | What did our past ads actually do? | Best and worst ad sets, cost per conversion, landing-page loss, benchmarks | **`ads-import`** for Meta / Google Ads exports |
 | Can we trust the simulation for this market? | Rank correlation and winner match against real ad results | **`backtest`** |
@@ -212,6 +213,8 @@ Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so i
 | **Sales pitch rehearsal** | pitch or call script, rebuttals per objection type (`## price`, `## trust`, `## any`) | `pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` |
 | **What to test next** | Ads Manager export, or rows from a connected ads tool, plus a previous run | `ideas --ads export.csv --run-dir mirofish_runs/x --brand Acme` |
 | **Plain-language report** | a finished run | `report --simulation <id> --run-dir mirofish_runs/x` (written by `market-test` automatically) |
+| **Email campaign** | emails (sender, subject, preheader, body, CTA, send time, sequence steps), list size | `emailtest --simulation <id> --emails @emails.json --list-size 10000`: inbox simulation, open/click/unsubscribe/spam per variant and audience, subject-line ranking, sequence funnel, projection to leads and revenue, spam-word warnings |
+| **Anything else: one spec** | `{"type": "ad|message|price|offer|positioning|naming|landing|launch|pitch|email|creator_post|channel_mix", "variants": [...]}` | `test --simulation <id> --spec @experiment.json` -> `experiment_result.json`: each variant's metric with a 95% margin, winner, lift, clear or tie, how to read it |
 | **Reliability check** | nothing extra | `survey ... --retest 20`: twenty people answer again a simulated week later; agreement is reported |
 | **Trust / correct / walk away** | 50-300 real answers (CSV: segment, country, gender, age, y) | `calibrate --run-dir mirofish_runs/x --real answers.csv [--map y=Converted]` -> `calibration.json` with the verdict per audience and an AIPW-corrected rate |
 | **Second opinion** | anything above | `panel --analysts 5` |
