@@ -82,9 +82,10 @@ class SurveyTextTest(unittest.TestCase):
     def test_prompt_asks_for_verdict_first_answers_in_english_or_native_script(self):
         p = mk.survey_prompt("Free practice test", "sign up")
         self.assertIn("No / Probably not / Maybe / Probably yes / Yes, definitely", p)
-        self.assertIn("English", p)
+        self.assertIn('"Verdict: reason"', p)                                        # the shape verdict_clause cuts
+        self.assertIn("whole answer, reason included, in plain English", p)
         self.assertIn("own script", p)
-        self.assertIn("never in romanized", p)
+        self.assertIn("Do not write Hindi, Tagalog or any other language in Latin letters", p)
         self.assertNotIn("in the language you normally use. Say", p)                 # the old free-language rule is gone
         quote = p[p.index('"quote"'):]
         self.assertIn("own voice", quote)
@@ -162,8 +163,10 @@ class SSRAnalysisTest(unittest.TestCase):
         # a mean between the iterate and go cut-offs is "medium" in the playbook and "iterate" on the decision card
         for mean, priority, vote in ((mk.SSR_GO_MEAN, "high", "go"), (mk.SSR_ITERATE_MEAN + 0.05, "medium", "iterate"),
                                      (mk.SSR_ITERATE_MEAN - 0.05, "low", "no-go"),
-                                     # verdict-first probe means: "Probably yes" 3.72, "Maybe, 50-50" 3.52, "Probably not" 2.65
-                                     (3.72, "high", "go"), (3.52, "medium", "iterate"), (2.65, "low", "no-go")):
+                                     # verdict-clause means: half "Yes, definitely" + half "Maybe" 3.81, all "Probably yes"
+                                     # 3.69, all "Maybe" 3.56, half "Maybe" + half "Probably not" 3.14, all "Probably not" 2.72
+                                     (3.81, "high", "go"), (3.69, "medium", "iterate"), (3.56, "medium", "iterate"),
+                                     (3.14, "medium", "iterate"), (2.72, "low", "no-go")):
             pi = {"n": 4, "mean": mean, "sd": 1.0}
             seg = {"key": "S", "n": 4, "convert_yes": 0, "convert_maybe": 50, "interest": 5, "ssr": {"purchase": pi}}
             self.assertEqual(mk.playbook({"by_segment": [seg]}, [])[0]["priority"], priority)

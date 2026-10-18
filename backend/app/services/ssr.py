@@ -19,12 +19,14 @@ and the distribution is the average over anchor sets. The embedder is the
 local multilingual fastembed model also used by the memory graph, so answers
 in any language map onto the English anchors at no API cost.
 
-Only the first sentence of an answer is embedded. The survey asks every answer
-to open with a verdict ("No / Probably not / Maybe / Probably yes / Yes,
-definitely") followed by a reason; the reasons and conditions ("only if the
-reviews…") pull every answer toward the middle of the scale. On 40 hand-labelled
-answers from a real run, embedding the first sentence raised the Pearson r of
-the purchase mean against the labels from 0.22 to 0.57.
+Only the verdict clause of an answer is embedded: the first sentence, cut at the
+first colon or dash. The survey asks every answer to open with a verdict ("No /
+Probably not / Maybe / Probably yes / Yes, definitely") followed by a reason, and
+personas write it as "Maybe: only if the reviews…"; the reasons and conditions pull
+every answer toward the middle of the scale. On 40 hand-labelled answers from a
+real run, the first sentence raised the Pearson r of the purchase mean against the
+labels from 0.22 to 0.57; on 12 verdict-first answers, cutting at the colon or dash
+raised it from 0.64 to 0.77.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ from ..utils.logger import get_logger
 logger = get_logger("mirofish.ssr")
 
 POINTS = 5
-ANCHORS_VERSION = "2026-10-ssr-v2-lead-sentence"
+ANCHORS_VERSION = "2026-10-ssr-v3-verdict-clause"
 
 # scale -> anchor sets; each set lists one statement per point, from 1 (lowest) to 5 (highest)
 ANCHORS: Dict[str, List[List[str]]] = {
@@ -95,6 +97,17 @@ def lead_sentence(text: str) -> str:
     next sentence was tried and lowered the correlation with hand labels from 0.57 to 0.39.)"""
     parts = [p.strip() for p in _SENTENCE_SPLIT.split(str(text or "").strip()) if p.strip()]
     return parts[0] if parts else ""
+
+
+# the verdict ends at the first colon, en/em dash or spaced hyphen ("20-30%" stays whole)
+_VERDICT_END = re.compile(r"\s*[:\u2013\u2014]\s*|\s+-\s+")
+
+
+def verdict_clause(text: str) -> str:
+    """The first sentence cut at its first colon or dash: "Maybe: only if…" -> "Maybe"."""
+    lead = lead_sentence(text)
+    head = _VERDICT_END.split(lead, maxsplit=1)[0].strip()
+    return head or lead
 
 
 class SSRUnavailable(RuntimeError):
@@ -170,7 +183,7 @@ def describe(pmf: Sequence[float]) -> Dict[str, Any]:
 def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1.0,
          epsilon: float = 0.0, lead_only: bool = True) -> List[Optional[Dict[str, Any]]]:
     """[(scale, text)] -> one {pmf, mean, sd, score10} per item, or None for empty text / unknown scale.
-    lead_only: embed only the answer's first sentence (its verdict), see lead_sentence.
+    lead_only: embed only the answer's verdict clause, see verdict_clause.
 
     Raises SSRUnavailable when the embedding model cannot be used."""
     embedder = embedder or get_embedder()
@@ -181,7 +194,7 @@ def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1
             if scale in ANCHORS and text is not None and str(text).strip()]
     if not todo:
         return out
-    vecs = _embed(embedder, [lead_sentence(t) if lead_only else t for _, _, t in todo])
+    vecs = _embed(embedder, [verdict_clause(t) if lead_only else t for _, _, t in todo])
     for (i, scale, _), v in zip(todo, vecs):
         anchors = anchor_matrix(embedder, scale)
         sims = anchors @ v                                                  # (sets, points)

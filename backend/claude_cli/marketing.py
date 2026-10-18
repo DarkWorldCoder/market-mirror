@@ -39,9 +39,11 @@ TEXT_FIELDS = {"purchase": "purchase_text", "interest": "interest_text", "trust"
                "recommend": "recommend_text"}
 SSR_SCALES = tuple(TEXT_FIELDS)
 # SSR purchase-intent mean (1-5) cut-offs shared by the playbook priority and the decision card.
-# Verdict-first probes score "Probably not" 2.65, "Maybe" 3.52-3.60, "Probably yes" 3.72, "Yes, definitely" 4.1-4.25,
-# so go needs more than a room of maybes and iterate needs more than a room of probably-nots.
-SSR_GO_MEAN, SSR_ITERATE_MEAN = 3.7, 3.1
+# SSR embeds the verdict clause, which scores No 2.17, Probably not 2.72, Maybe 3.56, Probably yes 3.69 and
+# Yes, definitely 4.07. Go needs some definite yeses (half "Yes, definitely" and half "Maybe" = 3.81; an all-
+# "Probably yes" room = 3.69 stays iterate). Iterate needs about half at Maybe or better (half Maybe, half
+# Probably not = 3.14).
+SSR_GO_MEAN, SSR_ITERATE_MEAN = 3.75, 3.1
 AGE_BANDS = [(0, 17, "Under 18"), (18, 24, "18-24"), (25, 34, "25-34"), (35, 44, "35-44"),
              (45, 54, "45-54"), (55, 64, "55-64"), (65, 200, "65+")]
 
@@ -76,11 +78,12 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         "unsure or not interested.\n\n"
         f"{msg_block}"
         f"The action we care about: {goal_txt}.\n\n"
-        "First answer the four *_text questions in your own words. Write them in English, or in your "
-        "language's own script (for example Devanagari for Hindi); never in romanized or mixed-language text "
-        "such as Hinglish or Taglish. Open each with a direct verdict, exactly one of: No / Probably not / "
-        "Maybe / Probably yes / Yes, definitely. Then give one reason in one sentence. Say how you really "
-        "feel; do not be polite. Then give the quick numbers.\n"
+        "First answer the four *_text questions in your own words, as \"Verdict: reason\". The verdict is "
+        "exactly one of: No / Probably not / Maybe / Probably yes / Yes, definitely. The reason is one "
+        "sentence. Write the whole answer, reason included, in plain English or entirely in your language's "
+        "own script (for example Devanagari for Hindi). Do not write Hindi, Tagalog or any other language in "
+        "Latin letters and do not mix languages (no Hinglish or Taglish) in these four answers. Say how you "
+        "really feel; do not be polite. Then give the quick numbers.\n"
         "Reply with only this JSON, no other text (numbers as plain numbers):\n"
         '{"interest_text": "verdict: are you interested in this? then why", '
         '"trust_text": "verdict: do you trust it? then why or why not", '

@@ -87,13 +87,30 @@ def test_lead_sentence_keeps_only_the_opening_verdict():
     assert ssr.lead_sentence("No") == "No" and ssr.lead_sentence("   ") == "" and ssr.lead_sentence(None) == ""
 
 
+def test_verdict_clause_cuts_at_the_first_colon_or_dash():
+    assert ssr.verdict_clause("Maybe: only if my friends vouch for it. Card worries me.") == "Maybe"
+    assert ssr.verdict_clause("Probably not \u2014 the card scares me") == "Probably not"
+    assert ssr.verdict_clause("Maybe \u2013 gusto ko subukan") == "Maybe"
+    assert ssr.verdict_clause("Yes, definitely - free week") == "Yes, definitely"
+    assert ssr.verdict_clause("Unlikely, maybe 20-30% chance\u2014I'd rather check Reddit.") == "Unlikely, maybe 20-30% chance"
+    assert ssr.verdict_clause("Probably yes. A free week is low risk.") == "Probably yes."   # no colon: first sentence
+    assert ssr.verdict_clause(": no verdict") == ": no verdict" and ssr.verdict_clause("") == ""   # nothing before the cut
+
+
+def test_rate_embeds_only_the_verdict_clause():
+    emb = FakeEmbedder()
+    text = "I would definitely do it: no way I definitely would not, I will certainly not go ahead."
+    assert ssr.rate([("purchase", text)], embedder=emb)[0] == ssr.rate([("purchase", "I would definitely do it")],
+                                                                          embedder=emb)[0]
+
+
 def test_rate_embeds_only_the_first_sentence():
     emb = FakeEmbedder()
     text = "I would definitely do it. There is no way I definitely would not, I will certainly not go ahead."
     lead, full = ssr.rate([("purchase", text)], embedder=emb)[0], ssr.rate([("purchase", text)], embedder=emb, lead_only=False)[0]
     assert lead == ssr.rate([("purchase", "I would definitely do it.")], embedder=emb)[0]
     assert lead["mean"] > full["mean"] and lead["pmf"][4] == max(lead["pmf"])   # trailing reasons no longer drag it down
-    assert ssr.ANCHORS_VERSION != "2026-10-ssr-v1"                                   # cached ratings are marked stale
+    assert ssr.ANCHORS_VERSION not in ("2026-10-ssr-v1", "2026-10-ssr-v2-lead-sentence")   # older ratings are marked stale
 
 
 def test_rate_raises_when_embeddings_are_unavailable():
