@@ -3,12 +3,14 @@
   "configurations": [
     {
       "name": "market-mirror-live",
-      "runtimeExecutable": "backend/.venv/bin/python",
+      "runtimeExecutable": "/home/ayushniroula/Desktop/projects/market-mirror/backend/.venv/bin/python",
       "runtimeArgs": [
-        "backend/claude_cli/mirofish.py",
+        "/home/ayushniroula/Desktop/projects/market-mirror/backend/claude_cli/mirofish.py",
         "live",
         "--interval",
-        "8"
+        "8",
+        "--run-dir",
+        "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs/fitloop"
       ],
       "port": 5050
     }

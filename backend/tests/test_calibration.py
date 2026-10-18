@@ -73,8 +73,10 @@ def test_diagnose_overall():
     assert far["verdict"] == "walk-away"
 
 
-def test_calibrate_api():
+def test_calibrate_api(monkeypatch, tmp_path):
     from app import create_app
+    from app.services import predict as svc
+    monkeypatch.setattr(svc, "STORE", str(tmp_path / "store.json"))     # never write the real calibration store from tests
     rng = random.Random(5)
     app = create_app()
     app.config.update(TESTING=True)
