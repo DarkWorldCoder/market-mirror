@@ -270,3 +270,11 @@ def test_feed_test_api_validates_seeds(tmp_path, monkeypatch):
     assert r.status_code == 400
     r = c.post("/api/simulation/feed-test", json={"simulation_id": "sim_x", "creatives": CREATIVES, "seeds": 50})
     assert r.status_code == 200 and r.get_json()["data"]["seeds"] == 10          # capped
+
+
+def test_segment_targeting_is_forgiving():
+    from app.services.feed_test import segment_matches
+    assert segment_matches("India parents", "Working parents, India, metro cities")
+    assert segment_matches("Philippines young professionals", "Young professionals, Philippines, Metro Manila & Makati")
+    assert not segment_matches("Kenya students", "Young professionals, Kenya, Nairobi")
+    assert segment_matches("Students", "Students")

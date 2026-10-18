@@ -239,8 +239,24 @@ def people_from_simulation(profiles: List[Dict[str, Any]], persona_index: List[D
     return people
 
 
+def _words(s: Any) -> set:
+    return {w for w in re.findall(r"[a-z]+", str(s or "").lower()) if len(w) > 2 and w not in ("the", "and", "all", "metro", "cities", "city")}
+
+
+def segment_matches(wanted: str, segment: str) -> bool:
+    """Exact label, or a loose match: every content word of the wanted label appears in the person's segment
+    ("India parents" matches "Working parents, India, metro cities"; singular/plural tolerated)."""
+    if not wanted or not segment:
+        return False
+    if wanted.strip().lower() == segment.strip().lower():
+        return True
+    have = _words(segment)
+    stems = {w.rstrip("s") for w in have}
+    return all(w in have or w.rstrip("s") in stems for w in _words(wanted))
+
+
 def targets(creative: Dict[str, Any], person: Dict[str, Any]) -> bool:
-    if creative["segments"] and person["segment"] not in creative["segments"]:
+    if creative["segments"] and not any(segment_matches(w, person["segment"]) for w in creative["segments"]):
         return False
     if creative["countries"]:
         c = str(person.get("country") or "").lower()
@@ -451,7 +467,12 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     rng = random.Random(seed)
     plan = assign(creatives, people, seed)
     if not plan:
-        raise ValueError("no persona matches the creatives' targeting")
+        # the creatives' segment labels match nobody (e.g. a spec from another run): show every ad to everyone
+        logger.warning("feed test: no persona matches the creatives' targeting; ignoring segment/country targeting")
+        creatives = [{**c, "segments": [], "countries": []} for c in creatives]
+        plan = assign(creatives, people, seed)
+        if not plan:
+            raise ValueError("no persona matches the creatives' targeting")
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for (aid, platform) in plan:
         country = next((p["country"] for p in people if p["agent_id"] == aid), "")
