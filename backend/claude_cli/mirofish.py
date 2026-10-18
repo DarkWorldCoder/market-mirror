@@ -502,7 +502,8 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
     if simulation_id:
         for kind, name in (("feed-test", "feed_test"), ("analyst-panel", "analyst_panel"),
                            ("market-report", "market_report"), ("feed-story", "feed_story"), ("pitch", "pitch")):
-            if not os.path.exists(os.path.join(out_dir, f"{name}.json")):
+            # the feed story grows with every round, so it is always refetched; the others are written once
+            if name == "feed_story" or not os.path.exists(os.path.join(out_dir, f"{name}.json")):
                 put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
     if report_id:
         put("report", _try("report", lambda: c.data("GET", f"/api/report/{report_id}")))

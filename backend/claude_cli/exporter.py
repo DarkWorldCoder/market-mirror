@@ -1057,7 +1057,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (report_view.pitch_section(pitch, marketing.chart), report_view.ideas_section(bundle.get("ideas"))):
+    for extra in (report_view.ideas_section(bundle.get("ideas")), report_view.pitch_section(pitch, marketing.chart)):   # pitch ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)

@@ -46,15 +46,25 @@ Runs on Claude · works as a Claude Code skill and as MCP agent tools · one off
 <td><img src="docs/images/pricing.png" alt="Price sensitivity curves with acceptable range"/><br><b>Pricing.</b> Van Westendorp curves: the acceptable range, the sweet spot and the "never pay" price by segment.</td>
 <td><img src="docs/images/objections.png" alt="Objections chart and quotes"/><br><b>Objections.</b> What stops people, how often, in their own words, and what would change their mind.</td>
 </tr>
+<tr>
+<td><img src="docs/images/social-feed.png" alt="Social feed: brand posts with likes, quotes, comments, reach and reply sentiment, then every post by platform and round"/><br><b>Social feed.</b> Your launch posts inside the simulation: who replied from which country, in which round, with what sentiment; then every post, filterable by platform, round, audience and country.</td>
+<td><img src="docs/images/pitch.png" alt="Sales rehearsal: pitch score, objections with rebuttal success, by audience, hot leads"/><br><b>Sales rehearsal.</b> Every simulated buyer hears the pitch; objections, the questions they ask back, how each rebuttal did, and whom to call first.</td>
+</tr>
+<tr>
+<td><img src="docs/images/report.png" alt="Plain-language report with download buttons in its header"/><br><b>Report.</b> Written for anyone: what we tested, who we simulated, what happened, objections and how to answer them, pricing, sales notes, action plan, limits. Every download sits in its header.</td>
+<td><img src="docs/images/ideas.png" alt="Test ideas proposed from the evidence"/><br><b>Test ideas.</b> The next experiments, from your real ad data and the run, each citing its evidence and carrying the config to simulate it first.</td>
+</tr>
 </table>
 
-**Demo run.** These screenshots come from a real run on **Fitloop**, a made-up home-workout app with a 7-day card-required trial at $4.99 a month. It was tested on 28 simulated young professionals, parents and students in India, the Philippines and Kenya, across Facebook, Instagram, TikTok and Reddit ads. The brand, the audiences and the pilot numbers in its brief are all invented.
-- **Decision:** iterate, low confidence. The survey and the analysts said iterate; the best Instagram ad said go.
-- **Survey:** nobody committed and 61% said maybe. Trust was the biggest blocker, mostly about entering card details for a "free" trial.
-- **Analysts:** all five said iterate, with an average success chance of 25%. Their themes: free YouTube workouts set the bar, old phones and prepaid data plans worry people, and the adaptive-coaching claim needs proof.
-- **Price:** the acceptable range was $3 to $15, with a sweet spot around $5.
+**Demo run.** These screenshots come from a real launch simulation of **Fitloop**, a made-up home-workout app with a 7-day trial at $4.99 a month, on 28 interview-grounded simulated people (young professionals, parents and students in India, the Philippines and Kenya, each with a phone, a data plan and a life story in their own words). Five ads ran in Facebook, Instagram, TikTok and Reddit feeds; the brand's own teaser, launch, offer and "no card" posts were published inside six rounds of social simulation; everyone answered the buyer survey and heard the sales pitch. The brand, the audiences and the pilot numbers in its brief are all invented.
+- **Decision:** iterate, low confidence. Survey, feed test and all five analysts said iterate (success chance 31%).
+- **Social feed:** the launch posts drew 11-13 replies each on Reddit, mostly positive, and 7-13 quote-tweets on X; people asked, in Hindi, Taglish and Kenyan English, whether it works offline on an old Android, whether the trial auto-charges, and for proof from someone in their city.
+- **Survey:** 4% would start the trial, 71% maybe; purchase intent 3.2/5 ± 1.1. Trust ("looks like a scam", 54%) was the blocker, then "unclear what it is". Philippines young professionals were the only group with firm yeses (20%).
+- **Sales rehearsal:** pitch score 39/100; after rebuttals 7% yes and 64% maybe. The trust rebuttal moved under half of the objectors, and people asked for testimonials from working mothers in India and real users in the Philippines. 12 hot leads with the best channel and time to reach them.
+- **Price:** acceptable $3 to $15, sweet spot about $3.
+- **Test ideas:** 8 next experiments, led by a no-card trial flow and a proof-led creative for the Philippines, each citing its evidence.
 
-These numbers come from simulated people. Two runs in a row produced no firm "yes", so treat absolute rates as pessimistic until a backtest calibrates them, and use the run to rank options and find objections.
+These numbers come from simulated people. Treat absolute rates as pessimistic until a backtest calibrates them, and use the run to rank options, find objections and plan tests.
 
 ## How it works
 

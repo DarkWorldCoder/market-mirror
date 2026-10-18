@@ -178,7 +178,7 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None) -> Optional[Tuple[str
             f'<div class="tiles">{tiles_html}</div>'
             f'<div class="card"><h3>Before and after the rebuttals</h3><div class="grid2"><div><div class="small muted">After the pitch</div>{_mix_bar(before)}</div>'
             f'<div><div class="small muted">After the rebuttals</div>{_mix_bar(after)}</div></div>'
-            f'<div class="small muted">green yes · yellow maybe · pink no</div></div>'
+            f'<div class="small muted">blue yes · grey maybe · red no</div></div>'
             + (f'<div class="card"><h3>Fix in the pitch first</h3><ul>{fixes}</ul></div>' if fixes else "")
             + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table><thead><tr><th>Objection</th><th class="num">Share</th>'
                f'<th>Rebuttal used</th><th class="num">Moved them</th><th>Questions they asked back</th></tr></thead><tbody>{obj_rows}</tbody></table></div></div>' if obj_rows else "")
@@ -218,7 +218,7 @@ def ideas_section(ideas: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, s
 
 REPORT_CSS += """
 .mixbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0}
-.mixbar span{display:block;height:100%}.mixbar .mint{background:var(--mint)}.mixbar .accent{background:var(--accent)}.mixbar .orchid{background:var(--orchid)}
+.mixbar span{display:block;height:100%}.mixbar .mint{background:var(--mm-yes,var(--mm-mint))}.mixbar .accent{background:var(--mm-maybe,var(--accent))}.mixbar .orchid{background:var(--mm-no,var(--mm-orchid))}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.grid2{grid-template-columns:1fr}}
 pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono,monospace);margin:8px 0 0}
 .idea dl{margin:8px 0 0}.idea ul.small{margin:0;padding-left:18px}

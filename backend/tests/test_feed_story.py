@@ -335,3 +335,15 @@ def test_feed_story_api_builds_caches_and_filters(tmp_path, monkeypatch):
     empty.mkdir()
     (empty / "state.json").write_text(json.dumps({"project_id": "p", "graph_id": "g"}), encoding="utf-8")
     assert c.get("/api/simulation/sim_empty/feed-story").status_code == 404
+
+
+def test_events_for_both_platforms_are_brand_posts(sim_dir):
+    """A scheduled event with platform "both" (the CLI default) must be flagged as a brand post on every platform."""
+    cfg = _config(scheduled=[{"round": 1, "agent": 0, "platform": "both", "content": "Launch day!"}])
+    story = fs.build_feed_story(sim_dir, cfg)
+    inj = [i for i in fs._injected_posts(cfg) if i["source"] == "scheduled_event"]
+    assert inj and inj[0]["platform"] == "both" and inj[0]["brand"]
+    for plat in story["platforms"].values():
+        for p in plat["posts"]:
+            if fs._norm_key(p["content"]) == fs._norm_key("Launch day!"):
+                assert p["is_brand"]

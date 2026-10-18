@@ -372,7 +372,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             children[_int(p.get("original_post_id"))].append(p)
 
     rounds_meta = ridx.get("rounds") or {}
-    brand_inj = [i for i in injected if i["platform"] in (None, platform) and i.get("brand", True)]
+    brand_inj = [i for i in injected if i["platform"] in (None, "both", "all", platform) and i.get("brand", True)]
     injected_keys = {(i["key"], i["agent_id"]) for i in brand_inj}
     injected_any = {i["key"] for i in brand_inj}
     injected_source = {i["key"]: i["source"] for i in brand_inj}
@@ -400,7 +400,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             quote_content = (orig.get("content") if orig else p.get("content")) or ""
             original = {"post_id": orig_id, "author": who(orig.get("user_id")) if orig else _author(None, None, "unknown")}
         key = _norm_key(content)
-        is_brand = (kind == "post" and ((key, aid) in injected_keys or key in injected_any)) or author.get("kind") == "community"
+        is_brand = kind == "post" and ((key, aid) in injected_keys or key in injected_any or author.get("kind") == "community")
         rnd = post_round(p)
         comments = []
         for c in sorted(comments_by_post.get(pid, []), key=lambda c: (_created_key(c.get("created_at")), _int(c.get("comment_id")) or 0)):
