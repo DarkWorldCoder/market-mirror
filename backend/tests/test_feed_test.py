@@ -51,7 +51,7 @@ class FakeLLM:
             lens = re.search(r"Your lens: ([^.]+)\.", user).group(1)
             body = {"headline": f"{lens} view", "sentiment": 20 if "Sceptical" not in lens else -10,
                     "purchase_intent_signal": 6, "best_audience": "Students" if "Copywriter" not in lens else "Parents",
-                    "best_message": "#1", "themes": [{"theme": "free mock test", "weight": 8, "evidence": "Is it really free?"},
+                    "best_message": "#1", "themes": [{"theme": "free practice test", "weight": 8, "evidence": "Is it really free?"},
                                                      {"theme": lens.split()[0] + " angle", "weight": 3, "evidence": ""}],
                     "objections": ["scam fears"], "opportunities": ["parents"], "risks": [], "recommendation": "test more",
                     "confidence": 6, "evidence_gaps": "small sample"}
@@ -63,7 +63,7 @@ def people(n=12):
     out = []
     for i in range(n):
         student = i % 2 == 0
-        out.append({"agent_id": i, "name": f"Name{i} Last", "persona": "Student who loves exams" if student else "Parent paying fees",
+        out.append({"agent_id": i, "name": f"Name{i} Last", "persona": "Student who loves learning" if student else "Parent paying fees",
                     "age": 18 if student else 45, "gender": "female", "country": "Nepal",
                     "segment": "Students" if student else "Parents", "communities": [],
                     "income": "low" if i % 3 == 0 else "high", "thinking_style": "busy and distracted" if i == 4 else ""})
@@ -71,10 +71,10 @@ def people(n=12):
 
 
 CREATIVES = [
-    {"id": "ig1", "platform": "instagram", "text": "Free mock test", "headline": "See your score", "cta": "Sign up", "page": "CSCA.ai"},
-    {"id": "ig2", "platform": "instagram", "text": "Scholarship readiness", "cta": "Learn more", "page": "CSCA.ai"},
-    {"id": "fb1", "platform": "facebook", "text": "Parents: plan before you pay an agent", "page": "CSCA.ai", "segments": ["Parents"]},
-    {"id": "rd1", "platform": "reddit", "text": "We built a free CSCA practice site", "page": "u/csca_ai"},
+    {"id": "ig1", "platform": "instagram", "text": "Free practice test", "headline": "See your score", "cta": "Sign up", "page": "Acme"},
+    {"id": "ig2", "platform": "instagram", "text": "Check your eligibility", "cta": "Learn more", "page": "Acme"},
+    {"id": "fb1", "platform": "facebook", "text": "Parents: plan before you pay an agent", "page": "Acme", "segments": ["Parents"]},
+    {"id": "rd1", "platform": "reddit", "text": "We built a free practice-test site", "page": "u/acme_app"},
 ]
 
 
@@ -138,7 +138,7 @@ def test_run_feed_test_metrics_social_proof_landing_projection():
 
 
 def test_people_from_simulation_keeps_personas_only():
-    profiles = [{"user_id": 0, "name": "CSCA.ai", "gender": "other", "persona": "brand"},
+    profiles = [{"user_id": 0, "name": "Acme", "gender": "other", "persona": "brand"},
                 {"user_id": 1, "name": "Asha", "gender": "female", "persona": "student", "age": 18},
                 {"user_id": 2, "name": "Group", "gender": "other", "persona": "group"}]
     index = [{"agent_id": 0, "kind": "graph"}, {"agent_id": 1, "kind": "persona", "segment": "Students", "income": "low"},
@@ -151,7 +151,7 @@ def test_analyst_panel_independent_and_consensus():
     llm = FakeLLM()
     material = ap.normalize_material({"comments": [{"segment": "Parents", "text": "Is it really free?"}],
                                       "survey": ["Looks useful", {"segment": "Students", "quote": "Signed up!"}],
-                                      "context": "CSCA mock test"})
+                                      "context": "Acme practice test"})
     res = ap.run_panel(llm, "m", material, "Which audience?", n=5)
     assert len(res["analysts"]) == 5 and all(a["result"] for a in res["analysts"])
     # each analyst got its own call and never saw another analyst's output
@@ -159,7 +159,7 @@ def test_analyst_panel_independent_and_consensus():
     assert len(users) == 5 and not any("view" in u for u in users)
     c = res["consensus"]
     assert c["best_audience"]["winner"] == "Students" and c["best_audience"]["agreement"] == 100
-    assert c["themes"][0]["theme"] == "free mock test" and c["themes"][0]["analysts"] == 5
+    assert c["themes"][0]["theme"] == "free practice test" and c["themes"][0]["analysts"] == 5
     assert c["consensus"] in ("strong", "partial")
     with pytest.raises(ValueError):
         ap.normalize_material({"posts": []})

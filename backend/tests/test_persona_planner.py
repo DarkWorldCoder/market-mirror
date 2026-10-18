@@ -153,7 +153,7 @@ def _spec_with_communities():
 def test_communities_membership_accounts_and_follow_graph():
     spec = _spec_with_communities()
     ents = pp.generate_personas(FakeClient(), "m", spec, "req", "ctx")
-    graph_actor = EntityNode(uuid="g1", name="CSCA.ai", labels=["Entity", "Company"], summary="", attributes={})
+    graph_actor = EntityNode(uuid="g1", name="Acme", labels=["Entity", "Company"], summary="", attributes={})
     agents = [graph_actor] + ents                       # final order: graph actors first
     cfg = pp.build_community_config(agents, spec)
     by_name = {c["name"]: c for c in cfg["communities"]}
@@ -202,16 +202,16 @@ def test_select_graph_entities_drops_places_platforms_and_group_labels():
     def node(name, etype):
         return EntityNode(uuid=name, name=name, labels=["Entity", etype], summary="", attributes={})
     ents = [node(n, t) for n, t in [
-        ("CSCA.ai", "EdTechCompany"), ("WiseAdmit", "Organization"), ("Nepal", "Organization"),
+        ("Acme", "SoftwareCompany"), ("Acme Partners", "Organization"), ("Nepal", "Organization"),
         ("Facebook", "Organization"), ("Travel & Tourism page admins", "Person"),
         ("Indonesian parents", "Parent"), ("Southeast Asia broad targeting set", "Organization"),
         ("Instagram", "SocialMediaPlatform"), ("Tribhuvan University", "University"),
         ("Parents (40–55)", "Parent"), ("Nepal #8", "AdCampaign"), ("Free score check ad concept", "Organization"),
-        ("Sign Up", "Action"), ("ai", "Organization"), ("Mock Test Service", "Product"),
+        ("Sign Up", "Action"), ("ai", "Organization"), ("Practice Test Service", "Product"),
         ("Chinese Government Scholarships", "Organization")]]
     spec = pp.PersonaSpec.from_dict({"segments": [seg()], "keep_entities": ["Facebook"]})
     kept = [e.name for e in pp.select_graph_entities(ents, spec, ["Nepal", "Indonesia"])]
-    assert kept == ["CSCA.ai", "WiseAdmit", "Facebook", "Tribhuvan University"]
+    assert kept == ["Acme", "Acme Partners", "Facebook", "Tribhuvan University"]
     spec.graph_agents = "none"
     assert [e.name for e in pp.select_graph_entities(ents, spec)] == ["Facebook"]
     spec.graph_agents = "all"

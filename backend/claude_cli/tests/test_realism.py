@@ -73,7 +73,7 @@ class StubClient:
 
 class SurveyTextTest(unittest.TestCase):
     def test_prompt_asks_free_text_before_numbers(self):
-        p = mk.survey_prompt("Free mock test", "sign up", ["a", "b"], 0)
+        p = mk.survey_prompt("Free practice test", "sign up", ["a", "b"], 0)
         for f in ("interest_text", "trust_text", "purchase_text", "recommend_text"):
             self.assertIn(f, p)
         self.assertLess(p.index("purchase_text"), p.index('"interest": 0-10'))

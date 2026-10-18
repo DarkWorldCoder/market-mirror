@@ -17,7 +17,7 @@ import mirofish  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixtures", "sample_run")
 SEGMENTS = [("Nepal students", "Nepal"), ("Nepal parents", "Nepal"), ("Bangladesh students", "Bangladesh"),
             ("Indonesia parents", "Indonesia")]
-MESSAGES = ["See your score free", "Could you get a Chinese scholarship?", "Parents: plan before you pay an agent"]
+MESSAGES = ["See your score free", "Could you qualify for a discount?", "Parents: plan before you pay an agent"]
 
 
 def make_survey_bundle(n_per_segment=8, split=True, pricing=True, seed=3):
@@ -54,7 +54,7 @@ def make_survey_bundle(n_per_segment=8, split=True, pricing=True, seed=3):
         raw = "Sure! " + json.dumps(ans) + " Thanks."
         responses.append({"agent_id": a, "name": row["name"], "assigned_message": assigned.get(a), "raw": raw,
                           "answer": mk.parse_answer(raw, len(MESSAGES))})
-    survey = {"offer": "Free CSCA mock test", "goal": "sign up for the free mock test", "messages": MESSAGES,
+    survey = {"offer": "Free Acme practice test", "goal": "sign up for the free practice test", "messages": MESSAGES,
               "mode": "split" if split else "pick", "currency": "USD" if pricing else None, "responses": responses}
     return {"config": {"persona_index": index}, "survey": survey,
             "actions": [{"agent_id": a, "action_type": "CREATE_POST"} for a in people[::2]]}
