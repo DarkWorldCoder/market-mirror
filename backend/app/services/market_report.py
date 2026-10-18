@@ -215,21 +215,27 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
               "up to the benchmarks' budgets when they exist, what to fix first (ordered), and when to retest.\n\n"
               f"Return JSON exactly in this shape:\n{SCHEMA}")
     usage = {}
-    try:
-        resp = create_chat_completion(client, model=model, temperature=0.4, max_tokens=7000,
-                                      messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}])
-        text = extract_chat_completion_text(resp)
-        u = getattr(resp, "usage", None)
-        if u is not None:
-            usage = {"input_tokens": getattr(u, "prompt_tokens", None), "output_tokens": getattr(u, "completion_tokens", None)}
-        data = parse_json_block(text)
-        if not isinstance(data, dict) or "executive_summary" not in data:
-            raise ValueError("report JSON missing executive_summary")
-        sections = clean_sections(data, material)
-        method = "llm"
-    except Exception as e:  # noqa: BLE001 - fall back to a data-only report
-        logger.warning(f"market report generation failed, using data-only fallback: {e}")
-        sections, method = fallback_sections(material), "fallback"
+    sections, method = None, "fallback"
+    for attempt in range(2):
+        extra = "" if attempt == 0 else ("\n\nYour previous answer was cut off. Be shorter: at most 3 bullets per list, "
+                                         "2 sentences per summary, 5 objections, 4 ICP rows, 3 ads in the plan.")
+        try:
+            resp = create_chat_completion(client, model=model, temperature=0.4, max_tokens=16000,
+                                          messages=[{"role": "system", "content": SYSTEM},
+                                                    {"role": "user", "content": prompt + extra}])
+            text = extract_chat_completion_text(resp)
+            u = getattr(resp, "usage", None)
+            if u is not None:
+                usage = {"input_tokens": getattr(u, "prompt_tokens", None), "output_tokens": getattr(u, "completion_tokens", None)}
+            data = parse_json_block(text)
+            if not isinstance(data, dict) or "executive_summary" not in data:
+                raise ValueError("report JSON missing executive_summary")
+            sections, method = clean_sections(data, material), "llm"
+            break
+        except Exception as e:  # noqa: BLE001 - retry once shorter, then fall back to a data-only report
+            logger.warning(f"market report generation failed (attempt {attempt + 1}): {e}")
+    if sections is None:
+        sections = fallback_sections(material)
     md = render_markdown(sections, material)
     return {"sections": sections, "action_plan": sections.get("action_plan") or {}, "markdown": md,
             "method": method, "usage": usage, "brand": brand or material.get("brand")}

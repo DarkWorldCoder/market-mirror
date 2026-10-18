@@ -298,8 +298,16 @@ def _injected_posts(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             agent = r.get("poster_agent_id")
             if agent is None:
                 agent = r.get("agent_id") if r.get("agent_id") is not None else r.get("agent")
-            out.append({"key": _norm_key(r["content"]), "agent_id": _resolve_agent(agent, config),
-                        "platform": (r.get("platform") or "").lower() or None, "source": source,
+            aid = _resolve_agent(agent, config)
+            kind = next((str(x.get("kind") or "") for x in (config or {}).get("persona_index") or []
+                         if isinstance(x, dict) and x.get("agent_id") == aid), "")
+            # a brand post is one the user injected for the brand (poster_type "brand" or a scheduled event) or one
+            # posted by an organisation/community account; the engine's own LLM-written opening posts by ordinary
+            # personas are organic, not brand posts
+            brand = source == "scheduled_event" or str(r.get("poster_type") or "").lower() == "brand" \
+                or kind in ("graph", "community")
+            out.append({"key": _norm_key(r["content"]), "agent_id": aid,
+                        "platform": (r.get("platform") or "").lower() or None, "source": source, "brand": brand,
                         "round": _int(r.get("round")) if r.get("round") is not None else None})
     return out
 
@@ -364,9 +372,10 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             children[_int(p.get("original_post_id"))].append(p)
 
     rounds_meta = ridx.get("rounds") or {}
-    injected_keys = {(i["key"], i["agent_id"]) for i in injected if i["platform"] in (None, platform)}
-    injected_any = {i["key"] for i in injected if i["platform"] in (None, platform)}
-    injected_source = {i["key"]: i["source"] for i in injected if i["platform"] in (None, platform)}
+    brand_inj = [i for i in injected if i["platform"] in (None, platform) and i.get("brand", True)]
+    injected_keys = {(i["key"], i["agent_id"]) for i in brand_inj}
+    injected_any = {i["key"] for i in brand_inj}
+    injected_source = {i["key"]: i["source"] for i in brand_inj}
 
     def post_round(p: Dict[str, Any]) -> Optional[int]:
         pid = _int(p.get("post_id"))

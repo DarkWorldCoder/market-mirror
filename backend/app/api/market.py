@@ -189,7 +189,8 @@ def start_market_report():
 
     def work(progress):
         progress(1, 2)
-        out = market_report.generate(_client(), Config.LLM_MODEL_NAME, material, brand or None)
+        facts = market_report.compact_material(material) if "summary" in material else material
+        out = market_report.generate(_client(), Config.LLM_MODEL_NAME, facts, brand or None)
         progress(2, 2)
         return out
 

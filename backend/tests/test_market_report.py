@@ -151,7 +151,7 @@ def test_market_report_api(tmp_path, monkeypatch):
     app.config.update(TESTING=True)
     c = app.test_client()
     assert c.post("/api/simulation/market-report", json={"simulation_id": "sim_r"}).status_code == 400
-    r = c.post("/api/simulation/market-report", json={"simulation_id": "sim_r", "material": mr.compact_material(BUNDLE)})
+    r = c.post("/api/simulation/market-report", json={"simulation_id": "sim_r", "material": BUNDLE})   # raw bundle: API compacts it
     assert r.status_code == 200
     task_id = r.get_json()["data"]["task_id"]
     import time
@@ -163,3 +163,4 @@ def test_market_report_api(tmp_path, monkeypatch):
     assert st["status"] == "completed", st
     got = c.get("/api/simulation/sim_r/market-report").get_json()["data"]
     assert got["method"] == "llm" and "## Action plan" in got["markdown"]
+    assert "# Fitloop: market test report" in got["markdown"]          # brand came from the compacted facts
