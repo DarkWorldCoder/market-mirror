@@ -86,6 +86,9 @@ class FakeLLM:
                 "type": "works_for", "source": person, "target": company,
                 "fact": f"{person} works for {company} as {role}.",
             })
+        for names in re.findall(r"Mentions ([A-Z]\w+), ([A-Z]\w+) and ([A-Z]\w+)\.", text):
+            for n in names:
+                entities.append({"name": n, "type": "Company", "summary": f"{n} is mentioned."})
         for left, right in _PARTNERS.findall(text):
             entities.append({"name": left, "type": "Company", "summary": f"{left} has partners."})
             relationships.append({
@@ -437,3 +440,15 @@ def test_graph_builder_end_to_end_build(local_backend):
     assert info["node_count"] == 3
     assert info["edge_count"] == 2
     assert sorted(info["entity_types"]) == ["Company", "Person"]
+
+
+
+def test_comention_links_islands(client):
+    _build(client, ["Acme partners with Globex.", "Mentions Initech, Umbrella and Acme."], graph_id="mirofish_co")
+    nodes = {n.name: n for n in fetch_all_nodes(client, "mirofish_co")}
+    edges = fetch_all_edges(client, "mirofish_co")
+    linked = {e.source_node_uuid for e in edges} | {e.target_node_uuid for e in edges}
+    assert all(n.uuid_ in linked for n in nodes.values())            # no islands
+    co = [e for e in edges if e.name == "MENTIONED_WITH"]
+    assert {e.source_node_uuid for e in co} == {nodes["Initech"].uuid_, nodes["Umbrella"].uuid_}
+    assert all(e.target_node_uuid == nodes["Acme"].uuid_ for e in co)   # the passage's best-connected entity

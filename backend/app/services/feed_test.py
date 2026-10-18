@@ -630,13 +630,16 @@ def projection(m: Dict[str, Any], lf: Optional[Dict[str, Any]], bench: Optional[
     ctr = (m.get("expected_ctr") if m.get("expected_ctr") is not None else (m["ctr"] or 0)) / 100 * (calibration or 1.0)
     impressions = budget / cpm * 1000
     clicks = impressions * ctr
-    after_click = (lf["conversion_after_click"] / 100) if lf and lf.get("conversion_after_click") is not None else None
+    min_clicks = 5
+    enough = bool(lf) and (lf.get("clicks") or 0) >= min_clicks
+    after_click = (lf["conversion_after_click"] / 100) if enough and lf.get("conversion_after_click") is not None else None
     conversions = clicks * after_click if after_click is not None else None
     out = {"budget": budget, "currency": bench.get("currency") or "", "cpm": cpm, "impressions": round(impressions),
            "ctr_used": round(100 * ctr, 2), "calibrated": bool(calibration), "clicks": round(clicks),
            "cpc": round(budget / clicks, 2) if clicks else None,
            "conversions": round(conversions, 1) if conversions is not None else None,
-           "cost_per_conversion": round(budget / conversions, 2) if conversions else None}
+           "cost_per_conversion": round(budget / conversions, 2) if conversions else None,
+           "too_few_clicks": (lf.get("clicks") or 0) if lf and not enough else None}
     out.update(economics(budget, conversions, bench))
     return out
 

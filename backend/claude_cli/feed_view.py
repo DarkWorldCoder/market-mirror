@@ -156,15 +156,17 @@ def post_mock(cr: Dict[str, Any], m: Dict[str, Any]) -> str:
 def _metric_rows(m: Dict[str, Any], base: Optional[Dict[str, Any]]) -> str:
     n = m.get("impressions") or 0
     rows = [
+        ("Noticed the ad", pct_ci(m.get("noticed"), n), "caught their eye at all while scrolling") if m.get("noticed") is not None else None,
         ("Thumb-stop", pct_ci(m.get("thumb_stop"), n), f'organic posts: {base.get("thumb_stop"):.0f}%' if base and base.get("thumb_stop") is not None else ""),
         ("Avg time when stopped", f'{m["avg_dwell"]}s' if m.get("avg_dwell") is not None else "–", ""),
         ("CTR", pct_ci(m.get("ctr"), n), f'{m.get("clicks", 0)} clicks'),
+        ("Expected CTR", f'{m["expected_ctr"]:.1f}%', "average of each person's stated click chance") if m.get("expected_ctr") is not None else None,
         ("Engagement rate", pct_ci(m.get("engagement_rate"), n), "reactions, comments, shares, saves"),
         ("Comments / shares", f'{m.get("comments", 0)} / {m.get("shares", 0)}', ""),
         ("Hid the ad", pct_ci(m.get("hide_rate"), n), ""),
     ]
     return "".join(f'<tr><td>{_e(k)}</td><td class="num"><b>{_e(v)}</b></td><td class="muted small">{_e(h)}</td></tr>'
-                   for k, v, h in rows)
+                   for k, v, h in (r for r in rows if r))
 
 
 def _landing_html(lf: Optional[Dict[str, Any]]) -> str:
@@ -198,6 +200,9 @@ def _projection_html(pr: Optional[Dict[str, Any]]) -> str:
         items.append(("Payback", f'{pr["payback_months"]} months'))
     cells = "".join(f'<div><div class="v">{_e(v)}</div><div class="k">{_e(k)}</div></div>' for k, v in items)
     note = f'CTR {pr["ctr_used"]}%' + (" calibrated to your real platform CTR" if pr.get("calibrated") else " as simulated (not calibrated)")
+    if pr.get("too_few_clicks") is not None:
+        note += (f'. Only {pr["too_few_clicks"]} simulated click(s): too few to estimate conversions, '
+                 'so add personas or exposures')
     return f'<div class="proj"><h4>If you spend {_e(_money(pr["budget"], cur))} at CPM {_e(pr["cpm"])}</h4><div class="proj-g">{cells}</div><p class="muted small">{_e(note)}.</p></div>'
 
 
@@ -466,3 +471,119 @@ document.querySelectorAll('[data-dl]').forEach(function(b){b.addEventListener('c
  save(n,files[n]||'',n.endsWith('.csv')?'text/csv':n.endsWith('.json')?'application/json':'text/markdown');});});
 })();
 """
+
+
+# --------------------------------------------------------------------------
+# Knowledge graph overlay: simulated people and communities, connected
+# --------------------------------------------------------------------------
+
+def augment_graph(graph: Dict[str, Any], config: Dict[str, Any], max_people: int = 120) -> Dict[str, Any]:
+    """Add personas, segments, communities and countries to the graph so the audience is visibly connected:
+    person -> MEMBER_OF -> community, person -> IN_SEGMENT -> segment, segment -> LIVES_IN -> country."""
+    index = [r for r in (config or {}).get("persona_index") or [] if r.get("kind") in ("persona", "community")]
+    if not index:
+        return graph
+    nodes = list(graph.get("nodes") or [])
+    edges = list(graph.get("edges") or [])
+    by_name = {str(n.get("name") or "").strip().lower(): n.get("uuid") for n in nodes}
+
+    def node(key: str, name: str, label: str) -> str:
+        found = by_name.get(name.strip().lower())
+        if found:
+            return found
+        uid = f"mm_{key}"
+        nodes.append({"uuid": uid, "name": name, "labels": ["Entity", label], "summary": "", "attributes": {}})
+        by_name[name.strip().lower()] = uid
+        return uid
+
+    def edge(a: str, b: str, name: str, fact: str) -> None:
+        edges.append({"uuid": f"mm_e{len(edges)}", "name": name, "fact": fact, "source_node_uuid": a,
+                      "target_node_uuid": b})
+
+    people = [r for r in index if r.get("kind") == "persona"][:max_people]
+    for r in index:
+        if r.get("kind") == "community":
+            node(f"c{r['agent_id']}", r.get("name") or "community", "Community")
+    for r in people:
+        p = node(f"p{r['agent_id']}", r.get("name") or f"person {r['agent_id']}", "Persona")
+        if r.get("segment"):
+            seg = node("s_" + str(r["segment"]), str(r["segment"]), "Segment")
+            edge(p, seg, "IN_SEGMENT", f"{r.get('name')} is in {r['segment']}")
+            if r.get("country"):
+                c = node("k_" + str(r["country"]), str(r["country"]), "Country")
+                if not any(e["source_node_uuid"] == seg and e["target_node_uuid"] == c for e in edges):
+                    edge(seg, c, "LIVES_IN", f"{r['segment']} live in {r['country']}")
+        for cm in r.get("communities") or []:
+            edge(p, node("c_" + cm, cm, "Community"), "MEMBER_OF", f"{r.get('name')} is a member of {cm}")
+    return {**graph, "nodes": nodes, "edges": edges, "node_count": len(nodes), "edge_count": len(edges)}
+
+
+
+# --------------------------------------------------------------------------
+# Decision card: go / iterate / no-go from every signal we have
+# --------------------------------------------------------------------------
+
+def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    signals: List[Dict[str, Any]] = []
+    o = mk.get("overall") or {}
+    if mk.get("has_survey") and o.get("convert_yes") is not None:
+        v = o["convert_yes"]
+        signals.append({"name": "Buyer survey", "vote": "go" if v >= 40 else "iterate" if v >= 20 else "no-go",
+                        "detail": f"{v:.0f}% would convert (+{o.get('convert_maybe') or 0:.0f}% maybe), n={mk.get('answered')}",
+                        "n": mk.get("answered") or 0})
+    ft = (bundle.get("feed_test") or {}).get("summary") or {}
+    per, calib = ft.get("per_creative") or {}, ft.get("calibration") or {}
+    if per:
+        best_id = (ft.get("ranked") or list(per))[0]
+        b = per[best_id]
+        creatives = {c["id"]: c for c in (bundle.get("feed_test") or {}).get("creatives") or []}
+        plat = creatives.get(best_id, {}).get("platform")
+        exp = b.get("expected_ctr")
+        hide = b.get("hide_rate") or 0
+        vote = "iterate"
+        detail = f"best creative {best_id}: expected CTR {exp}%, hides {hide:.0f}%"
+        if calib.get(plat):
+            vs = (exp or 0) * calib[plat]
+            detail += f", about {vs:.1f}% after calibrating to your real CTR"
+        if exp is not None:
+            vote = "go" if exp >= 3 and hide < 15 else "no-go" if exp < 1 or hide >= 30 else "iterate"
+        lf = b.get("landing") or {}
+        if lf.get("clicks"):
+            detail += f"; page loaded for {lf.get('load_rate') or 0:.0f}% of clicks, {lf.get('converted', 0)} of {lf['clicks']} converted"
+            if (lf.get("load_rate") or 0) < 60 and vote == "go":
+                vote = "iterate"
+        signals.append({"name": "Feed test", "vote": vote, "detail": detail, "n": b.get("impressions") or 0})
+    pc = (bundle.get("analyst_panel") or {}).get("consensus") or {}
+    if (pc.get("verdict") or {}).get("winner"):
+        v = pc["verdict"]
+        signals.append({"name": "Analyst panel", "vote": v["winner"],
+                        "detail": f"{v['agreement']}% of {pc.get('analysts_ok')} analysts; success chance {pc.get('success_probability')}%",
+                        "n": pc.get("analysts_ok") or 0})
+    if not signals:
+        return None
+    order = {"no-go": 0, "iterate": 1, "go": 2}
+    votes = [s["vote"] for s in signals]
+    final = min(votes, key=lambda v: order[v]) if "no-go" in votes and votes.count("no-go") * 2 >= len(votes) else \
+        max(set(votes), key=lambda v: (votes.count(v), -order[v]))
+    agree = votes.count(final) / len(votes)
+    small = any(s["n"] < 30 for s in signals if s["name"] != "Analyst panel")
+    confidence = "high" if agree == 1 and not small and len(signals) >= 2 else "medium" if agree >= 0.5 and not small else "low"
+    why = {"go": "Signals support launching or scaling this, with the fixes below.",
+           "iterate": "Promising, but fix the blockers and retest before spending at scale.",
+           "no-go": "Do not scale this as is. Rethink the offer, audience or message."}[final]
+    return {"decision": final, "confidence": confidence, "summary": why, "signals": signals,
+            "fixes": [x["label"] for x in (mk.get("objections") or [])[:3]]}
+
+
+def decision_section(d: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, str]]:
+    if not d:
+        return None
+    color = {"go": "mint", "iterate": "accent", "no-go": "orchid"}[d["decision"]]
+    rows = "".join(f'<li><span class="pill {"mint" if s["vote"] == "go" else "accent" if s["vote"] == "iterate" else "orchid"}">'
+                   f'{_e(s["vote"])}</span> <b>{_e(s["name"])}</b>: {_e(s["detail"])}</li>' for s in d["signals"])
+    fixes = "".join(f"<li>{_e(f)}</li>" for f in d.get("fixes") or [])
+    return ("decision", "Decision", f'<div class="panel dec"><div class="eyebrow">Decision · {_e(d["confidence"])} confidence</div>'
+            f'<div class="headline"><span class="pill {color}" style="font-size:1.1rem;padding:6px 14px;margin-right:10px">'
+            f'{_e(d["decision"].upper())}</span>{_e(d["summary"])}</div><ul class="verdicts">{rows}</ul>'
+            + (f'<div class="eyebrow" style="margin-top:14px">Fix first</div><ul class="verdicts">{fixes}</ul>' if fixes else "")
+            + '<p class="small" style="color:var(--mm-panel-muted);margin:12px 0 0">Simulated evidence: confirm with a small real budget before scaling.</p></div>')

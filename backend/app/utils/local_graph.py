@@ -77,6 +77,8 @@ logger = get_logger("mirofish.local_graph")
 SIMULATION_ACTIVITY_SOURCE = "mirofish_simulation"
 ACTIVITY_EDGE_NAME = "SIMULATION_ACTIVITY"
 _MAX_SUMMARY_CHARS = 1200
+# Link entities that a passage mentions but no relationship connects, so the graph has no islands.
+_COMENTION = os.environ.get("LOCAL_GRAPH_COMENTION", "true").strip().lower() not in ("0", "false", "no", "off")
 _EXTRACTION_ATTEMPTS = 3
 _EXTRACTION_MAX_TOKENS = 3000
 # Bump when the extraction prompt/format changes to invalidate cached results.
@@ -1762,10 +1764,45 @@ class LocalZep:
                 )
                 touched["facts"].append(fact)
 
+            if _COMENTION:
+                self._link_comentions(conn, store, graph_id, episode_uuid, episode_time,
+                                      list(dict.fromkeys(name_to_uuid.values())), touched)
             conn.execute(
                 "UPDATE episodes SET processed = 1, error = NULL WHERE uuid = ?", (episode_uuid,)
             )
         return touched
+
+    @staticmethod
+    def _link_comentions(conn, store, graph_id: str, episode_uuid: str, episode_time: Any,
+                         node_uuids: List[str], touched: Dict[str, Any]) -> None:
+        """Connect every entity of this passage that has no edges at all to the passage's best-connected
+        entity with a MENTIONED_WITH edge (co-occurrence), so no entity is left as an island."""
+        if len(node_uuids) < 2:
+            return
+        degree = {}
+        names = {}
+        for u in node_uuids:
+            degree[u] = conn.execute(
+                "SELECT COUNT(*) FROM edges WHERE graph_id = ? AND (source_node_uuid = ? OR target_node_uuid = ?)",
+                (graph_id, u, u)).fetchone()[0]
+            row = conn.execute("SELECT name FROM nodes WHERE uuid = ?", (u,)).fetchone()
+            names[u] = row["name"] if row else u
+        hub = max(node_uuids, key=lambda u: (degree[u], -node_uuids.index(u)))
+        for u in node_uuids:
+            if u == hub or degree[u] > 0:
+                continue
+            fact = f"{names[u]} is mentioned together with {names[hub]}"
+            conn.execute(
+                "INSERT INTO edges(uuid, graph_id, name, fact, source_node_uuid, target_node_uuid, "
+                "attributes, episodes, created_at, valid_at, invalid_at, expired_at, seq) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+                (str(uuid.uuid4()), graph_id, "MENTIONED_WITH", fact, u, hub,
+                 json.dumps({"inferred": "co-mention"}), json.dumps([episode_uuid]), _now(), str(episode_time),
+                 store.next_seq()),
+            )
+            degree[u] = 1
+            degree[hub] += 1
+            touched["facts"].append(fact)
 
     # -- search ----------------------------------------------------------
 

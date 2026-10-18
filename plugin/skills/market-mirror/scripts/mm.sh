@@ -8,6 +8,7 @@
 #   mm.sh cli ARGS...           run the MiroFish CLI from the engine folder (see its --help)
 #   mm.sh live [ARGS...]        serve the live dashboard on http://127.0.0.1:5050/ (foreground)
 #   mm.sh home                  print the engine folder
+#   mm.sh mcp                   run the MCP server (stdio) exposing all of this as agent tools
 #
 # Environment: MARKET_MIRROR_HOME (default ~/.market-mirror/engine; MIROFISH_HOME also accepted),
 #              MARKET_MIRROR_REPO (default https://github.com/DarkWorldCoder/market-mirror.git)
@@ -87,6 +88,7 @@ case "$cmd" in
     [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
     cd "$HOME_DIR" && exec "$PY" "$CLI" live "$@"
     ;;
-  help|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  mcp) exec python3 "$(dirname "$0")/mcp_server.py" ;;
+  help|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$cmd' (try: mm.sh help)" ;;
 esac

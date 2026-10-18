@@ -96,6 +96,8 @@ def _prompt(lens: str, focus: str, brief: str, material: Dict[str, Any]) -> str:
         "\"themes\": [{\"theme\": \"2-5 words\", \"weight\": 0-10, \"evidence\": \"short quote\"}], "
         "\"objections\": [\"...\"], \"opportunities\": [\"...\"], \"risks\": [\"...\"], "
         "\"recommendation\": \"what to do next, 1-2 sentences\", \"confidence\": 0-10, "
+        "\"verdict\": \"go|iterate|no-go (launch/scale as is, fix first, or stop)\", "
+        "\"success_probability\": 0-100, "
         "\"evidence_gaps\": \"what you would need to be more sure\"}"
     )
 
@@ -125,6 +127,9 @@ def _clean(r: Dict[str, Any]) -> Dict[str, Any]:
         "recommendation": str(r.get("recommendation") or "")[:500],
         "confidence": num(r.get("confidence"), 0, 10),
         "evidence_gaps": str(r.get("evidence_gaps") or "")[:400],
+        "verdict": (lambda v: v if v in ("go", "iterate", "no-go") else None)(
+            str(r.get("verdict") or "").strip().lower().replace("nogo", "no-go").replace("no go", "no-go")),
+        "success_probability": num(r.get("success_probability"), 0, 100),
     }
 
 
@@ -171,6 +176,9 @@ def aggregate(analysts: List[Dict[str, Any]]) -> Dict[str, Any]:
         "confidence_mean": round(mean([r["confidence"] for r in res if r["confidence"] is not None]), 1)
         if any(r["confidence"] is not None for r in res) else None,
         "best_audience": audience, "best_message": message, "themes": themes[:12], "consensus": consensus,
+        "verdict": _vote([r.get("verdict") or "unclear" for r in res]),
+        "success_probability": round(mean([r["success_probability"] for r in res if r.get("success_probability") is not None]))
+        if any(r.get("success_probability") is not None for r in res) else None,
     }
 
 

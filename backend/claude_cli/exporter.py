@@ -991,7 +991,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     cfg = bundle.get("config") or {}
     report = bundle.get("report") or {}
 
-    graph_html, graph_stats = render_graph(bundle.get("graph") or {})
+    graph_html, graph_stats = render_graph(feed_view.augment_graph(bundle.get("graph") or {}, cfg))
     rounds, values, series = build_timeline(bundle)
     series_totals = {s: sum(values[s]) for s in series}
     slots = assign_slots(series)
@@ -1022,6 +1022,10 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                   feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart)):
         if extra:
             mk_sections.append(extra)
+    dec = feed_view.decision_section(feed_view.decision(bundle, mk))
+    if dec:
+        mk_sections.insert(0, dec)
+    summary["decision"] = feed_view.decision(bundle, mk)
     files = feed_view.export_files(bundle, mk, md)
     files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
     mk_sections.append(feed_view.downloads_section(files))

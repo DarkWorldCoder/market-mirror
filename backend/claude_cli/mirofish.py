@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import sys
 import time
@@ -912,6 +913,131 @@ def cmd_backtest(c: Optional[Client], a) -> Any:
     return res
 
 
+def _cfg_path(base: str, v: Any) -> Any:
+    """Resolve a config value: '@path' or 'path.json' relative to the config file, else the value itself."""
+    if isinstance(v, str):
+        raw = v[1:] if v.startswith("@") else v
+        cand = raw if os.path.isabs(raw) else os.path.join(base, raw)
+        if (v.startswith("@") or raw.endswith((".json", ".md", ".txt", ".pdf", ".csv"))) and os.path.exists(cand):
+            return cand
+    return v
+
+
+def cmd_market_test(c: Client, a) -> Any:
+    """All-in-one market test from one JSON config: personas -> feed test -> rounds -> survey -> panel -> dashboard.
+
+    Spend guard: unless the config has "approve_spend": true, it stops after creating the personas and prints
+    how to continue (reuse "simulation_id" and set "approve_spend": true)."""
+    path = a.config
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError) as e:
+        raise CLIError(f"market-test: cannot read {path}: {e}")
+    base = os.path.dirname(os.path.abspath(path))
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cfg.get("name") or "market_test"))
+    out_dir = _cfg_path(base, cfg.get("out")) if cfg.get("out") else os.path.join("mirofish_runs", name)
+    os.makedirs(out_dir, exist_ok=True)
+    state: Dict[str, Any] = {"out_dir": os.path.abspath(out_dir), "title": cfg.get("title") or name,
+                             "started_at": datetime.now().isoformat()}
+    manifest_path = os.path.join(out_dir, "run_manifest.json")
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                state = {**json.load(f), **{k: v for k, v in state.items() if k != "started_at"}}
+        except (OSError, ValueError):
+            pass
+
+    def checkpoint():
+        save_json(out_dir, "run_manifest", state)
+
+    sid = cfg.get("simulation_id") or state.get("simulation_id")
+    persona_spec = cfg.get("personas")
+    if isinstance(persona_spec, str):
+        with open(_cfg_path(base, persona_spec), encoding="utf-8") as f:
+            persona_spec = json.load(f)
+    if cfg.get("auto_personas"):
+        persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
+    if not sid:
+        seeds = [_cfg_path(base, s) for s in cfg.get("seeds") or []]
+        if not seeds:
+            raise CLIError("market-test: config needs 'seeds' (documents) or an existing 'simulation_id'")
+        req = cfg.get("requirement") or ""
+        req_path = _cfg_path(base, req)
+        requirement = read_text_arg("@" + req_path) if req_path != req or str(req).startswith("@") else req
+        up = step_upload(c, seeds, requirement, cfg.get("title"), None)
+        state["project_id"] = up["project_id"]
+        save_json(out_dir, "ontology", up)
+        checkpoint()
+        g = step_build_graph(c, up["project_id"])
+        state["graph_id"] = g.get("graph_id")
+        sim = step_create_sim(c, up["project_id"], g.get("graph_id"), cfg.get("platform") or "parallel")
+        sid = state["simulation_id"] = sim["simulation_id"]
+        checkpoint()
+        step_prepare(c, sid, parallel=int(cfg.get("parallel") or 5), persona_spec=persona_spec)
+        collect(c, out_dir, state.get("project_id"), sid)
+        state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    state["simulation_id"] = sid
+    checkpoint()
+    if not cfg.get("approve_spend"):
+        prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
+        people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
+                  for p in (prof.get("profiles") or [])][:60]
+        return {"stage": "personas_ready", "simulation_id": sid, "out_dir": state["out_dir"], "people": people,
+                "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
+
+    steps = []
+    creatives = cfg.get("creatives")
+    if creatives:
+        cpath = _cfg_path(base, creatives)
+        arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
+        state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
+                                                 int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
+                                                 int(cfg.get("parallel") or 8), int(cfg.get("exposures") or 2), True)
+        steps.append("feed_test")
+        checkpoint()
+    survey = cfg.get("survey")
+    rounds = int(cfg.get("rounds") or 0)
+    if survey and rounds < 1:
+        rounds = 1                      # the survey interviews a live simulation environment
+    if rounds:
+        rs = step_start(c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=True, force=True)
+        state["runner_status"] = rs.get("runner_status")
+        steps.append(f"{rounds} rounds")
+        checkpoint()
+    if survey:
+        msgs = survey.get("messages")
+        if isinstance(msgs, str):
+            mp = _cfg_path(base, msgs)
+            msgs = read_messages("@" + mp) if mp != msgs or msgs.startswith("@") else read_messages(msgs)
+        state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
+                                      msgs or [], bool(survey.get("split")), survey.get("pricing"))
+        steps.append("survey")
+        checkpoint()
+    panel_cfg = cfg.get("panel")
+    if panel_cfg:
+        collect(c, out_dir, state.get("project_id"), sid)
+        state["panel"] = market_cli.panel(c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5),
+                                          str(panel_cfg.get("brief") or ""), load_bundle=exporter.load_run_dir)
+        steps.append("panel")
+    if cfg.get("report"):
+        rep = step_report(c, sid)
+        state["report_id"] = rep.get("report_id")
+        steps.append("report")
+    collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
+    state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    state["finished_at"] = datetime.now().isoformat()
+    checkpoint()
+    summary = {}
+    try:
+        with open(state["export"]["summary_json"], encoding="utf-8") as f:
+            summary = json.load(f)
+    except (OSError, ValueError, KeyError):
+        pass
+    return {"stage": "done", "steps": steps, "simulation_id": sid, "dashboard": state["export"]["html"],
+            "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
+
+
 def cmd_run(c: Client, a) -> Any:
     requirement = read_text_arg(a.requirement)
     load_persona_spec(a.personas, a.auto_personas)  # fail fast on a bad spec file
@@ -1180,6 +1306,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--actuals", required=True, help="JSON written by ads-import")
     s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
 
+    s = sub.add_parser("market-test", help="all-in-one: personas -> feed test -> rounds -> survey -> panel -> dashboard")
+    s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, survey, panel, "
+                                  "approve_spend (see README)")
+
     s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
     s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")
     s.add_argument("--runs-root", default="mirofish_runs", help="where runs live (default %(default)s)")
@@ -1199,7 +1329,7 @@ COMMANDS = {
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
-    "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest,
+    "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
 }
 
 

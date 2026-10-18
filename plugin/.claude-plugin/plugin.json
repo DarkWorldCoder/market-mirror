@@ -7,5 +7,14 @@
   },
   "homepage": "https://github.com/DarkWorldCoder/market-mirror",
   "repository": "https://github.com/DarkWorldCoder/market-mirror",
-  "license": "AGPL-3.0"
+  "license": "AGPL-3.0",
+  "mcpServers": {
+    "market-mirror": {
+      "command": "bash",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/skills/market-mirror/scripts/mm.sh",
+        "mcp"
+      ]
+    }
+  }
 }
