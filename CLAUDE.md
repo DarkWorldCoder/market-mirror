@@ -68,6 +68,19 @@ $C export --run-dir mirofish_runs/x                                  # offline r
 
 The output is one HTML file with inline CSS, inline SVG and no external requests. It contains the knowledge graph (layout computed in Python, colored by entity type, relation labels toggleable), the persona table (stance, sentiment, activity), the actions-per-round chart, the action mix and most active agents, top posts and comments, and the rendered report. It adapts to light and dark mode and to phone width. **Publish `dashboard.html` with the Artifact tool**, or send it as a file, so the user can view it. `report.md` and `summary.json` (key numbers) are written next to it. Use `summary.json` for your own written summary.
 
+### Live view (watch a run while it happens)
+
+```bash
+$C live                                   # follows the newest run under mirofish_runs/
+$C live --run-dir mirofish_runs/x         # or a specific run; --simulation sim_x also works
+```
+
+`live` serves the same dashboard at `http://127.0.0.1:5050/` (`--port` or `MIROFISH_LIVE_PORT` to change it). Every `--interval` seconds (default 10) it re-collects the run from the backend and re-renders the page; the open page reloads itself only when something changed, keeps its scroll position, and shows the current stage in a corner badge (graph build, preparing agents, round N/M, report, done). In the Claude desktop app, open it in the browser pane with `preview_start` and the `.claude/launch.json` entry `mirofish-live`. `--offline` re-renders saved JSON without calling the backend.
+
+### Scenario inputs
+
+Keep private inputs (seed documents, questions, campaign data) in `scenarios/<name>/`, which is gitignored. The repo itself stays a generic base.
+
 ## 5. Cost tips
 
 - Start small: `--max-rounds 3-5`, one platform (`--platform reddit`), and a short seed document.

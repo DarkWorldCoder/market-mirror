@@ -62,3 +62,6 @@ data/
 mirofish_runs/
 backend/uploads/local_graph.db*
 backend/logs/
+
+# Private simulation inputs (seed docs, questions, ad copy). Kept local, never pushed.
+scenarios/

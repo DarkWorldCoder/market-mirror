@@ -399,6 +399,174 @@ def do_export(run_dir: str, out: Optional[str], title: Optional[str] = None) -> 
 
 
 # --------------------------------------------------------------------------
+# Live dashboard (served on localhost so an in-app browser can show it)
+# --------------------------------------------------------------------------
+
+LIVE_SCRIPT = """
+<div id="mf-live" style="position:fixed;right:12px;bottom:12px;z-index:9999;padding:6px 12px;border-radius:999px;
+font:12px/1.4 system-ui,sans-serif;background:rgba(20,20,20,.85);color:#fff;max-width:calc(100vw - 24px)">%s</div>
+<script>(function(){
+var v=%s,ms=%d;
+try{var y=sessionStorage.getItem('mf_live_y');if(y){sessionStorage.removeItem('mf_live_y');window.scrollTo(0,+y);}}catch(e){}
+function tick(){fetch('/__live/state',{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+var b=document.getElementById('mf-live');if(b)b.textContent=s.label;
+if(s.version!==v){try{sessionStorage.setItem('mf_live_y',String(window.scrollY));}catch(e){}location.reload();return;}
+setTimeout(tick,ms);}).catch(function(){setTimeout(tick,ms);});}
+setTimeout(tick,ms);})();</script>
+"""
+
+
+def read_manifest(run_dir: str) -> Dict[str, Any]:
+    try:
+        with open(os.path.join(run_dir, "run_manifest.json"), encoding="utf-8") as f:
+            return json.load(f) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def live_stage(manifest: Dict[str, Any], run_status: Optional[Dict[str, Any]] = None) -> str:
+    """One-line description of where a run is, from its manifest and run status."""
+    if manifest.get("error"):
+        return f"Stopped with error: {str(manifest['error'])[:120]}"
+    if manifest.get("finished_at"):
+        return "Done"
+    if manifest.get("report_id"):
+        return "Writing the report"
+    rs = run_status or {}
+    status = rs.get("runner_status")
+    if manifest.get("runner_status") or status in TERMINAL_RUN:
+        return "Simulation finished; writing the report"
+    if status == "running":
+        cur, total = rs.get("current_round"), rs.get("total_rounds")
+        return f"Simulating round {cur}/{total}" if cur is not None and total else "Simulating"
+    if manifest.get("simulation_id"):
+        return "Preparing agents"
+    if manifest.get("graph_id"):
+        return "Creating the simulation"
+    if manifest.get("project_id"):
+        return "Building the knowledge graph"
+    return "Waiting for the run to start"
+
+
+def inject_live(page: str, label: str, version: int, interval_ms: int) -> str:
+    snippet = LIVE_SCRIPT % (exporter.esc(label), json.dumps(version), interval_ms)
+    i = page.rfind("</body>")
+    return page[:i] + snippet + page[i:] if i >= 0 else page + snippet
+
+
+class LiveDashboard:
+    """Re-collects a run from the backend and re-renders its dashboard on a timer."""
+
+    def __init__(self, c: Optional[Client], run_dir: str, title: Optional[str] = None,
+                 project_id: Optional[str] = None, simulation_id: Optional[str] = None):
+        import threading
+        self.c, self.run_dir, self.title = c, run_dir, title
+        self.project_id, self.simulation_id = project_id, simulation_id
+        self.lock = threading.Lock()
+        self.version = 0
+        self.label = "Starting"
+        self.html = "<!doctype html><html><body><p>Loading the MiroFish dashboard...</p></body></html>"
+        self._digest: Optional[str] = None
+
+    def refresh(self) -> None:
+        import hashlib
+        m = read_manifest(self.run_dir)
+        pid = self.project_id or m.get("project_id")
+        sid = self.simulation_id or m.get("simulation_id")
+        if self.c is not None and (pid or sid):
+            with _quiet_logs():
+                collect(self.c, self.run_dir, pid, sid, m.get("report_id"))
+        rs = None
+        try:
+            with open(os.path.join(self.run_dir, "run_status.json"), encoding="utf-8") as f:
+                rs = json.load(f)
+        except (OSError, ValueError):
+            pass
+        os.makedirs(self.run_dir, exist_ok=True)
+        page, _md, _summary = exporter.render_dashboard(exporter.load_run_dir(self.run_dir), title=self.title)
+        label = live_stage(m, rs)
+        digest = hashlib.sha1(page.encode("utf-8")).hexdigest()
+        with self.lock:
+            if digest != self._digest:
+                self._digest = digest
+                self.version += 1
+                self.html = page
+            self.label = label
+
+    def state(self) -> Dict[str, Any]:
+        with self.lock:
+            return {"version": self.version, "label": self.label}
+
+    def page(self, interval_ms: int) -> str:
+        with self.lock:
+            return inject_live(self.html, self.label, self.version, interval_ms)
+
+
+class _quiet_logs:
+    """Silence `log` while the live loop polls, so the terminal isn't flooded."""
+
+    def __enter__(self):
+        global log
+        self._orig = log
+        log = lambda msg: None  # noqa: E731
+        return self
+
+    def __exit__(self, *exc):
+        global log
+        log = self._orig
+        return False
+
+
+def serve_live(live: LiveDashboard, host: str, port: int, interval: float) -> None:
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    interval_ms = max(1000, int(interval * 1000))
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, body: bytes, ctype: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/__live/state":
+                return self._send(json.dumps(live.state()).encode(), "application/json")
+            if path in ("/", "/index.html", "/dashboard.html"):
+                return self._send(live.page(interval_ms).encode("utf-8"), "text/html; charset=utf-8")
+            self.send_error(404)
+
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            try:
+                live.refresh()
+            except Exception as e:  # keep serving the last good page
+                with live.lock:
+                    live.label = f"Refresh failed: {str(e)[:120]}"
+            stop.wait(interval)
+
+    threading.Thread(target=loop, daemon=True).start()
+    srv = ThreadingHTTPServer((host, port), H)
+    log(f"live: serving {os.path.abspath(live.run_dir)} at http://{host}:{port}/ (refresh every {interval:g}s, Ctrl+C to stop)")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        srv.server_close()
+
+
+# --------------------------------------------------------------------------
 # Commands
 # --------------------------------------------------------------------------
 
@@ -553,6 +721,32 @@ def cmd_export(c: Optional[Client], a) -> Any:
         log(f"export: collected {len(saved)} files into {run_dir}")
     out = a.out or os.path.join(run_dir, "dashboard.html")
     return do_export(run_dir, out, a.title)
+
+
+def latest_run_dir(root: str = "mirofish_runs") -> Optional[str]:
+    """The most recently started run directory under root (by run_manifest.json, else dir mtime)."""
+    try:
+        dirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+    except OSError:
+        return None
+
+    def started(d):
+        mp = os.path.join(d, "run_manifest.json")
+        return os.path.getmtime(mp) if os.path.exists(mp) else os.path.getmtime(d)
+
+    dirs = [d for d in dirs if os.path.exists(os.path.join(d, "run_manifest.json")) or os.listdir(d)]
+    return max(dirs, key=started) if dirs else None
+
+
+def cmd_live(c: Optional[Client], a) -> Any:
+    run_dir = a.run_dir or latest_run_dir(a.runs_root)
+    if not run_dir:
+        if not (a.project or a.simulation):
+            raise CLIError(f"live: no runs under {a.runs_root}/; pass --run-dir, --project or --simulation")
+        run_dir = default_run_dir(a.simulation or a.project)
+    live = LiveDashboard(c, run_dir, a.title, a.project, a.simulation)
+    serve_live(live, a.host, a.port, a.interval)
+    return {"run_dir": os.path.abspath(run_dir), "stopped": True}
 
 
 def cmd_run(c: Client, a) -> Any:
@@ -749,6 +943,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--report")
     s.add_argument("--out", help="output HTML path (default <run-dir>/dashboard.html)")
     s.add_argument("--title")
+
+    s = sub.add_parser("live", help="serve a self-refreshing dashboard on localhost while a run progresses")
+    s.add_argument("--run-dir", help="run dir to watch (default: the newest run under --runs-root)")
+    s.add_argument("--runs-root", default="mirofish_runs", help="where runs live (default %(default)s)")
+    s.add_argument("--project", help="watch this project instead of the run dir's manifest")
+    s.add_argument("--simulation", help="watch this simulation instead of the run dir's manifest")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=int(os.environ.get("MIROFISH_LIVE_PORT", "5050")))
+    s.add_argument("--interval", type=float, default=10, help="seconds between refreshes (default %(default)s)")
+    s.add_argument("--offline", action="store_true", help="only re-render the saved JSON; never call the backend")
+    s.add_argument("--title")
     return p
 
 
@@ -757,7 +962,7 @@ COMMANDS = {
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
-    "export": cmd_export,
+    "export": cmd_export, "live": cmd_live,
 }
 
 
@@ -765,7 +970,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     a = build_parser().parse_args(argv)
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
-        c = None if offline_export else Client(a.base_url, lang=a.lang)
+        offline_live = a.cmd == "live" and a.offline
+        c = None if (offline_export or offline_live) else Client(a.base_url, lang=a.lang)
         result = COMMANDS[a.cmd](c, a)
     except CLIError as e:
         print(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False), flush=True)
