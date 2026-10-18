@@ -260,3 +260,15 @@ def test_short_runs_start_at_peak_hours():
     assert community_seed.start_offset_minutes(tc, 48) == 0               # a day or more: from midnight
     assert community_seed.start_offset_minutes({"time_config": {"start_hour": 9}}, 3) == 9 * 60
     assert community_seed.start_offset_minutes({}, 2) == 19 * 60
+
+
+
+def test_names_get_distinct_initials_and_communities_a_country():
+    spec = _spec_with_communities()
+    slots = pp.demographic_slots(spec.segments[0], random.Random(3))
+    assert len({s["initial"] for s in slots}) == len(slots)
+    client = FakeClient()
+    ents = pp.generate_personas(client, "m", spec, "req", "ctx")
+    assert any("given name starts with" in u for u in client.prompts)
+    acc = {e.name: e for e in ents if pp.COMMUNITY_LABEL in e.labels}
+    assert acc["MBBS in China - Nepal"].attributes[pp.SYNTHETIC_PROFILE_KEY]["country"] == "Nepal"

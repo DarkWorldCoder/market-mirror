@@ -250,8 +250,12 @@ def demographic_slots(seg: PersonaSegment, rng: random.Random,
         cycle = (vals * (n // len(vals) + 1))[:n] if vals else []
         rng.shuffle(cycle)
         spread[name] = cycle
+    # distinct starting letters for given names: parallel batches otherwise all pick the most common names
+    letters = list("ABCDEFGHIJKLMNOPRSTVY")
+    rng.shuffle(letters)
     return [{"age": ages[i], "gender": genders[i], "city": cities[(i + offset) % len(cities)],
-             "mbti": rng.choice(MBTI), "traits": {k: v[i] for k, v in spread.items() if v}} for i in range(n)]
+             "mbti": rng.choice(MBTI), "initial": letters[i % len(letters)],
+             "traits": {k: v[i] for k, v in spread.items() if v}} for i in range(n)]
 
 
 # --------------------------------------------------------------------------
@@ -416,7 +420,8 @@ def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requiremen
                     avoid_names: Sequence[str], communities: Sequence[CommunitySpec] = ()) -> str:
     people = "\n".join(
         f"{i + 1}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
-        + f", MBTI {s['mbti']}" + "".join(f"; {k.replace('_', ' ')}: {v}" for k, v in (s.get("traits") or {}).items())
+        + f", MBTI {s['mbti']}" + (f", given name starts with '{s['initial']}'" if s.get("initial") else "")
+        + "".join(f"; {k.replace('_', ' ')}: {v}" for k, v in (s.get("traits") or {}).items())
         for i, s in enumerate(slots))
     groups = ""
     if communities:
@@ -613,6 +618,8 @@ def community_accounts(spec: PersonaSpec, taken: set) -> List[EntityNode]:
     for i, c in enumerate(spec.communities):
         if not c.account:
             continue
+        countries = list(dict.fromkeys(
+            list(c.countries) + [s.country for s in spec.segments if s.country and s.label in c.segments]))
         name = _dedupe_name(c.name, taken)
         persona = (f"The admin/page account of {c.name}, a {c.kind}. {c.description} "
                    f"Norms: {c.norms or 'not stated'}. Posts questions and updates for members, moderates, "
@@ -625,7 +632,7 @@ def community_accounts(spec: PersonaSpec, taken: set) -> List[EntityNode]:
                         SYNTHETIC_PROFILE_KEY: {
                             "bio": (f"{c.kind}: {c.description}" if c.description else c.kind)[:280],
                             "persona": persona, "age": 30, "gender": "other", "mbti": "ESFJ",
-                            "country": ", ".join(c.countries), "profession": f"{c.kind} admin",
+                            "country": ", ".join(countries) or "International", "profession": f"{c.kind} admin",
                             "interested_topics": [c.name]}},
         ))
     return out
