@@ -106,6 +106,8 @@ def start_feed_test():
         return feed_test.run_feed_test(_client(), Config.LLM_MODEL_NAME, creatives, people, context=context,
                                        organic_per_feed=organic, parallel=parallel, progress=progress,
                                        waves=int(data.get("waves") or 3), landing=landing,
+                                       exposures=int(data.get("exposures") or 2),
+                                       attention_gate=data.get("attention_gate", True) is not False,
                                        benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None)
 
     task_id = _start("feed-test", sid, work)

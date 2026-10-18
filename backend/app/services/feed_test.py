@@ -231,7 +231,7 @@ def people_from_simulation(profiles: List[Dict[str, Any]], persona_index: List[D
                        "country": p.get("country") or m.get("country") or "",
                        "segment": m.get("segment") or p.get("profession") or "Everyone",
                        "communities": m.get("communities") or [], "income": m.get("income"),
-                       "thinking_style": m.get("thinking_style")})
+                       "thinking_style": m.get("thinking_style"), "tech_comfort": m.get("tech_comfort")})
     if any(m.get("kind") == "persona" for m in meta.values()):
         people = [x for x in people if meta.get(x["agent_id"], {}).get("kind") == "persona"]
     return people
@@ -306,9 +306,14 @@ def render_item(item_id: str, post: Dict[str, Any], platform: str, is_ad: bool,
     if is_ad:
         tag = PLATFORMS[platform]["ad_tag"]
         bits = [f"[{item_id}] {post['page']} · {tag}", post["text"]]
-        if proof and (proof["reactions"] or proof["comments"]):
-            bits.append(f"({proof['reactions']} reactions · {len(proof['comments'])} comments · {proof['shares']} shares)")
-            bits += [f'  {c["first"]}: "{c["text"]}"' for c in proof["comments"][-2:]]
+        if proof and (proof["reactions"] or proof.get("comment_count") or proof["shares"]):
+            bits.append(f"({proof['reactions']} reactions · {proof.get('comment_count', len(proof['comments']))} comments"
+                        f" · {proof['shares']} shares)")
+            if proof["comments"]:
+                bits.append("You opened the comments:")
+                bits += [f'  {c["first"]}: "{c["text"]}"' for c in proof["comments"][-2:]]
+        if proof and proof.get("seen_before"):
+            bits.append(f"(You have scrolled past this same ad {proof['seen_before']} time(s) before.)")
         if post.get("media"):
             bits.append(f"({post['format']}: {post['media']})")
         if post.get("headline"):
@@ -322,17 +327,28 @@ def render_item(item_id: str, post: Dict[str, Any], platform: str, is_ad: bool,
     return "\n".join(bits)
 
 
-def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: int) -> str:
+def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: int,
+                  habits: Optional[Dict[str, Any]] = None) -> str:
     pb = PLATFORMS[platform]
     reactions = "|".join(["none"] + pb["reactions"])
+    h = habits or {}
+    facts = ""
+    if h:
+        facts = (f"Your habits (facts, not suggestions): you ignore most ads (ad avoidance {h['ad_avoidance']} on a 0-1 scale); "
+                 f"you comment on posts {h['comments']}; you {h['clicks_ads']} click on ads; you share things {h['shares']}. "
+                 "You do not know typical prices or what other products cost unless the post says so.\n")
     return (
-        f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n\n"
+        f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n{facts}\n"
         f"It is {hour}:00 and you are scrolling {pb['label']} on your phone.\nHow people behave here: {pb['playbook']}\n\n"
         "Your feed, top to bottom:\n\n" + "\n\n".join(feed) + "\n\n"
-        "For EVERY item say what you actually do. Most items should be a quick scroll past with no action.\n"
-        "Return JSON: {\"items\": [{\"id\": \"i1\", \"stopped\": true, \"dwell_seconds\": 0.5, \"watched_pct\": 0, "
+        "For EVERY item say what you actually do. Your options, most common first: scroll past, glance, stop and read, "
+        "react, comment, share, click. Most items should be a quick scroll past with no action.\n"
+        "For the Sponsored/Promoted item also give your honest probabilities (0-1) of each action if you saw it on a "
+        "normal day: p_click, p_react, p_comment, p_share, p_hide.\n"
+        "Return JSON: {\"items\": [{\"id\": \"i1\", \"stopped\": false, \"dwell_seconds\": 0.5, \"watched_pct\": 0, "
         f"\"reaction\": \"{reactions}\", \"comment\": \"what you type, or empty\", \"share\": \"none|share|send\", "
-        "\"save\": false, \"click\": false, \"hide\": false, \"thought\": \"your honest inner reaction in under 15 words\"}]}"
+        "\"save\": false, \"click\": false, \"hide\": false, \"thought\": \"your honest inner reaction in under 15 words\", "
+        "\"p_click\": 0.0, \"p_react\": 0.0, \"p_comment\": 0.0, \"p_share\": 0.0, \"p_hide\": 0.0}]}"
     )
 
 
@@ -358,18 +374,49 @@ def normalize_action(d: Dict[str, Any], platform: str) -> Dict[str, Any]:
     comment = str(d.get("comment") or "").strip()
     if comment.lower() in ("none", "null", "n/a", "-", "no comment"):
         comment = ""
-    return {"stopped": stopped, "dwell": round(dwell, 1), "watched_pct": round(_num(d.get("watched_pct"), 0, 100)),
-            "reaction": reaction, "comment": comment[:400], "share": share, "save": bool(d.get("save")),
-            "click": bool(d.get("click")), "hide": bool(d.get("hide")), "thought": str(d.get("thought") or "")[:200]}
+    out = {"stopped": stopped, "dwell": round(dwell, 1), "watched_pct": round(_num(d.get("watched_pct"), 0, 100)),
+           "reaction": reaction, "comment": comment[:400], "share": share, "save": bool(d.get("save")),
+           "click": bool(d.get("click")), "hide": bool(d.get("hide")), "thought": str(d.get("thought") or "")[:200]}
+    # stated probabilities (smoother than one yes/no draw); fall back to what they did
+    for key, did in (("p_click", out["click"]), ("p_react", reaction != "none"), ("p_comment", bool(comment)),
+                     ("p_share", share != "none"), ("p_hide", out["hide"])):
+        v = d.get(key)
+        out[key] = round(_num(v, 0, 1), 3) if v is not None else (1.0 if did else 0.0)
+    return out
+
+
+# Realism controls (see README "How realistic is it?"):
+# chance an ad catches the eye at all on each platform, before any LLM call
+NOTICE_RATE = {"facebook": 0.30, "instagram": 0.35, "reddit": 0.25, "tiktok": 0.40, "linkedin": 0.30, "x": 0.25}
+COMMENT_OPEN_RATE = 0.35        # share of viewers who open the comments under an ad
+WEAR_OUT = 0.8                   # each repeat exposure multiplies the notice chance by this
+
+
+def behaviour_traits(person: Dict[str, Any], rng: random.Random) -> Dict[str, Any]:
+    """Skewed, per-person habits stated to the persona as facts (not adjectives)."""
+    style = str(person.get("thinking_style") or "").lower()
+    avoid = rng.betavariate(2.2, 1.8)
+    if "sceptical" in style or "risk-averse" in style or "traditional" in style:
+        avoid = min(1.0, avoid + 0.15)
+    if "early adopter" in style or "status" in style:
+        avoid = max(0.0, avoid - 0.2)
+    return {"ad_avoidance": round(avoid, 2),
+            "comments": rng.choices(["a few times a week", "about once a week", "about once a month",
+                                     "a few times a year", "almost never"], [0.07, 0.15, 0.28, 0.3, 0.2])[0],
+            "clicks_ads": rng.choices(["almost never", "rarely", "sometimes"], [0.45, 0.4, 0.15])[0],
+            "shares": rng.choices(["often", "sometimes", "rarely"], [0.15, 0.4, 0.45])[0]}
 
 
 def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: List[Dict[str, Any]],
                   context: str = "", organic_per_feed: int = 5, parallel: int = 8, seed: int = 5,
                   progress: Optional[Callable[[int, int], None]] = None, waves: int = 3,
-                  landing: Optional[Dict[str, Any]] = None, benchmarks: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """waves: personas see the ad in waves; later waves see earlier reactions and comments (social proof).
+                  landing: Optional[Dict[str, Any]] = None, benchmarks: Optional[Dict[str, Any]] = None,
+                  exposures: int = 2, attention_gate: bool = True) -> Dict[str, Any]:
+    """waves: later waves see earlier reaction counts (and, if they open them, comments).
+    exposures: how many times each person scrolls past the ad (frequency, with wear-out).
+    attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
-    benchmarks: optional {platform: {cpm, ctr, budget, currency}} for spend projections and calibration."""
+    benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections."""
     rng = random.Random(seed)
     plan = assign(creatives, people, seed)
     if not plan:
@@ -377,31 +424,41 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for (aid, platform) in plan:
         country = next((p["country"] for p in people if p["agent_id"] == aid), "")
-        key = (platform, country)
-        if key not in pools:
-            pools[key] = organic_pool(client, model, platform, country, context)
+        if (platform, country) not in pools:
+            pools[(platform, country)] = organic_pool(client, model, platform, country, context)
     by_id = {p["agent_id"]: p for p in people}
+    traits = {p["agent_id"]: behaviour_traits(p, random.Random(seed * 1000 + int(p["agent_id"]))) for p in people}
+    exposures = max(1, min(exposures, 6))
     jobs = []
     for (aid, platform), creative in sorted(plan.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         person = by_id[aid]
         pool = pools[(platform, person["country"])]
-        organic = rng.sample(pool, min(organic_per_feed, len(pool)))
-        pos = rng.randint(1, max(1, len(organic) - 1))
-        items: List[Tuple[str, Dict[str, Any], bool]] = [(f"i{k + 1}", o, False) for k, o in enumerate(organic)]
-        items.insert(pos, ("ad", creative, True))
-        items = [(f"i{k + 1}", post, ad) for k, (_, post, ad) in enumerate(items)]
-        jobs.append((person, platform, creative, items, rng.choice([7, 9, 12, 13, 18, 20, 21, 22, 23])))
-    done = 0
+        for k in range(1, exposures + 1):
+            organic = rng.sample(pool, min(organic_per_feed, len(pool)))
+            pos = rng.randint(1, max(1, len(organic) - 1))
+            items = [(f"i{j + 1}", o, False) for j, o in enumerate(organic)]
+            items.insert(pos, ("ad", creative, True))
+            items = [(f"i{j + 1}", post, ad) for j, (_, post, ad) in enumerate(items)]
+            notice = NOTICE_RATE.get(platform, 0.3) * (1 - 0.6 * traits[aid]["ad_avoidance"]) * WEAR_OUT ** (k - 1)
+            jobs.append({"person": person, "platform": platform, "creative": creative, "items": items, "k": k,
+                         "hour": rng.choice([7, 9, 12, 13, 18, 20, 21, 22, 23]),
+                         "noticed": (rng.random() < notice) if attention_gate else True,
+                         "opens_comments": rng.random() < COMMENT_OPEN_RATE, "order": rng.random()})
+    jobs.sort(key=lambda j: (j["k"], j["order"]))          # first exposures early, repeats later
     total = len(jobs)
+    done = 0
     proof: Dict[str, Dict[str, Any]] = {c["id"]: {"reactions": 0, "shares": 0, "comments": []} for c in creatives}
 
     def one(job):
-        person, platform, creative, items, hour = job
-        snap = {"reactions": proof[creative["id"]]["reactions"], "shares": proof[creative["id"]]["shares"],
-                "comments": list(proof[creative["id"]]["comments"])}
-        feed = [render_item(iid, post, platform, ad, snap if ad else None) for iid, post, ad in items]
+        person, platform, creative = job["person"], job["platform"], job["creative"]
+        pr = proof[creative["id"]]
+        snap = {"reactions": pr["reactions"], "shares": pr["shares"],
+                "comments": list(pr["comments"]) if job["opens_comments"] else [],
+                "comment_count": len(pr["comments"]), "seen_before": job["k"] - 1}
+        feed = [render_item(iid, post, platform, ad, snap if ad else None) for iid, post, ad in job["items"]]
         try:
-            data = _llm_json(client, model, SYSTEM_PROMPT, scroll_prompt(person, platform, feed, hour))
+            data = _llm_json(client, model, SYSTEM_PROMPT,
+                             scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]]))
             rows = data.get("items") if isinstance(data, dict) else data
             acts = {str(r.get("id")): normalize_action(r, platform) for r in rows or [] if isinstance(r, dict)}
         except Exception as e:  # noqa: BLE001 - a failed persona is recorded, not fatal
@@ -412,35 +469,53 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     sessions = []
     waves = max(1, min(waves, 10))
     size = -(-len(jobs) // waves)
-    rng.shuffle(jobs)
+    llm_calls = 0
     for w in range(waves):
         batch = jobs[w * size:(w + 1) * size]
+        live = [j for j in batch if j["noticed"]]
+        llm_calls += len(live)
+        results = {}
         with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-            for job, acts in pool.map(one, batch):
-                done += 1
-                if progress:
-                    progress(done, total)
-                person, platform, creative, items, hour = job
+            for job, acts in pool.map(one, live):
+                results[id(job)] = acts
+        for job in batch:
+            done += 1
+            if progress:
+                progress(done, total)
+            person, platform, creative, items = job["person"], job["platform"], job["creative"], job["items"]
+            if job["noticed"]:
+                acts = results.get(id(job))
                 if acts is None:
                     continue
                 ad_id = next(iid for iid, _, ad in items if ad)
                 ad_act = acts.get(ad_id) or normalize_action({}, platform)
-                sessions.append({
-                    "agent_id": person["agent_id"], "name": person["name"], "segment": person["segment"],
-                    "country": person["country"], "platform": platform, "creative_id": creative["id"], "hour": hour,
-                    "wave": w + 1, "saw_proof": bool(w), "ad": ad_act,
-                    "organic": [acts.get(iid) or normalize_action({}, platform) for iid, _, ad in items if not ad],
-                })
-                pr = proof[creative["id"]]
-                pr["reactions"] += 1 if ad_act["reaction"] != "none" else 0
-                pr["shares"] += 1 if ad_act["share"] != "none" else 0
-                if ad_act["comment"]:
-                    pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
+                organic = [acts.get(iid) or normalize_action({}, platform) for iid, _, ad in items if not ad]
+            else:   # never caught their eye: scrolled past without a decision
+                ad_act = normalize_action({"stopped": False, "dwell_seconds": round(rng.uniform(0.2, 0.8), 1),
+                                           "p_click": 0, "p_react": 0, "p_comment": 0, "p_share": 0, "p_hide": 0},
+                                          platform)
+                organic = []
+            ad_act["noticed"] = job["noticed"]
+            sessions.append({
+                "agent_id": person["agent_id"], "name": person["name"], "segment": person["segment"],
+                "country": person["country"], "platform": platform, "creative_id": creative["id"], "hour": job["hour"],
+                "wave": w + 1, "exposure": job["k"], "saw_proof": bool(proof[creative["id"]]["reactions"]),
+                "opened_comments": job["opens_comments"], "ad": ad_act, "organic": organic,
+                "traits": traits[person["agent_id"]],
+            })
+            pr = proof[creative["id"]]
+            pr["reactions"] += 1 if ad_act["reaction"] not in ("none", "downvote") else 0
+            pr["shares"] += 1 if ad_act["share"] != "none" else 0
+            if ad_act["comment"]:
+                pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
     if landing:
         run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel)
-    return {"creatives": creatives, "sessions": sessions, "landing": landing, "waves": waves,
+    return {"creatives": creatives, "sessions": sessions, "landing": landing, "waves": waves, "exposures": exposures,
+            "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
+                        "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
             "summary": summarize(creatives, sessions, benchmarks),
-            "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total, "failed": total - len(sessions)}
+            "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total,
+            "failed": sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))}
 
 
 def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[int, Dict[str, Any]],
@@ -475,6 +550,9 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         for s, d in pool.map(one, todo):
             completed = bool(d.get("completed"))
+            if completed and str(by_id[s["agent_id"]].get("tech_comfort") or "").lower() == "low" and rng.random() < 0.3:
+                completed = False
+                d["drop_reason"] = "gave up when the form showed an error or asked for a code"
             started = bool(d.get("started_form")) or completed
             s["landing"].update({"read": bool(d.get("read")) or started, "started_form": started, "completed": completed,
                                  "drop_reason": "" if completed else str(d.get("drop_reason") or "")[:200],
@@ -518,6 +596,10 @@ def _metrics(acts: List[Dict[str, Any]]) -> Dict[str, Any]:
         "shares": sum(1 for a in acts if a["share"] != "none"),
         "saves": sum(1 for a in acts if a["save"]),
         "hides": sum(1 for a in acts if a["hide"]),
+        "noticed": _rate(sum(1 for a in acts if a.get("noticed", True)), n),
+        "expected_ctr": round(100 * sum(a.get("p_click", 0) for a in acts) / n, 2) if n else None,
+        "expected_engagement": round(100 * sum(min(1.0, a.get("p_react", 0) + a.get("p_comment", 0) + a.get("p_share", 0))
+                                               for a in acts) / n, 2) if n else None,
     }
 
 
@@ -545,7 +627,7 @@ def projection(m: Dict[str, Any], lf: Optional[Dict[str, Any]], bench: Optional[
         cpm, budget = float(bench["cpm"]), float(bench["budget"])
     except (TypeError, ValueError):
         return None
-    ctr = (m["ctr"] or 0) / 100 * (calibration or 1.0)
+    ctr = (m.get("expected_ctr") if m.get("expected_ctr") is not None else (m["ctr"] or 0)) / 100 * (calibration or 1.0)
     impressions = budget / cpm * 1000
     clicks = impressions * ctr
     after_click = (lf["conversion_after_click"] / 100) if lf and lf.get("conversion_after_click") is not None else None
@@ -615,7 +697,8 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
     for platform in {c["platform"] for c in creatives}:
         b = benchmarks.get(platform) or benchmarks.get("default") or {}
         ads = [s["ad"] for s in sessions if s["platform"] == platform]
-        sim_ctr = (_metrics(ads)["ctr"] or 0) if ads else 0
+        mm = _metrics(ads) if ads else {}
+        sim_ctr = (mm.get("expected_ctr") if mm.get("expected_ctr") is not None else mm.get("ctr")) or 0
         real = b.get("ctr")
         calib[platform] = (float(real) / sim_ctr) if real and sim_ctr else None
     for c in creatives:
@@ -630,6 +713,9 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
         bench = benchmarks.get(c["platform"]) or benchmarks.get("default")
         per[c["id"]] = {
             **m, "landing": lf, "projection": projection(m, lf, bench, calib.get(c["platform"])),
+            "by_exposure": [{"exposure": k, **{kk: vv for kk, vv in _metrics([s["ad"] for s in ss if s.get("exposure", 1) == k]).items()
+                                               if kk in ("impressions", "noticed", "thumb_stop", "ctr", "expected_ctr")}}
+                            for k in sorted({s.get("exposure", 1) for s in ss})],
             "proof_effect": _proof_effect(ss),
             "by_segment": sorted([{"key": k, **_metrics(v)} for k, v in seg.items()],
                                  key=lambda r: (-(r["ctr"] or 0), -(r["engagement_rate"] or 0))),
@@ -638,6 +724,7 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
             "thoughts": [{"name": s["name"], "segment": s["segment"], "text": s["ad"]["thought"],
                           "stopped": s["ad"]["stopped"], "click": s["ad"]["click"]} for s in ss if s["ad"]["thought"]][:40],
             "events": [{"name": s["name"], "segment": s["segment"], "wave": s.get("wave", 1),
+                        "exposure": s.get("exposure", 1), "noticed": s["ad"].get("noticed", True),
                         **{k: s["ad"][k] for k in
                            ("stopped", "dwell", "reaction", "comment", "share", "save", "click", "hide", "thought")},
                         **({"landing": s["landing"]} if s.get("landing") else {})}
@@ -648,6 +735,7 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
         organic = [a for s in sessions if s["platform"] == platform for a in s["organic"]]
         baseline[platform] = _metrics(organic)
     ranked = sorted(per, key=lambda cid: (-((per[cid]["landing"] or {}).get("conversion_rate") or 0),
-                                          -(per[cid]["ctr"] or 0), -(per[cid]["thumb_stop"] or 0)))
+                                          -(per[cid].get("expected_ctr") or per[cid]["ctr"] or 0),
+                                          -(per[cid]["thumb_stop"] or 0)))
     return {"per_creative": per, "calibration": calib, "organic_baseline": {k: {kk: vv for kk, vv in v.items() if kk not in ("reactions",)}
                                                       for k, v in baseline.items()}, "ranked": ranked}

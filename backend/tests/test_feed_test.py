@@ -105,7 +105,7 @@ def test_run_feed_test_metrics_social_proof_landing_projection():
     llm = FakeLLM()
     cs = ft.normalize_creatives(CREATIVES)
     landing = ft.normalize_landing({"load_seconds": 2.5, "language": "English", "form_fields": ["name", "email", "phone"]})
-    res = ft.run_feed_test(llm, "m", cs, people(12), waves=3, landing=landing, parallel=4,
+    res = ft.run_feed_test(llm, "m", cs, people(12), waves=3, landing=landing, parallel=4, exposures=1, attention_gate=False,
                            benchmarks={"instagram": {"cpm": 2.0, "budget": 100, "ctr": 1.5, "currency": "USD"}})
     per = res["summary"]["per_creative"]
     assert res["failed"] == 0 and res["personas_tested"] == 12
@@ -120,7 +120,10 @@ def test_run_feed_test_metrics_social_proof_landing_projection():
     # reddit: downvotes and hides
     assert per["rd1"]["reactions"] == {"downvote": 12} and per["rd1"]["hide_rate"] == 100.0
     # social proof: later waves saw earlier comments in their feed
-    assert any("Is it really free?" in u for s, u in llm.prompts if s == ft.SYSTEM_PROMPT and "· Sponsored" in u and "comments" in u)
+    later = [u for s, u in llm.prompts if s == ft.SYSTEM_PROMPT and " comments · " in u]
+    assert later                                                   # reaction/comment counts are always visible
+    opened = [u for u in later if "You opened the comments" in u]
+    assert all("Is it really free?" in u or "ad spam" in u for u in opened)   # comment text only when opened
     assert fb["proof_effect"] is not None
     # landing: phone field -> nobody completes; some lose the page on slow networks
     lf = ig["landing"]
@@ -187,3 +190,24 @@ def test_economics_roi_cpl_cac():
     simple = ft.economics(100, 4, {"lead_value": 30})
     assert simple["cpl"] == 25.0 and simple["roi_pct"] == 20.0
     assert ft.economics(100, None, {}) == {}
+
+
+def test_attention_gate_exposures_and_expected_rates():
+    llm = FakeLLM()
+    cs = ft.normalize_creatives(CREATIVES)
+    res = ft.run_feed_test(llm, "m", cs, people(12), waves=2, exposures=3, parallel=4, seed=9)
+    per = res["summary"]["per_creative"]
+    assert res["exposures"] == 3 and res["feeds"] == len(ft.assign(cs, people(12))) * 3
+    calls = res["realism"]["llm_feed_calls"]
+    assert 0 < calls < res["feeds"]                               # most exposures never catch the eye
+    feed_prompts = [u for s_, u in llm.prompts if s_ == ft.SYSTEM_PROMPT]
+    assert len(feed_prompts) == calls
+    assert all("ad avoidance" in u and "p_click" in u for u in feed_prompts)
+    rd = per["rd1"]
+    assert rd["impressions"] == 36 and rd["noticed"] < 100
+    assert [e["exposure"] for e in rd["by_exposure"]] == [1, 2, 3]
+    assert rd["expected_ctr"] is not None and rd["expected_ctr"] <= 100
+    gated = [s for s in res["sessions"] if not s["ad"]["noticed"]]
+    assert gated and all(not s["ad"]["stopped"] and s["ad"]["p_click"] == 0 for s in gated)
+    later = [u for u in feed_prompts if "scrolled past this same ad" in u]
+    assert later                                                  # repeat exposures are told so

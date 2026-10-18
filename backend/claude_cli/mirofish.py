@@ -563,7 +563,9 @@ class LiveDashboard:
         os.makedirs(self.run_dir, exist_ok=True)
         page, _md, _summary = exporter.render_dashboard(exporter.load_run_dir(self.run_dir), title=self.title)
         label = live_stage(m, rs)
-        digest = hashlib.sha1(page.encode("utf-8")).hexdigest()
+        import re as _re
+        stable = _re.sub(r'(generated_at\\?"\s*:\s*\\?")[^"\\]*|Generated [^<]*', "", page)
+        digest = hashlib.sha1(stable.encode("utf-8")).hexdigest()
         with self.lock:
             if digest != self._digest:
                 self._digest = digest
@@ -872,7 +874,7 @@ def cmd_feedtest(c: Client, a) -> Any:
     out_dir = _run_dir_for(a)
     try:
         res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
-                                  a.organic, a.limit, a.parallel)
+                                  a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     return _reexport(c, a, out_dir, res)
@@ -1149,6 +1151,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--benchmarks", help="@past_ads.json from ads-import, or {platform: {cpm, ctr, budget, currency}}")
     s.add_argument("--waves", type=int, default=3, help="later waves see earlier reactions and comments (default %(default)s)")
     s.add_argument("--organic", type=int, default=5, help="organic posts around each ad (default %(default)s)")
+    s.add_argument("--exposures", type=int, default=2, help="times each person scrolls past the ad, with wear-out (default %(default)s)")
+    s.add_argument("--no-attention-gate", action="store_true",
+                   help="ask about every exposure instead of deciding in code whether the ad is noticed")
     s.add_argument("--limit", type=int, help="only the first N personas (quick, cheap check)")
     s.add_argument("--parallel", type=int, default=8)
     s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")

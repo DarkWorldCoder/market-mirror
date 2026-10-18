@@ -69,7 +69,7 @@ def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval:
 
 def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_arg: Optional[str] = None,
              bench_arg: Optional[str] = None, waves: int = 3, organic: int = 5, limit: Optional[int] = None,
-             parallel: int = 8) -> Dict[str, Any]:
+             parallel: int = 8, exposures: int = 2, attention_gate: bool = True) -> Dict[str, Any]:
     spec = _load_json_arg(spec_arg)
     base_dir = os.path.dirname(os.path.abspath(spec_arg[1:])) if spec_arg.startswith("@") else os.getcwd()
     if isinstance(spec, list):
@@ -94,12 +94,13 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     if isinstance(bench, dict) and "benchmarks" in bench:
         bench = bench["benchmarks"]
     payload = {"simulation_id": simulation_id, "creatives": creatives, "waves": waves, "organic_per_feed": organic,
+               "exposures": exposures, "attention_gate": attention_gate,
                "parallel": parallel, **({"landing": landing} if landing else {}),
                **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {})}
     started = c.data("POST", "/api/simulation/feed-test", json=payload, timeout=120)
-    log(f"feedtest: {started.get('feeds')} feeds for {started.get('personas')} personas, "
-        f"{started.get('creatives')} creatives, {waves} waves (about {started.get('feeds', 0) + 4} Claude calls"
-        + (" plus one per click for the landing page)" if landing else ")"))
+    log(f"feedtest: {started.get('feeds')} person-platform pairs x {exposures} exposures, {started.get('personas')} personas, "
+        f"{started.get('creatives')} creatives, {waves} waves. Only exposures that catch the eye call Claude"
+        + (", plus one call per click for the landing page" if landing else ""))
     wait_task(c, started["task_id"], "feedtest", log)
     result = c.data("GET", f"/api/simulation/{simulation_id}/feed-test")
     for cr in result.get("creatives") or []:
