@@ -238,7 +238,7 @@ Each run can produce a self-contained HTML dashboard with inline charts, audienc
 <table>
 <tr>
 <td width="50%"><img src="docs/images/feed-test.png" alt="Platform-style ad preview, simulated feed reactions, and creative metrics" /><br /><b>Feed tests.</b> Inspect reactions, compare creatives, and replay simulated scroll sessions.</td>
-<td width="50%"><img src="docs/images/audiences.png" alt="Simulated audience response comparisons" /><br /><b>Audience views.</b> Compare responses across segments, markets, and demographic groups.</td>
+<td width="50%"><img src="docs/images/map.png" alt="World map of the simulated people with a metric switcher and a per-country table" /><br /><b>Where they are.</b> A world map of the simulated people: switch between people, would-convert, ad CTR, pitch yes and lead score per country.</td>
 </tr>
 <tr>
 <td><img src="docs/images/social-feed.png" alt="Posts and replies from the simulated social feed" /><br /><b>Social activity.</b> Follow posts, comments, and community responses across simulation rounds.</td>

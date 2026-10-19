@@ -15,10 +15,13 @@ for name, spec in shots:
     # spec: comma list of section ids to keep; "header" keeps the page header
     keep = spec.split(",")
     width = 1280
-    css = ["nav.toc,#tip,footer,h2.divider,.theme-btn{display:none!important}", "section{display:none!important}",
+    css = ["nav.toc,#tip,footer,h2.divider,.theme-btn,aside.side,.hero-row,.callout[role=note]{display:none!important}",
+           ".app{display:block!important}", "section{display:none!important}",
            ".wrap{padding-top:24px!important}", "html,body{background:#eeeeea!important}"]
     if "header" not in keep:
         css.append("header.top{display:none!important}")
+    else:
+        css.append(".topbar{position:static!important;margin:0 0 12px!important}")
     for k in keep:
         if k.startswith("first-ftc") or k.startswith("ftc-"):
             nth = 1 if k.startswith("first-ftc") else int(k.split("-")[1])

@@ -13,6 +13,20 @@
         "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs/fitloop"
       ],
       "port": 5050
+    },
+    {
+      "name": "runs-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5077",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs"
+      ],
+      "port": 5077
     }
   ]
 }

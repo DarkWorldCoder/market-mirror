@@ -46,6 +46,8 @@ try:  # marketing layer (stdlib only)
     import tokens  # type: ignore
     import ui  # type: ignore
     import overview  # type: ignore
+    import geo_view  # type: ignore
+    import shell  # type: ignore
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
@@ -53,6 +55,8 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
     from . import overview  # type: ignore
+    from . import geo_view  # type: ignore
+    from . import shell  # type: ignore
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
@@ -1192,6 +1196,15 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     strip = overview.kpi_strip(bundle, mk)
     if strip:
         mk_sections.insert(0, ("kpis", "At a glance", ui.section_head("At a glance") + strip))
+    try:
+        geo = geo_view.map_section(bundle, insights.get("worldmap"))
+    except Exception as e:  # noqa: BLE001 - never lose the dashboard to one section
+        geo = None
+        print(f"map section failed: {e}")
+    if geo:
+        at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "decision"),
+                  next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "kpis"), 0))
+        mk_sections.insert(at, geo)
 
     req = summary.get("simulation_requirement") or ""
     page_title = title or (bundle.get("run_manifest") or {}).get("title") or (
@@ -1270,14 +1283,26 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         ("agents", "People"), ("timeline", "Activity"), ("graph", "Market map"), ("overview", "Run details")]
     if md:
         nav.append(("engine-report", "Engine report"))
+    verdict = str((decision or {}).get("decision") or "").upper()
+    tone = {"GO": "go", "ITERATE": "iterate", "NO-GO": "stop", "NO GO": "stop", "STOP": "stop"}.get(verdict)
+    platforms = [p for p, on in (("Twitter", sim.get("enable_twitter")), ("Reddit", sim.get("enable_reddit"))) if on]
+    status_chips = shell.chips([
+        (verdict.title() if verdict else "", "decision", tone),
+        (fmt_num(mk.get("people") or len(profiles)), "people", None),
+        (str(rs.get("current_round") or len(rounds) or ""), "round" if (rs.get("current_round") or len(rounds)) == 1 else "rounds", None),
+        (" + ".join(platforms), "", None),
+        (str(rs.get("runner_status") or sim.get("status") or ""), "", None),
+    ])
+    sub = " · ".join(x for x in (project.get("name") or "", str(summary.get("simulation_id") or "")) if x)
     body = [
-        '<div class="wrap">',
-        f'<header class="top"><div><div class="muted small">MarketMirror · simulated market test</div>'
-        f'<h1>{esc(page_title)}</h1>' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "") + "</div>"
-        + marketing.hero_stats(mk)
-        + '<div class="hdr-tools"><button type="button" class="theme-btn" data-theme-toggle aria-pressed="false" '
-          'aria-label="Switch to dark theme">☾ Dark</button></div></header>',
-        '<nav class="toc" data-scrollspy aria-label="Sections">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
+        '<div class="app">',
+        shell.sidebar(nav, page_title, sub,
+                      f'<span class="chip {tone}"><b>{esc(verdict.title())}</b></span>' if verdict and tone else None),
+        '<main class="main"><div class="wrap">',
+        f'<header class="top topbar"><div><div class="crumb">MarketMirror / simulated market test</div>'
+        f'<h1>{esc(page_title)}</h1></div>{status_chips}</header>',
+        '<div class="hero-row">' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "<span></span>")
+        + marketing.hero_stats(mk) + "</div>",
         '<div class="callout" role="note"><strong>Exploratory simulation.</strong> These buyer responses and projected metrics are directional. Treat a predictive claim as supported only after held-out real experiments beat the no-persona baseline.</div>',
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
         ("" if has_social else f'<section id="posts">{ui.section_head("What people posted")}{posts_html}</section>'),
@@ -1301,7 +1326,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                            "report above is the one to act on.")
          + f'<article class="report">{report_html}</article></section>' if md else ""),
         f'<footer>Generated {esc(summary["generated_at"])} by MarketMirror</footer>',
-        "</div>", '<div id="tip" role="tooltip"></div>',
+        "</div></main></div>", '<div id="tip" role="tooltip"></div>',
+        (geo_view.geo_payload() if geo else ""),
     ]
     html_out = (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -1310,11 +1336,11 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         f"<script>{ui.HEAD_JS}</script>\n"
         # tokens.TOKENS_CSS comes last so its palette and components win over the per-module styles
         f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"
-        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}{tokens.section_css()}</style>\n</head>\n<body>\n"
+        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}{tokens.section_css()}{geo_view.GEO_CSS}{shell.SHELL_CSS}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
         # ui.UI_JS first: it defines window.MM (theme reader, filter engine) that the module scripts use
-        + f"\n<script>{ui.UI_JS}{JS}{overview.OVERVIEW_JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
+        + f"\n<script>{ui.UI_JS}{JS}{overview.OVERVIEW_JS}{geo_view.GEO_JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
         f"{getattr(social_feed, 'SOCIAL_JS', '') if social_feed else ''}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary

@@ -211,11 +211,12 @@ SECTION_META = {
     "results": ("Survey", "◔", 1), "ratings": ("Survey", "◔", 1), "funnel": ("Funnel", "▽", 1),
     "playbook": ("Playbook", "▶", 2), "pitch": ("Sales", "☏", 4), "ideas": ("Next tests", "✦", 7),
     "feedtest": ("Ads", "▣", 2), "socialfeed": ("Social", "◍", 5), "posts": ("Social", "◍", 5),
-    "audiences": ("Audiences", "◎", 3), "worldmap": ("Map", "◐", 3), "objections": ("Objections", "⚑", 8),
+    "audiences": ("Audiences", "◎", 3), "worldmap": ("Where", "◐", 3), "objections": ("Objections", "⚑", 8),
     "messages": ("Messages", "❝", 7), "pricing": ("Pricing", "¤", 4), "voices": ("Voices", "❞", 5),
     "analysts": ("Panel", "◈", 7), "backtest": ("Backtest", "⟲", 6), "email": ("Email", "✉", 5),
     "agents": ("People", "●", 3), "timeline": ("Activity", "◷", 2), "graph": ("Market map", "◇", 7),
-    "overview": ("Run", "⚙", 6), "engine-report": ("Engine", "▤", 6),
+    "overview": ("Run", "⚙", 6), "run-health": ("Run health", "♥", 6), "scenarios": ("Study", "≋", 7),
+    "campaign": ("Campaign", "⚑", 2), "evidence": ("Evidence", "❞", 5), "predictions": ("Predictions", "↗", 4), "website": ("Website", "⌂", 2), "engine-report": ("Engine", "▤", 6),
 }
 
 
