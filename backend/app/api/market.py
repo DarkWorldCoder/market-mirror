@@ -492,10 +492,11 @@ def study_report():
               "outside the spread, the decision agreement across seeds, and what to do next. Every number must come from the facts. "
               "Say 'simulated people' at least once. Do not call seed agreement real-world confidence, predict a success probability, or claim real-world lift without an independent held-out backtest. Spreads describe simulation variation only.")
     try:
+        system = market_report.SYSTEM.replace("Return only valid JSON.", "Answer in Markdown only (no JSON, no code fence).")
         resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=3000,
-                                      messages=[{"role": "system", "content": market_report.SYSTEM}, {"role": "user", "content": prompt}])
-        md = extract_chat_completion_text(resp) or ""
-        md = market_report._check_numbers(md, market_report._fact_numbers(summary))
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
+        md = market_report.unwrap_markdown(extract_chat_completion_text(resp) or "")
+        md = market_report.check_numbers_markdown(md, market_report._fact_numbers(summary))
         return jsonify({"success": True, "data": {"markdown": md, "method": "llm"}})
     except Exception as e:  # noqa: BLE001
         logger.error(f"study report failed: {e}")

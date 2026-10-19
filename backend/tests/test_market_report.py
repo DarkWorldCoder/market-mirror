@@ -201,3 +201,21 @@ def test_report_preserves_public_source_provenance_and_blocked_notes():
     assert "[review](https://example.org/review)" in md and "2026-10-01 · IN · public_review_unverified" in md
     assert "Forum blocked" in md and material["evidence_status"] == "exploratory_simulation"
     assert "success_probability" not in material["panel"]
+
+
+def test_markdown_number_guard_keeps_structure():
+    from app.services import market_report as mr
+    md = ("## Ranking\n\nNo card at 2.99 led on intent (3.6 vs 3.51). It will make 99% more money.\n\n"
+          "| Scenario | Intent |\n|---|---|\n| no_card_2.99 | 3.6 |\n| made_up | 4.7 |\n\n- Keep 2 seeds.")
+    out = mr.check_numbers_markdown(md, {"2.99", "3.6", "3.51"})
+    assert "## Ranking" in out and "|---|---|" in out
+    assert "| no_card_2.99 | 3.6 |" in out and "4.7" not in out and "| made_up | – |" in out
+    assert "99%" not in out and "led on intent (3.6 vs 3.51)." in out
+    assert "- Keep 2 seeds." in out
+
+
+def test_unwrap_markdown():
+    from app.services import market_report as mr
+    assert mr.unwrap_markdown('{"markdown": "# Hi"}') == "# Hi"
+    assert mr.unwrap_markdown("```markdown\n# Hi\n```") == "# Hi"
+    assert mr.unwrap_markdown("# Plain") == "# Plain"

@@ -354,9 +354,12 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
 _NUM = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])")
 
 
+_FACT_NUM = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)(?!\d)")   # looser: also numbers inside names such as no_card_4.99
+
+
 def _fact_numbers(material: Dict[str, Any]) -> set:
     found = set()
-    for m in _NUM.finditer(json.dumps(material, ensure_ascii=False, default=str)):
+    for m in _FACT_NUM.finditer(json.dumps(material, ensure_ascii=False, default=str)):
         v = m.group(1)
         found.add(v)
         try:
@@ -377,6 +380,53 @@ def _check_numbers(text: str, allowed: set) -> str:
         if not bad:
             out.append(sent)
     return " ".join(out).strip()
+
+
+def check_numbers_markdown(md: str, allowed: set) -> str:
+    """Number guard that keeps Markdown intact: line by line, a table cell with an unknown number becomes "–",
+    and in prose only the sentence with an unknown number is dropped (headings and blank lines stay)."""
+    lines = []
+    for line in (md or "").splitlines():
+        st = line.strip()
+        if st.startswith("|"):
+            cells = st.strip("|").split("|")
+            if all(set(c.strip()) <= set("-: ") for c in cells):       # the |---|---| separator row
+                lines.append(line)
+                continue
+            cells = [c if _check_numbers(c.strip(), allowed) == c.strip() else " – " for c in cells]
+            lines.append("|" + "|".join(cells) + "|")
+            continue
+        if not st or st.startswith("#") and not _NUM.findall(st):
+            lines.append(line)
+            continue
+        indent = line[:len(line) - len(line.lstrip())]
+        marker = ""
+        for m in ("- ", "* ", "> "):
+            if st.startswith(m):
+                marker, st = m, st[len(m):]
+                break
+        kept = _check_numbers(st, allowed)
+        if kept:
+            lines.append(indent + marker + kept)
+    return "\n".join(lines).strip()
+
+
+def unwrap_markdown(text: str) -> str:
+    """Some models answer a Markdown request with JSON ({"markdown": "..."}) or a fenced block; return the Markdown."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\n?", "", t)
+        t = re.sub(r"\n?```$", "", t).strip()
+    if t.startswith("{"):
+        try:
+            data = json.loads(t)
+        except ValueError:
+            return t
+        if isinstance(data, dict):
+            for k in ("markdown", "report", "content", "text"):
+                if isinstance(data.get(k), str):
+                    return data[k].strip()
+    return t
 
 
 def clean_sections(data: Dict[str, Any], material: Dict[str, Any]) -> Dict[str, Any]:

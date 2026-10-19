@@ -1706,7 +1706,11 @@ def cmd_study(c: Client, a) -> Any:
         try:
             data = c.data("POST", "/api/simulation/study-report", json={"summary": summary, "brand": st.get("brand") or ""}, timeout=300)
             md = data.get("markdown")
-            log(f"study: report written ({data.get('method')})")
+            if len((md or "").strip()) < 400:          # the guard removed most of it: the data-only report says more
+                log("study: the written report came back nearly empty; using the data-only report")
+                md = None
+            else:
+                log(f"study: report written ({data.get('method')})")
         except CLIError as e:
             log(f"study: report call failed, using the data-only report: {e}")
     md = ("**Evidence status: exploratory simulation.** Seed agreement does not establish real-world lift or a success probability.\n\n" + md) \
