@@ -87,7 +87,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(style.count("--bg:#0d0d0c"), 2)                       # ... dark block under both selectors
         self.assertGreater(style.rindex(":root{"), style.index(".sf-feed"))     # tokens loaded last
         self.assertIn('<button type="button" class="theme-btn" data-theme-toggle', h)
-        self.assertLess(h.index("data-theme-toggle"), h.index('<nav class="toc"'))
+        self.assertLess(h.index('class="livebar"'), h.index("data-theme-toggle"))      # the toggle sits in the top bar
         used = set(re.findall(r"var\((--[a-z0-9-]+)", h))
         defined = set(re.findall(r"(--[a-z0-9-]+):", style))
         self.assertEqual(used - defined, set())                                # no undefined custom properties
@@ -114,7 +114,8 @@ class ExportTests(unittest.TestCase):
     def test_sections(self):
         for sid in ["overview", "graph", "timeline", "agents", "socialfeed", "report"]:   # fixture has a feed story
             self.assertIn(f'<section id="{sid}"', self.html)
-        self.assertEqual(self.html.count("<circle"), 24)
+        graph = self.html.split('<section id="graph">')[1].split("</section>")[0]
+        self.assertEqual(graph.count("<circle"), 24)                       # graph nodes (icons elsewhere use circles too)
         self.assertEqual(len(re.findall(r"<line x1=", self.html)), len([
             e for e in json.loads(_read(os.path.join(FIXTURE, "graph.json")))["data"]["edges"]
             if e["source_node_uuid"] != e["target_node_uuid"]]))

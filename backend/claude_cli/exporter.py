@@ -1286,24 +1286,19 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     verdict = str((decision or {}).get("decision") or "").upper()
     tone = {"GO": "go", "ITERATE": "iterate", "NO-GO": "stop", "NO GO": "stop", "STOP": "stop"}.get(verdict)
     platforms = [p for p, on in (("Twitter", sim.get("enable_twitter")), ("Reddit", sim.get("enable_reddit"))) if on]
-    status_chips = shell.chips([
-        (verdict.title() if verdict else "", "decision", tone),
-        (fmt_num(mk.get("people") or len(profiles)), "people", None),
-        (str(rs.get("current_round") or len(rounds) or ""), "round" if (rs.get("current_round") or len(rounds)) == 1 else "rounds", None),
-        (" + ".join(platforms), "", None),
-        (str(rs.get("runner_status") or sim.get("status") or ""), "", None),
-    ])
-    sub = " · ".join(x for x in (project.get("name") or "", str(summary.get("simulation_id") or "")) if x)
+    n_rounds = rs.get("current_round") or len(rounds)
+    counts = [(fmt_num(mk.get("people") or len(profiles)), "people"),
+              (str(n_rounds or ""), "round" if n_rounds == 1 else "rounds"),
+              (str(len(platforms)) if platforms else "", "platform" if len(platforms) == 1 else "platforms")]
+    eyebrow = " · ".join(x for x in ("Simulated market test", project.get("name") or "", str(summary.get("simulation_id") or "")) if x)
     body = [
-        '<div class="app">',
-        shell.sidebar(nav, page_title, sub,
-                      f'<span class="chip {tone}"><b>{esc(verdict.title())}</b></span>' if verdict and tone else None),
+        '<div class="app" id="top">',
+        shell.sidebar(nav, page_title),
         '<main class="main"><div class="wrap">',
-        f'<header class="top topbar"><div><div class="crumb">MarketMirror / simulated market test</div>'
-        f'<h1>{esc(page_title)}</h1></div>{status_chips}</header>',
-        '<div class="hero-row">' + (f'<p class="req">{esc(trunc(req, 400))}</p>' if req else "<span></span>")
-        + marketing.hero_stats(mk) + "</div>",
-        '<div class="callout" role="note"><strong>Exploratory simulation.</strong> These buyer responses and projected metrics are directional. Treat a predictive claim as supported only after held-out real experiments beat the no-persona baseline.</div>',
+        shell.live_bar(page_title, verdict.title() if verdict else "", tone,
+                       trunc(str((decision or {}).get("summary") or ""), 80), counts),
+        shell.page_header(page_title, eyebrow, marketing.hero_stats(mk), trunc(req, 400) if req else ""),
+        '<div class="callout disclaimer" role="note"><strong>Exploratory simulation.</strong> These buyer responses and projected metrics are directional. Treat a predictive claim as supported only after held-out real experiments beat the no-persona baseline.</div>',
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
         ("" if has_social else f'<section id="posts">{ui.section_head("What people posted")}{posts_html}</section>'),
         '<h2 class="divider">Behind the simulation</h2>',

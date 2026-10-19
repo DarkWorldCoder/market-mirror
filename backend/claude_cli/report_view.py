@@ -6,6 +6,7 @@ People cards for the dashboard. Stdlib only.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,12 +46,55 @@ def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown
     if not mr or not (mr.get("markdown") or "").strip():
         return ("report", "Report", head + '<div class="callout">No report yet. Run <code>mirofish.py report --simulation '
                 '&lt;id&gt;</code> (or let <code>market-test</code> finish) to get the plain-language report here.</div>')
-    body = markdown_to_html(mr["markdown"])
+    body, toc = enhance_report(markdown_to_html(mr["markdown"]))
     method = mr.get("method")
     note = ('<p class="muted small">Data-only report: the writing step failed, so this is the facts without narrative.</p>'
             if method == "fallback" else "")
-    return ("report", "Report", head + note + '<p class="report-basis">Exploratory simulation · validate with a real experiment</p>'
-            + f'<article class="report mm-report">{body}</article>')
+    contents = ""
+    if len(toc) >= 3:
+        contents = ('<nav class="rp-toc" aria-label="Report contents"><p>Contents</p>'
+                    + "".join(f'<a href="#{rid}"><span>{i + 1:02d}</span>{label}</a>' for i, (rid, label) in enumerate(toc))
+                    + "</nav>")
+    return ("report", "Report", head + note
+            + f'<div class="rp-doc{" has-toc" if contents else ""}">{contents}<article class="report mm-report">'
+            '<p class="report-basis">Exploratory simulation · validate with a real experiment</p>'
+            f'{body}</article></div>')
+
+
+_H2 = re.compile(r"<h2>(.*?)</h2>", re.S)
+_EXAMPLES = re.compile(r"<ul>\s*((?:<li>\s*Example:.*?</li>\s*){2,})</ul>", re.S)
+_EXAMPLE = re.compile(r"<li>\s*Example:\s*(.*?)</li>", re.S)
+_LEAD = re.compile(r"<p>\s*<strong>\s*Decision:\s*([A-Za-z\- ]+?)\.?\s*</strong>\s*(.*?)</p>", re.S)
+
+
+def enhance_report(html: str) -> Tuple[str, List[Tuple[str, str]]]:
+    """Report HTML -> (html, contents): ids on <h2>, the decision paragraph as a lead block with a verdict pill,
+    runs of "Example: Name, age, ..." bullets as small person cards."""
+    toc: List[Tuple[str, str]] = []
+
+    def h2(m):
+        label = m.group(1)
+        rid = "rp-" + (re.sub(r"[^a-z0-9]+", "-", re.sub(r"<[^>]+>", "", label).lower()).strip("-") or str(len(toc)))
+        toc.append((rid, label))
+        return f'<h2 id="{rid}">{label}</h2>'
+    html = _H2.sub(h2, html)
+
+    def lead(m):
+        verdict = m.group(1).strip()
+        tone = {"GO": "mint", "ITERATE": "accent", "NO-GO": "orchid", "NO GO": "orchid", "STOP": "orchid"}.get(verdict.upper(), "accent")
+        return (f'<div class="rp-lead"><span class="pill {tone}">{verdict.upper()}</span><p>{m.group(2).strip()}</p></div>')
+    html = _LEAD.sub(lead, html, count=1)
+
+    def people(m):
+        cards = []
+        for item in _EXAMPLE.findall(m.group(1)):
+            text = item.strip()
+            name, _, rest = text.partition(",")
+            cards.append(f'<div class="rp-person"><span class="pm-av">{name.strip()[:1]}</span>'
+                         f'<div><b>{name.strip()}</b><p>{rest.strip().lstrip(", ")}</p></div></div>')
+        return '<div class="rp-people">' + "".join(cards) + "</div>"
+    html = _EXAMPLES.sub(people, html)
+    return html, toc
 
 
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
@@ -148,21 +192,47 @@ def person_lead_score(sv: Dict[str, Any]) -> Optional[int]:
 REPORT_CSS = """
 #report{background:transparent;border:0;border-radius:0;padding:22px 0}
 #report .section-head .dl{justify-content:flex-end;max-width:620px}
-.report-downloads{max-width:100%;font-size:.9rem}.report-downloads summary{cursor:pointer;font-weight:500;padding:8px 0;text-align:right}
-.report-downloads[open] summary{margin-bottom:10px}
-.report-basis{font-size:.75rem;color:var(--muted);letter-spacing:.04em;margin:26px 0 12px}
-.mm-report{background:transparent;border:0;border-radius:0;padding:8px 0;max-width:none;font-size:1rem;line-height:1.75;overflow-wrap:anywhere}
-.mm-report h1{font-size:clamp(1.65rem,3vw,2.4rem);font-weight:600;line-height:1.18;letter-spacing:-.035em;margin:0 0 28px;max-width:30ch}
-.mm-report h2{font-size:1.3rem;font-weight:600;line-height:1.3;letter-spacing:-.02em;margin:40px 0 14px;padding:0;border:0}
-.mm-report h3{font-size:1.05rem;font-weight:600;margin:26px 0 10px}
-.mm-report p,.mm-report ul,.mm-report ol,.mm-report blockquote{max-width:82ch}
-.mm-report p{margin:0 0 18px}.mm-report li{margin:6px 0}.mm-report strong{font-weight:600}
-.mm-report table{font-size:.9rem;line-height:1.55;width:100%;border-collapse:collapse;margin:24px 0}
-.mm-report th{background:transparent;text-align:left;font-weight:600;border-bottom:1px solid var(--border)}
-.mm-report td,.mm-report th{padding:12px 16px 12px 0;vertical-align:top}
-.mm-report td{border-bottom:1px solid var(--grid)}
-.mm-report blockquote{border:0;border-radius:0;background:transparent;padding:0 0 0 20px;margin:24px 0;color:var(--text-2);font-style:italic}
+.report-downloads{max-width:100%;font-size:13px}
+.report-downloads summary{cursor:pointer;font-weight:500;list-style:none;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;
+border-radius:999px;background:var(--text);color:var(--surface)}
+.report-downloads summary::-webkit-details-marker{display:none}
+.report-downloads summary::after{content:"↓";font-size:12px}
+.report-downloads[open] summary{margin-bottom:12px}
+.rp-doc{display:block;background:var(--surface);border-radius:28px;padding:36px 40px 40px}
+.rp-doc.has-toc{display:grid;grid-template-columns:220px minmax(0,1fr);gap:40px;align-items:start}
+.rp-toc{position:sticky;top:96px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.rp-toc p{margin:0 0 8px;color:var(--muted);font-size:12px}
+.rp-toc a{display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-radius:999px;color:var(--text-2);text-decoration:none;line-height:1.3}
+.rp-toc a span{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11px}
+.rp-toc a:hover{background:var(--surface-2);color:var(--text)}
+.report-basis{font-size:12px;color:var(--muted);margin:0 0 14px}
+.mm-report{background:transparent;border:0;border-radius:0;padding:0;max-width:none;font-size:15px;line-height:1.7;overflow-wrap:anywhere;color:var(--text-2)}
+.mm-report h1{font-size:clamp(1.8rem,3.2vw,2.6rem);font-weight:500;line-height:1.05;letter-spacing:-.04em;margin:0 0 22px;max-width:24ch;color:var(--text)}
+.mm-report h2{font-size:1.35rem;font-weight:500;line-height:1.3;letter-spacing:-.025em;margin:44px 0 14px;padding:24px 0 0;border:0;
+border-top:1px solid var(--grid);color:var(--text);scroll-margin-top:96px}
+.mm-report h3{font-size:1rem;font-weight:600;margin:26px 0 10px;color:var(--text)}
+.mm-report p,.mm-report ul,.mm-report ol,.mm-report blockquote{max-width:74ch}
+.mm-report p{margin:0 0 16px}.mm-report li{margin:6px 0}.mm-report strong{font-weight:600;color:var(--text)}
+.mm-report ul{padding-left:20px}.mm-report li::marker{color:var(--muted)}
+.rp-lead{display:flex;gap:14px;align-items:flex-start;background:var(--mm-accent-wash);border-radius:20px;padding:18px 20px;margin:0 0 22px;max-width:none}
+.rp-lead .pill{flex:none;margin-top:2px}
+.rp-lead p{margin:0;font-size:16px;line-height:1.55;color:var(--text);max-width:none}
+.mm-report table{font-size:13.5px;line-height:1.5;width:100%;border-collapse:separate;border-spacing:0;margin:20px 0;
+border:1px solid var(--grid);border-radius:18px;overflow:hidden}
+.mm-report th{background:var(--surface-2);text-align:left;font-weight:500;font-size:12px;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--grid)}
+.mm-report td,.mm-report th{padding:11px 16px;vertical-align:top}
+.mm-report td{border-bottom:1px solid var(--grid);color:var(--text-2)}
+.mm-report tr:last-child td{border-bottom:0}
+.mm-report td:first-child{color:var(--text);font-weight:500}
+.mm-report blockquote{border:0;border-radius:16px;background:var(--surface-2);padding:14px 18px;margin:22px 0;color:var(--text-2);font-style:normal}
 .mm-report pre{max-width:100%;overflow:auto}.mm-report hr{border:0;border-top:1px solid var(--grid);margin:32px 0}
+.rp-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin:18px 0 8px}
+.rp-person{display:flex;gap:12px;align-items:flex-start;background:var(--surface-2);border-radius:18px;padding:12px 14px}
+.rp-person .pm-av{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--surface);color:var(--text);font-weight:600;font-size:13px}
+.rp-person b{display:block;font-size:13.5px;color:var(--text)}
+.rp-person p{margin:2px 0 0;font-size:12.5px;line-height:1.45;color:var(--text-2);max-width:none}
+@media(max-width:1000px){.rp-doc.has-toc{display:block}.rp-toc{display:none}}
+@media(max-width:700px){.rp-doc{padding:22px 18px;border-radius:22px}}
 @media(max-width:700px){#report .section-head .dl{justify-content:flex-start}.report-downloads summary{text-align:left}.mm-report{padding:4px 0}.mm-report table{display:block;overflow-x:auto}.mm-report td,.mm-report th{min-width:110px}}
 @media print{body.print-report{background:#fff;color:#111}body.print-report .wrap>*:not(#report){display:none!important}body.print-report #report{display:block;break-inside:auto;margin:0;padding:0;--text:#111;--text-2:#333;--muted:#555;--border:#bbb;--grid:#ddd}#report .report-downloads{display:none}.mm-report{color:#111;background:transparent}.mm-report h2,.mm-report h3{break-after:avoid}.mm-report tr,.mm-report blockquote{break-inside:avoid}.mm-report table{display:table;font-size:9pt}}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
