@@ -70,6 +70,7 @@ class Client:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers["Accept-Language"] = lang
+        self.memory_scope = "default"   # behaviour-memory scope the tests read and write ("off" disables; study cells set their own)
 
     def _handle(self, resp, method: str, path: str) -> Any:
         try:
@@ -369,9 +370,11 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                        "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
                       for aid in chunk]
         try:
+            scope = getattr(c, "memory_scope", None)
             res = c.data("POST", "/api/simulation/interview/batch",
                          json={"simulation_id": simulation_id, "interviews": interviews, "platform": platform,
-                               "timeout": wait_s}, timeout=wait_s + 90)
+                               "timeout": wait_s, **({"memory_scope": scope} if scope and scope != "off" else {})},
+                         timeout=wait_s + 90)
             texts = marketing.interview_texts(res)
         except CLIError as e:
             log(f"survey: batch {start // batch + 1} failed: {e}")
@@ -414,6 +417,11 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         retest_info = {"n": len(sample), "agreement_pct": round(100.0 * agree / len(sample), 1) if sample else None,
                        "interest_within_2_pct": round(100.0 * interest_close / len(sample), 1) if sample else None}
         log(f"survey: retest of {len(sample)} people: {retest_info['agreement_pct']}% gave the same verdict")
+    scope = getattr(c, "memory_scope", None)
+    if scope and scope != "off":
+        _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
+            "scope": scope, "survey": {"offer": offer, "responses": [{"agent_id": r["agent_id"], "answer": r.get("answer")}
+                                                                    for r in responses if r.get("answer")]}}))
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
               "platform": platform, "assignment_seed": seed if split else None,
@@ -1126,6 +1134,8 @@ def cmd_market_test(c: Client, a) -> Any:
     except (OSError, ValueError) as e:
         raise CLIError(f"market-test: cannot read {path}: {e}")
     base = os.path.dirname(os.path.abspath(path))
+    if cfg.get("memory_scope") is not None:
+        c.memory_scope = "off" if cfg["memory_scope"] in (False, "off", "none") else str(cfg["memory_scope"])
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cfg.get("name") or "market_test"))
     out_dir = _cfg_path(base, cfg.get("out")) if cfg.get("out") else os.path.join("mirofish_runs", name)
     os.makedirs(out_dir, exist_ok=True)

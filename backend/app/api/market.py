@@ -173,7 +173,48 @@ def _voices(simulation_id: str):
     return None
 
 
-def _start(kind: str, simulation_id: str, work):
+MEMORY_EVENTS = {"feed-test": "events_from_feed_test", "email-test": "events_from_email_test", "pitch": "events_from_pitch"}
+
+
+def _memory_scope(data) -> str:
+    """Which behaviour-state scope a test reads and writes ("" = memory off). Study cells pass their own name."""
+    scope = data.get("memory_scope")
+    if scope is False or (scope is not None and str(scope).lower() in ("off", "none", "false")):
+        return ""
+    return str(scope or "default")[:80]
+
+
+def _brand(simulation_id: str) -> str:
+    prof = _profile(simulation_id) or {}
+    return str(prof.get("name") or "the brand")[:60]
+
+
+def _with_history(people, simulation_id: str, scope: str):
+    """Copy of people with each person's memory block (what already happened to them) under "history"."""
+    if not scope:
+        return people
+    from ..services import behavior_state
+    try:
+        sim_dir = _sim_dir(simulation_id)
+    except LookupError:
+        return people
+    data = behavior_state.load(sim_dir)
+    return [{**p, "history": behavior_state.prompt_block(sim_dir, p["agent_id"], scope, data=data)} for p in people]
+
+
+def _record_memory(kind: str, simulation_id: str, result, scope: str) -> None:
+    if not scope or kind not in MEMORY_EVENTS or not isinstance(result, dict):
+        return
+    from ..services import behavior_state
+    try:
+        events = getattr(behavior_state, MEMORY_EVENTS[kind])(result, _brand(simulation_id))
+        n = behavior_state.record(_sim_dir(simulation_id), events, scope)
+        result["memory"] = {"scope": scope, "events_recorded": n}
+    except Exception as e:  # noqa: BLE001 - memory is an extra, never fails a test
+        logger.warning(f"{kind}: behaviour memory not recorded: {e}")
+
+
+def _start(kind: str, simulation_id: str, work, memory_scope: str = ""):
     tm = TaskManager()
     task_id = tm.create_task(task_type=f"market_{kind}", metadata={"simulation_id": simulation_id})
 
@@ -182,6 +223,7 @@ def _start(kind: str, simulation_id: str, work):
             tm.update_task(task_id, status=TaskStatus.PROCESSING, progress=1, message=f"{kind} started")
             result = work(lambda done, total: tm.update_task(
                 task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}"))
+            _record_memory(kind, simulation_id, result, memory_scope)
             path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
@@ -227,6 +269,8 @@ def start_feed_test():
         context = pp.render_text(prof, 1500) + "\n" + context
 
     voices = _voices(sid)
+    scope = _memory_scope(data)
+    people = _with_history(people, sid, scope)
 
     def work(progress):
         return feed_test.run_multi_seed(_client(), Config.LLM_MODEL_NAME, creatives, people,
@@ -237,7 +281,7 @@ def start_feed_test():
                                         attention_gate=data.get("attention_gate", True) is not False,
                                         benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None)
 
-    task_id = _start("feed-test", sid, work)
+    task_id = _start("feed-test", sid, work, **({"memory_scope": scope} if scope else {}))
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
@@ -335,11 +379,14 @@ def start_pitch():
         prof = _profile(sid)
         product = (prof or {}).get("one_liner") or (prof or {}).get("name") or ""
 
+    scope = _memory_scope(data)
+    people = _with_history(people, sid, scope)
+
     def work(progress):
         return pitch_svc.run(interview_batch, people, script, rebuttals, product,
                              str(data.get("channel") or "message"), batch=batch, progress=progress)
 
-    task_id = _start("pitch", sid, work)
+    task_id = _start("pitch", sid, work, **({"memory_scope": scope} if scope else {}))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(people),
                                               "rebuttals": sorted(rebuttals)}})
 
@@ -372,13 +419,15 @@ def start_email_test():
     fam = float(data.get("familiarity") if data.get("familiarity") is not None else opts.get("familiarity", 0.2))
     prof = _profile(sid)
     product = ((prof or {}).get("one_liner") or (prof or {}).get("name") or "")
+    scope = _memory_scope(data)
+    people = _with_history(people, sid, scope)
 
     def work(progress):
         return email_test.run_email_test(_client(), Config.LLM_MODEL_NAME, emails, people, product=product, seed=seed,
                                          parallel=parallel, list_size=int(list_size) if list_size else None,
                                          benchmarks=bench, familiarity=fam, progress=progress)
 
-    task_id = _start("email-test", sid, work)
+    task_id = _start("email-test", sid, work, **({"memory_scope": scope} if scope else {}))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "emails": len(emails), "people": len(people)}})
 
 
@@ -574,6 +623,33 @@ def _runner_status(sim_dir: str) -> str:
             return str(json.load(f).get("runner_status") or "")
     except (OSError, ValueError):
         return ""
+
+
+@simulation_bp.route('/<simulation_id>/memory', methods=['GET', 'POST'])
+def simulation_memory(simulation_id: str):
+    """GET ?scope=&agent= -> behaviour-state summary (or one person's state and memories).
+    POST {scope?, events?: [{agent_id, test, kind, text}], survey?: {responses, offer}} -> record events."""
+    from ..services import behavior_state
+    try:
+        sim_dir = _sim_dir(simulation_id)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if request.method == "GET":
+        scope = request.args.get("scope") or "default"
+        agent = request.args.get("agent")
+        if agent is not None:
+            data = behavior_state.load(sim_dir)
+            person = ((data.get("scopes") or {}).get(scope) or {}).get(str(agent))
+            return jsonify({"success": True, "data": {"scope": scope, "agent_id": agent, "person": person}})
+        return jsonify({"success": True, "data": behavior_state.summary(sim_dir, scope)})
+    data = request.get_json() or {}
+    scope = str(data.get("scope") or "") or _memory_scope(data) or "default"
+    events = [e for e in (data.get("events") or []) if isinstance(e, dict)]
+    survey = data.get("survey")
+    if isinstance(survey, dict):
+        events += behavior_state.events_from_survey(survey.get("responses") or [], str(survey.get("offer") or ""))
+    n = behavior_state.record(sim_dir, events, scope)
+    return jsonify({"success": True, "data": {"scope": scope, "events_recorded": n, **behavior_state.summary(sim_dir, scope)}})
 
 
 @simulation_bp.route('/<simulation_id>/context', methods=['PUT', 'GET'])

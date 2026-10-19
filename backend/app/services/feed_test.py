@@ -234,7 +234,9 @@ def people_from_simulation(profiles: List[Dict[str, Any]], persona_index: List[D
                        "country": p.get("country") or m.get("country") or "",
                        "segment": m.get("segment") or p.get("profession") or "Everyone",
                        "communities": m.get("communities") or [], "income": m.get("income"),
-                       "thinking_style": m.get("thinking_style"), "tech_comfort": m.get("tech_comfort")})
+                       "thinking_style": m.get("thinking_style"), "tech_comfort": m.get("tech_comfort"),
+                       "habits": m.get("habits"), "settlement": m.get("settlement"), "bde": m.get("bde"),
+                       "memory": m.get("memory")})
     if any(m.get("kind") == "persona" for m in meta.values()):
         people = [x for x in people if meta.get(x["agent_id"], {}).get("kind") == "persona"]
     return people
@@ -429,7 +431,8 @@ def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: 
                  "You do not know typical prices or what other products cost unless the post says so.\n")
     return (
         f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n{facts}\n"
-        f"It is {hour}:00 and you are scrolling {pb['label']} on your phone.\nHow people behave here: {pb['playbook']}\n\n"
+        + (f"{person['history']}\n" if person.get("history") else "")
+        + f"It is {hour}:00 and you are scrolling {pb['label']} on your phone.\nHow people behave here: {pb['playbook']}\n\n"
         "Your feed, top to bottom:\n\n" + "\n\n".join(feed) + "\n\n"
         "For EVERY item say what you actually do. Your options, most common first: scroll past, glance, stop and read, "
         "react, comment, share, click. Most items should be a quick scroll past with no action.\n"
@@ -482,6 +485,16 @@ COMMENT_OPEN_RATE = 0.35        # share of viewers who open the comments under a
 WEAR_OUT = 0.8                   # each repeat exposure multiplies the notice chance by this
 
 
+def person_habits(person: Dict[str, Any]) -> Dict[str, Any]:
+    """Stable habits: from the persona (seeded by identity at planning time), else derived from the name, never
+    from the experiment seed, so a person behaves alike across seeds, scenarios and test types."""
+    h = person.get("habits")
+    if isinstance(h, dict) and h.get("ad_avoidance") is not None:
+        return h
+    from .persona_planner import identity_seed
+    return behaviour_traits(person, random.Random(identity_seed(str(person.get("name") or person.get("agent_id")))))
+
+
 def behaviour_traits(person: Dict[str, Any], rng: random.Random) -> Dict[str, Any]:
     """Skewed, per-person habits stated to the persona as facts (not adjectives)."""
     style = str(person.get("thinking_style") or "").lower()
@@ -518,7 +531,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     by_id = {p["agent_id"]: p for p in people}
     pools = organic_pools(client, model, [(platform, by_id[aid].get("country", "")) for (aid, platform) in plan],
                           context, parallel, pools, voices=voices)
-    traits = {p["agent_id"]: behaviour_traits(p, random.Random(seed * 1000 + int(p["agent_id"]))) for p in people}
+    traits = {p["agent_id"]: person_habits(p) for p in people}       # the person's own habits, the same in every seed
     exposures = max(1, min(exposures, 6))
     jobs = []
     for (aid, platform), creative in sorted(plan.items(), key=lambda kv: (kv[0][1], kv[0][0])):

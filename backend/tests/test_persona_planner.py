@@ -426,3 +426,33 @@ def test_real_voices_reach_the_interview_prompt():
     first = next(u for u in client.prompts if u.startswith("This is a life interview"))
     assert "What real people wrote" in first and "charged my card" in first
     assert pp._voices_block(None) == "" and pp._voices_block([], "Nepal") == ""
+
+
+
+def test_bde_cleaner_accepts_the_shapes_models_return():
+    capital = pp.clean_bde({"Background": {"Who": "a nurse", "Beliefs": "cheap is risky"}, "Decision Procedure": {"Speed": "slow", "Triggers": ["a friend"]},
+                            "Evaluation Profile": {"Dealbreakers": "auto-renew"}})
+    assert capital["background"]["who"] == "a nurse" and capital["background"]["believes"] == "cheap is risky"
+    assert capital["decision_procedure"]["triggers"] == ["a friend"] and capital["evaluation"]["dealbreakers"] == ["auto-renew"]
+    flat = pp.clean_bde({"who": "a student", "risk": "averse", "trust_cues": ["reviews"]})
+    assert flat["background"]["who"] == "a student" and flat["decision_procedure"]["risk"] == "averse" and flat["evaluation"]["trust_cues"] == ["reviews"]
+    prose_sections = pp.clean_bde({"background": "Grew up in Pune, saves hard, distrusts apps that want a card.", "decision": {"speed": "fast"}})
+    assert prose_sections["background"]["who"].startswith("Grew up") and prose_sections["decision_procedure"]["speed"] == "fast"
+    prose = pp.clean_bde("She asks her sister before buying anything over 500 rupees and hates auto-renewals.")
+    assert prose["background"]["who"].startswith("She asks")
+
+
+def test_settlement_spread_and_stable_habits():
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=20, country="India", cities=["Pune", "Mumbai"])], "interview": False})
+    ents = pp.generate_personas(FakeClient(), "m", spec, "req", "ctx")
+    tiers = {e.attributes.get("settlement") for e in ents}
+    assert tiers >= {"metro", "city", "town"} and len({e.attributes["city"] for e in ents}) >= 6
+    assert any(e.attributes["city"] in ("Pune", "Mumbai") for e in ents)
+    keep = pp.PersonaSpec.from_dict({"segments": [seg(count=20, country="India", cities=["Pune"], geo_spread="cities")], "interview": False})
+    assert {e.attributes["city"] for e in pp.generate_personas(FakeClient(), "m", keep, "req", "ctx")} == {"Pune"}
+    h1 = pp.stable_habits("Asha Rai", {"thinking_style": "sceptical"})
+    assert h1 == pp.stable_habits("Asha Rai", {"thinking_style": "sceptical"}) and h1 != pp.stable_habits("Bina Rai", {})
+    e = ents[0]
+    assert e.attributes["habits"]["ad_avoidance"] >= 0 and e.attributes["provenance"]["profile"].startswith("synthetic")
+    idx = pp.persona_index(ents)
+    assert idx[0]["settlement"] and idx[0]["habits"] and idx[0]["provenance"]

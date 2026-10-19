@@ -341,6 +341,38 @@ Every post of the simulation with authors, rounds, likes, quotes, comments; bran
 
 Returns: feed_story.json
 
+### `GET /api/simulation/{simulation_id}/memory`
+
+Behaviour state across tests (?scope=, ?agent= for one person's memories).
+
+Returns: {people, avg_trust, avg_familiarity, avg_fatigue, events}
+
+### `POST /api/simulation/{simulation_id}/memory`
+
+Record behaviour events (or survey answers) into a memory scope.
+
+Request body:
+
+```json
+{
+  "scope": "default",
+  "events": [
+    {
+      "agent_id": 1,
+      "test": "manual",
+      "kind": "saw_brand_post",
+      "text": "You saw the launch post."
+    }
+  ],
+  "survey": {
+    "responses": [],
+    "offer": "..."
+  }
+}
+```
+
+Returns: {events_recorded, summary}
+
 ## Analysis and reports
 
 ### `POST /api/simulation/analyst-panel`

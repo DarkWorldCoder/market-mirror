@@ -111,6 +111,8 @@ class PersonaSegment:
     gender_mix: str = "balanced"          # balanced | female | male | share of women 0-1
     notes: str = ""                        # real data, attitudes, what is known about this group
     diversity: Dict[str, List[str]] = field(default_factory=dict)   # per-segment trait overrides
+    geo_spread: str = "auto"               # auto | national | cities (see geo_tiers.spread)
+    settlement_mix: Dict[str, float] = field(default_factory=dict)  # {"metro": .45, "city": .3, "town": .15, "rural": .1}
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "PersonaSegment":
@@ -133,6 +135,9 @@ class PersonaSegment:
             gender_mix=str(d.get("gender_mix") or "balanced").strip().lower(),
             notes=str(d.get("notes") or "").strip(),
             diversity=_diversity(d.get("diversity")),
+            geo_spread=str(d.get("geo_spread") or "auto").strip().lower(),
+            settlement_mix={str(k): float(v) for k, v in (d.get("settlement_mix") or {}).items()
+                            if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(d.get("settlement_mix"), dict) else {},
         )
 
 
@@ -248,8 +253,8 @@ def demographic_slots(seg: PersonaSegment, rng: random.Random,
     genders = ["female"] * women + ["male"] * (n - women)
     rng.shuffle(genders)
     rng.shuffle(ages)
-    cities = seg.cities or [""]
-    offset = rng.randrange(len(cities))
+    from .geo_tiers import spread as _spread_places
+    places = _spread_places(seg.country, seg.cities, n, rng, seg.geo_spread, seg.settlement_mix or None)
     traits = {**DEFAULT_DIVERSITY, **(diversity or {}), **seg.diversity}
     spread: Dict[str, List[str]] = {}
     for name, values in traits.items():
@@ -260,7 +265,7 @@ def demographic_slots(seg: PersonaSegment, rng: random.Random,
     # distinct starting letters for given names: parallel batches otherwise all pick the most common names
     letters = list("ABCDEFGHIJKLMNOPRSTVY")
     rng.shuffle(letters)
-    return [{"age": ages[i], "gender": genders[i], "city": cities[(i + offset) % len(cities)],
+    return [{"age": ages[i], "gender": genders[i], "city": places[i][0], "settlement": places[i][1],
              "mbti": rng.choice(MBTI), "initial": letters[i % len(letters)],
              "traits": {k: v[i] for k, v in spread.items() if v}} for i in range(n)]
 
@@ -428,6 +433,7 @@ def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requiremen
                     avoid_names: Sequence[str], communities: Sequence[CommunitySpec] = ()) -> str:
     people = "\n".join(
         f"{i + 1}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
+        + ({"metro": " (big metro)", "city": " (mid-sized city)", "town": " (small town)", "rural": " (rural, village life)"}.get(s.get("settlement") or "", ""))
         + f", MBTI {s['mbti']}" + (f", given name starts with '{s['initial']}'" if s.get("initial") else "")
         + "".join(f"; {k.replace('_', ' ')}: {v}" for k, v in (s.get("traits") or {}).items())
         for i, s in enumerate(slots))
@@ -457,6 +463,8 @@ Rules:
 - Invent a realistic full name for each person: given name and family name common for their country,
   region, religion mix and generation. Do not reuse or resemble these names: {", ".join(list(avoid_names)[-60:]) or "none"}.
 - Never use a real, famous or public person's name or biography.
+- Let where they live shape the details: small-town and rural people have different jobs, incomes, prices, data
+  plans, shops and distances than metro people; do not make everyone an office worker in a tower.
 - Make them genuinely different: let the fixed traits (upbringing, education, income, thinking style,
   tech comfort, media diet) shape their goals, family situation, trust in ads, what they already know
   about the topic, and how they would react (some enthusiastic, some sceptical, some indifferent or busy).
@@ -619,12 +627,61 @@ Return JSON: {{"people": [{{"name": "<name as given>", "probe_answers": [{{"q": 
   "bde": {json.dumps(BDE_SCHEMA, ensure_ascii=False)}}}]}}"""
 
 
+_SECTION_ALIASES = {
+    "background": ("background", "b", "profile", "who_they_are", "bg"),
+    "decision_procedure": ("decision_procedure", "decisionprocedure", "decision", "decision_making", "decisions", "d", "how_they_decide", "dp"),
+    "evaluation": ("evaluation", "evaluation_profile", "e", "ep", "what_they_pay_for", "values", "evaluation_criteria"),
+}
+_FIELD_ALIASES = {
+    "who": ("who", "who_they_are", "summary", "identity", "about"), "knows": ("knows", "knowledge", "category_knowledge", "what_they_know"),
+    "believes": ("believes", "beliefs", "belief", "worldview"), "acquiescence": ("acquiescence", "agreeableness_to_please", "politeness"),
+    "social_desirability": ("social_desirability", "socially_desirable"), "says_vs_does": ("says_vs_does", "stated_vs_behaviour", "stated_vs_behavior", "say_do_gap", "says_vs_behaviour"),
+    "who_they_ask": ("who_they_ask", "asks", "influencers", "who_they_consult"), "speed": ("speed", "decision_speed"),
+    "style": ("style", "maximiser_or_satisficer", "maximizer_or_satisficer"), "risk": ("risk", "risk_attitude", "risk_tolerance"),
+    "patience": ("patience",), "triggers": ("triggers", "acts_when", "buy_triggers"), "stoppers": ("stoppers", "stops_when", "blockers"),
+    "monthly_discretionary": ("monthly_discretionary", "spare_money", "discretionary_budget", "budget"),
+    "value_priorities": ("value_priorities", "priorities", "values"), "pays_for": ("pays_for", "subscriptions", "already_pays_for"),
+    "never_pays_for": ("never_pays_for", "won't_pay_for", "wont_pay_for"), "dealbreakers": ("dealbreakers", "deal_breakers"),
+    "trust_cues": ("trust_cues", "trusts_when", "trust_signals"),
+}
+
+
+def _norm_key(k: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(k).strip().lower()).strip("_")
+
+
 def clean_bde(raw: Any) -> Optional[Dict[str, Any]]:
+    """Accept the BDE card in the shapes models actually return: the schema, capitalised or aliased section and
+    field names, a flat object, sections written as prose, or the whole card as prose."""
+    if isinstance(raw, str):
+        if len(raw.strip()) < 40:                         # a word or two is not a card
+            return None
+        raw = {"background": {"who": raw.strip()}}
     if not isinstance(raw, dict):
         return None
+    norm = {_norm_key(k): v for k, v in raw.items()}
+    sections: Dict[str, Dict[str, Any]] = {}
+    for section, aliases in _SECTION_ALIASES.items():
+        val = next((norm[a] for a in aliases if a in norm), None)
+        if isinstance(val, str) and val.strip():
+            val = {list(BDE_SCHEMA[section])[0]: val.strip()}
+        sections[section] = {_norm_key(k): v for k, v in val.items()} if isinstance(val, dict) else {}
+    if not any(sections.values()):                       # a flat card: route each field to its section
+        for section, fields in BDE_SCHEMA.items():
+            for k in fields:
+                for a in _FIELD_ALIASES.get(k, (k,)):
+                    if a in norm:
+                        sections[section][k] = norm[a]
+                        break
     out: Dict[str, Any] = {}
     for section, fields in BDE_SCHEMA.items():
-        src = raw.get(section) if isinstance(raw.get(section), dict) else {}
+        src_raw = sections.get(section) or {}
+        src = {}
+        for k in fields:
+            for a in _FIELD_ALIASES.get(k, (k,)):
+                if a in src_raw:
+                    src[k] = src_raw[a]
+                    break
         sec: Dict[str, Any] = {}
         for k, spec in fields.items():
             v = src.get(k)
@@ -634,6 +691,34 @@ def clean_bde(raw: Any) -> Optional[Dict[str, Any]]:
                 sec[k] = str(v or "").strip()[:240]
         out[section] = sec
     return out if any(any(v for v in sec.values()) for sec in out.values()) else None
+
+
+def identity_seed(name: str, salt: int = 0) -> int:
+    """A person's stable seed: the same name gives the same habits in every test, study cell and rerun."""
+    import zlib
+    return (zlib.crc32(str(name or "").encode("utf-8")) ^ (salt * 2654435761)) & 0xFFFFFFFF
+
+
+def stable_habits(name: str, attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """Habits that belong to the person, not to an experiment: ad avoidance, how often they comment, click ads,
+    share, open marketing email. Seeded by identity (research note: separate stable traits from episode randomness)."""
+    rng = random.Random(identity_seed(name))
+    style = str(attrs.get("thinking_style") or "").lower()
+    avoid = rng.betavariate(2.2, 1.8)
+    if "sceptical" in style or "skeptical" in style or "risk-averse" in style or "traditional" in style:
+        avoid = min(1.0, avoid + 0.15)
+    if "early adopter" in style or "status" in style:
+        avoid = max(0.0, avoid - 0.2)
+    settlement = str(attrs.get("settlement") or "")
+    online = {"metro": 1.0, "city": 0.95, "town": 0.85, "rural": 0.7}.get(settlement, 0.9)
+    return {"ad_avoidance": round(avoid, 2),
+            "comments": rng.choices(["a few times a week", "about once a week", "about once a month", "a few times a year", "almost never"],
+                                    [0.07, 0.15, 0.28, 0.3, 0.2])[0],
+            "clicks_ads": rng.choices(["almost never", "rarely", "sometimes"], [0.45, 0.4, 0.15])[0],
+            "shares": rng.choices(["often", "sometimes", "rarely"], [0.15, 0.4, 0.45])[0],
+            "opens_promo_email": rng.choices(["almost never", "rarely", "sometimes", "often"], [0.3, 0.35, 0.25, 0.1])[0],
+            "online_hours": round(rng.uniform(1.0, 6.0) * online, 1),
+            "best_time": rng.choice(["early morning", "commute", "lunch", "evening", "late night"])}
 
 
 def render_bde(bde: Optional[Dict[str, Any]], limit: int = 700) -> str:
@@ -727,6 +812,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                            for i, x in enumerate(r.get("answers") or []) if isinstance(x, dict)]
                 summary = str(r.get("summary") or "").strip()
                 e.attributes["interview"] = answers
+                (e.attributes.setdefault("provenance", {}))["interview"] = "synthetic: model-written life interview"
                 if summary:
                     e.attributes["interview_summary"] = summary[:1200]
                 if r.get("phone"):
@@ -752,9 +838,12 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                           for i, x in enumerate(r.get("probe_answers") or []) if isinstance(x, dict)]
                     if pa:
                         e.attributes["interview"] = (e.attributes.get("interview") or []) + pa
-                    bde = clean_bde(r.get("bde"))
+                    bde = clean_bde(r.get("bde") or r.get("BDE") or r.get("card"))
+                    if not bde and r:
+                        logger.info(f"BDE card not usable for {e.name}: keys {list((r.get('bde') or {}).keys()) if isinstance(r.get('bde'), dict) else type(r.get('bde')).__name__}")
                     if bde:
                         e.attributes["bde"] = bde
+                        (e.attributes.setdefault("provenance", {}))["bde"] = "synthetic: extracted from the interview"
                         prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
                         if prof:
                             prof["persona"] = f"{prof['persona']} How I decide: {render_bde(bde, 500)}"
@@ -981,7 +1070,7 @@ def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], t
     occupation = str(row.get("occupation") or seg.role or seg.label)
     persona = str(row.get("persona") or "").strip()
     details = {
-        "segment": seg.label, "role": seg.role, "city": city, "country": country,
+        "segment": seg.label, "role": seg.role, "city": city, "country": country, "settlement": slot.get("settlement"),
         "occupation": occupation, "education": row.get("education"), "household": row.get("household"),
         "income_level": row.get("income_level"), "languages": row.get("languages") or seg.languages,
         "platform_habits": row.get("platform_habits"), "decision_role": row.get("decision_role"),
@@ -991,6 +1080,9 @@ def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], t
         **(slot.get("traits") or {}),
     }
     details = {k: v for k, v in details.items() if v not in (None, "", [])}
+    details["habits"] = stable_habits(name, details)
+    details["provenance"] = {"demographics": "planner: balanced slot", "profile": "synthetic: model-written",
+                             "interview": "none yet", "habits": "planner: seeded by identity"}
     if not persona:
         persona = f"{name}, {slot['age']}, {occupation} from {city or country}. " + " ".join(
             f"{k.replace('_', ' ')}: {v}." for k, v in details.items() if k not in ("city", "country"))
@@ -1141,6 +1233,7 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "phone": attrs.get("phone"), "data_plan": attrs.get("data_plan"),
             "interview_summary": attrs.get("interview_summary"),
             "bde": attrs.get("bde"), "weight": attrs.get("weight", 1.0),
+            "settlement": attrs.get("settlement"), "habits": attrs.get("habits"), "provenance": attrs.get("provenance"),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out

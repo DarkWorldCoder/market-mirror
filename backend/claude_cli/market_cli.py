@@ -62,6 +62,12 @@ def _load_json_arg(v: Optional[str]) -> Any:
     return json.loads(text)
 
 
+def _scope(c) -> Dict[str, Any]:
+    """The client's behaviour-memory scope as a request field ({} = server default)."""
+    scope = getattr(c, "memory_scope", None)
+    return {"memory_scope": scope} if scope else {}
+
+
 def _image_data_uri(path: str, base_dir: str) -> Optional[str]:
     full = path if os.path.isabs(path) else os.path.join(base_dir, path)
     if not os.path.isfile(full) or os.path.getsize(full) > 4_000_000:
@@ -126,7 +132,7 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
                "exposures": exposures, "attention_gate": attention_gate, "seeds": max(1, int(seeds or 1)), "seed": int(seed or 5),
                "parallel": parallel, **({"landing": landing} if landing else {}),
                **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {})}
-    started = c.data("POST", "/api/simulation/feed-test", json=payload, timeout=120)
+    started = c.data("POST", "/api/simulation/feed-test", json={**payload, **_scope(c)}, timeout=120)
     log(f"feedtest: {started.get('feeds')} person-platform pairs x {exposures} exposures, {started.get('personas')} personas, "
         f"{started.get('creatives')} creatives, {waves} waves. Only exposures that catch the eye call Claude"
         + (", plus one call per click for the landing page" if landing else "")
@@ -533,7 +539,7 @@ def pitch(c, simulation_id: str, run_dir: str, log, script: str, rebuttals: Any 
         body["segment"] = segment
     if agents:
         body["agents"] = agents
-    started = c.data("POST", "/api/simulation/pitch", json=body, timeout=120)
+    started = c.data("POST", "/api/simulation/pitch", json={**body, **_scope(c)}, timeout=120)
     log(f"pitch: {started.get('people')} people, rebuttals for {started.get('rebuttals') or 'nothing'}")
     wait_task(c, started["task_id"], "pitch", log)
     result = c.data("GET", f"/api/simulation/{simulation_id}/pitch")
@@ -601,7 +607,7 @@ def emailtest(c, simulation_id: str, spec_arg: str, run_dir: str, log, seed: int
         body["list_size"] = list_size
     if limit:
         body["max_personas"] = limit
-    started = c.data("POST", "/api/simulation/email-test", json=body, timeout=120)
+    started = c.data("POST", "/api/simulation/email-test", json={**body, **_scope(c)}, timeout=120)
     log(f"emailtest: {started.get('emails')} emails to {started.get('people')} inboxes; only opened mail calls Claude")
     wait_task(c, started["task_id"], "emailtest", log)
     result = c.data("GET", f"/api/simulation/{simulation_id}/email-test")

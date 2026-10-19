@@ -151,7 +151,7 @@ def test_api_start_and_specific_result_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(market,'_sim_dir',lambda sid: str(tmp_path))
     monkeypatch.setattr(market,'_people',lambda sid: ([{'agent_id':1}],{}))
     seen = []
-    monkeypatch.setattr(market,'_start',lambda kind,sid,work: seen.append((kind,sid)) or 'task_x')
+    monkeypatch.setattr(market,'_start',lambda kind,sid,work,**kw: seen.append((kind,sid)) or 'task_x')
     client = create_app().test_client()
     response = client.post('/api/simulation/website-test',json={'simulation_id':'sim_x','spec':{'url':'https://example.com'}})
     assert response.status_code == 200

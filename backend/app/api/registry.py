@@ -47,6 +47,11 @@ ENDPOINTS = [
     {"method": "GET", "path": "/api/simulation/{simulation_id}/context", "tag": "rounds", "summary": "Context updates on file", "returns": "{context_updates}"},
     {"method": "GET", "path": "/api/simulation/{simulation_id}/feed-story", "tag": "rounds", "summary": "Every post of the simulation with authors, rounds, likes, quotes, comments; brand posts strip",
      "returns": "feed_story.json"},
+    {"method": "GET", "path": "/api/simulation/{simulation_id}/memory", "tag": "rounds", "summary": "Behaviour state across tests (?scope=, ?agent= for one person's memories)",
+     "returns": "{people, avg_trust, avg_familiarity, avg_fatigue, events}"},
+    {"method": "POST", "path": "/api/simulation/{simulation_id}/memory", "tag": "rounds", "summary": "Record behaviour events (or survey answers) into a memory scope",
+     "body": {"scope": "default", "events": [{"agent_id": 1, "test": "manual", "kind": "saw_brand_post", "text": "You saw the launch post."}], "survey": {"responses": [], "offer": "..."}},
+     "returns": "{events_recorded, summary}"},
     # analysis
     {"method": "POST", "path": "/api/simulation/analyst-panel", "tag": "analysis", "summary": "Independent anonymized analysts over the run's material; background task",
      "body": {"simulation_id": "sim_x", "material": {}, "analysts": 5, "brief": "..."}, "returns": "{task_id}"},

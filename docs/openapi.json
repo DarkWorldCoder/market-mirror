@@ -1048,6 +1048,101 @@
         ]
       }
     },
+    "/api/simulation/{simulation_id}/memory": {
+      "get": {
+        "summary": "Behaviour state across tests (?scope=, ?agent= for one person's memories)",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{people, avg_trust, avg_familiarity, avg_fatigue, events}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Record behaviour events (or survey answers) into a memory scope",
+        "tags": [
+          "Inside the rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "{events_recorded, summary}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "scope": "default",
+                "events": [
+                  {
+                    "agent_id": 1,
+                    "test": "manual",
+                    "kind": "saw_brand_post",
+                    "text": "You saw the launch post."
+                  }
+                ],
+                "survey": {
+                  "responses": [],
+                  "offer": "..."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/simulation/analyst-panel": {
       "post": {
         "summary": "Independent anonymized analysts over the run's material; background task",

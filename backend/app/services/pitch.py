@@ -268,7 +268,8 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     done = 0
     for i in range(0, len(people), max(1, batch)):
         chunk = people[i:i + batch]
-        texts = interview_batch([{"agent_id": p["agent_id"], "prompt": pitch_prompt(script, product, channel)} for p in chunk])
+        texts = interview_batch([{"agent_id": p["agent_id"], "prompt": (p.get("history") or "") + pitch_prompt(script, product, channel)}
+                                 for p in chunk])
         for p in chunk:
             turn1[p["agent_id"]] = parse_turn1(texts.get(p["agent_id"]))
         done += len(chunk)

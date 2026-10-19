@@ -264,7 +264,7 @@ def test_feed_test_api_validates_seeds(tmp_path, monkeypatch):
     monkeypatch.setattr(market, "_sim_dir", lambda sid: str(tmp_path))
     monkeypatch.setattr(market, "_people", lambda sid: (people(4), {}))
     started = {}
-    monkeypatch.setattr(market, "_start", lambda kind, sid, work: started.setdefault("work", work) and "task_1")
+    monkeypatch.setattr(market, "_start", lambda kind, sid, work, **kw: started.setdefault("work", work) and "task_1")
     c = app.test_client()
     r = c.post("/api/simulation/feed-test", json={"simulation_id": "sim_x", "creatives": CREATIVES, "seeds": "many"})
     assert r.status_code == 400

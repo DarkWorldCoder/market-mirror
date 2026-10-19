@@ -70,7 +70,14 @@ def flatten_messages(messages: List[Dict[str, Any]]) -> Tuple[str, str]:
         if role == "system":
             system.append(content)
         elif role == "assistant":
+            calls = m.get("tool_calls") or []
+            if calls:                                          # an earlier emulated tool call, shown as what was done
+                done = "; ".join(f"called {((c.get('function') or {}).get('name'))}({(c.get('function') or {}).get('arguments') or ''})"
+                                 for c in calls if isinstance(c, dict))
+                content = (content + "\n" if content else "") + f"(I {done})"
             turns.append(f"[Assistant]\n{content}")
+        elif role == "tool":
+            turns.append(f"[Tool result{(' for ' + str(m.get('name'))) if m.get('name') else ''}]\n{content}")
         else:
             turns.append(f"[User]\n{content}")
     if len(turns) == 1 and turns[0].startswith("[User]\n"):
@@ -83,6 +90,87 @@ def flatten_messages(messages: List[Dict[str, Any]]) -> Tuple[str, str]:
 
 GUARD = ("You are answering through an API relay. Reply with the answer only: no preamble, no markdown fences unless "
          "asked, no questions back, no tool use. If the request asks for JSON, output only the JSON.")
+
+
+# --------------------------------------------------------------------------
+# tool-call emulation: the CLIs return text only, so the tools are described in the prompt and the reply
+# (one JSON object) is turned back into OpenAI tool_calls. OASIS agents choose their action this way.
+# --------------------------------------------------------------------------
+
+def _tool_specs(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out = []
+    for t in tools or []:
+        f = t.get("function") if isinstance(t, dict) and t.get("type", "function") == "function" else None
+        if isinstance(f, dict) and f.get("name"):
+            params = f.get("parameters") or {}
+            props = params.get("properties") or {}
+            out.append({"name": f["name"], "description": str(f.get("description") or "")[:300],
+                        "arguments": {k: {"type": (v or {}).get("type", "string"), "description": str((v or {}).get("description") or "")[:120]}
+                                      for k, v in props.items()},
+                        "required": list(params.get("required") or [])})
+    return out
+
+
+def tool_instructions(tools: List[Dict[str, Any]], tool_choice: Any = "auto") -> str:
+    specs = _tool_specs(tools)
+    if not specs:
+        return ""
+    forced = None
+    if isinstance(tool_choice, dict):
+        forced = ((tool_choice.get("function") or {}).get("name"))
+    rule = ("You must call exactly this tool: " + forced) if forced else \
+        ("You must call one of the tools." if tool_choice == "required" else
+         "Call the one tool that fits what you decide to do; if no tool fits, answer in plain words instead.")
+    return ("\n\n[Tools you can call]\n" + json.dumps(specs, ensure_ascii=False) + "\n\n" + rule +
+            "\nTo call a tool, reply with ONLY this JSON and nothing else: "
+            '{"tool_calls": [{"name": "<tool name>", "arguments": {<arguments>}}]}. '
+            'To answer without a tool, reply with ONLY: {"content": "<your answer>"}.')
+
+
+def _json_object(text: str) -> Optional[Dict[str, Any]]:
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.find("{"):] if "{" in t else t
+    start, end = t.find("{"), t.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        v = json.loads(t[start:end + 1])
+        return v if isinstance(v, dict) else None
+    except ValueError:
+        return None
+
+
+def parse_tool_reply(text: str, tools: List[Dict[str, Any]]) -> Tuple[Optional[str], List[Dict[str, Any]]]:
+    """-> (content, tool_calls in OpenAI format). Unknown tool names are dropped; nothing parseable means plain content."""
+    names = {s["name"] for s in _tool_specs(tools)}
+    data = _json_object(text)
+    if data is None:
+        return text, []
+    raw = data.get("tool_calls")
+    if raw is None and data.get("name"):
+        raw = [data]
+    calls = []
+    for i, c in enumerate(raw or []):
+        if not isinstance(c, dict):
+            continue
+        fn = c.get("function") if isinstance(c.get("function"), dict) else c
+        name = fn.get("name")
+        if name not in names:
+            continue
+        args = fn.get("arguments", {})
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        calls.append({"id": f"call_{int(time.time() * 1000)}_{i}", "type": "function",
+                      "function": {"name": name, "arguments": json.dumps(args if isinstance(args, dict) else {}, ensure_ascii=False)}})
+    if calls:
+        return None, calls
+    content = data.get("content")
+    return (str(content) if content is not None else text), []
 
 
 def cache_key(backend: str, model: str, system: str, prompt: str, temperature: float) -> str:
@@ -352,6 +440,9 @@ class Gateway:
         system, prompt = flatten_messages(body.get("messages") or [])
         if not prompt.strip():
             raise ValueError("messages must contain a user message")
+        tools = body.get("tools") or []
+        if tools and body.get("tool_choice") != "none":
+            prompt += tool_instructions(tools, body.get("tool_choice", "auto"))
         temperature = float(body.get("temperature") or 0)
         max_tokens = body.get("max_completion_tokens", body.get("max_tokens"))
         if max_tokens is not None and (isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or not 1 <= max_tokens <= 128000):
@@ -392,17 +483,25 @@ class Gateway:
                 if isinstance(usage.get("cost_usd"), (int, float)):
                     STATS["cost_usd"] = (STATS["cost_usd"] or 0) + usage["cost_usd"]
                     STATS["cost_basis"] = usage.get("cost_basis")
+        if tools and body.get("tool_choice") != "none":
+            content, calls = parse_tool_reply(text, tools)
+            with STATS_LOCK:
+                STATS["tool_calls"] = STATS.get("tool_calls", 0) + len(calls)
+            return openai_response(content, model, prompt, system, usage, tool_calls=calls)
         return openai_response(text, model, prompt, system, usage)
 
 
-def openai_response(text: str, model: str, prompt: str = "", system: str = "", usage: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def openai_response(text: Optional[str], model: str, prompt: str = "", system: str = "", usage: Optional[Dict[str, Any]] = None,
+                    tool_calls: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    text_len = len(text or "")
     approx_in = (len(prompt) + len(system)) // 4
     u = {"prompt_tokens": usage.get("input_tokens", 0), "completion_tokens": usage.get("output_tokens", 0),
          "total_tokens": usage.get("total_tokens", 0)} if usage else \
-        {"prompt_tokens": approx_in, "completion_tokens": len(text) // 4, "total_tokens": approx_in + len(text) // 4}
+        {"prompt_tokens": approx_in, "completion_tokens": text_len // 4, "total_tokens": approx_in + text_len // 4}
     return {"id": f"chatcmpl-gw{int(time.time() * 1000)}", "object": "chat.completion", "created": int(time.time()),
             "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": text, **({"tool_calls": tool_calls} if tool_calls else {})},
+                         "finish_reason": "tool_calls" if tool_calls else "stop"}],
             "usage": u, "usage_source": usage.get("source", "provider") if usage else "estimated",
             "usage_breakdown": {k: usage.get(k) for k in ("uncached_input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")} if usage else None,
             "cost_usd": usage.get("cost_usd") if usage else None,
@@ -449,9 +548,12 @@ def make_handler(gw: Gateway):
                 resp = gw.complete(body)
                 if body.get("stream"):
                     # one chunk, then [DONE]: enough for clients that insist on streaming
+                    msg = resp["choices"][0]["message"]
+                    delta = {"role": "assistant", "content": msg.get("content")}
+                    if msg.get("tool_calls"):
+                        delta["tool_calls"] = [{**c, "index": i} for i, c in enumerate(msg["tool_calls"])]
                     chunk = {"id": resp["id"], "object": "chat.completion.chunk", "created": resp["created"], "model": resp["model"],
-                             "choices": [{"index": 0, "delta": {"role": "assistant", "content": resp["choices"][0]["message"]["content"]},
-                                          "finish_reason": "stop"}]}
+                             "choices": [{"index": 0, "delta": delta, "finish_reason": resp["choices"][0]["finish_reason"]}]}
                     data = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\ndata: [DONE]\n\n".encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")

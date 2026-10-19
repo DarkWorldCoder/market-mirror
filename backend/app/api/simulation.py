@@ -2557,10 +2557,21 @@ def interview_agents_batch():
             }), 400
 
         # 优化每个采访项的prompt，添加前缀避免Agent调用工具
+        # memory_scope: prepend what already happened to each person in that scope (feed test, emails, pitch)
+        memory_scope = data.get('memory_scope')
+        mem_data, sim_dir = None, None
+        if memory_scope:
+            from ..services import behavior_state
+            sim_dir = SimulationManager()._get_simulation_dir(simulation_id)
+            mem_data = behavior_state.load(sim_dir)
         optimized_interviews = []
         for interview in interviews:
             optimized_interview = interview.copy()
-            optimized_interview['prompt'] = optimize_interview_prompt(interview.get('prompt', ''))
+            prompt = interview.get('prompt', '')
+            if mem_data is not None:
+                block = behavior_state.prompt_block(sim_dir, interview['agent_id'], str(memory_scope), data=mem_data)
+                prompt = (block + "\n" + prompt) if block else prompt
+            optimized_interview['prompt'] = optimize_interview_prompt(prompt)
             optimized_interviews.append(optimized_interview)
 
         result = SimulationRunner.interview_agents_batch(

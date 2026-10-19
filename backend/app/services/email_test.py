@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
-from .feed_test import UsageMeter, _llm_json, behaviour_traits, economics
+from .feed_test import UsageMeter, _llm_json, behaviour_traits, economics, person_habits
 
 logger = get_logger('mirofish.email_test')
 
@@ -161,6 +161,7 @@ def read_prompt(person: Dict[str, Any], email: Dict[str, Any], inbox: List[Dict[
         f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n"
         f"Your habits (facts): you ignore most ads (ad avoidance {traits['ad_avoidance']} on 0-1); you {traits['clicks_ads']} click promotional mail.\n"
         + (f"What the sender sells: {product}\n" if product else "")
+        + (f"{person['history']}" if person.get("history") else "")
         + f"\nIt is {email.get('send_time')} and you open your inbox on your phone. Other mail today:\n{others}\n\n{hist}"
         f"You just opened this one (step {step} of a series):\nFrom: {email['from_name']}\nSubject: {email['subject']}\n"
         + (f"Preview: {email['preheader']}\n" if email.get("preheader") else "")
@@ -233,7 +234,7 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
         raise ValueError("no simulated person matches the emails' targeting")
     by_id = {p["agent_id"]: p for p in people}
     by_email = {e["id"]: e for e in emails}
-    traits = {aid: behaviour_traits(by_id[aid], random.Random(seed * 7919 + aid)) for aid in plan}
+    traits = {aid: person_habits(by_id[aid]) for aid in plan}         # stable per person, not per seed
     keys = sorted({(str(by_id[a].get("country") or ""), str(by_id[a].get("segment") or "")) for a in plan})
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     lock = threading.Lock()

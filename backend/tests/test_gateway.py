@@ -128,3 +128,51 @@ def test_cli_login_and_limit_errors_are_actionable_and_do_not_echo_payload():
                          ("rate limit exceeded secret-sentinel",429)]:
         error = gw.cli_failure("claude", detail)
         assert error.status == code and "secret-sentinel" not in str(error)
+
+
+# ---------------------------------------------------------------- tool-call emulation (OASIS agents act through tools)
+
+TOOLS = [{"type": "function", "function": {"name": "create_post", "description": "Post something",
+                                           "parameters": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}}},
+         {"type": "function", "function": {"name": "do_nothing", "description": "Skip", "parameters": {"type": "object", "properties": {}}}}]
+
+
+def test_tool_instructions_and_parsing():
+    ins = gw.tool_instructions(TOOLS)
+    assert "create_post" in ins and '"tool_calls"' in ins and "plain words" in ins
+    assert "must call exactly this tool: do_nothing" in gw.tool_instructions(TOOLS, {"type": "function", "function": {"name": "do_nothing"}})
+    content, calls = gw.parse_tool_reply('```json\n{"tool_calls": [{"name": "create_post", "arguments": {"content": "hi"}}]}\n```', TOOLS)
+    assert content is None and calls[0]["function"]["name"] == "create_post" and json.loads(calls[0]["function"]["arguments"]) == {"content": "hi"}
+    _, calls = gw.parse_tool_reply('{"name": "do_nothing", "arguments": "{}"}', TOOLS)
+    assert calls and calls[0]["function"]["arguments"] == "{}"
+    content, calls = gw.parse_tool_reply('{"tool_calls": [{"name": "hack", "arguments": {}}], "content": "nope"}', TOOLS)
+    assert calls == [] and content == "nope"                                  # unknown tools are dropped
+    assert gw.parse_tool_reply("just words", TOOLS) == ("just words", [])
+
+
+def test_flatten_shows_earlier_tool_calls_and_results():
+    msgs = [{"role": "user", "content": "feed"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "create_post", "arguments": "{\"content\": \"x\"}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "name": "create_post", "content": "{\"success\": true}"},
+            {"role": "user", "content": "next round"}]
+    _, prompt = gw.flatten_messages(msgs)
+    assert "called create_post" in prompt and "[Tool result for create_post]" in prompt and prompt.endswith("[Assistant]\n")
+
+
+def test_gateway_returns_openai_tool_calls(tmp_path):
+    class B(gw.Backend):
+        name = "fake"
+
+        def complete(self, system, prompt):
+            if "[Tools you can call]" not in prompt:
+                return "plain answer"
+            return '{"tool_calls": [{"name": "create_post", "arguments": {"content": "hello"}}]}'
+    b = B()
+    b.request = threading.local()
+    g = gw.Gateway(b, workers=1, cache=gw.Cache(None))
+    r = g.complete({"messages": [{"role": "user", "content": "go"}], "tools": TOOLS, "temperature": 0.5})
+    ch = r["choices"][0]
+    assert ch["finish_reason"] == "tool_calls" and ch["message"]["content"] is None
+    assert ch["message"]["tool_calls"][0]["function"]["name"] == "create_post"
+    r2 = g.complete({"messages": [{"role": "user", "content": "go"}], "tools": TOOLS, "tool_choice": "none"})
+    assert r2["choices"][0]["finish_reason"] == "stop" and r2["choices"][0]["message"]["content"] == "plain answer"
