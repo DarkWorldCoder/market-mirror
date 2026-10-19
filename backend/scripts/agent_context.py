@@ -56,6 +56,15 @@ DEFAULT_MAX_ITERATION = 3
 DEFAULT_ACTION_TIMEOUT = 120
 DEFAULT_ACTIVE_AGENT_CAP = 0
 DEFAULT_MODEL_TIMEOUT = 60
+# a subscription gateway (backend/gateway/local_gateway.py over `claude -p` / `codex exec`) answers in 20-120 s,
+# so agents talking to it get longer defaults instead of silently skipping their turn
+GATEWAY_MODEL_TIMEOUT = 240
+GATEWAY_ACTION_TIMEOUT = 300
+
+
+def via_local_gateway() -> bool:
+    url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_API_BASE_URL") or ""
+    return any(h in url for h in ("127.0.0.1:5055", "localhost:5055")) or os.environ.get("LLM_API_KEY") == "gateway"
 
 
 def _fresh(seed: int = 7) -> Dict[str, Any]:
@@ -344,7 +353,7 @@ def bound_llm_actions(env: Any, timeout_s: Optional[float] = None) -> float:
     """
     if getattr(env, "mm_action_timeout_installed", False):
         return env.mm_action_timeout_s
-    seconds = timeout_s or _env_int("OASIS_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT)
+    seconds = timeout_s or _env_int("OASIS_ACTION_TIMEOUT", GATEWAY_ACTION_TIMEOUT if via_local_gateway() else DEFAULT_ACTION_TIMEOUT)
     env.mm_action_timeouts = 0
     env.mm_action_timeout_s = seconds
 
@@ -364,7 +373,7 @@ def bound_llm_actions(env: Any, timeout_s: Optional[float] = None) -> float:
 
 def model_timeout() -> float:
     """Set camel's MODEL_TIMEOUT default (60 s) unless the environment already chose one; returns the value."""
-    os.environ.setdefault("MODEL_TIMEOUT", str(DEFAULT_MODEL_TIMEOUT))
+    os.environ.setdefault("MODEL_TIMEOUT", str(GATEWAY_MODEL_TIMEOUT if via_local_gateway() else DEFAULT_MODEL_TIMEOUT))
     try:
         return float(os.environ["MODEL_TIMEOUT"])
     except ValueError:

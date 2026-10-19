@@ -217,6 +217,8 @@ def test_speed_knobs_read_env(monkeypatch):
     monkeypatch.delenv("OASIS_ACTIVE_AGENT_CAP", raising=False)
     monkeypatch.delenv("OASIS_RECSYS", raising=False)
     monkeypatch.delenv("MODEL_TIMEOUT", raising=False)
+    for key in ("LLM_BASE_URL", "OPENAI_API_BASE_URL", "LLM_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
     assert ac.semaphore_size() == ac.DEFAULT_SEMAPHORE and ac.recsys_type() == "random"
     assert ac.active_agent_cap() == 2**31 - 1
     assert ac.model_timeout() == float(ac.DEFAULT_MODEL_TIMEOUT) and os.environ["MODEL_TIMEOUT"] == "60"
@@ -324,3 +326,13 @@ def test_context_updates_reach_the_session_line(tmp_path):
     assert ac.context_updates(None, 3) == [] and ac.context_updates(str(tmp_path / "missing.json"), 3) == []
     ac.set_context("", "reddit")
     assert "saying today" not in ac.session_line(1, "reddit")
+
+
+def test_gateway_gets_longer_timeouts(monkeypatch):
+    monkeypatch.delenv("MODEL_TIMEOUT", raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:5055/v1")
+    assert ac.via_local_gateway()
+    assert ac.model_timeout() == float(ac.GATEWAY_MODEL_TIMEOUT)
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.anthropic.com/v1/")
+    monkeypatch.setenv("LLM_API_KEY", "x")
+    assert not ac.via_local_gateway()
