@@ -132,12 +132,12 @@ def test_generate_renders_markdown_with_all_sections():
     md = out["markdown"]
     for h in ("# Fitloop: market test report", "**Decision: ITERATE.**", "## What we tested", "## Who we simulated",
               "## What happened on social media", "## Ad results", "## Survey results", "## Objections and how to answer them",
-              "## Pricing", "## Sales notes", "## Action plan", "## Limits and confidence"):
+              "## Pricing", "## Sales notes", "## Action plan", "## Limits and evidence"):
         assert h in md, h
     assert "| ig_price | India young professionals | instagram | 300 USD | 7 days |" in md
     assert "## What real people say" in md and "charged after the trial" in md
     for h in ("## Budget plan", "## The next 30 days", "## What would change the decision", "## Risks", "**So what:** Run ig_price first.",
-              "_Confidence: medium_", "Reliability: ad winner agreed in 67% of seeds", "| 1 | Remove the card step | product | trial starts |"):
+              "_Model assessment: medium (simulation evidence)_", "Exploratory simulation.", "Reliability: ad winner agreed in 67% of seeds", "| 1 | Remove the card step | product | trial starts |"):
         assert h in md, h
     assert "Answer with: *No card needed for the first 7 days.*" in md
     assert out["action_plan"]["fixes"] == ["Remove the card step from the trial"]
@@ -190,3 +190,14 @@ def test_market_report_api(tmp_path, monkeypatch):
     got = raw["data"]
     assert got["method"] == "llm" and "## Action plan" in got["markdown"]
     assert "# Fitloop: market test report" in got["markdown"]          # brand came from the compacted facts
+
+
+def test_report_preserves_public_source_provenance_and_blocked_notes():
+    research = {"summary": {"quotes": 1, "notes": ["Forum blocked"], "top_quotes": [
+        {"source":"review", "url":"https://example.org/review", "text":"Offline please",
+         "date":"2026-10-01", "market":"IN", "quality":"public_review_unverified"}]}}
+    material = mr.compact_material({**BUNDLE,"research":research})
+    md = mr.render_markdown(mr.fallback_sections(material),material)
+    assert "[review](https://example.org/review)" in md and "2026-10-01 · IN · public_review_unverified" in md
+    assert "Forum blocked" in md and material["evidence_status"] == "exploratory_simulation"
+    assert "success_probability" not in material["panel"]

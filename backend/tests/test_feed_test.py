@@ -293,3 +293,12 @@ def test_organic_pool_quotes_real_voices():
                     raise RuntimeError("stop here")
     ft.organic_pool(C(), "m", "facebook", "India", "ctx", voices=[{"text": "Bhai offline chalega?", "source": "reddit", "sentiment": "neu", "country": "India"}])
     assert "Real things people posted" in seen["prompt"] and "Bhai offline chalega?" in seen["prompt"]
+
+
+def test_all_failed_decisions_are_not_a_completed_feed_test(monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("provider authentication failed")
+    monkeypatch.setattr(ft, "_llm_json", fail)
+    with pytest.raises(RuntimeError, match="No usable model decisions"):
+        ft.run_feed_test(FakeLLM(), "m", ft.normalize_creatives(CREATIVES), people(4),
+                         attention_gate=False, exposures=1, parallel=2)

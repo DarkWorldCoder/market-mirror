@@ -3,6 +3,7 @@
 Step2: Zep实体读取与过滤、OASIS模拟准备与运行（全程自动化）
 """
 
+import json
 import os
 import traceback
 from contextlib import nullcontext
@@ -293,12 +294,17 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
         return False, {"reason": "模拟目录不存在"}
     
     # 必要文件列表（不包括脚本，脚本位于 backend/scripts/）
-    required_files = [
-        "state.json",
-        "simulation_config.json",
-        "reddit_profiles.json",
-        "twitter_profiles.csv"
-    ]
+    required_files = ["state.json", "simulation_config.json"]
+    state_file = os.path.join(simulation_dir, "state.json")
+    try:
+        with open(state_file, 'r', encoding='utf-8') as f:
+            saved_state = json.load(f)
+        if saved_state.get("enable_reddit", True):
+            required_files.append("reddit_profiles.json")
+        if saved_state.get("enable_twitter", True):
+            required_files.append("twitter_profiles.csv")
+    except (OSError, ValueError):
+        return False, {"reason": "state.json missing or invalid"}
     
     # 检查文件是否存在
     existing_files = []
@@ -318,11 +324,8 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
         }
     
     # 检查state.json中的状态
-    state_file = os.path.join(simulation_dir, "state.json")
     try:
-        import json
-        with open(state_file, 'r', encoding='utf-8') as f:
-            state_data = json.load(f)
+        state_data = saved_state
         
         status = state_data.get("status", "")
         config_generated = state_data.get("config_generated", False)
@@ -450,9 +453,14 @@ def prepare_simulation():
                 "success": False,
                 "error": t('api.simulationNotFound', id=simulation_id)
             }), 404
-        
+
         # 检查是否强制重新生成
         force_regenerate = data.get('force_regenerate', False)
+        resume_only = data.get('resume_only', False)
+        if resume_only and force_regenerate:
+            return jsonify({"success": False, "error": "resume_only cannot be combined with force_regenerate"}), 400
+        if resume_only and (not state.profiles_generated or state.config_generated):
+            return jsonify({"success": False, "error": "resume_only requires saved profiles and an unfinished config"}), 409
         logger.info(f"开始处理 /prepare 请求: simulation_id={simulation_id}, force_regenerate={force_regenerate}")
         
         # 检查是否已经准备完成（避免重复生成）
@@ -508,22 +516,23 @@ def prepare_simulation():
         
         # ========== 同步获取实体数量（在后台任务启动前） ==========
         # 这样前端在调用prepare后立即就能获取到预期Agent总数
-        try:
-            logger.info(f"同步获取实体数量: graph_id={state.graph_id}")
-            reader = ZepEntityReader()
-            # 快速读取实体（不需要边信息，只统计数量）
-            filtered_preview = reader.filter_defined_entities(
-                graph_id=state.graph_id,
-                defined_entity_types=entity_types_list,
-                enrich_with_edges=False  # 不获取边信息，加快速度
-            )
-            # 保存实体数量到状态（供前端立即获取）
-            state.entities_count = filtered_preview.filtered_count
-            state.entity_types = list(filtered_preview.entity_types)
-            logger.info(f"预期实体数量: {filtered_preview.filtered_count}, 类型: {filtered_preview.entity_types}")
-        except Exception as e:
-            logger.warning(f"同步获取实体数量失败（将在后台任务中重试）: {e}")
-            # 失败不影响后续流程，后台任务会重新获取
+        if not resume_only:
+            try:
+                logger.info(f"同步获取实体数量: graph_id={state.graph_id}")
+                reader = ZepEntityReader()
+                # 快速读取实体（不需要边信息，只统计数量）
+                filtered_preview = reader.filter_defined_entities(
+                    graph_id=state.graph_id,
+                    defined_entity_types=entity_types_list,
+                    enrich_with_edges=False  # 不获取边信息，加快速度
+                )
+                # 保存实体数量到状态（供前端立即获取）
+                state.entities_count = filtered_preview.filtered_count
+                state.entity_types = list(filtered_preview.entity_types)
+                logger.info(f"预期实体数量: {filtered_preview.filtered_count}, 类型: {filtered_preview.entity_types}")
+            except Exception as e:
+                logger.warning(f"同步获取实体数量失败（将在后台任务中重试）: {e}")
+                # 失败不影响后续流程，后台任务会重新获取
         
         # 创建异步任务
         task_manager = TaskManager()
@@ -626,7 +635,8 @@ def prepare_simulation():
                     use_llm_for_profiles=use_llm_for_profiles,
                     progress_callback=progress_callback,
                     parallel_profile_count=parallel_profile_count,
-                    persona_spec=persona_spec
+                    persona_spec=persona_spec,
+                    resume_only=resume_only
                 )
 
                 if result_state.status == SimulationStatus.FAILED:
@@ -1603,6 +1613,15 @@ def start_simulation():
                 "success": False,
                 "error": t('api.simulationNotFound', id=simulation_id)
             }), 404
+
+        twitter_enabled = getattr(state, 'enable_twitter', True)
+        reddit_enabled = getattr(state, 'enable_reddit', True)
+        if ((platform in ('twitter', 'parallel') and not twitter_enabled) or
+                (platform in ('reddit', 'parallel') and not reddit_enabled)):
+            available = [name for name, enabled in (('twitter', twitter_enabled),
+                                                    ('reddit', reddit_enabled)) if enabled]
+            return jsonify({"success": False,
+                            "error": f"platform {platform} is not prepared; available: {', '.join(available)}"}), 400
 
         force_restarted = False
         

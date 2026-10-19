@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "market-mirror",
   "metadata": {
-    "description": "MarketMirror: marketing and sales simulation and prediction. Simulated buyers from every country, age and background scroll your ads in real-looking feeds, react to your launch posts, answer a buyer survey (messages, price), hear your sales pitch and object; you get a plain-language report, a go/iterate/no-go decision, lead scores and next-test ideas from your real ad data."
+    "description": "Analyze real ad data, research markets, survey simulated buyers, and test marketing, sales, and product journeys through your agent."
   },
   "owner": {
     "name": "DarkWorldCoder"
@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "market-mirror",
-      "description": "MarketMirror: marketing and sales simulation and prediction. Simulated buyers from every country, age and background scroll your ads in real-looking feeds, react to your launch posts, answer a buyer survey (messages, price), hear your sales pitch and object; you get a plain-language report, a go/iterate/no-go decision, lead scores and next-test ideas from your real ad data.",
-      "version": "0.3.0",
+      "description": "Analyze real ad data, research markets, survey simulated buyers, and test marketing, sales, and product journeys through your agent.",
+      "version": "0.4.0",
       "author": {
         "name": "DarkWorldCoder"
       },

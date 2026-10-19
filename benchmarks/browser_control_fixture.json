@@ -1,0 +1,40 @@
+{
+  "benchmark": "browser_control_fixture",
+  "date": "2026-10-19",
+  "target": "Owned localhost catalog and storefront fixture, not an external customer study",
+  "provider": "Local Claude Code gateway",
+  "request_model_alias": "claude",
+  "synthetic_visitors": 1,
+  "wall_seconds": 43.028,
+  "model_calls": 7,
+  "reported_input_tokens": 79262,
+  "reported_output_tokens": 513,
+  "token_usage_source": "provider",
+  "observed_actions": [
+    "Fill catalog search with trail shoes",
+    "Submit search",
+    "Open product link in a new tab",
+    "Switch to the product tab",
+    "Select Medium",
+    "Check blue laces",
+    "Add configured pair through the same-origin iframe cart"
+  ],
+  "fixture_server_observations": {
+    "search_queries": 1,
+    "cart_writes": 1,
+    "selected_size": "M",
+    "blue_laces": true
+  },
+  "goal_assertion_passed": true,
+  "execution_failures": 0,
+  "recovery_attempts": 0,
+  "video_recorded": true,
+  "invoiced_cost_usd": null,
+  "evidence_path": "mirofish_runs/browser_control_fixture/website_test.json",
+  "limitations": [
+    "One synthetic profile and a controlled acceptance fixture; not evidence of human conversion accuracy.",
+    "Timing and token use are a measured run, not a throughput or cost guarantee.",
+    "Actual provider model identifier and monetary invoice cost were not captured.",
+    "The browser executed model-selected actions; screenshot pixels were not sent to the model."
+  ]
+}

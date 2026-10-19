@@ -104,7 +104,8 @@ class ExportTests(unittest.TestCase):
         self.assertIn('data-filter-root data-filter-noun="posts"', h)          # social feed uses the generic filter root
         self.assertIn('data-filter="segment"', h)
         self.assertIn("data-filter-count", h)
-        self.assertEqual(h.count('class="callout insight"'), h.count('role="note"'))
+        self.assertEqual(h.count('class="callout insight"') + 1, h.count('role="note"'))
+        self.assertIn("Exploratory simulation.", h)
         self.assertGreaterEqual(h.count('class="callout insight"'), 2)        # timeline + graph insights on the fixture
         self.assertIn('<div class="kpis auto">', h)                            # run-details tiles are kpi tiles
         self.assertNotIn('class="tile"', h)
@@ -123,6 +124,39 @@ class ExportTests(unittest.TestCase):
         for sid in ["agents", "timeline", "graph", "overview", "socialfeed", "report"]:
             self.assertRegex(self.html, rf'<section id="{sid}"><div class="section-head">')
         self.assertIn("var(--other)", self.html)              # >8 entity types fold into Other
+
+    def test_evidence_plan_and_prediction_sections_escape_sources(self):
+        bundle = exporter.load_run_dir(FIXTURE)
+        bundle["research"] = {"summary": {"notes": ["Reddit blocked"]}, "quotes": [
+            {"text": "Needs offline workouts", "url": "https://example.org/review?x=1&y=2",
+             "date": "2026-10-01", "market": "IN", "quality": "public_review_unverified"}]}
+        bundle["campaign_plan"] = {"goal": "trial", "budget": {"amount": 100, "currency": "USD"},
+                                   "test_specs": [{"type": "search_content", "exposure_context": "search results",
+                                                   "actual_outcome_metric": "qualified_visit_rate",
+                                                   "next_real_world_test": "Randomized search test"}], "unknowns": []}
+        bundle["predictions"] = {"note": "No real pairs", "predictions": [
+            {"what": "CTR", "simulated": 2.1, "predicted": None, "basis": "uncalibrated prior",
+             "status": "directional_exploratory"}]}
+        bundle["study_summary"] = {"metric_labels": {"intent": "Purchase intent"},
+                                   "scenarios": [{"name": "control", "metrics": {"intent": {"mean": 2.5}}},
+                                                 {"name": "treatment", "metrics": {"intent": {"mean": 3.1, "ci95": 0.2}}}],
+                                   "conclusion": {"best_scenario": "treatment", "stability_pct": 75}}
+        html, _, _ = exporter.render_dashboard(bundle)
+        for section in ("evidence", "campaign", "predictions", "scenarios"):
+            self.assertIn(f'<section id="{section}"', html)
+        self.assertIn("https://example.org/review?x=1&amp;y=2", html)
+        self.assertIn("Directional only", html)
+        self.assertIn('data-kind="scenario_ranges"', html)
+        self.assertIn("Observed seed range", html)
+
+    def test_run_health_distinguishes_interview_mode_from_incomplete_rounds(self):
+        bundle = exporter.load_run_dir(FIXTURE)
+        bundle["run_status"] = {"runner_status": "running", "reddit_completed": True,
+                                "reddit_running": False, "current_round": 6, "total_rounds": 6,
+                                "total_actions_count": 50}
+        page, _, _ = exporter.render_dashboard(bundle)
+        self.assertIn("Rounds complete; interviews available", page)
+        self.assertIn("6/6 rounds; 50 recorded actions", page)
 
     def test_empty_bundle_renders(self):
         page, md, summary = exporter.render_dashboard({})

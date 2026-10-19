@@ -69,6 +69,14 @@ class MarketMirror:
         return self._call("PUT", f"/api/graph/project/{project_id}/voices", json={"voices": voices})
 
     # ---- tests on a prepared simulation ----
+    def website_test(self, simulation_id: str, spec: Dict[str, Any], wait: bool = True) -> Dict[str, Any]:
+        """Real-browser synthetic visitor journeys; supplied DOM checks verify outcomes."""
+        task = self._call("POST", "/api/simulation/website-test", json={"simulation_id": simulation_id, "spec": spec})
+        if not wait:
+            return task
+        self.wait(task["task_id"])
+        return self._call("GET", f"/api/simulation/{simulation_id}/website-test", params={"run_id": task["run_id"]})
+
     def feed_test(self, simulation_id: str, creatives: List[Dict[str, Any]], landing: Optional[Dict[str, Any]] = None,
                   benchmarks: Optional[Dict[str, Any]] = None, seeds: int = 1, exposures: int = 2, wait: bool = True) -> Dict[str, Any]:
         t = self._call("POST", "/api/simulation/feed-test", json={"simulation_id": simulation_id, "creatives": creatives, "landing": landing,
@@ -125,6 +133,20 @@ class MarketMirror:
                 email_test: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._call("POST", "/api/simulation/predict", json={"brand": brand, "summary": summary, "feed_test": feed_test or {}, "email_test": email_test or {}, "targets": targets or {}})
 
+    def campaign_plan(self, goal: str, budget: Dict[str, Any], profile: Optional[Dict[str, Any]] = None,
+                      project_id: str = "", channels: Optional[List[str]] = None,
+                      research: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._call("POST", "/api/graph/campaign-plan", json={"goal": goal, "budget": budget,
+                          "profile": profile, "project_id": project_id, "channels": channels, "research": research})
+
+    def actuals_import(self, file: str, source_type: str, mapping: Optional[Dict[str, str]] = None,
+                       source: str = "", market: str = "", date: str = "", quality: str = "") -> Dict[str, Any]:
+        return self._call("POST", "/api/simulation/actuals-import", json={"file": file, "source_type": source_type,
+                          "mapping": mapping or {}, "source": source, "market": market, "date": date, "quality": quality})
+
+    def holdout_backtest(self, pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return self._call("POST", "/api/simulation/holdout-backtest", json={"pairs": pairs})
+
     def forecast(self, feed_test: Dict[str, Any], feed_story: Optional[Dict[str, Any]] = None, spend: Optional[float] = None, days: int = 90) -> Dict[str, Any]:
         return self._call("POST", "/api/simulation/forecast", json={"feed_test": feed_test, "feed_story": feed_story or {}, "spend": spend, "days": days})
 
@@ -168,11 +190,15 @@ class MarketMirror:
         return self.cli("research", "--query", query, "--country", country, *(["--out", out] if out else []))
 
     def results(self, run_dir: str) -> Dict[str, Any]:
-        """summary.json of a run (decision, marketing numbers) plus the report and action plan when present."""
+        """Read a marketing summary or a standalone website journey and its evidence."""
         base = run_dir if os.path.isabs(run_dir) else os.path.join(self.repo, run_dir)
+        website = os.path.join(base, "website_test.json")
+        if not os.path.exists(os.path.join(base, "summary.json")) and os.path.exists(website):
+            with open(website, encoding="utf-8") as f:
+                return json.load(f)
         with open(os.path.join(base, "summary.json"), encoding="utf-8") as f:
             out = json.load(f)
-        for name in ("market_report", "pitch", "email_test", "predictions", "forecast", "ideas"):
+        for name in ("market_report", "pitch", "email_test", "predictions", "forecast", "ideas", "website_test"):
             p = os.path.join(base, f"{name}.json")
             if os.path.exists(p):
                 with open(p, encoding="utf-8") as f:

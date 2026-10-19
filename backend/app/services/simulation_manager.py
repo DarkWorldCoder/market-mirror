@@ -14,7 +14,7 @@ from enum import Enum
 
 from ..config import Config
 from ..utils.logger import get_logger
-from .zep_entity_reader import ZepEntityReader, FilteredEntities
+from .zep_entity_reader import ZepEntityReader, FilteredEntities, EntityNode
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
 from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
 from . import persona_planner
@@ -251,7 +251,8 @@ class SimulationManager:
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
         parallel_profile_count: int = 3,
-        persona_spec: Optional[Dict[str, Any]] = None
+        persona_spec: Optional[Dict[str, Any]] = None,
+        resume_only: bool = False
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -278,6 +279,14 @@ class SimulationManager:
         state = self._load_simulation_state(simulation_id)
         if not state:
             raise ValueError(f"模拟不存在: {simulation_id}")
+        sim_dir = self._get_simulation_dir(simulation_id)
+        if state.profiles_generated and not state.config_generated:
+            resumed = self._resume_profile_preparation(state, sim_dir, simulation_requirement, document_text,
+                                                       persona_spec, progress_callback)
+            if resumed:
+                return resumed
+        if resume_only:
+            raise ValueError("resume-only preparation requires a complete saved profile set and an unfinished config")
         
         try:
             state.status = SimulationStatus.PREPARING
@@ -496,6 +505,77 @@ class SimulationManager:
             state.error = str(e)
             self._save_simulation_state(state)
             raise
+
+    def _resume_profile_preparation(self, state: SimulationState, sim_dir: str, requirement: str,
+                                    document_text: str, persona_spec: Optional[Dict[str, Any]],
+                                    progress_callback=None) -> Optional[SimulationState]:
+        """Finish config generation from a complete persisted profile set, with no profile LLM calls."""
+        profiles_path = os.path.join(sim_dir, "reddit_profiles.json")
+        plan_path = os.path.join(sim_dir, "persona_plan.json")
+        if not (os.path.isfile(profiles_path) and os.path.isfile(plan_path)):
+            return None
+        try:
+            with open(profiles_path, encoding="utf-8") as f:
+                rows = json.load(f)
+            with open(plan_path, encoding="utf-8") as f:
+                plan = json.load(f)
+            kept = plan.get("kept_graph_entities") or []
+            generated = plan.get("personas") or []
+            expected = len(kept) + len(generated)
+            if expected != state.profiles_count or len(rows) != expected or \
+                    sorted(r.get("user_id") for r in rows) != list(range(expected)):
+                logger.warning("saved profiles are incomplete or out of sequence; normal preparation required")
+                return None
+            rows_by_id = {r["user_id"]: r for r in rows}
+            entities = []
+            for idx, name in enumerate(kept):
+                r = rows_by_id[idx]
+                entities.append(EntityNode(uuid=f"resume-graph-{idx}", name=name, labels=["Entity"],
+                                           summary=r.get("persona") or "", attributes={}))
+            for offset, raw in enumerate(generated, len(kept)):
+                r = rows_by_id[offset]
+                attrs = {k: v for k, v in raw.items() if k not in ("name", "labels")}
+                attrs[persona_planner.SYNTHETIC_PROFILE_KEY] = {k: r.get(k) for k in
+                    ("age", "gender", "country", "profession") if r.get(k) is not None}
+                entities.append(EntityNode(uuid=f"resume-persona-{offset}", name=raw["name"],
+                                           labels=raw.get("labels") or ["Persona"], summary=r.get("persona") or "",
+                                           attributes=attrs))
+            saved_spec = persona_spec if persona_spec is not None else plan.get("spec")
+            spec = persona_planner.PersonaSpec.from_dict(saved_spec) if saved_spec else None
+            if progress_callback:
+                progress_callback("generating_profiles", 100, f"Reused {expected} saved profiles",
+                                  current=expected, total=expected)
+            if state.enable_twitter and not os.path.isfile(os.path.join(sim_dir, "twitter_profiles.csv")):
+                profiles = [OasisAgentProfile(user_id=r["user_id"], user_name=r.get("username") or "",
+                        name=r.get("name") or "", bio=r.get("bio") or "", persona=r.get("persona") or "",
+                        karma=r.get("karma", 1000), age=r.get("age"), gender=r.get("gender"),
+                        country=r.get("country"), profession=r.get("profession"),
+                        interested_topics=r.get("interested_topics") or []) for r in rows]
+                OasisProfileGenerator().save_profiles(profiles, os.path.join(sim_dir, "twitter_profiles.csv"), "twitter")
+            if progress_callback:
+                progress_callback("generating_config", 30, "Generating missing simulation config", current=1, total=3)
+            params = SimulationConfigGenerator().generate_config(
+                simulation_id=state.simulation_id, project_id=state.project_id, graph_id=state.graph_id,
+                simulation_requirement=requirement, document_text=document_text, entities=entities,
+                enable_twitter=state.enable_twitter, enable_reddit=state.enable_reddit)
+            config = json.loads(params.to_json())
+            if spec:
+                config["persona_spec"] = spec.to_dict()
+                config["persona_index"] = persona_planner.persona_index(entities)
+                if spec.communities:
+                    config["community_config"] = persona_planner.build_community_config(entities, spec)
+            with open(os.path.join(sim_dir, "simulation_config.json"), "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            state.config_generated = True
+            state.config_reasoning = params.generation_reasoning
+            state.status = SimulationStatus.READY
+            self._save_simulation_state(state)
+            if progress_callback:
+                progress_callback("generating_config", 100, "Preparation resumed", current=3, total=3)
+            return state
+        except (OSError, ValueError, TypeError, KeyError) as e:
+            logger.warning(f"cannot resume saved profiles: {e}")
+            return None
     
     def _apply_persona_spec(self, spec, filtered: FilteredEntities, requirement: str, document_text: str,
                             sim_dir: str, parallel: int, progress_callback=None, project_id: str = None) -> FilteredEntities:

@@ -22,6 +22,9 @@ import traceback
 
 from flask import jsonify, request
 
+from claude_cli import actuals
+from ..services import predict as prediction
+
 from . import simulation_bp
 from ..config import Config
 from ..models.task import TaskManager, TaskStatus
@@ -31,7 +34,87 @@ from ..utils.logger import get_logger
 logger = get_logger('mirofish.api.market')
 
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
-                "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json"}
+                "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json",
+                "website-test": "website_test.json"}
+
+
+@simulation_bp.route('/website-test', methods=['POST'])
+def start_website_test():
+    """Run a bounded real-browser journey with the simulation's existing personas."""
+    from ..services import website_test
+    import uuid
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "request body must be an object"}), 400
+    sid = data.get("simulation_id") or ""
+    try:
+        root = _sim_dir(sid)
+        spec = website_test.normalize(data.get("spec"))
+        people, _ = _people(sid)
+        if not people:
+            raise ValueError("prepare personas before testing a website")
+    except LookupError as error:
+        return jsonify({"success": False, "error": str(error)}), 404
+    except (ValueError, TypeError) as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+    run_id = "website_" + uuid.uuid4().hex[:12]
+    def work(progress):
+        client = _client().with_options(timeout=60, max_retries=1)
+        result = website_test.run(client, Config.LLM_MODEL_NAME, people, spec,
+                                  os.path.join(root, run_id), progress)
+        result["run_id"] = run_id
+        with open(result["files"]["result"], "w", encoding="utf-8") as output:
+            json.dump(result, output, ensure_ascii=False, indent=2)
+        if result["status"] == "failed":
+            raise RuntimeError("All browser sessions failed; inspect " + result["files"]["result"])
+        return result
+    return jsonify({"success": True, "data": {"task_id": _start("website-test", sid, work),
+                                               "simulation_id": sid, "run_id": run_id}})
+
+
+@simulation_bp.route('/<simulation_id>/website-test', methods=['GET'])
+def get_website_test(simulation_id):
+    try:
+        root = _sim_dir(simulation_id)
+        run_id = request.args.get("run_id")
+        if run_id:
+            if not __import__('re').fullmatch(r"website_[a-f0-9]{12}", run_id):
+                raise ValueError("invalid website run_id")
+            root = os.path.join(root, run_id)
+        with open(os.path.join(root, "website_test.json"), encoding="utf-8") as source:
+            return jsonify({"success": True, "data": json.load(source)})
+    except (LookupError, FileNotFoundError) as error:
+        return jsonify({"success": False, "error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+
+
+@simulation_bp.route('/actuals-import', methods=['POST'])
+def import_actuals():
+    """Normalize a local export with row-level validation and provenance."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actuals.normalize(str(data.get("file") or ""), str(data.get("source_type") or ""),
+                                   data.get("mapping"), str(data.get("source") or ""),
+                                   str(data.get("market") or ""), str(data.get("date") or ""),
+                                   str(data.get("quality") or ""))
+        out_dir = os.path.join(Config.UPLOAD_FOLDER, "actuals_imports")
+        path = actuals.save(result, os.path.join(out_dir, f"actuals_{__import__('uuid').uuid4().hex[:12]}.json"))
+        return jsonify({"success": True, "data": {"file": path, **result}})
+    except (OSError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@simulation_bp.route('/holdout-backtest', methods=['POST'])
+def holdout_backtest():
+    data = request.get_json(silent=True) or {}
+    try:
+        pairs = data.get("pairs")
+        if not isinstance(pairs, list):
+            raise ValueError("pairs must be an array")
+        return jsonify({"success": True, "data": prediction.holdout_backtest(pairs)})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 def _client():
@@ -355,10 +438,10 @@ def study_report():
     facts = json.dumps(summary, ensure_ascii=False, default=str)[:50000]
     prompt = (f"Write a short study report for {brand} from these facts (several scenarios run on the same simulated people, "
               f"each with several random seeds).\n\nFACTS:\n{facts}\n\n"
-              "Markdown, under 500 words, for a business owner: a one-line conclusion with its confidence, a table of the scenarios "
+              "Markdown, under 500 words, for a business owner: a one-line exploratory scenario ranking with its agreement across simulated seeds, a table of the scenarios "
               "side by side (mean and seed-to-seed spread), what changed against the first scenario and whether the change is "
               "outside the spread, the decision agreement across seeds, and what to do next. Every number must come from the facts. "
-              "Say 'simulated people' at least once.")
+              "Say 'simulated people' at least once. Do not call seed agreement real-world confidence, predict a success probability, or claim real-world lift without an independent held-out backtest. Spreads describe simulation variation only.")
     try:
         resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=3000,
                                       messages=[{"role": "system", "content": market_report.SYSTEM}, {"role": "user", "content": prompt}])

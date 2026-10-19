@@ -14,6 +14,13 @@ older per-module palette. It holds:
   pos/neg/neu for sentiment), ``.callout`` (insight), ``.section-head``, ``.filter-bar``,
   sortable-table affordances, the theme button, focus rings and reduced-motion rules.
 
+Palette (validated with the dataviz six-check validator, both themes, adjacent pairs: light worst CVD
+ΔE 9.1 / normal 19.6, dark 8.4 / 19.3; the aqua, yellow and magenta slots sit below 3:1 on the light
+surface, so every chart ships direct labels or its table view): ``SERIES_LIGHT`` / ``SERIES_DARK`` are the
+eight categorical slots ``--s1``..``--s8`` (same colour = same audience everywhere), ``SEMANTIC_*`` the
+yes / maybe / no trio ``--mm-yes`` / ``--mm-maybe`` / ``--mm-no``. ``SECTION_META`` gives every dashboard
+section its eyebrow label, glyph and colour slot; ``section_css()`` turns it into the per-section rules.
+
 Stdlib only. Every colour the renderers use should be a ``var(--...)`` defined here.
 """
 
@@ -23,19 +30,35 @@ from __future__ import annotations
 # Palette
 # --------------------------------------------------------------------------
 
+# Categorical slots, fixed order, assigned by weight and never cycled (a 9th key folds into --other).
+SERIES_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+SERIES_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
+# Semantic trio for survey verdicts: yes = slot 1 blue, no = slot 8 red, maybe = neutral (undecided is not a hue).
+SEMANTIC_LIGHT = {"yes": "#2a78d6", "maybe": "#d6d5ce", "no": "#e34948"}
+SEMANTIC_DARK = {"yes": "#3987e5", "maybe": "#4a4a46", "no": "#e66767"}
+
+
+def _series_css(cols) -> str:
+    return "".join(f"--s{i + 1}:{c};" for i, c in enumerate(cols))
+
+
+def _semantic_css(sem) -> str:
+    return f"--mm-yes:{sem['yes']};--mm-maybe:{sem['maybe']};--mm-no:{sem['no']};"
+
+
 _LIGHT = (
     "color-scheme:light;"
     "--bg:#eeeeea;--surface:#ffffff;--surface-2:#f6f6f3;--border:#dcdbd5;--line:#dcdbd5;"
     "--text:#111111;--text-2:#3d3d3a;--muted:#6b6b66;--grid:#e8e7e2;--axis:#c3c2b7;--accent:#111111;"
     "--edge:#b9b7ae;--other:#9a988f;"
-    "--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948;"
+    + _series_css(SERIES_LIGHT) +
     "--div-neg2:#c43d3c;--div-neg1:#ec9a99;--div-mid:#b9b7ae;--div-pos1:#86b6ef;--div-pos2:#1c5cab;"
     "--pos-bg:#e3effd;--pos-fg:#184f95;--neg-bg:#fde6e6;--neg-fg:#9e2b2a;--neu-bg:#efeee9;--neu-fg:#52514e;"
     "--mm-accent:#f3d64b;--mm-accent-ink:#2b2005;--mm-accent-wash:#fbf1bf;"
     "--mm-panel:#121212;--mm-panel-2:#1d1d1c;--mm-panel-ink:#f2f2ee;--mm-panel-muted:#9a9a93;"
     "--mm-mint:#cfefd9;--mm-mint-ink:#0f3d22;--mm-orchid:#f1c6ee;--mm-orchid-ink:#4a1a46;"
     "--mm-sky:#cde7f6;--mm-sky-ink:#123a55;--mm-lav:#d9d0f5;"
-    "--mm-yes:#2a78d6;--mm-maybe:#d6d5ce;--mm-no:#e34948;--mm-ink-bar:#111111;"
+    + _semantic_css(SEMANTIC_LIGHT) + "--mm-ink-bar:#111111;"
     "--mm-seq:#f6f6f3,#cde2fb,#86b6ef,#3987e5,#1c5cab,#0d366b;"
     "--focus:#2a78d6"
 )
@@ -46,14 +69,14 @@ _DARK = (
     "--bg:#0d0d0c;--surface:#1a1a19;--surface-2:#242422;--border:#33332f;--line:#33332f;"
     "--text:#f2f2ee;--text-2:#c3c2b7;--muted:#9a9a93;--grid:#2c2c2a;--axis:#383835;--accent:#f2f2ee;"
     "--edge:#55544e;--other:#7d7b74;"
-    "--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;"
+    + _series_css(SERIES_DARK) +
     "--div-neg2:#e66767;--div-neg1:#9e4a49;--div-mid:#6b6a63;--div-pos1:#2f5f99;--div-pos2:#6da7ec;"
     "--pos-bg:#1d3350;--pos-fg:#9ec5f4;--neg-bg:#4a2222;--neg-fg:#f3b0af;--neu-bg:#2c2c29;--neu-fg:#c3c2b7;"
     "--mm-accent:#f3d64b;--mm-accent-ink:#2b2005;--mm-accent-wash:#3a3210;"
     "--mm-panel:#000000;--mm-panel-2:#161615;--mm-panel-ink:#f2f2ee;--mm-panel-muted:#9a9a93;"
     "--mm-mint:#1f3a28;--mm-mint-ink:#bfe8cc;--mm-orchid:#3d2240;--mm-orchid-ink:#f1c6ee;"
     "--mm-sky:#1d3340;--mm-sky-ink:#bfe0f5;--mm-lav:#2b2546;"
-    "--mm-yes:#3987e5;--mm-maybe:#4a4a46;--mm-no:#e66767;--mm-ink-bar:#f2f2ee;"
+    + _semantic_css(SEMANTIC_DARK) + "--mm-ink-bar:#f2f2ee;"
     "--mm-seq:#242422,#0d366b,#1c5cab,#3987e5,#86b6ef,#cde2fb;"
     "--focus:#86b6ef"
 )
@@ -112,14 +135,14 @@ background:var(--surface-2);color:var(--text-2);font-variant-numeric:tabular-num
 .section-head .sh-text{min-width:0;flex:1 1 320px}
 .section-head h2{margin:0 0 4px}
 .section-head .intro{margin:0;color:var(--muted);font-size:var(--fs-sm);max-width:90ch}
-.callout{background:var(--surface);border-radius:var(--r-md);padding:12px 16px;border-left:4px solid var(--mm-accent)}
+.callout{background:var(--surface-2);border:0;border-radius:var(--r-sm);padding:12px 16px}
 .callout.insight{margin-top:10px;display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-md)}
 .callout.insight::before{content:"Insight";flex:none;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-color:var(--mm-accent-ink);background:var(--mm-accent);border-radius:var(--r-pill);padding:3px 8px;margin-top:1px}
+color:var(--text-2);background:transparent;padding:3px 0;margin-top:1px}
 #report .callout,#agents .callout,#timeline .callout,#graph .callout,#overview .callout,#engine-report .callout{background:var(--surface-2)}
 /* voices */
 .voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
-blockquote.voice{margin:0;background:var(--surface-2);border-left:3px solid var(--mm-accent);border-radius:0 14px 14px 0;padding:10px 14px}
+blockquote.voice{margin:0;background:var(--surface-2);border:0;border-radius:var(--r-sm);padding:14px 18px}
 blockquote.voice p{margin:0 0 6px}blockquote.voice footer{color:var(--muted);font-size:var(--fs-sm)}
 /* filter bar (social feed, people) */
 .filter-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:12px 0 14px;font-size:.88rem}
@@ -148,6 +171,25 @@ nav.toc a[aria-current="true"]{background:var(--text);border-color:var(--text);c
 border-radius:var(--r-pill);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
 .theme-btn:hover{border-color:var(--text)}
 header.top .hdr-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* Section labels; chart colors carry data, surfaces stay neutral. */
+.section-head .sh-text::before{content:var(--sec-label,none);display:inline-block;font-size:.68rem;font-weight:600;
+letter-spacing:.1em;text-transform:uppercase;color:var(--sec,var(--muted));margin-bottom:6px}
+section .card,section .play:not(.p-high),section .ftc{background-image:none}
+/* KPI strip: neutral figures with a small data bar or delta */
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi.c{border:0;background:var(--surface)}
+.kpi .bar{height:6px;border-radius:3px;background:var(--grid);margin-top:10px;overflow:hidden}
+.kpi .bar i{display:block;height:100%;border-radius:3px;background:var(--kc,var(--s1));min-width:2px}
+/* decision + brief row */
+.dash-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:900px){.dash-row{grid-template-columns:1fr}}
+.brief h4{margin:14px 0 6px;font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--sec,var(--muted))}
+.brief h3+h4{margin-top:4px}
+.brief .kpis.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.brief .kpi.sm{background:var(--surface-2)}
+.brief ol,.brief ul{margin:0;padding-left:20px;font-size:.92rem;display:grid;gap:5px}
+.brief p{margin:0 0 4px;font-size:.92rem}
+.brief .tbl table{font-size:.82rem}.brief th{background:transparent}
 /* keyboard focus */
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
 outline:2px solid var(--focus);outline-offset:2px;border-radius:var(--r-sm)}
@@ -155,11 +197,40 @@ nav.toc a:focus-visible,.pill:focus-visible,button:focus-visible{border-radius:v
 /* motion */
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;
 animation-iteration-count:1!important;transition-duration:.01ms!important}}
-@media print{.theme-btn,.filter-bar,nav.toc{display:none!important}details.tv{display:block}.callout.insight{break-inside:avoid}}
+@media print{.theme-btn,.filter-bar,nav.toc{display:none!important}details.tv{display:block}.callout.insight{break-inside:avoid}
+.kpi,.pill,.panel,.kpi .bar i,.mixbar span{-webkit-print-color-adjust:exact;print-color-adjust:exact}.kpi-strip,.dash-row{break-inside:avoid}}
 """
 
+# --------------------------------------------------------------------------
+# Section eyebrows: anchor -> (label, glyph, colour slot 1-8). The exporter keeps the <section id> markup
+# untouched and emits section_css() instead, so every module's section_head() gets its eyebrow for free.
+# --------------------------------------------------------------------------
+
+SECTION_META = {
+    "kpis": ("At a glance", "◆", 1), "decision": ("Decision", "◉", 3), "report": ("Report", "▤", 1),
+    "results": ("Survey", "◔", 1), "ratings": ("Survey", "◔", 1), "funnel": ("Funnel", "▽", 1),
+    "playbook": ("Playbook", "▶", 2), "pitch": ("Sales", "☏", 4), "ideas": ("Next tests", "✦", 7),
+    "feedtest": ("Ads", "▣", 2), "socialfeed": ("Social", "◍", 5), "posts": ("Social", "◍", 5),
+    "audiences": ("Audiences", "◎", 3), "worldmap": ("Map", "◐", 3), "objections": ("Objections", "⚑", 8),
+    "messages": ("Messages", "❝", 7), "pricing": ("Pricing", "¤", 4), "voices": ("Voices", "❞", 5),
+    "analysts": ("Panel", "◈", 7), "backtest": ("Backtest", "⟲", 6), "email": ("Email", "✉", 5),
+    "agents": ("People", "●", 3), "timeline": ("Activity", "◷", 2), "graph": ("Market map", "◇", 7),
+    "overview": ("Run", "⚙", 6), "engine-report": ("Engine", "▤", 6),
+}
+
+
+def section_css(anchors=None) -> str:
+    """Per-section rules: the colour slot and the eyebrow text. ``anchors`` limits it to the sections on the page."""
+    out = []
+    for anchor, (label, glyph, slot) in SECTION_META.items():
+        if anchors is not None and anchor not in anchors:
+            continue
+        text = f"{glyph} {label}".replace('"', "")
+        out.append(f'#{anchor}{{--sec:var(--s{slot});--sec-label:"{text}"}}')
+    return "\n".join(out) + "\n"
+
 TOKENS_CSS = (
-    f":root{{{_LIGHT};{_SCALE}}}\n"
+    f":root{{{_LIGHT};{_SCALE};--sec:var(--muted);--sec-label:none;--kc:var(--s1)}}\n"
     f'@media (prefers-color-scheme:dark){{:root:not([data-theme="light"]){{{_DARK}}}}}\n'
     f':root[data-theme="dark"]{{{_DARK}}}\n'
     + _COMPONENTS

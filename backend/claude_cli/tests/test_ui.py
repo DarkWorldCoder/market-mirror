@@ -29,7 +29,7 @@ class HelperTests(unittest.TestCase):
 
     def test_pct_ci_and_low_n(self):
         self.assertEqual(ui.pct_ci(None, 10), "–")
-        self.assertEqual(ui.pct_ci(50, 100), "50% ±10")
+        self.assertEqual(ui.pct_ci(50, 100), "50%")
         self.assertEqual(ui.ci(50, 0), None)
         self.assertIn("low n=4", ui.low_n_pill(4))
         self.assertEqual(ui.low_n_pill(40), "")

@@ -1,0 +1,32 @@
+{
+  "benchmark": "fitloop_1000_social",
+  "date": "2026-10-19",
+  "stage": "completed_social_rounds",
+  "simulation_id": "sim_6c1f993adc94",
+  "project_id": "proj_e94762350d8e",
+  "requested_buyers": 1000,
+  "prepared_buyers": 1008,
+  "total_agents": 1022,
+  "platform": "reddit",
+  "model": "claude-haiku-4-5",
+  "started_at": "2026-10-19T07:38:44.886537",
+  "rounds_finished_at": "2026-10-19T07:42:26.455970",
+  "wall_seconds_to_round_completion": 221.569,
+  "completed_rounds": 6,
+  "recorded_actions": 431,
+  "terminal_runner_status": "stopped",
+  "model_calls": null,
+  "model_tokens": null,
+  "invoiced_cost_usd": null,
+  "limitations": [
+    "Social simulation stage only; not a completed feed-test, survey or campaign pipeline.",
+    "Actions are not model-call counts. No invoiced cost is available.",
+    "Simulated responses do not establish predictive validity.",
+    "Prepared cohort rounded to segment allocations."
+  ],
+  "evidence_paths": [
+    "backend/uploads/simulations/sim_6c1f993adc94/run_state.json",
+    "backend/uploads/simulations/sim_6c1f993adc94/reddit/actions.jsonl",
+    "mirofish_runs/fitloop_1000/dashboard.html"
+  ]
+}

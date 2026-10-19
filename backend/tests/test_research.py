@@ -61,7 +61,9 @@ def test_run_writes_files_and_voices(tmp_path, monkeypatch):
     md = open(out["files"]["md"], encoding="utf-8").read()
     assert md.startswith("# What real people say about: home workout app") and "## Notes" in md and "apps.example/11" in md
     voices = json.load(open(out["files"]["voices"], encoding="utf-8"))
-    assert voices and all(v["country"] == "in" for v in voices) and any(v["rating"] == 1 for v in voices)
+    assert voices and any(v["country"] == "IN" and v["rating"] == 1 for v in voices)
+    assert all(v["quality"] and v["date"] for v in voices if v["source"] in ("hackernews", "appstore"))
+    assert all(v["country"] == "unspecified" for v in voices if v["source"] == "hackernews")
     picked = rs.pick_voices(voices, n=2, country="in")
     assert len(picked) == 2 and {p["sentiment"] for p in picked} >= {"neg"}
     assert rs.pick_voices([], 3) == []

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "market-mirror": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["${PLUGIN_ROOT}/skills/market-mirror/scripts/mm.sh", "mcp"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

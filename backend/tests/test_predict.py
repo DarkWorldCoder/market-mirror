@@ -9,7 +9,7 @@ def test_store_fit_and_predict(tmp_path):
     path = str(tmp_path / "store.json")
     assert pr.fit("Fitloop", "ctr", path=path)["basis"] == "uncalibrated prior"
     p0 = pr.predict(4.0, "ctr", "Fitloop", target=2.0, path=path)
-    assert p0["predicted"] == 4.0 and p0["pairs"] == 0 and p0["low"] < 4.0 < p0["high"] and 0 < p0["p_success"] < 1
+    assert p0["predicted"] is None and p0["pairs"] == 0 and p0["low"] is None and p0["high"] is None and p0["p_success"] is None
     n = pr.add_pairs("Fitloop", "ctr", [{"sim": 4.0, "real": 2.0, "label": "a"}, {"sim": 6.0, "real": 2.9}, {"sim": "bad"}], "backtest", path)
     assert n == 2
     f = pr.fit("Fitloop", "ctr", path=path)
@@ -21,7 +21,18 @@ def test_store_fit_and_predict(tmp_path):
     assert f2["n"] == 2 and "other brands" in f2["basis"]
     # lower-is-better targets
     pc = pr.predict(10.0, "cpl", "Fitloop", target=12.0, higher_is_better=False, path=path)
-    assert pc["p_success"] > 0.5
+    assert pc["p_success"] is None and pc["status"] == "directional_exploratory"
+
+
+def test_holdout_backtest_requires_real_baseline_win():
+    rows = [{"sim": 1, "real": 2, "split": "train"}, {"sim": 2, "real": 4, "split": "train"},
+            {"sim": 3, "real": 6, "split": "holdout"}, {"sim": 4, "real": 8, "split": "holdout"}]
+    good = pr.holdout_backtest(rows)
+    assert good["status"] == "supported" and good["persona_mae"] < good["no_persona_baseline_mae"]
+    rows[2]["real"], rows[3]["real"] = 3, 3
+    poor = pr.holdout_backtest(rows)
+    assert poor["status"] == "baseline_better_or_equal"
+    assert pr.holdout_backtest(rows[:2])["status"] == "insufficient_holdout"
 
 
 def test_predict_run_and_forecast(tmp_path):

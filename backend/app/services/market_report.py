@@ -25,7 +25,10 @@ SYSTEM = (
     "You write market-test reports for business owners and marketers who are not researchers. Plain words, short "
     "sentences, no jargon without a two-word explanation. Every number you use must appear in the FACTS you are given; "
     "never invent numbers, names or quotes. The people in the facts are simulated personas, so write 'simulated people' "
-    "and treat all rates as directions, not measurements. Return only valid JSON."
+    "and treat all rates as directions, not measurements. Do not call simulated interest real demand or validated lift. "
+    "Analyst confidence and seed agreement are model assessments, not success probabilities. Only discuss real-world "
+    "predictive uncertainty when the facts supply its held-out calibration basis. Recommend a small randomized real "
+    "experiment with audience, control, treatment, exposure context and outcome metric. Return only valid JSON."
 )
 
 SECTION_ORDER = [
@@ -156,7 +159,8 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "pricing_by_segment": _top(pricing.get("by_segment") or [], 8, ["key", "n", "cheap", "expensive", "too_expensive"]),
         "ads": ads, "ad_seed_agreement_pct": seeds.get("winner_agreement"), "landing_page": ft.get("landing"),
         "benchmarks": _benchmarks(bundle),
-        "panel": {k: panel.get(k) for k in ("analysts_ok", "consensus", "sentiment_mean", "success_probability", "confidence_mean") if panel.get(k) is not None}
+        "evidence_status": "exploratory_simulation",
+        "panel": {k: panel.get(k) for k in ("analysts_ok", "sentiment_mean", "confidence_mean") if panel.get(k) is not None}
         | {"verdict": (panel.get("verdict") or {}).get("winner"), "best_audience": (panel.get("best_audience") or {}).get("winner"),
            "themes": [{"theme": t.get("theme"), "analysts": t.get("analysts"), "evidence": (t.get("evidence") or [""])[0][:160]}
                       for t in (panel.get("themes") or [])[:6]]},
@@ -171,14 +175,17 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
 def _research_facts(r: Dict[str, Any]) -> Dict[str, Any]:
     summ = r.get("summary") or {}
-    if not summ.get("quotes"):
+    if not summ:
         return {}
     return {"query": summ.get("query"), "quotes": summ.get("quotes"), "by_source": summ.get("by_source"), "sentiment": summ.get("sentiment"),
+            "source_notes": summ.get("notes") or [],
             "avg_app_rating": summ.get("avg_rating"), "sentiment_method": summ.get("sentiment_method"),
             "themes": [{"theme": t.get("theme"), "mentions": t.get("mentions"), "share_pct": t.get("share_pct"),
                         "example": (t.get("examples") or [{}])[0].get("text", "")[:160], "url": (t.get("examples") or [{}])[0].get("url")}
                        for t in (summ.get("themes") or [])[:6]],
-            "top_quotes": [{"source": q.get("source"), "text": (q.get("text") or "")[:200], "url": q.get("url")} for q in (summ.get("top_quotes") or [])[:4]]}
+            "top_quotes": [{"source": q.get("source"), "text": (q.get("text") or "")[:200], "url": q.get("url"),
+                            "date": q.get("date"), "market": q.get("market"), "quality": q.get("quality")}
+                           for q in (summ.get("top_quotes") or [])[:4]]}
 
 
 def _email_facts(e: Dict[str, Any]) -> Dict[str, Any]:
@@ -340,7 +347,8 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
         sections = fallback_sections(material)
     md = render_markdown(sections, material)
     return {"sections": sections, "action_plan": sections.get("action_plan") or {}, "markdown": md,
-            "method": method, "usage": usage, "brand": brand or material.get("brand")}
+            "method": method, "usage": usage, "brand": brand or material.get("brand"),
+            "evidence_status": "exploratory_simulation"}
 
 
 _NUM = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])")
@@ -470,7 +478,7 @@ def _so_what(block: Dict[str, Any]) -> List[str]:
     if block.get("so_what"):
         out += [f"**So what:** {block['so_what']}", ""]
     if block.get("confidence"):
-        out += [f"_Confidence: {block['confidence']}_", ""]
+        out += [f"_Model assessment: {block['confidence']} (simulation evidence)_", ""]
     return out
 
 
@@ -478,6 +486,7 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
     brand = material.get("brand") or "the brand"
     ex = sec.get("executive_summary") or {}
     out = [f"# {brand}: market test report", "",
+           "> Exploratory simulation. Buyer responses, rankings and budget projections are directional. Confirm predictive claims against held-out real experiments and a no-persona baseline.", "",
            f"**Decision: {str(ex.get('decision') or '').upper()}.** {ex.get('headline') or ''}", "", _bullets(ex.get("bullets"))]
     out += ["## What we tested", "", str(sec.get("what_we_tested") or ""), ""]
     who = sec.get("who_we_simulated") or []
@@ -598,10 +607,19 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
     if rk:
         out += ["## Risks", ""] + [f"- **{r.get('risk')}** ({r.get('likelihood') or '?'}): {r.get('mitigation') or ''}" for r in rk] + [""]
     lim = sec.get("limits") or {}
-    out += ["## Limits and confidence", "", f"Confidence: **{lim.get('confidence') or 'low'}**.", ""]
+    out += ["## Limits and evidence", "", f"Model assessment: **{lim.get('confidence') or 'low'}**, based on simulated evidence.", ""]
     if lim.get("reliability_note"):
         out += [f"Reliability: {lim['reliability_note']}", ""]
     out += [_bullets(lim.get("caveats")),
             "What would raise confidence:", "", _bullets(lim.get("what_would_raise_confidence")),
             "_All people in this report are simulated. Use it to rank options and plan a small real test, not as a measurement._", ""]
+    voices = material.get("real_voices") or {}
+    if voices.get("top_quotes") or voices.get("source_notes"):
+        out += ["## Public sources and gaps", ""]
+        for quote in voices.get("top_quotes") or []:
+            source = str(quote.get("source") or "Public feedback").replace("[", "").replace("]", "")
+            url = str(quote.get("url") or "")
+            link = f"[{source}]({url})" if url.startswith(("https://", "http://")) else source
+            out += [f"- {link} · {quote.get('date') or 'date unknown'} · {quote.get('market') or 'market unknown'} · {quote.get('quality') or 'public feedback, unverified'}"]
+        out += [""] + [_bullets(voices.get("source_notes"))]
     return "\n".join(out)

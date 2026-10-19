@@ -18,6 +18,7 @@ from . import graph_bp
 from ..config import Config
 from ..models.project import ProjectManager
 from ..services import product_profile as pp
+from claude_cli import campaign_flow
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.api.product')
@@ -95,6 +96,39 @@ def profile_from_text():
     except Exception as e:  # noqa: BLE001
         logger.error(f"profile failed: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@graph_bp.route('/campaign-plan', methods=['POST'])
+def create_campaign_plan():
+    """Build and save a draft campaign plan from a profile or existing project."""
+    import os as _os
+    data = request.get_json(silent=True) or {}
+    project_id = str(data.get("project_id") or "")
+    if project_id:
+        if not ProjectManager.get_project(project_id):
+            return jsonify({"success": False, "error": f"project not found: {project_id}"}), 404
+        profile = pp.load(ProjectManager._get_project_dir(project_id))
+        out_dir = ProjectManager._get_project_dir(project_id)
+    else:
+        profile = data.get("profile")
+        out_dir = _os.path.join(Config.UPLOAD_FOLDER, "campaign_plans")
+    try:
+        research = data.get("research")
+        if research is None and project_id:
+            import json as _json
+            for filename in ("voices.json", "research.json"):
+                source_path = _os.path.join(out_dir, filename)
+                if _os.path.isfile(source_path):
+                    with open(source_path, encoding="utf-8") as f:
+                        research = _json.load(f)
+                    break
+        plan = campaign_flow.build(profile, str(data.get("goal") or ""), data.get("budget") or {},
+                                   data.get("channels"), research, project_id)
+        path = campaign_flow.save(plan, _os.path.join(out_dir, "campaign_plan.json" if project_id else
+                                                      f"campaign_plan_{__import__('uuid').uuid4().hex[:12]}.json"))
+        return jsonify({"success": True, "data": {"plan": plan, "file": path}})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @graph_bp.route('/project/<project_id>/voices', methods=['PUT', 'GET'])

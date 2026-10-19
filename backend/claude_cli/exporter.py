@@ -45,12 +45,14 @@ from typing import Any, Dict, List, Optional, Tuple
 try:  # marketing layer (stdlib only)
     import tokens  # type: ignore
     import ui  # type: ignore
+    import overview  # type: ignore
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
+    from . import overview  # type: ignore
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
@@ -78,7 +80,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary",
 ]
 
 
@@ -985,7 +987,7 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
     goal = marketing._goal_verb(mk.get("goal"))
     objs = mk.get("objections") or []
     if decision:
-        ins["report"] = (f'Decision: {decision["decision"].upper()} with {decision["confidence"]} confidence. '
+        ins["report"] = (f'Decision: {decision["decision"].upper()} with {decision["confidence"]} simulation agreement. '
                          f'{decision["summary"]}')
     if mk.get("has_survey") and o:
         line = f'{_pct(o.get("convert_yes"))} would {goal}, {_pct(o.get("convert_maybe"))} maybe'
@@ -1117,6 +1119,12 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     summary["decision"] = decision
     insights = build_insights(bundle, mk, decision, graph_stats, rounds, values)
     mk_sections = marketing.render_sections(mk, insights)
+    for section in (overview.run_health(bundle), overview.study_section(bundle.get("study_summary")),
+                    overview.campaign_section(bundle.get("campaign_plan")),
+                    overview.evidence_section(bundle.get("research")),
+                    overview.prediction_section(bundle.get("predictions"))):
+        if section:
+            mk_sections.append(section)
     # MarketMirror extras: feed test after the playbook; panel, backtest and downloads after the voices
     fs = feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart, insights.get("feedtest"))
     if fs:
@@ -1171,12 +1179,19 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     if (bundle.get("ideas") or {}).get("ideas"):
         files["ideas.md"] = bundle["ideas"].get("markdown") or ""
         files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)
+    for name in ("campaign_plan", "research", "predictions", "study_summary"):
+        if bundle.get(name):
+            files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
-        mk_sections.insert(0, dec)
+        brief = overview.brief_card(bundle, mk, decision)
+        mk_sections.insert(0, ("decision", "Decision", overview.decision_row(dec[2], brief)))
         mk_sections.insert(1, rep_sec)
     else:
         mk_sections.insert(0, rep_sec)
+    strip = overview.kpi_strip(bundle, mk)
+    if strip:
+        mk_sections.insert(0, ("kpis", "At a glance", ui.section_head("At a glance") + strip))
 
     req = summary.get("simulation_requirement") or ""
     page_title = title or (bundle.get("run_manifest") or {}).get("title") or (
@@ -1263,6 +1278,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         + '<div class="hdr-tools"><button type="button" class="theme-btn" data-theme-toggle aria-pressed="false" '
           'aria-label="Switch to dark theme">☾ Dark</button></div></header>',
         '<nav class="toc" data-scrollspy aria-label="Sections">' + "".join(f'<a href="#{a}">{b}</a>' for a, b in nav) + "</nav>",
+        '<div class="callout" role="note"><strong>Exploratory simulation.</strong> These buyer responses and projected metrics are directional. Treat a predictive claim as supported only after held-out real experiments beat the no-persona baseline.</div>',
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],
         ("" if has_social else f'<section id="posts">{ui.section_head("What people posted")}{posts_html}</section>'),
         '<h2 class="divider">Behind the simulation</h2>',
@@ -1294,11 +1310,11 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         f"<script>{ui.HEAD_JS}</script>\n"
         # tokens.TOKENS_CSS comes last so its palette and components win over the per-module styles
         f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"
-        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}</style>\n</head>\n<body>\n"
+        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}{tokens.section_css()}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
         # ui.UI_JS first: it defines window.MM (theme reader, filter engine) that the module scripts use
-        + f"\n<script>{ui.UI_JS}{JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
+        + f"\n<script>{ui.UI_JS}{JS}{overview.OVERVIEW_JS}{marketing.MARKETING_JS}{feed_view.FEED_JS}"
         f"{getattr(social_feed, 'SOCIAL_JS', '') if social_feed else ''}</script>\n</body>\n</html>\n"
     )
     return html_out, md, summary
@@ -1324,7 +1340,9 @@ def export_run_dir(run_dir: str, out_html: Optional[str] = None, title: Optional
     written = {}
     if m:
         try:
-            files = json.loads(m.group(1))
+            payload = json.loads(m.group(1))
+            files = ({name: ui.inflate_b64(data) for name, data in payload.get("files", {}).items()}
+                     if payload.get("enc") == "deflate+base64" else payload)
         except ValueError:
             files = {}
         for name, text in files.items():

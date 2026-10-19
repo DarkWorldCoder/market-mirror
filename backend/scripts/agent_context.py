@@ -28,6 +28,9 @@ Speed knobs (environment variables, all optional):
     OASIS_TOKEN_LIMIT    context budget for that window, independent of max_tokens (default 32000).
     OASIS_SEMAPHORE      concurrent LLM calls per platform (default 50).
     OASIS_RECSYS         Twitter recommender: random (default, cheap) | twitter | twhin-bert (CPU model).
+    OASIS_MAX_ITERATION  model/tool iterations per social action (default 3); bounds a stalled agent.
+    OASIS_ACTION_TIMEOUT wall-time limit after an agent acquires a model slot (default 120 seconds).
+    OASIS_ACTIVE_AGENT_CAP optional maximum social actors selected per round (unset uses the scenario activity).
     MODEL_TIMEOUT        camel's per-call timeout in seconds (default 60 here; camel's own default is 180).
 """
 
@@ -37,6 +40,7 @@ import json
 import os
 import random
 import warnings
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
 MOODS = ["relaxed", "bored", "in a hurry", "tired after work", "curious", "irritated by something earlier",
@@ -48,6 +52,9 @@ DEFAULT_MEMORY_WINDOW = 10
 DEFAULT_TOKEN_LIMIT = 32000
 DEFAULT_SEMAPHORE = 50
 DEFAULT_RECSYS = "random"
+DEFAULT_MAX_ITERATION = 3
+DEFAULT_ACTION_TIMEOUT = 120
+DEFAULT_ACTIVE_AGENT_CAP = 0
 DEFAULT_MODEL_TIMEOUT = 60
 
 
@@ -216,6 +223,7 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
     st["context"] = []
     begin_round(0, 12, platform)
     n = 0
+    max_iterations = _env_int("OASIS_MAX_ITERATION", DEFAULT_MAX_ITERATION)
     for agent in _agents_of(agent_graph):
         aid = getattr(agent, "social_agent_id", None)
         if aid in st["cards"]:
@@ -226,6 +234,8 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
                 env.mm_platform = platform
             except Exception:  # noqa: BLE001
                 pass
+        if hasattr(agent, "max_iteration"):
+            agent.max_iteration = max_iterations
     memory_window_for(agent_graph, memory_window, token_limit)
     _patch_environment()
     return n
@@ -320,6 +330,36 @@ def memory_window_for(agent_graph: Any, window: Optional[int] = None, token_limi
 def semaphore_size() -> int:
     """Concurrent LLM calls per platform (OASIS_SEMAPHORE, default 50)."""
     return _env_int("OASIS_SEMAPHORE", DEFAULT_SEMAPHORE)
+
+
+def active_agent_cap() -> int:
+    return _env_int("OASIS_ACTIVE_AGENT_CAP", DEFAULT_ACTIVE_AGENT_CAP) or 2**31 - 1
+
+
+def bound_llm_actions(env: Any, timeout_s: Optional[float] = None) -> float:
+    """Bound each social agent after it acquires the OASIS semaphore.
+
+    A single stalled agent otherwise keeps the whole env.step gather open.
+    Interview actions use their separate request timeout and are untouched.
+    """
+    if getattr(env, "mm_action_timeout_installed", False):
+        return env.mm_action_timeout_s
+    seconds = timeout_s or _env_int("OASIS_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT)
+    env.mm_action_timeouts = 0
+    env.mm_action_timeout_s = seconds
+
+    async def bounded(agent):
+        async with env.llm_semaphore:
+            try:
+                return await asyncio.wait_for(agent.perform_action_by_llm(), timeout=seconds)
+            except asyncio.TimeoutError:
+                env.mm_action_timeouts += 1
+                warnings.warn(f"social agent {getattr(agent, 'social_agent_id', '?')} timed out after {seconds}s")
+                return None
+
+    env._perform_llm_action = bounded
+    env.mm_action_timeout_installed = True
+    return seconds
 
 
 def model_timeout() -> float:

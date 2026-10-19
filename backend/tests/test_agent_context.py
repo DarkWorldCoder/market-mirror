@@ -198,7 +198,7 @@ def test_memory_window_and_token_limit_are_applied(monkeypatch):
             return self._creator
 
     mems = [Memory() for _ in range(2)]
-    agents = [(i, SimpleNamespace(social_agent_id=i, memory=m)) for i, m in enumerate(mems)]
+    agents = [(i, SimpleNamespace(social_agent_id=i, memory=m, max_iteration=None)) for i, m in enumerate(mems)]
     graph = SimpleNamespace(get_agents=lambda: agents + [(9, SimpleNamespace(social_agent_id=9))])
     monkeypatch.delenv("OASIS_MEMORY_WINDOW", raising=False)
     monkeypatch.delenv("OASIS_TOKEN_LIMIT", raising=False)
@@ -209,21 +209,42 @@ def test_memory_window_and_token_limit_are_applied(monkeypatch):
     monkeypatch.setenv("OASIS_TOKEN_LIMIT", "9000")
     ac.install(graph, CONFIG, seed=1, platform="twitter")        # install applies the window too
     assert mems[0]._window_size == 4 and mems[0]._creator._token_limit == 9000
+    assert agents[0][1].max_iteration == ac.DEFAULT_MAX_ITERATION
 
 
 def test_speed_knobs_read_env(monkeypatch):
     monkeypatch.delenv("OASIS_SEMAPHORE", raising=False)
+    monkeypatch.delenv("OASIS_ACTIVE_AGENT_CAP", raising=False)
     monkeypatch.delenv("OASIS_RECSYS", raising=False)
     monkeypatch.delenv("MODEL_TIMEOUT", raising=False)
     assert ac.semaphore_size() == ac.DEFAULT_SEMAPHORE and ac.recsys_type() == "random"
+    assert ac.active_agent_cap() == 2**31 - 1
     assert ac.model_timeout() == float(ac.DEFAULT_MODEL_TIMEOUT) and os.environ["MODEL_TIMEOUT"] == "60"
     monkeypatch.setenv("OASIS_SEMAPHORE", "12")
+    monkeypatch.setenv("OASIS_ACTIVE_AGENT_CAP", "20")
     monkeypatch.setenv("OASIS_RECSYS", "twhin-bert")
     monkeypatch.setenv("MODEL_TIMEOUT", "180")
     assert ac.semaphore_size() == 12 and ac.recsys_type() == "twhin-bert" and ac.model_timeout() == 180.0
+    assert ac.active_agent_cap() == 20
     monkeypatch.setenv("OASIS_SEMAPHORE", "oops")
     monkeypatch.setenv("OASIS_RECSYS", "bogus")
     assert ac.semaphore_size() == ac.DEFAULT_SEMAPHORE and ac.recsys_type() == "random"
+
+
+def test_social_action_timeout_is_bounded_and_counted():
+    class Agent:
+        social_agent_id = 1
+
+        async def perform_action_by_llm(self):
+            await asyncio.sleep(0.05)
+            return "done"
+
+    env = SimpleNamespace(llm_semaphore=asyncio.Semaphore(1))
+    assert ac.bound_llm_actions(env, timeout_s=0.01) == 0.01
+    with pytest.warns(UserWarning, match="timed out"):
+        assert asyncio.run(env._perform_llm_action(Agent())) is None
+    assert env.mm_action_timeouts == 1
+    assert ac.bound_llm_actions(env, timeout_s=1) == 0.01
 
 
 def test_twitter_platform_uses_chosen_recommender(monkeypatch, tmp_path):

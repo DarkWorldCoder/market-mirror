@@ -287,7 +287,8 @@ def build_scenario(answers: Dict[str, Any], root: str, ads_import: Optional[Call
 
 def key_configured(repo_root: str) -> bool:
     """True when an API key is set, without ever reading the value into the output."""
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LLM_API_KEY"):
+    if any(os.environ.get(name) and os.environ.get(name) != "your_api_key_here"
+           for name in ("ANTHROPIC_API_KEY", "LLM_API_KEY")):
         return True
     env = os.path.join(repo_root, ".env")
     try:
@@ -302,52 +303,15 @@ def key_configured(repo_root: str) -> bool:
 
 
 def ensure_env(repo_root: str, stdin, stderr) -> Dict[str, Any]:
-    """Interactive only: create .env from .env.example and ask for the key (typed hidden, never printed)."""
-    env, example = os.path.join(repo_root, ".env"), os.path.join(repo_root, ".env.example")
-    if not os.path.exists(env) and os.path.exists(example):
-        shutil.copy(example, env)
-        stderr.write(f"created {env}\n")
+    """Offer the same provider-neutral setup used by daily agents and the installer."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    import providers
     if key_configured(repo_root):
-        return {"env": env, "key": "set"}
-    clis = [c for c in ("claude", "codex") if shutil.which(c)]
-    if clis:
-        stderr.write(f"No API key found, but {' and '.join(clis)} CLI is installed. Use that login instead of a key? "
-                     "(slower, your subscription's limits, personal use) [y/N]: ")
-        stderr.flush()
-        if (stdin.readline() or "").strip().lower().startswith("y"):
-            be = clis[0]
-            lines = []
-            try:
-                with open(env, encoding="utf-8") as f:
-                    lines = [ln for ln in f.read().splitlines()
-                             if not ln.startswith(("LLM_PROVIDER=", "LLM_BASE_URL=", "LLM_API_KEY=", "LLM_GATEWAY=", "LLM_MODEL_NAME="))]
-            except OSError:
-                pass
-            lines += ["LLM_PROVIDER=openai", "LLM_BASE_URL=http://127.0.0.1:5055/v1", "LLM_API_KEY=gateway", f"LLM_GATEWAY={be}", f"LLM_MODEL_NAME={be}"]
-            with open(env, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
-            stderr.write(f"Gateway settings written. Start it with: python backend/gateway/local_gateway.py --backend {be}\n")
-            return {"env": env, "key": f"gateway ({be})"}
-    stderr.write("No Anthropic API key found. Paste it now (input is hidden), or press Enter to add it to .env later:\n")
-    try:
-        import getpass
-        key = getpass.getpass("API key: ", stream=stderr) if stdin.isatty() else stdin.readline().strip()
-    except (EOFError, OSError):
-        key = ""
-    if not key:
-        return {"env": env, "key": "missing (edit LLM_API_KEY in .env)"}
-    lines = []
-    try:
-        with open(env, encoding="utf-8") as f:
-            lines = f.read().splitlines()
-    except OSError:
-        pass
-    lines = [ln for ln in lines if not ln.startswith("LLM_API_KEY=")]
-    lines.append("LLM_API_KEY=" + key)
-    with open(env, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    try:
-        os.chmod(env, 0o600)
-    except OSError:
-        pass
-    return {"env": env, "key": "set"}
+        return {"env": os.path.join(repo_root, ".env"), "key": "set"}
+    if not stdin.isatty():
+        return {"key": "missing", "next": "Run mm.sh configure locally, or provider configure with --key-env NAME. Never paste keys into chat."}
+    result = providers.configure(Path(repo_root), SimpleNamespace(
+        provider=None, model=None, base_url=None, key_env=None))
+    stderr.write("Provider setup saved. Restart the backend after changing providers.\n")
+    return result

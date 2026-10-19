@@ -1,0 +1,33 @@
+{
+  "benchmark": "browser_context_fixture",
+  "date": "2026-10-19",
+  "policy": "Deterministic model-response stub; real Chromium on an owned catalog fixture.",
+  "measurements": [
+    {
+      "mode": "full",
+      "model_requests_to_stub": 7,
+      "verified_goal": true,
+      "payload_characters": 27230,
+      "full_payload_characters": 27230,
+      "wall_seconds_without_provider_inference": 4.854,
+      "provider_tokens": null,
+      "invoiced_cost_usd": null
+    },
+    {
+      "mode": "compact",
+      "model_requests_to_stub": 7,
+      "verified_goal": true,
+      "payload_characters": 19218,
+      "full_payload_characters": 27230,
+      "wall_seconds_without_provider_inference": 4.844,
+      "provider_tokens": null,
+      "invoiced_cost_usd": null
+    }
+  ],
+  "payload_character_reduction_percent": 29.42,
+  "limitations": [
+    "No external model inference or provider token measurement; character reduction is not token or cost savings.",
+    "One controlled journey; does not establish model completion rates, real-customer behavior, or production throughput.",
+    "Wall times exclude provider inference and must not be used to claim model speed improvements."
+  ]
+}

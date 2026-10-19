@@ -30,6 +30,25 @@ jobs:
         run: |
           backend/.venv/bin/python backend/scripts/gen_api_docs.py
           git diff --exit-code docs/API.md docs/openapi.json
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install optional browser support
+        working-directory: backend
+        run: |
+          uv sync --python 3.12 --extra browser --frozen
+          uv run --no-sync python -m playwright install --with-deps chromium
+      - name: Real browser journeys on owned local fixtures (no model key)
+        working-directory: backend
+        env:
+          MEMORY_EMBEDDINGS: "false"
+          LLM_API_KEY: "test"
+        run: uv run --no-sync python -m pytest tests/test_website_test.py tests/test_website_browser.py tests/test_website_interfaces.py -q
   plugin:
     runs-on: ubuntu-latest
     steps:
@@ -38,4 +57,5 @@ jobs:
         run: |
           python3 -c "import json;json.load(open('plugin/.claude-plugin/plugin.json'));json.load(open('.claude-plugin/marketplace.json'));print('ok')"
       - name: Skill front matter present
-        run: head -3 plugin/skills/market-mirror/SKILL.md | grep -q '^name: market-mirror'
+        run: |
+          head -3 plugin/skills/market-mirror/SKILL.md | grep -q '^name: market-mirror'

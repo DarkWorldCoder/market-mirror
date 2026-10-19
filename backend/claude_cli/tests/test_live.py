@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -79,14 +80,21 @@ class LiveServerTest(unittest.TestCase):
 
     def test_refresh_bumps_version_only_when_content_changes(self):
         live = mirofish.LiveDashboard(None, self.dir)
-        live.refresh()
-        first = live.state()["version"]
-        live.refresh()
+        build = mirofish.exporter.build_summary
+        timestamps = iter(['2030-01-01T00:00:00', '2030-01-01T00:00:01'])
+        def summary(*args, **kwargs):
+            return {**build(*args, **kwargs), 'generated_at': next(timestamps)}
+        with patch.object(mirofish.exporter, 'build_summary', side_effect=summary) as builds:
+            live.refresh()
+            first = live.state()["version"]
+            live.refresh()
+            self.assertEqual(builds.call_count, 1)
         self.assertEqual(live.state()["version"], first)
         with open(os.path.join(self.dir, "run_manifest.json"), "w") as f:
             json.dump({"project_id": "p", "simulation_id": "s", "finished_at": "now"}, f)
         live.refresh()
         self.assertEqual(live.state()["label"], "Done")
+        self.assertGreater(live.state()["version"], first)
 
     def test_http_endpoints(self):
         port = free_port()

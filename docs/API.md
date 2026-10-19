@@ -82,7 +82,73 @@ The project's voices.
 
 Returns: {voices}
 
+## Campaign planning
+
+### `POST /api/graph/campaign-plan`
+
+Save a draft evidence-led campaign plan and runnable test specs.
+
+Request body:
+
+```json
+{
+  "profile": {
+    "name": "Brand"
+  },
+  "project_id": "",
+  "goal": "trial signup",
+  "budget": {
+    "amount": 500,
+    "currency": "USD"
+  },
+  "channels": [
+    "search",
+    "email"
+  ],
+  "research": {}
+}
+```
+
+Returns: {plan, file}
+
 ## Tests on simulated people
+
+### `POST /api/simulation/website-test`
+
+Real-browser journeys by synthetic visitors with screenshots and supplied DOM outcome checks; background task.
+
+Request body:
+
+```json
+{
+  "simulation_id": "sim_x",
+  "spec": {
+    "url": "https://your-product.example",
+    "goal": "add_to_cart",
+    "max_personas": 3,
+    "checks": [
+      {
+        "name": "cart_added",
+        "selector": "[data-testid=cart-count]",
+        "text": "1"
+      }
+    ],
+    "goal_check": "cart_added",
+    "observation_mode": "compact",
+    "max_model_calls": 12,
+    "max_input_tokens": 100000,
+    "max_elapsed_s": 180
+  }
+}
+```
+
+Returns: {task_id, simulation_id, run_id}
+
+### `GET /api/simulation/{simulation_id}/website-test`
+
+Browser journey evidence; optional ?run_id=website_x selects the exact run.
+
+Returns: website_test.json with sessions, summary, milestones and artifact paths
 
 ### `POST /api/simulation/feed-test`
 
@@ -381,6 +447,45 @@ Request body:
 Returns: {markdown, method}
 
 ## Reliability and prediction
+
+### `POST /api/simulation/actuals-import`
+
+Normalize a local ads/email/website/CRM/survey CSV or JSON export with provenance.
+
+Request body:
+
+```json
+{
+  "file": "/path/to/export.csv",
+  "source_type": "ads",
+  "mapping": {
+    "clicks": "Link clicks"
+  },
+  "market": "PH"
+}
+```
+
+Returns: {file, observations, validation_errors, summary}
+
+### `POST /api/simulation/holdout-backtest`
+
+Compare calibrated persona predictions with no-persona baseline on held-out real experiments.
+
+Request body:
+
+```json
+{
+  "pairs": [
+    {
+      "sim": 2.0,
+      "real": 1.0,
+      "split": "train"
+    }
+  ]
+}
+```
+
+Returns: {status, persona_mae, no_persona_baseline_mae}
 
 ### `POST /api/simulation/calibrate`
 

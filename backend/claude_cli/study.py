@@ -10,18 +10,22 @@ study.py - several scenarios x several seeds on the same simulated people, one d
 Every cell (scenario x seed) is a normal `market-test` run in its own folder under mirofish_runs/<study>/,
 reusing the people. Finished cells are skipped on rerun. `study_summary.json` holds, per scenario, the mean,
 spread and 95% interval of every metric across seeds, the delta against the first scenario, how often each
-scenario won, the decision agreement matrix and the final conclusion with a confidence that comes from
-agreement, not from one draw. `study_report.md` is one Claude call over that summary (number-guarded), with a
+scenario won, the decision agreement matrix and an exploratory ranking with seed agreement. Those intervals
+describe simulation variation, not real-world uncertainty. `study_report.md` is one Claude call over that summary (number-guarded), with a
 deterministic fallback. Stdlib only.
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
+import html
 import json
 import math
 import os
 import re
+import shutil
+import market_cli
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
@@ -84,8 +88,28 @@ def _merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 def cell_config(study: Dict[str, Any], scenario: Dict[str, Any], seed: int, study_root: str) -> Dict[str, Any]:
     """The market_test.json for one cell: base + scenario overrides, same people, own folder, this seed."""
     cfg = _merge(study["base"], scenario.get("overrides") or {})
+    # Cell configs live in the study output folder. Preserve file references
+    # relative to the original base config before writing each cell config.
+    root = study["base_root"]
+    def resolve(value: Any) -> Any:
+        if isinstance(value, str):
+            raw = value[1:] if value.startswith("@") else value
+            path = raw if os.path.isabs(raw) else os.path.join(root, raw)
+            return ("@" if value.startswith("@") else "") + os.path.abspath(path) if os.path.isfile(path) else value
+        return value
+    for key in ("creatives", "emails", "posts", "events", "personas", "research", "campaign_plan", "requirement"):
+        if key in cfg:
+            cfg[key] = resolve(cfg[key])
+    for key in ("survey", "pitch"):
+        if isinstance(cfg.get(key), dict):
+            for child in (("messages",) if key == "survey" else ("script", "rebuttals")):
+                if child in cfg[key]:
+                    cfg[key][child] = resolve(cfg[key][child])
     cfg["simulation_id"] = study["simulation_id"]
     cfg["approve_spend"] = True
+    cfg["resume_steps"] = True
+    cfg["study_cell"] = True
+    cfg["graph_memory"] = False
     cfg["seed"] = seed
     cfg["name"] = f"{scenario['name']}-s{seed}"
     cfg["title"] = f"{study['name']}: {scenario['name']} (seed {seed})"
@@ -99,8 +123,8 @@ def cell_config(study: Dict[str, Any], scenario: Dict[str, Any], seed: int, stud
                 cfg.pop(key, None)
         if "rounds" in study["steps"] and not cfg.get("rounds"):
             cfg["rounds"] = 3
-    cfg.setdefault("report", False)             # one report for the study, not one per cell
-    cfg.setdefault("understand", False)
+    cfg["report"] = "report" in study["steps"] if study["steps"] else False
+    cfg["understand"] = False                 # profile already exists on the reused simulation
     return cfg
 
 
@@ -111,9 +135,66 @@ def cell_dir(study_root: str, scenario: str, seed: int) -> str:
 def cell_done(path: str) -> bool:
     try:
         with open(os.path.join(path, "run_manifest.json"), encoding="utf-8") as f:
-            return bool(json.load(f).get("finished_at"))
+            manifest = json.load(f)
+        if not manifest.get("finished_at"):
+            return False
+        for step in ("feed_test", "survey"):
+            if manifest.get(step) and not market_cli.saved_step_usable(path, step):
+                return False
+        return True
     except (OSError, ValueError):
         return False
+
+
+def _feed_signature(cfg: Dict[str, Any]) -> Optional[str]:
+    creatives = cfg.get("creatives")
+    if not creatives:
+        return None
+    if isinstance(creatives, str) and os.path.isfile(creatives):
+        with open(creatives, "rb") as f:
+            creatives = hashlib.sha256(f.read()).hexdigest()
+    fields = {key: cfg.get(key) for key in ("simulation_id", "seed", "waves", "organic", "parallel", "exposures", "seeds_n")}
+    fields["creatives"] = creatives
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def reuse_seed_feed_test(cfg: Dict[str, Any], path: str, prior_cells: List[Dict[str, Any]]) -> bool:
+    """Use the same seed's identical feed exposure for paired survey scenarios."""
+    signature = _feed_signature(cfg)
+    if not signature or os.path.isfile(os.path.join(path, "feed_test.json")):
+        return False
+    for prior in prior_cells:
+        source = prior["path"]
+        try:
+            with open(os.path.join(source, "market_test.json"), encoding="utf-8") as f:
+                previous_cfg = json.load(f)
+            with open(os.path.join(source, "run_manifest.json"), encoding="utf-8") as f:
+                previous_manifest = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if signature != _feed_signature(previous_cfg) or not isinstance(previous_manifest.get("feed_test"), dict):
+            continue
+        source_file = os.path.join(source, "feed_test.json")
+        if not market_cli.saved_step_usable(source, "feed_test"):
+            continue
+        os.makedirs(path, exist_ok=True)
+        for filename in ("feed_test.json", "feed_test_sessions.csv", "feed_test_creatives.csv"):
+            src = os.path.join(source, filename)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(path, filename))
+        target_manifest = os.path.join(path, "run_manifest.json")
+        try:
+            with open(target_manifest, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, ValueError):
+            manifest = {}
+        manifest["simulation_id"] = cfg["simulation_id"]
+        manifest["feed_test"] = {**previous_manifest["feed_test"], "feed_test": os.path.abspath(os.path.join(path, "feed_test.json")),
+                                 "reused_from": os.path.abspath(source)}
+        with open(target_manifest, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        return True
+    return False
 
 
 # --------------------------------------------------------------------------
@@ -224,6 +305,8 @@ def aggregate(study: Dict[str, Any], cells: List[Dict[str, Any]]) -> Dict[str, A
         else "medium" if stability is not None and stability >= 66 else "low"
     conclusion = {"best_scenario": best, "headline_metric": headline, "wins_by_scenario": dict(wins), "stability_pct": stability,
                   "decision": (best_sc or {}).get("decision"), "confidence": conf,
+                  "confidence_basis": "agreement across simulated seeds only",
+                  "predictive_claim_supported": False, "evidence_status": "exploratory_simulation",
                   "text": _conclusion_text(scenarios, deltas, best, headline, stability, len(seeds), (best_sc or {}).get("decision"), conf)}
     return {"name": study["name"], "simulation_id": study["simulation_id"], "cells": [{k: v for k, v in c.items() if k != "metrics"} | {"metrics": c["metrics"]} for c in cells],
             "scenarios": scenarios, "deltas": deltas, "agreement": agreement, "conclusion": conclusion,
@@ -241,7 +324,7 @@ def _conclusion_text(scenarios, deltas, best, headline, stability, n_seeds, deci
             m = d["metrics"][headline]
             parts.append(f"Against {base} it moved {label.lower()} by {m['delta']:+} ({'outside' if m['clear'] else 'inside'} the seed-to-seed spread).")
     if decision:
-        parts.append(f"The decision for {best} is {decision} ({conf} confidence from agreement across seeds).")
+        parts.append(f"The simulated decision for {best} is {decision} ({conf} agreement across seeds).")
     return " ".join(parts)
 
 
@@ -253,7 +336,8 @@ def render_markdown(summary: Dict[str, Any], brand: str = "") -> str:
     labels = summary.get("metric_labels") or {}
     c = summary.get("conclusion") or {}
     out = [f"# {brand or summary.get('name')}: study of {len(summary.get('scenarios') or [])} scenarios x {len({x['seed'] for x in summary.get('cells') or []})} seeds", "",
-           f"**Conclusion: {str(c.get('decision') or '').upper()} with {c.get('best_scenario')}** ({c.get('confidence')} confidence). {c.get('text')}", ""]
+           "**Evidence status: exploratory simulation.** Scenario rankings and seed spreads do not establish real-world lift or success probabilities.", "",
+           f"**Scenario ranking: {str(c.get('decision') or '').upper()} with {c.get('best_scenario')}** ({c.get('confidence')} agreement across simulated seeds). {c.get('text')}", ""]
     keys = [k for k in labels if any(((s["metrics"].get(k) or {}).get("mean") is not None) for s in summary.get("scenarios") or [])]
     if keys:
         out += ["## Scenarios side by side", "", "| Metric | " + " | ".join(s["name"] for s in summary["scenarios"]) + " |",
@@ -276,15 +360,17 @@ def render_markdown(summary: Dict[str, Any], brand: str = "") -> str:
         names = [s["name"] for s in summary["scenarios"]]
         out += ["## Agreement across seeds", "", "| Seed | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
         out += [f"| {row['seed']} | " + " | ".join(str(row.get(n) or "–") for n in names) + " |" for row in summary["agreement"]] + [""]
-    out += ["_Every cell is a separate simulation draw on the same simulated people. Spreads are seed-to-seed; treat them as the floor of the real uncertainty._", ""]
+    out += ["_Every cell is a separate simulation draw on the same simulated people. Spreads describe variation in these draws, not real-world uncertainty. Validate the preferred option in a controlled live test._", ""]
     return "\n".join(out)
 
 
 def render_html(summary: Dict[str, Any], markdown_to_html: Callable[[str], str], css: str, brand: str = "", links: Optional[Dict[str, str]] = None) -> str:
-    body = markdown_to_html(render_markdown(summary, brand))
-    cells = "".join(f'<li><a href="{v}">{k}</a></li>' for k, v in (links or {}).items())
+    body = markdown_to_html(render_markdown(summary, brand)).replace("<table>", '<div class="study-table"><table>').replace("</table>", "</table></div>")
+    cells = "".join(f'<li><a href="{html.escape(str(v), quote=True)}">{html.escape(str(k))}</a></li>'
+                    for k, v in (links or {}).items() if not str(v).lower().startswith(("javascript:", "data:")))
+    title = html.escape(str(brand or summary.get("name") or "MarketMirror"))
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{brand or summary.get("name")}: study</title><style>{css}</style></head><body><div class="wrap"><section id="study">{body}'
+            f'<title>{title}: study</title><style>{css}.study-table{{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}}.study-table table{{min-width:560px}}</style></head><body><div class="wrap"><section id="study">{body}'
             + (f'<h2>Cells</h2><ul>{cells}</ul>' if cells else "") + '</section></div></body></html>')
 
 
@@ -310,6 +396,8 @@ def run(study: Dict[str, Any], study_root: str, run_cell: Callable[[Dict[str, An
             if cell_done(path):
                 log(f"study: cell {k}/{total} {sc['name']} seed {seed}: already done")
             else:
+                if reuse_seed_feed_test(cfg, path, cells):
+                    log(f"study: reused identical seed {seed} feed test for {sc['name']}")
                 log(f"study: cell {k}/{total} {sc['name']} seed {seed}")
                 run_cell(cfg, cfg_path)
             cells.append({"scenario": sc["name"], "seed": seed, "path": path, "metrics": cell_metrics(path)})

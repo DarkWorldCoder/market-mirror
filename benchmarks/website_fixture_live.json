@@ -1,0 +1,28 @@
+{
+  "benchmark": "website_fixture_live",
+  "date": "2026-10-19",
+  "target": "Owned localhost storefront fixture, not an external product or customer study",
+  "provider": "Local Claude Code gateway",
+  "request_model_alias": "claude",
+  "actual_model_identifier": null,
+  "synthetic_visitors": 2,
+  "visitor_profiles": "One running-shoe shopper with a $60 budget; one with a strict $10 budget",
+  "goal": "add_to_cart",
+  "wall_seconds": 11.848,
+  "model_calls": 2,
+  "reported_input_tokens": 19273,
+  "reported_output_tokens": 125,
+  "observed_cart_updates": 1,
+  "deliberate_departures": 1,
+  "execution_failures": 0,
+  "orders_submitted": 0,
+  "invoiced_cost_usd": null,
+  "evidence_path": "mirofish_runs/website_fixture_live/website_test.json",
+  "limitations": [
+    "An integration demonstration with manually chosen synthetic profiles, not validation against human behavior.",
+    "The model chose actions; a real Chromium browser executed them against a local HTTP server.",
+    "Outcome confirmation used a supplied DOM assertion plus the fixture server's counted cart write.",
+    "The signup flow was separately verified with deterministic model decisions in the browser integration tests.",
+    "Timing is not a throughput guarantee and token counts are not an invoice."
+  ]
+}

@@ -9,14 +9,18 @@ Scripts:
   UI_JS    - appended once by the exporter, *before* the module scripts, and exposes
              ``window.MM`` (``css``, ``theme``, ``applyFilters``). It implements the sticky
              nav scrollspy, the theme switcher, delegated sortable tables, the generic
-             filter root and the print behaviour for "Show the numbers" details.
+             filter root and the print behaviour for "Show the numbers" details. It also exposes
+             ``MM.inflate(b64)`` (a Promise of the text packed by ``deflate_b64``) and ``MM.charts``, a
+             registry other modules extend with chart builders (``kind`` -> function(spec, theme)).
 """
 
 from __future__ import annotations
 
+import base64
 import html as _html
 import math
 import re
+import zlib
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -46,11 +50,15 @@ def ci(p_pct: Optional[float], n: int) -> Optional[float]:
     return round(100 * 1.96 * math.sqrt(max(p * (1 - p), 0.25 / n) / n), 1)
 
 
-def pct_ci(p: Optional[float], n: int) -> str:
-    """'42% ±9' or '–'."""
+def pct_ci(p: Optional[float], n: int, *, calibration_basis: Optional[str] = None) -> str:
+    """A percentage; only show an interval where its calibration basis is supplied.
+
+    Synthetic responses are correlated model outputs, so a binomial sample
+    margin alone does not quantify real-world predictive uncertainty.
+    """
     if p is None:
         return "–"
-    m = ci(p, n)
+    m = ci(p, n) if calibration_basis else None
     return f"{p:.0f}%" + (f" ±{m:.0f}" if m is not None else "")
 
 
@@ -66,18 +74,37 @@ def pill(text: Any, cls: str = "") -> str:
     return f'<span class="pill{" " + cls if cls else ""}">{esc(text)}</span>'
 
 
-def kpi(value: Any, label: Any, hint: Any = None, delta: Any = None, hl: bool = False, cls: str = "") -> str:
-    """One KPI tile: big value, label, optional hint line and optional delta ('+3 pt' / '-2%')."""
-    classes = "kpi" + (" hl" if hl else "") + (f" {cls}" if cls else "")
-    out = [f'<div class="{classes}"><div class="v">{esc(value)}</div><div class="k">{esc(label)}</div>']
+def kpi(value: Any, label: Any, hint: Any = None, delta: Any = None, hl: bool = False, cls: str = "",
+        bar: Any = None, color: Any = None) -> str:
+    """One KPI tile: big value, label, optional hint line and optional delta ('+3 pt' / '-2%').
+    ``color`` (a palette slot 1-8 or a css value) tints the tile; ``bar`` (0-100) draws a small bar under it."""
+    classes = "kpi" + (" hl" if hl else "") + (" c" if color is not None else "") + (f" {cls}" if cls else "")
+    kc = f"var(--s{int(color)})" if isinstance(color, int) and not isinstance(color, bool) else color
+    style = f' style="--kc:{esc(kc)}"' if kc else ""
+    out = [f'<div class="{classes}"{style}><div class="v">{esc(value)}</div><div class="k">{esc(label)}</div>']
     if hint not in (None, ""):
         out.append(f'<div class="h">{esc(hint)}</div>')
     if delta not in (None, ""):
         d = str(delta).strip()
         direction = "down" if d.startswith(("-", "−", "↓")) else "up" if d.startswith(("+", "↑")) else ""
         out.append(f'<div class="d{" " + direction if direction else ""}">{esc(delta)}</div>')
+    if bar is not None:
+        try:
+            w = max(0.0, min(100.0, float(bar)))
+        except (TypeError, ValueError):
+            w = 0.0
+        out.append(f'<div class="bar" aria-hidden="true"><i style="width:{w:.1f}%"></i></div>')
     out.append("</div>")
     return "".join(out)
+
+
+def deflate_b64(text: str) -> str:
+    """zlib-compress text and base64 it: the page inflates it with ``window.MM.inflate`` (DecompressionStream)."""
+    return base64.b64encode(zlib.compress(text.encode("utf-8"), 9)).decode("ascii")
+
+
+def inflate_b64(data: str) -> str:
+    return zlib.decompress(base64.b64decode(data)).decode("utf-8")
 
 
 def section_head(title: Any, intro: Any = None, insight: Any = None, aside: Any = None) -> str:
@@ -223,8 +250,14 @@ document.querySelectorAll('[data-filter-root]').forEach(function(root){
  applyFilters(root);});
 /* print: open the "Show the numbers" details */
 var opened=[];function beforePrint(){opened=[];document.querySelectorAll('details.tv:not([open])').forEach(function(d){d.open=true;opened.push(d);});}
-function afterPrint(){opened.forEach(function(d){d.open=false;});opened=[];}
+function afterPrint(){opened.forEach(function(d){d.open=false;});opened=[];document.body.classList.remove('print-report');}
 addEventListener('beforeprint',beforePrint);addEventListener('afterprint',afterPrint);
-window.MM={css:css,theme:theme,isDark:isDark,applyFilters:applyFilters,sortTable:sortTable};
+document.querySelectorAll('[data-print-report]').forEach(function(b){b.addEventListener('click',function(){document.body.classList.add('print-report');window.print();});});
+/* packed payloads (downloads, replay events): zlib + base64 from ui.deflate_b64 */
+function inflate(b64){return new Promise(function(res,rej){try{if(!window.DecompressionStream)return rej(new Error('no DecompressionStream'));
+ var bin=atob(b64||''),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+ var ds=new DecompressionStream('deflate'),w=ds.writable.getWriter();w.write(u);w.close();
+ new Response(ds.readable).text().then(res,rej);}catch(e){rej(e);}});}
+window.MM={css:css,theme:theme,isDark:isDark,applyFilters:applyFilters,sortTable:sortTable,inflate:inflate,charts:{}};
 })();
 """

@@ -3,8 +3,8 @@
 The calibration store (backend/uploads/calibration_store.json) keeps paired observations per brand and metric:
 what the simulation said and what reality said (from `backtest`, `calibrate`, real email stats, a real survey).
 `fit()` turns them into a scale factor with an uncertainty; `predict()` applies it to a new simulated number and
-returns an interval plus the probability of clearing a target. Without real pairs the prediction is the raw
-simulated number with a wide prior interval, labelled "uncalibrated". `forecast()` projects reach and adoption
+returns an interval plus the probability of clearing a target only when real pairs exist. Without real pairs
+the output is a directional simulation, not a probability. `forecast()` projects reach and adoption
 over 30/90 days from a spend, the ad economics and the word of mouth seen in the rounds (a K-factor from shares
 and quotes per brand post). Everything here is arithmetic; no model calls.
 """
@@ -86,10 +86,17 @@ def predict(sim_value: float, metric: str, brand: str, target: Optional[float] =
             store: Optional[Dict[str, Any]] = None, path: Optional[str] = None) -> Dict[str, Any]:
     """Point estimate = sim x factor; interval = log-normal with the fitted spread; P(beats target)."""
     f = fit(brand, metric, store, path)
+    if not f["n"]:
+        return {"metric": metric, "simulated": round(sim_value, 3), "predicted": None,
+                "low": None, "high": None, "p_success": None, "target": target,
+                "basis": f["basis"], "pairs": 0, "factor": None,
+                "status": "directional_exploratory",
+                "note": "No real calibration pairs; simulated value is a directional estimate only."}
     point = sim_value * f["factor"]
     lo, hi = point * math.exp(-1.96 * f["spread"]), point * math.exp(1.96 * f["spread"])
     out = {"metric": metric, "simulated": round(sim_value, 3), "predicted": round(point, 3), "low": round(lo, 3), "high": round(hi, 3),
-           "basis": f["basis"], "pairs": f["n"], "factor": f["factor"]}
+           "basis": f["basis"], "pairs": f["n"], "factor": f["factor"],
+           "status": "calibrated_exploratory", "interval_basis": "empirical real/sim ratios; approximate log-normal spread"}
     if target is not None and point > 0:
         z = (math.log(target) - math.log(point)) / f["spread"]
         p_above = 1 - _phi(z)
@@ -100,6 +107,37 @@ def predict(sim_value: float, metric: str, brand: str, target: Optional[float] =
 
 def _phi(z: float) -> float:
     return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+
+
+def holdout_backtest(pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compare a ratio-calibrated persona estimate with a train-mean baseline.
+
+    Input rows must represent independent real experiments and declare their
+    train/holdout split before evaluation. No random split is performed here.
+    """
+    train = [p for p in pairs if p.get("split") == "train" and p.get("sim") is not None and p.get("real") is not None]
+    held = [p for p in pairs if p.get("split") == "holdout" and p.get("sim") is not None and p.get("real") is not None]
+    if len(train) < 2 or len(held) < 2:
+        return {"status": "insufficient_holdout", "train_n": len(train), "holdout_n": len(held),
+                "reason": "At least two independent train and two held-out real experiments are required."}
+    try:
+        train_xy = [(float(p["sim"]), float(p["real"])) for p in train]
+        held_xy = [(float(p["sim"]), float(p["real"])) for p in held]
+    except (TypeError, ValueError):
+        raise ValueError("sim and real must be numbers") from None
+    usable = sorted(real / sim for sim, real in train_xy if sim > 0)
+    if len(usable) < 2:
+        return {"status": "insufficient_holdout", "reason": "Need two positive simulated train values."}
+    factor = (usable[(len(usable)-1)//2] + usable[len(usable)//2]) / 2
+    baseline = sum(real for _, real in train_xy) / len(train_xy)
+    persona_mae = sum(abs(sim * factor - real) for sim, real in held_xy) / len(held_xy)
+    baseline_mae = sum(abs(baseline - real) for _, real in held_xy) / len(held_xy)
+    return {"status": "supported" if persona_mae < baseline_mae else "baseline_better_or_equal",
+            "train_n": len(train_xy), "holdout_n": len(held_xy),
+            "persona_mae": round(persona_mae, 4), "no_persona_baseline_mae": round(baseline_mae, 4),
+            "baseline": "mean real outcome of training experiments", "calibration_factor": round(factor, 4),
+            "claim": "predictive claim supported for this held-out set" if persona_mae < baseline_mae else
+                     "exploratory only; persona estimate did not beat the no-persona baseline"}
 
 
 def predict_run(summary: Dict[str, Any], feed_test: Dict[str, Any], brand: str, targets: Optional[Dict[str, float]] = None,
@@ -126,8 +164,9 @@ def predict_run(summary: Dict[str, Any], feed_test: Dict[str, Any], brand: str, 
         if m.get("click_rate") is not None:
             out["predictions"].append({"what": f"click rate of email {eid}", **predict(float(m["click_rate"]), "click_rate", brand, targets.get("click_rate"), True, store, path)})
     out["calibrated"] = any(p["pairs"] for p in out["predictions"])
-    out["note"] = ("Point estimates are the simulated numbers scaled by what reality showed before; intervals are 95% log-normal bands. "
-                   if out["calibrated"] else "No real results stored for these metrics yet: intervals are wide priors; run backtest or calibrate to narrow them. ")
+    out["note"] = ("Calibrated estimates use stored real/sim pairs; intervals are approximate 95% log-normal bands. "
+                   "A predictive claim still requires a held-out backtest against a no-persona baseline."
+                   if out["calibrated"] else "No real results stored for these metrics yet; values are directional simulation outputs only.")
     return out
 
 

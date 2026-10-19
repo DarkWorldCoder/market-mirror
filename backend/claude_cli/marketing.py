@@ -903,7 +903,8 @@ var B={
 };
 var made=[];
 function draw(el){if(!window.echarts||el.__ec||el.offsetWidth===0)return;var s;try{s=JSON.parse(el.getAttribute('data-spec'));}catch(e){return;}
- var b=B[el.getAttribute('data-kind')];if(!b)return;var c=echarts.init(el,null,{renderer:'svg'});c.setOption(b(s,th()));el.__ec=c;made.push(el);}
+ var kind=el.getAttribute('data-kind'),b=B[kind]||((window.MM&&window.MM.charts)||{})[kind];if(!b)return;
+ var c=echarts.init(el,null,{renderer:'svg'});c.setOption(b(s,th()));el.__ec=c;made.push(el);}
 function drawAll(){document.querySelectorAll('.ec').forEach(draw);}
 function redraw(){made.forEach(function(el){if(el.__ec){el.__ec.dispose();el.__ec=null;}});made=[];drawAll();}
 if(!window.echarts){document.querySelectorAll('.ec').forEach(function(el){el.style.minHeight='0';el.style.height='auto';
@@ -1029,13 +1030,12 @@ def ssr_section(a: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tu
 
 
 def hero_stats(a: Dict[str, Any]) -> str:
-    """Big numbers for the page header (HYVE-style stats row)."""
+    """Big numbers for the page header: who was simulated (the outcomes live in the KPI strip below)."""
     if not a.get("has_survey"):
         items = [(str(a.get("people") or 0), "Simulated people"), (str(a.get("engaged") or 0), "Joined the conversation")]
     else:
-        o = a["overall"]
-        items = [(_fmt_pct(o["convert_yes"]), f"Would {_goal_verb(a.get('goal'))}"),
-                 (_fmt_pct(o["click_yes"]), "Would click"), (str(a["answered"]), "People surveyed")]
+        items = [(str(a.get("people") or 0), "Simulated people"), (str(a["answered"]), "Answered the survey"),
+                 (str(a.get("engaged") or 0), "Joined the conversation")]
     return '<div class="kpis hero">' + "".join(ui.kpi(v, k) for v, k in items) + "</div>"
 
 

@@ -1,5 +1,6 @@
 """Local gateway: message flattening, CLI output parsing, cache, the HTTP contract with fake claude/codex binaries."""
 
+from types import SimpleNamespace
 import json
 import os
 import stat
@@ -48,6 +49,24 @@ def test_claude_backend_with_fake_cli(tmp_path):
     assert out == "echo: the prompt"
 
 
+def test_claude_gateway_preserves_login_and_reports_provider_usage(monkeypatch):
+    def invoke(cmd, **kwargs):
+        assert "--bare" not in cmd and cmd[cmd.index("--tools") + 1] == ""
+        assert "--strict-mcp-config" in cmd
+        assert json.loads(cmd[cmd.index("--settings") + 1])["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "3000"
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"result": "ok", "usage": {
+            "input_tokens": 5, "cache_creation_input_tokens": 3, "cache_read_input_tokens": 2,
+            "output_tokens": 4}, "total_cost_usd": 0.01}), stderr="")
+    monkeypatch.setattr(gw.subprocess, "run", invoke)
+    backend = gw.ClaudeBackend(model="haiku")
+    result = gw.Gateway(backend).complete({"model": "unused-alias", "max_tokens": 3000, "messages": [{"role": "user", "content": "hello"}]})
+    assert result["model"] == "haiku" and result["usage_source"] == "provider"
+    assert result["usage"]["prompt_tokens"] == 10 and result["usage"]["total_tokens"] == 14
+    assert result["cost_basis"] == "cli_reported_list_cost"
+    assert result["usage_breakdown"] == {"uncached_input_tokens": 5, "cache_read_input_tokens": 2, "cache_creation_input_tokens": 3}
+
+
+
 def test_codex_backend_with_fake_cli(tmp_path):
     # codex exec --json -o <file> --skip-git-repo-check <prompt>: write the last message to the file
     b = _fake_bin(tmp_path, "codex", 'out=""; while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; shift; fi; last="$1"; shift; done; printf "codex says: %s" "$last" > "$out"\n')
@@ -78,6 +97,9 @@ def test_http_contract_and_cache(tmp_path):
         assert resp["usage"]["total_tokens"] > 0
         text2, _ = post(body)                                        # identical prompt: served from the cache
         assert json.loads(text2)["choices"][0]["message"]["content"] == "reply to hello"
+        assert json.loads(text2)["usage"]["total_tokens"] == 0
+        assert json.loads(text2)["usage_source"] == "local_cache"
+        assert json.loads(text2)["cost_usd"] == 0 and json.loads(text2)["cost_basis"] == "no_upstream_call"
         assert counter.read_text().count("x") == 1
         post({**body, "temperature": 0.9})                           # creative call: not cached
         assert counter.read_text().count("x") == 2
@@ -99,3 +121,10 @@ def test_http_contract_and_cache(tmp_path):
 
 def test_check_flag_reports_missing_cli(tmp_path):
     assert gw.main(["--backend", "codex", "--binary", str(tmp_path / "nope"), "--check"]) == 1
+
+
+def test_cli_login_and_limit_errors_are_actionable_and_do_not_echo_payload():
+    for detail, code in [("Not logged in · Please run /login secret-sentinel",401),
+                         ("rate limit exceeded secret-sentinel",429)]:
+        error = gw.cli_failure("claude", detail)
+        assert error.status == code and "secret-sentinel" not in str(error)

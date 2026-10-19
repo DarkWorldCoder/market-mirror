@@ -405,6 +405,7 @@ class TwitterSimulationRunner:
         """
         self.config_path = config_path
         self.config = self._load_config()
+        self._rng = random.Random(int(self.config.get("seed") or 7))
         self.simulation_dir = os.path.dirname(config_path)
         self.wait_for_commands = wait_for_commands
         self.env = None
@@ -524,7 +525,8 @@ class TwitterSimulationRunner:
         else:
             multiplier = 1.0
         
-        target_count = int(random.uniform(base_min, base_max) * multiplier)
+        import agent_context
+        target_count = min(int(self._rng.uniform(base_min, base_max) * multiplier), agent_context.active_agent_cap())
         
         # 根据每个Agent的配置计算激活概率
         candidates = []
@@ -538,11 +540,11 @@ class TwitterSimulationRunner:
                 continue
             
             # 根据活跃度计算概率
-            if random.random() < activity_level:
+            if self._rng.random() < activity_level:
                 candidates.append(agent_id)
         
         # 随机选择
-        selected_ids = random.sample(
+        selected_ids = self._rng.sample(
             candidates, 
             min(target_count, len(candidates))
         ) if candidates else []
@@ -629,6 +631,7 @@ class TwitterSimulationRunner:
             database_path=db_path,
             semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
         )
+        agent_context.bound_llm_actions(self.env)
         
         await self.env.reset()
         print("环境初始化完成\n")

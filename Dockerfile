@@ -9,7 +9,8 @@ COPY backend/pyproject.toml backend/uv.lock ./backend/
 RUN cd backend && uv sync --frozen --python 3.12
 
 COPY . .
-ENV MIROFISH_URL=http://127.0.0.1:5001 \
+ENV FLASK_HOST=0.0.0.0 \
+    MIROFISH_URL=http://127.0.0.1:5001 \
     MEMORY_BACKEND=local \
     PYTHONUNBUFFERED=1
 

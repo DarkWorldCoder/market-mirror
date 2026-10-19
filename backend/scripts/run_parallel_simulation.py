@@ -1078,6 +1078,8 @@ def get_active_agents_for_round(
     """根据时间和配置决定本轮激活哪些Agent"""
     time_config = config.get("time_config", {})
     agent_configs = config.get("agent_configs", [])
+    platform = getattr(getattr(env, "platform_type", None), "value", "social")
+    rng = random.Random(f"{config.get('seed', 7)}:{platform}:{round_num}")
     
     base_min = time_config.get("agents_per_hour_min", 5)
     base_max = time_config.get("agents_per_hour_max", 20)
@@ -1092,7 +1094,7 @@ def get_active_agents_for_round(
     else:
         multiplier = 1.0
     
-    target_count = int(random.uniform(base_min, base_max) * multiplier)
+    target_count = min(int(rng.uniform(base_min, base_max) * multiplier), agent_context.active_agent_cap())
     
     candidates = []
     for cfg in agent_configs:
@@ -1103,10 +1105,10 @@ def get_active_agents_for_round(
         if current_hour not in active_hours:
             continue
         
-        if random.random() < activity_level:
+        if rng.random() < activity_level:
             candidates.append(agent_id)
     
-    selected_ids = random.sample(
+    selected_ids = rng.sample(
         candidates, 
         min(target_count, len(candidates))
     ) if candidates else []
@@ -1192,6 +1194,7 @@ async def run_twitter_simulation(
         database_path=db_path,
         semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
     )
+    agent_context.bound_llm_actions(result.env)
     
     await result.env.reset()
     log_info("环境已启动")
@@ -1393,6 +1396,7 @@ async def run_reddit_simulation(
         database_path=db_path,
         semaphore=agent_context.semaphore_size(),  # OASIS_SEMAPHORE (default 50)
     )
+    agent_context.bound_llm_actions(result.env)
     
     await result.env.reset()
     log_info("环境已启动")

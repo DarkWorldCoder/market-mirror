@@ -1,360 +1,308 @@
 <div align="center">
 
+<img src="docs/brand/marketmirror-logo-v1.png#gh-light-mode-only" alt="MarketMirror" width="520" />
+
 # MarketMirror
 
-**Test ads, messages, prices and launches on simulated buyers before you spend.**
+**Your agent's marketing research and simulation lab.**
 
-Diverse AI personas scroll realistic Facebook, Instagram, Reddit, TikTok, LinkedIn and X feeds, react to your ads, answer a buyer survey and argue in their own communities. You get a marketing and sales dashboard: who converts, which message wins, what stops people, what they would pay, and what your budget would return.
+Analyze real ad performance your agent can access, research customer feedback, survey simulated buyers, and test campaigns, pricing, sales pitches, and real product journeys. Turn the findings into your next experiment.
 
-Runs on Claude · works as a Claude Code skill and as MCP agent tools · one offline HTML dashboard · built on the [MiroFish](https://github.com/666ghj/MiroFish) simulation engine
+Self-hosted · Open source · Local agents and MCP · Offline HTML reports
 
-<img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard: verdicts, conversion, click and trust numbers" width="92%"/>
+[Quick start](#quick-start) · [Connect your agent](#connect-your-agent) · [Example workflow](#example-workflow) · [Documentation](#documentation)
+
+<img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard showing simulated audience responses and campaign results" width="92%" />
 
 </div>
 
-## What you can do with it
+MarketMirror gives Codex, Claude Code, and compatible MCP agents a shared toolkit for marketing, sales, and product analysis. Bring a product brief or website, campaign results, and customer evidence. Build an audience, run simulated surveys and interviews, compare ads and offers, rehearse sales conversations, and watch synthetic visitors explore your actual website. Review the findings together in an offline report.
 
-| Question | MarketMirror answer | How |
-|---|---|---|
-| Which ad or creative should get the budget? | Thumb-stop rate, CTR, engagement, hides and comments per creative, split-tested per platform | **Feed test** in platform-styled feeds |
-| Which message or offer converts, for whom? | Would-convert by segment, country, community, age and gender; winning message per audience | **Buyer survey** with true split tests |
-| What should we charge? | Acceptable price range, sweet spot and "never pay" price by segment | **Van Westendorp** price questions |
-| Where do we lose people after the click? | Page load on each person's network vs their patience, form drop-off with reasons | **Landing-page step** |
-| Which subject line, sender and send time get opened and clicked? | Every simulated person gets a realistic inbox for the day; an attention gate decides opens, each opened mail gets a real reaction (skim, read, click, reply, unsubscribe, spam) with honest odds; sequences run over days; projection from your list size to leads | **Email test** |
-| What will this cost per lead, and does it pay back? | Impressions, clicks, CPC, conversions, cost per lead, CAC, ROAS, ROI, break-even CPL, payback | **Projections** calibrated to your real CPM and CTR |
-| What did our past ads actually do? | Best and worst ad sets, cost per conversion, landing-page loss, benchmarks | **`ads-import`** for Meta / Google Ads exports |
-| Can we trust the simulation for this market? | Rank correlation and winner match against real ad results | **`backtest`** |
-| What do the objections sound like, and how do we answer them? | Objections by audience in the buyers' own words, "what would change my mind", a sales playbook per audience | **Survey + playbook + interviews** |
-| Does a second opinion agree? | Independent analysts (performance, brand, sales, psychology, data, local market) each read the anonymized evidence alone | **Analyst panel** |
-| What will people say when we post or launch? | Your captions are posted inside the simulation on a schedule (teaser, launch, offer); simulated people from each country reply, quote and argue in their own languages | **Brand posts + launch calendar**, shown in the **Social feed** |
-| Is the sales pitch ready? | Every simulated buyer hears the pitch, objects, asks a question back; your rebuttals are scored per objection; hot leads with the best time to reach them | **Sales rehearsal** |
-| What should we test next? | Prioritised experiments from your real ad data (exports or rows from a connected ads tool) and the run, each citing its evidence, with the config to simulate it first | **Test ideas** |
-| Can someone who is not technical read this? | A plain-language report (what we tested, who we simulated, what happened, objections and answers, pricing, sales notes, action plan, limits), downloadable from its header | **Report** |
-| What do real people say, and does the simulation agree? | Keyless public sources (Hacker News, App Store reviews per country, Reddit when reachable, pages) feed a voice store; personas are interviewed with real quotes in view, feeds carry real concerns, and the report checks the simulation against them | **Research** |
-| Can we react to today's news mid-run? | Push a sentence into a running simulation; from the next round every persona hears it | **Live context** |
-| Does the conclusion survive another draw, another scenario? | The same people run through several scenarios and seeds; the study page shows spread, deltas, agreement and one conclusion with a confidence from agreement | **Studies** |
-| What will it really do, and how sure are we? | Every headline number gets an interval and a basis: scaled by the real results stored from backtests and calibrations, or flagged as an uncalibrated prior; a 90-day adoption forecast | **Predict** |
-| So, launch it or not? | **Go / iterate / no-go**, with confidence, the signal behind each vote and what to fix first | **Decision card** combining every test |
+If your agent already has authorized access to advertising, analytics, or CRM tools, it can fetch the relevant records and bring ad rows or CSV/JSON exports into MarketMirror. Analyze spend, clicks, conversions, and campaign comparisons alongside simulated responses. Access comes from your agent's connected tools; MarketMirror also works with exports you supply.
 
-## See it
+**Simulation results are exploratory.** Generated people are not customer observations. Validate a specific prediction against independent real outcomes before using it to forecast performance. MarketMirror prepares and simulates campaigns; this release does not send messages or change ad accounts.
 
-<table>
-<tr>
-<td width="50%"><img src="docs/images/feed-test.png" alt="Feed test: a TikTok ad mock with simulated reactions and comments, plus metrics"/><br><b>Feed test.</b> Each ad looks the way it does on the platform, with the reactions and comments simulated people left. Press <i>Replay the scroll</i> to watch them scroll past, stop, react or click, one by one.</td>
-<td width="50%"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience"/><br><b>Playbook.</b> For each audience: priority, what to lead with, the objection to pre-empt, how to answer it, the community to seed it in, and a proof line.</td>
-</tr>
-<tr>
-<td><img src="docs/images/audiences.png" alt="Would-convert chart by segment with margins of error"/><br><b>Audiences.</b> Would convert, maybe and no by segment, country, community, age and gender, with 95% margins and small-sample flags.</td>
-<td><img src="docs/images/analysts.png" alt="Independent analyst panel with themes and evidence"/><br><b>Analyst panel.</b> Five analysts each work alone on the anonymized evidence. Every theme is backed by quotes from the simulated people.</td>
-</tr>
-<tr>
-<td><img src="docs/images/pricing.png" alt="Price sensitivity curves with acceptable range"/><br><b>Pricing.</b> Van Westendorp curves: the acceptable range, the sweet spot and the "never pay" price by segment.</td>
-<td><img src="docs/images/objections.png" alt="Objections chart and quotes"/><br><b>Objections.</b> What stops people, how often, in their own words, and what would change their mind.</td>
-</tr>
-<tr>
-<td><img src="docs/images/social-feed.png" alt="Social feed: brand posts with likes, quotes, comments, reach and reply sentiment, then every post by platform and round"/><br><b>Social feed.</b> Your launch posts inside the simulation: who replied from which country, in which round, with what sentiment; then every post, filterable by platform, round, audience and country.</td>
-<td><img src="docs/images/pitch.png" alt="Sales rehearsal: pitch score, objections with rebuttal success, by audience, hot leads"/><br><b>Sales rehearsal.</b> Every simulated buyer hears the pitch; objections, the questions they ask back, how each rebuttal did, and whom to call first.</td>
-</tr>
-<tr>
-<td><img src="docs/images/report.png" alt="Plain-language report with download buttons in its header"/><br><b>Report.</b> Written for anyone: what we tested, who we simulated, what happened, objections and how to answer them, pricing, sales notes, action plan, limits. Every download sits in its header.</td>
-<td><img src="docs/images/ideas.png" alt="Test ideas proposed from the evidence"/><br><b>Test ideas.</b> The next experiments, from your real ad data and the run, each citing its evidence and carrying the config to simulate it first.</td>
-</tr>
-</table>
+## What you can do
 
-**Demo run.** These screenshots come from a real launch simulation of **Fitloop**, a made-up home-workout app with a 7-day trial at $4.99 a month, on 28 interview-grounded simulated people (young professionals, parents and students in India, the Philippines and Kenya, each with a phone, a data plan and a life story in their own words). Five ads ran in Facebook, Instagram, TikTok and Reddit feeds; the brand's own teaser, launch, offer and "no card" posts were published inside six rounds of social simulation; everyone answered the buyer survey and heard the sales pitch. The brand, the audiences and the pilot numbers in its brief are all invented.
-- **Decision:** iterate, low confidence. Survey, feed test and all five analysts said iterate (success chance 31%).
-- **Social feed:** the launch posts drew 11-13 replies each on Reddit, mostly positive, and 7-13 quote-tweets on X; people asked, in Hindi, Taglish and Kenyan English, whether it works offline on an old Android, whether the trial auto-charges, and for proof from someone in their city.
-- **Survey:** 4% would start the trial, 71% maybe; purchase intent 3.2/5 ± 1.1. Trust ("looks like a scam", 54%) was the blocker, then "unclear what it is". Philippines young professionals were the only group with firm yeses (20%).
-- **Sales rehearsal:** pitch score 39/100; after rebuttals 7% yes and 64% maybe. The trust rebuttal moved under half of the objectors, and people asked for testimonials from working mothers in India and real users in the Philippines. 12 hot leads with the best channel and time to reach them.
-- **Price:** acceptable $3 to $15, sweet spot about $3.
-- **Test ideas:** 8 next experiments, led by a no-card trial flow and a proof-led creative for the Philippines, each citing its evidence.
+| Work | What you get |
+|---|---|
+| **Understand the product** | A reusable profile of the audience, offer, positioning, proof, competitors, and missing information |
+| **Analyze real ads** | Performance summaries and benchmarks from ad rows or exports your agent supplies; compare observed results with simulation and generate the next test ideas |
+| **Research the market** | Source-linked feedback from Hacker News, country-specific App Store reviews, accessible Reddit results, and supplied pages |
+| **Survey simulated buyers** | Synthetic survey responses and interviews to explore preferences, objections, purchase intent, and message reactions; import real survey exports as separate evidence |
+| **Plan a campaign** | Audience hypotheses, positioning, draft channel budgets, funnel goals, measurement requirements, and runnable test specs |
+| **Test acquisition** | Ad and landing-page reactions, offer and message comparisons, search and organic content concepts, creator posts, and channel mixes |
+| **Test the actual website** | Browser journeys on a real product URL: product exploration, cart actions, signup and checkout reachability, screenshots, outcome assertions, and reasons for leaving |
+| **Explore lifecycle and referrals** | Inbox simulations for email, nurture, and retention messages; referral concept tests |
+| **Rehearse sales** | Outreach, follow-ups, pitches, objections, rebuttals, and an audience playbook |
+| **Explore pricing** | Price sensitivity, offer comparisons, and conjoint choices |
+| **Compare scenarios** | Studies using the same prepared people and seed list, saved progress, and scenario deltas |
+| **Review evidence** | Normalized ads, email, website, CRM, and survey exports; calibration diagnostics and held-out backtests |
+| **Share the findings** | One offline HTML dashboard, a readable report, action plans, CSV/JSON exports, and a printable report |
 
-These numbers come from simulated people. Treat absolute rates as pessimistic until a backtest calibrates them, and use the run to rank options, find objections and plan tests.
-
-## How it works
-
-```mermaid
-flowchart LR
-    A["Your material<br/>briefs, ads, landing page,<br/>past ad exports, CRM notes"] --> B["Knowledge graph<br/>who and what matters"]
-    A --> C["Persona planner<br/>segments, ages, upbringing,<br/>education, income, thinking style,<br/>communities"]
-    B --> C
-    C --> D["Feed test<br/>FB / IG / Reddit / TikTok /<br/>LinkedIn / X feeds"]
-    C --> E["Social simulation<br/>posts, comments, follows<br/>inside communities"]
-    D --> F["Landing page<br/>load time vs patience,<br/>form drop-off"]
-    E --> G["Buyer survey<br/>intent, objections, split test,<br/>price"]
-    D & F & G --> H["Analyst panel<br/>independent reviewers"]
-    D & F & G & H --> I["Dashboard + reports<br/>funnel, ROI, playbook,<br/>CSV / MD / JSON / PDF"]
-```
-
-1. **Personas.** You describe audience segments (country, age range, role, count, languages, platforms, what you know about them). Every segment gets concrete people: ages spread across the range, balanced genders, rotating cities, and balanced upbringing (city, small town, village, migrant family), education, income, thinking style (analytical, sceptical, price-hunter, early adopter, traditional, busy...), tech comfort and media diet. Each person has one deliberate contradiction so nobody reads like a stereotype, and a realistic local name that is invented, never a real person. Or let Claude plan the segments from your question.
-2. **Communities.** People join the groups where they actually talk (a parents' WhatsApp group, a subreddit, a Facebook group) and pick up each group's norms. Members follow each other before the simulation starts, so feeds are mostly in-group, with a small cross-group bridge.
-3. **Feed test.** Each person scrolls a feed of local organic posts with one test ad, the way each platform shows ads. See [How realistic is it?](#how-realistic-is-it) for what keeps this honest.
-4. **Social simulation (optional).** Personas post, comment and follow on simulated Twitter and Reddit for a few rounds (the MiroFish / OASIS engine), so word of mouth and group dynamics play out.
-5. **Buyer survey.** Everyone answers the same questionnaire: interest, trust, purchase intent and whether they would recommend it, first in their own words and then as quick numbers; would click, the message that works (or a single assigned message in a split test), main objection, what would change their mind, a quote, and optional price questions. The free-text answers become rating distributions (see [How realistic is it?](#how-realistic-is-it)).
-6. **Analyst panel.** Several analysts with different lenses each read the anonymized evidence alone, then the panel reports where they agree.
-7. **Dashboard.** One self-contained HTML file (Apache ECharts inlined, works offline), live while the run happens, with downloads for every report.
+Feed-test previews cover Facebook, Instagram, Reddit, TikTok, LinkedIn, and X. Optional social rounds use the MiroFish/OASIS Twitter and Reddit environments. Search, organic, referral, and sales test families adapt the existing survey, inbox, and pitch engines; they do not reproduce those channels' production systems.
 
 ## Quick start
 
-### Step zero: let it understand your product
+Requires Git, Bash, Python 3, and [uv](https://docs.astral.sh/uv/). The installer provisions the Python 3.12 environment. Use Linux, macOS, or WSL; native Windows has not been validated.
 
 ```bash
-mm understand --docs brief.md pricing.md --url https://yourbrand.com --ads export.csv --name Acme
+git clone https://github.com/DarkWorldCoder/market-mirror.git
+cd market-mirror
+bash install.sh
+./mm configure
 ```
 
-One Claude call reads everything you have into a **product profile**: what it is, for whom and where, pricing and offer, proofs, differentiators, competitors, channels, the objections your material already predicts, brand voice, the KPIs you watch, and what is still unknown. `quickstart --from-docs ...` prefills its questions from it; `market-test` builds it right after upload (so the market map gets Brand, Product, Competitor and Objection nodes), and every later step (persona planning, feed test, survey wording, pitch, report, test ideas) reads it. The MCP tool is `understand`.
-
-### Easiest: `quickstart`
+Choose your model provider, then start the backend and create your first scenario:
 
 ```bash
-git clone https://github.com/DarkWorldCoder/market-mirror && cd market-mirror
-cd backend && uv sync --python 3.12 && cd ..
-bash backend/claude_cli/start_server.sh
-backend/.venv/bin/python backend/claude_cli/mirofish.py quickstart
+./mm provider check
+./mm start
+./mm cli quickstart --out scenarios/acme
 ```
 
-It asks nine plain questions (brand, what you sell, who buys and where, platforms, what to test, budget, how many people, past ad export, extra documents), creates `.env` and asks for your Anthropic key if there is none (typed hidden, never printed), writes a scenario folder with template ads, messages, a launch calendar, a pitch and rebuttals, builds the simulated people and stops before any paid step. Edit the templates, then run the printed command. Agents call it with `--answers @answers.json`, or through the `quickstart` MCP tool.
+The wizard asks about your product, buyers, channels, budget, and test size. It writes editable inputs, prepares the simulated people, and stops for review before running the remaining tests. **Preparation itself uses model calls.** Start with a small cohort. `provider check` discovers models without running inference; it does not test model quality or tool support.
 
-### No API key? Run on your Claude Code or ChatGPT login
+Inspect the generated files and profiles. To continue, retain the returned `simulation_id`, set `"approve_spend": true` in `scenarios/acme/market_test.json`, and run:
 
 ```bash
-mm gateway start claude      # or: codex   (plugin helper), or by hand:
-python backend/gateway/local_gateway.py --backend claude --workers 6
+./mm cli market-test scenarios/acme/market_test.json
+./mm live --run-dir mirofish_runs/acme
 ```
 
-The gateway is a tiny OpenAI-compatible server on `http://127.0.0.1:5055/v1` that answers every model call by running `claude -p` (Claude Code, your Claude subscription) or `codex exec` (your ChatGPT subscription). `.env` then says `LLM_PROVIDER=openai`, `LLM_BASE_URL=http://127.0.0.1:5055/v1`, `LLM_API_KEY=gateway`, `LLM_GATEWAY=claude|codex`; nothing else changes. `quickstart` and `doctor` offer it when no key is found. Be aware: each call starts a CLI process (about 3-8 s, so a 150-person run takes hours rather than an hour), your subscription's rate limits apply, identical prompts are cached in SQLite so reruns are free, and both vendors allow subscription use through their own tools for your own work, not inside a product you resell: use an API key for teams and clients. Any OpenAI-compatible local model works the same way (`LLM_PROVIDER=openai` and the Ollama / LM Studio / vLLM URL).
+The live viewer runs at [127.0.0.1:5050](http://127.0.0.1:5050). Use the actual run directory printed by the pipeline if its name differs. The saved `dashboard.html` also opens directly without a server. To generate templates without preparing people, use `./mm cli quickstart --no-run`.
 
-### As a Claude skill (recommended)
+`./mm start` starts the backend; `./mm cli start --simulation …` starts social simulation rounds. All examples below use the repository's `./mm` helper—no global command or alias is required.
 
-In Claude Code:
+### Test your product URL
 
-```
-/plugin marketplace add DarkWorldCoder/market-mirror
-/plugin install market-mirror@market-mirror
-```
-
-Then just ask, for example: *"Test these three Facebook ads on parents in Jakarta and Surabaya; here is our landing page and last month's Ads Manager export."* The skill downloads the engine, sets it up, asks for your Anthropic key, plans personas, stops to show them to you before spending, runs the tests and opens the live dashboard. It also pulls real data from tools you have connected (Meta Ads, Google Ads, Semrush, web search, your CRM exports).
-
-You can also copy `plugin/skills/market-mirror/` into `~/.claude/skills/`. The skill needs a shell, `git` and [`uv`](https://docs.astral.sh/uv/).
-
-### As agent tools (MCP)
-
-The plugin also starts an MCP server, so Claude Desktop, Claude Code or any MCP client gets these tools: `doctor`, `setup`, `start_backend`, `quickstart`, `market_test` (everything in one call), `job_status`, `results`, `list_runs`, `start_live`, `ads_import`, `ideas` (pass rows you pulled from Meta/Google/TikTok Ads tools), `pitch`, `backtest` and `cli`. An agent with an ads connector can therefore read the account, propose tests, simulate them and report, without the user touching a file. To add it by hand:
+Install the optional browser support, then use a prepared simulation's ID:
 
 ```bash
-claude mcp add market-mirror -- python3 /path/to/market-mirror/plugin/skills/market-mirror/scripts/mcp_server.py
+uv sync --project backend --extra browser --python 3.12
+backend/.venv/bin/python -m playwright install chromium
+./mm cli website-test --simulation "$SIMULATION_ID" \
+  --url https://your-product.example/products/shoes --goal add_to_cart \
+  --task "Evaluate these shoes and decide whether to add a suitable pair to your cart." \
+  --limit 3 --steps 12
 ```
 
-### One command for everything
+Restart the backend after installing the browser extra. Replace the URL with your site. Browser control supports search and keyboard actions, product options, hover menus, same-site tabs and frames, open shadow DOM, and bounded recovery when the page changes. Add `--record-video` for a recording or `--headed` to watch on a desktop with a graphical session. Agents may interact with the actual cart; signup submission requires explicitly supplied test data and opt-in. No orders or payments are supported. Named DOM checks verify outcomes independently of what an agent claims. Without them, completion stays unverified. See [real website testing](docs/WEBSITE_TESTING.md) for outcome checks, signup setup, browser limits, and the evidence report.
 
-```json
-{
-  "name": "acme_launch", "title": "Acme Pro launch test",
-  "seeds": ["brief.md", "past_ads.md", "landing_page.md"],
-  "requirement": "question.txt",
-  "personas": "personas.json",
-  "creatives": "creatives.json",
-  "seeds_n": 3,
-  "posts": "posts.json", "events": "events.json",
-  "rounds": 6,
-  "survey": {"offer": "Acme Pro trial", "goal": "start a free trial", "messages": "messages.txt", "split": true, "pricing": "USD"},
-  "pitch": {"script": "pitch.md", "rebuttals": "rebuttals.md", "channel": "dm"},
-  "panel": {"analysts": 5, "brief": "Which audience and message get the budget, and should we launch?"},
-  "report": true,
-  "approve_spend": false
-}
-```
+Browser runs use compact model observations while retaining full local evidence. Set call, input-token, and elapsed-time limits; repeated actions on unchanged pages are detected separately from buyer departures. Reports show available cache usage, model time, and cost basis. See [browser context and run limits](docs/WEBSITE_TESTING.md#control-context-usage-and-run-limits).
 
-```bash
-mm market-test scenarios/acme/market_test.json   # 1st run: builds the people, then stops so you can check them
-# add "simulation_id" from the output and "approve_spend": true, run again:
-# feed test -> brand posts + launch calendar inside 6 rounds -> survey -> pitch rehearsal -> analyst panel -> report -> dashboard
-```
+### Choose your model
 
-### By hand
-
-```bash
-git clone https://github.com/DarkWorldCoder/market-mirror && cd market-mirror
-cp .env.example .env                 # set LLM_API_KEY=<your Anthropic key>
-cd backend && uv sync --python 3.12 && cd ..
-bash backend/claude_cli/start_server.sh
-alias mm="backend/.venv/bin/python backend/claude_cli/mirofish.py"
-
-# 1. personas (stop before paid rounds and look at them)
-mm run --seed scenarios/acme/brief.md scenarios/acme/past_ads.md \
-       --requirement @scenarios/acme/question.txt --personas scenarios/acme/personas.json \
-       --stop-after prepare --out mirofish_runs/acme
-mm profiles --simulation <sim_id> --brief
-
-# 2. ads in real-looking feeds, with landing page, projections and ROI
-mm feedtest --simulation <sim_id> --creatives @scenarios/acme/creatives.json --exposures 2 --seeds 3
-
-# 3. a few rounds of social simulation, then the buyer survey (split test + price)
-mm start  --simulation <sim_id> --max-rounds 3
-mm survey --simulation <sim_id> --offer "Acme Pro trial" --goal "start a free trial" \
-          --messages @scenarios/acme/messages.txt --split --pricing USD
-
-# 4. second opinion, then watch everything live
-mm panel --simulation <sim_id> --analysts 5 --brief "Which audience and message get the budget?"
-mm live                              # http://127.0.0.1:5050/
-```
-
-Keep your own inputs in `scenarios/<name>/`. That folder is gitignored, and so is `mirofish_runs/`.
-
-## Recipes
-
-| Recipe | You provide | Run |
+| Provider | Setup | Authorization |
 |---|---|---|
-| **Ad / creative test** | ads (text, headline, CTA, image or description, platform, targeting) | `feedtest --creatives @creatives.json --seeds 3` |
-| **Message / offer split test** | 2+ messages, the conversion goal | `survey --messages @messages.txt --split` |
-| **Price test** | offer description, currency | `survey --pricing USD` |
-| **Landing page check** | load time, language, form fields, price | `landing` block in `creatives.json` |
-| **Spend, CPL and ROI** | CPM and budget (or an ads export); optional lead value, close rate, deal value, margin | `benchmarks` block, or `--benchmarks @past_ads.json` |
-| **Past-ads analysis** | Meta Ads Manager / Google Ads CSV or JSON export | `ads-import export.csv --out scenarios/x/past_ads.md` |
-| **Backtest** | 3+ past ads recreated as creatives with `"real_ad"` names | `backtest --run-dir ... --actuals past_ads.json` |
-| **Product or feature launch** | announcement, your captions, a calendar (`events.json`: `[{"round": 2, "agent": "Brand", "platform": "both", "content": "..."}]`) | `run --posts @posts.json --events @events.json --max-rounds 6`; watch the **Social feed** |
-| **Captions in the platform's voice** | a brief (and a previous run's objections) | `captions --brief @brief.md --platform instagram --n 6` -> use as posts, creatives or messages |
-| **Sales pitch rehearsal** | pitch or call script, rebuttals per objection type (`## price`, `## trust`, `## any`) | `pitch --simulation <id> --script @pitch.md --rebuttals @rebuttals.md --channel call` |
-| **What to test next** | Ads Manager export, or rows from a connected ads tool, plus a previous run | `ideas --ads export.csv --run-dir mirofish_runs/x --brand Acme` |
-| **Plain-language report** | a finished run | `report --simulation <id> --run-dir mirofish_runs/x` (written by `market-test` automatically) |
-| **Email campaign** | emails (sender, subject, preheader, body, CTA, send time, sequence steps), list size | `emailtest --simulation <id> --emails @emails.json --list-size 10000`: inbox simulation, open/click/unsubscribe/spam per variant and audience, subject-line ranking, sequence funnel, projection to leads and revenue, spam-word warnings |
-| **Anything else: one spec** | `{"type": "ad|message|price|offer|positioning|naming|landing|launch|pitch|email|creator_post|channel_mix", "variants": [...]}` | `test --simulation <id> --spec @experiment.json` -> `experiment_result.json`: each variant's metric with a 95% margin, winner, lift, clear or tie, how to read it |
-| **What real people say** | a product, category or competitor name | `research --query "home workout app" --country in`: Hacker News, App Store reviews (per storefront), Reddit when it answers, any page -> `research.md` with themes and linked quotes plus `voices.json`; put `"research": "research/"` in `market_test.json` and the personas' interviews, the organic feeds, the report's "What real people say" and the test ideas all draw on those real quotes |
-| **Live context while it runs** | one or two sentences | `context --simulation <id> --text "A competitor just made its trial card-free" --source "r/fitness today"`: from the next round on every persona card carries it; the agent can browse during the run and push what it finds |
-| **Several scenarios, one conclusion** | a base config, scenario overrides (offer, price, messages, posts), seeds | `study --spec study.json`: every scenario x seed runs on the same people; `study_summary.json` has mean, spread and 95% interval per metric, deltas, winner stability, the decision agreement matrix and a conclusion with a confidence that comes from agreement; `study_report.md` and `study.html` |
-| **Predictions that say what they rest on** | a finished run, optional targets | `predict --run-dir mirofish_runs/x --brand Acme --target ctr=2 cpl=10`: CTR, CPL, would-convert and email click predictions with 95% intervals, scaled by every real result stored so far (`backtest`, `calibrate`), labelled "calibrated on N real results" or "uncalibrated prior"; plus a 90-day adoption forecast with the word of mouth seen in the rounds |
-| **Reliability check** | nothing extra | `survey ... --retest 20`: twenty people answer again a simulated week later; agreement is reported |
-| **Trust / correct / walk away** | 50-300 real answers (CSV: segment, country, gender, age, y) | `calibrate --run-dir mirofish_runs/x --real answers.csv [--map y=Converted]` -> `calibration.json` with the verdict per audience and an AIPW-corrected rate |
-| **Second opinion** | anything above | `panel --analysts 5` |
+| **Local Codex** | `./mm gateway start codex` | Existing local Codex login |
+| **Local Claude Code** | `./mm gateway start claude` | Existing local Claude Code login |
+| **ChatGPT sign-in** | `./mm gateway login`, then `./mm gateway start siwc` | Eligible account; scope and model access checked during setup |
+| **Ollama / LM Studio** | Choose the provider in `./mm configure` | A locally installed, tool-capable model |
+| **Claude / OpenAI API** | Choose the provider in `./mm configure` | Provider API key and available model access |
+| **Other compatible servers** | Configure the endpoint and model | Provider-dependent |
+
+For a login gateway, start it **before** `./mm provider check` and `./mm start`. Use one gateway at a time. If changing providers while the backend is running, restart it with `./mm stop` followed by `./mm start`.
+
+API keys are entered privately in your terminal. `./mm configure --open-guide` can open the provider's key console; `./mm provider status` shows masked configuration. Agents can configure an existing secret with `--key-env` instead of placing it in tool arguments. See [provider setup and troubleshooting](docs/LOCAL_AGENTS.md).
+
+The default knowledge graph uses local SQLite and local embeddings; no Zep account is required. Model downloads and public-source research require network access. Hosted providers and CLI gateways receive model prompts through the selected provider. Model usage remains subject to that account's limits and charges.
+
+## Connect your agent
+
+Use MarketMirror from Codex, Claude Code, Cursor, Gemini, or another client supporting its MCP transport. Install and configure the engine first using the quick start above.
+
+### Codex plugin
+
+From the repository root:
+
+```bash
+codex plugin marketplace add "$PWD"
+codex plugin add market-mirror@market-mirror-local
+```
+
+### Claude Code plugin
+
+```bash
+claude plugin marketplace add "$PWD"
+claude plugin install market-mirror@market-mirror
+```
+
+The plugin bundles the main workflow plus focused research, planning, testing, and evidence-review Agent Skills. They share one canonical source. Client plugin support and configuration locations vary; see the [plugin guide](plugin/README.md).
+
+### Any compatible MCP client
+
+Print configuration for your client without overwriting its settings:
+
+```bash
+./mm agent-config --client generic
+# Also supports: codex, claude, cursor, gemini
+```
+
+The output contains an absolute server path and engine location. Copy the entry into your client's MCP configuration and restart the client. The stdio server can also be launched with `./mm mcp`.
+
+For authenticated loopback HTTP MCP:
+
+```bash
+python3 plugin/skills/market-mirror/scripts/mcp_server.py \
+  --http --port 5061 --token-file /absolute/path/to/private-token
+```
+
+Create a private token file containing a random bearer token of at least 24 characters. Connect to `http://127.0.0.1:5061/mcp` using that token. This transport is intended for local agents, not a hosted remote service.
+
+Try this in your agent:
+
+> Use MarketMirror to analyze our product and campaign performance. Bring in ad and analytics data from tools you have authorized access to, or use the exports I provide. Research cited customer feedback, survey a small simulated audience, and compare two ads or offers. Test our product URL with synthetic visitors, show the evidence and missing inputs, and recommend the next real experiment.
+
+Core tools: `doctor`, `provider_setup`, `understand`, `ads_import`, `ideas`, `website_test`, `research`, `actuals_import`, `campaign_plan`, `run_test`, `study`, `job_status`, `holdout_backtest`, `predict`, and `results`. Long jobs return status, logs, and result paths. Poll `job_status` before treating a job as complete.
+
+## Example workflow
+
+```mermaid
+flowchart LR
+    A[Product brief] --> B[Product profile]
+    C[Cited public feedback] --> D[Campaign plan]
+    J[Connected ad data or exports] --> D
+    B --> D
+    D --> E[Surveys, campaign tests and website journeys]
+    E --> F[Compare scenarios]
+    F --> G[Next real experiment]
+    G --> H[Import observed results]
+    H --> I[Backtest and calibration]
+    I --> D
+```
+
+After quickstart creates `scenarios/acme/`, replace its example content with your product material:
+
+```bash
+./mm cli understand --docs scenarios/acme/brief.md --name Acme \
+  --out scenarios/acme/product_profile.json
+
+./mm cli research --query "home workout app" --country in \
+  --out scenarios/acme/research
+
+./mm cli campaign-plan --profile scenarios/acme/product_profile.json \
+  --research scenarios/acme/research/voices.json \
+  --goal "trial signup" --budget 500 --currency USD \
+  --channels search organic paid_social email sales referral \
+  --out scenarios/acme/campaign_plan.json
+```
+
+The plan contains `test_specs`, cited evidence, assumptions, and unknowns. Channel budgets start as equal draft allocations. Review the claims and allocations, save a selected spec as `experiment.json`, and test it on a prepared simulation:
+
+```bash
+# Set this to the ID returned by your preparation step.
+SIMULATION_ID=sim_replace_me
+./mm cli test --simulation "$SIMULATION_ID" --spec @experiment.json
+./mm cli study --spec study.json
+```
+
+`experiment.json` and `study.json` are your reviewed input files; [input examples](docs/INPUT_FORMATS.md) and `./mm cli study --help` describe their contracts. Study cells reuse completed work; rerun the same specification to resume. Each independent comparison should begin from the same initial state and matched scenario seeds.
+
+Import actual outcomes when available. This example expects an export with `Day`, `Country`, `Views`, and `Clicks` columns:
+
+```bash
+./mm cli actuals-import exports/campaign.csv --source-type ads \
+  --map date=Day market=Country impressions=Views clicks=Clicks \
+  --out scenarios/acme/actuals.json
+
+./mm cli holdout-backtest --pairs experiments_with_train_and_holdout.json \
+  --out scenarios/acme/holdout_backtest.json
+```
+
+The importer retains source, date, market, and quality labels and returns row-level validation errors. Backtests require explicitly paired simulated and real outcomes with declared training/holdout splits; the imported export alone is not a ready-made holdout dataset.
 
 <details>
-<summary><b>Input formats</b> (personas.json, creatives.json)</summary>
+<summary>Useful commands after preparing a simulation</summary>
 
-**personas.json**
-
-```json
-{
-  "segments": [
-    {"label": "Philippines parents", "count": 8, "country": "Philippines", "cities": ["Manila", "Cebu City"],
-     "age_min": 35, "age_max": 50, "role": "parent who wants to get fit at home", "entity_type": "Parent",
-     "languages": ["Tagalog", "English"], "platforms": ["Facebook"],
-     "notes": "Pilot: cheapest cost per trial; many drop at the card step", "gender_mix": "balanced",
-     "diversity": {"income": ["lower-middle", "middle", "upper-middle"]}}
-  ],
-  "communities": [
-    {"name": "Fit Pinoy Community", "kind": "facebook_group", "segments": ["Philippines parents"],
-     "norms": "encouraging, Taglish posts, before/after photos", "join_share": 0.9, "account": true}
-  ],
-  "keep_entities": ["Your brand"], "graph_agents": "auto", "in_group_follows": 6, "bridge_rate": 0.05
-}
+```bash
+./mm cli profiles --simulation "$SIMULATION_ID" --brief
+./mm cli feedtest --simulation "$SIMULATION_ID" --creatives @creatives.json --seeds 3
+./mm cli survey --simulation "$SIMULATION_ID" --offer "Acme trial" \
+  --goal "start a trial" --messages @messages.txt --split --pricing USD
+./mm cli emailtest --simulation "$SIMULATION_ID" --emails @emails.json
+./mm cli pitch --simulation "$SIMULATION_ID" --script @pitch.md --rebuttals @rebuttals.md
+./mm cli report --simulation "$SIMULATION_ID" --run-dir mirofish_runs/acme
 ```
 
-Up to 500 people per segment and 2,000 in total. `--auto-personas N` plans segments and communities for you. Optional keys: `"probes": false` skips the second interview call (adaptive follow-ups, product questions, BDE card); `"population": {"India": {"age": {"18-24": 0.32, "25-34": 0.28, ...}, "gender": {"female": 0.49, "male": 0.51}}}` rakes each person's `weight` to the census-like shares you give, so weighted rates reflect the real mix (bring the shares from your census or ad-platform reach data; none are shipped).
+If preparation saved a complete profile set but stopped before its configuration was ready, use `./mm cli prepare --simulation "$SIMULATION_ID" --resume-only`. It reuses saved profiles and refuses to regenerate incomplete sets.
 
-**creatives.json**
+Keep inputs under `scenarios/` and outputs under `mirofish_runs/`; both are gitignored. Use `./mm cli --help` for the full command list.
 
-```json
-{
-  "creatives": [
-    {"id": "fb1", "platform": "facebook", "format": "image", "page": "Acme", "link": "https://acme.com",
-     "text": "Primary text...", "headline": "Headline", "cta": "Sign up",
-     "media": "what the image or video shows", "image": "optional/local/image.png",
-     "segments": ["optional targeting"], "countries": ["optional"], "real_ad": "optional name in your ads export"}
-  ],
-  "landing": {"load_seconds": 3.5, "language": "English", "shows": "what the page shows",
-              "form_fields": ["full name", "email", "phone number"], "price": "free", "steps": 1},
-  "benchmarks": {"facebook": {"cpm": 2.1, "ctr": 1.4, "budget": 500, "currency": "USD",
-                              "lead_value": 12, "close_rate": 0.1, "deal_value": 300, "gross_margin": 0.8, "monthly_value": 25}}
-}
-```
-
-Platforms: `facebook`, `instagram`, `reddit`, `tiktok`, `linkedin`, `x`. Several creatives on one platform are split-tested automatically.
-
-In the `market-test` config, `seeds` lists your documents and `seeds_n` is how many times to repeat the feed test with different random seeds (same as `feedtest --seeds N`).
 </details>
 
-## The dashboard
+## Reports and visualization
 
-Sections, in order: **Decision** (go / iterate / no-go), **Report** (plain language, with every download button in its header), **Results** (verdicts and headline numbers), **Ratings** (free-text answers as 1-5 distributions, mean ± spread per audience), **Playbook**, **Sales rehearsal**, **Test ideas**, **Feed test** (range across seeds, post mocks with scroll replay, metrics, landing funnel, projections and ROI), **Social feed** (every post of the simulation by platform, round, audience and country, with likes, quotes, reposts and comments; a brand-posts strip with reach and reply sentiment), **Funnel**, **Audiences**, **Objections**, **Messages** (split-test ranking and an audience × message heatmap), **Pricing** (Van Westendorp curves), **Voices**, **Analysts**, **Backtest**, then the people (cards with their interview summary, phone and data plan, groups, what they did, their objection and lead score), activity over time, the market map (brand, competitors, segments, communities, countries, objections and benefits, all connected) and run details.
+Each run can produce a self-contained HTML dashboard with inline charts, audience breakdowns, message comparisons, funnel assumptions, pricing, objections, and a market map. The report uses a neutral editorial layout, a collapsible export menu, and report-only PDF printing. CSV and JSON exports preserve the underlying simulated results.
 
-**The report** is one Claude call over a compact fact sheet of the whole run (decision, ads, survey by audience, objections with quotes, pricing, panel, social feed, people). Its sections are fixed (what we tested, who we simulated, what happened on social media, ad results, survey results, objections and how to answer them, pricing, sales notes with ICP and first messages, action plan, limits and confidence), every number is checked against the fact sheet, and it is rendered deterministically to Markdown. If the model fails, a data-only version is written instead.
+<table>
+<tr>
+<td width="50%"><img src="docs/images/feed-test.png" alt="Platform-style ad preview, simulated feed reactions, and creative metrics" /><br /><b>Feed tests.</b> Inspect reactions, compare creatives, and replay simulated scroll sessions.</td>
+<td width="50%"><img src="docs/images/audiences.png" alt="Simulated audience response comparisons" /><br /><b>Audience views.</b> Compare responses across segments, markets, and demographic groups.</td>
+</tr>
+<tr>
+<td><img src="docs/images/social-feed.png" alt="Posts and replies from the simulated social feed" /><br /><b>Social activity.</b> Follow posts, comments, and community responses across simulation rounds.</td>
+<td><img src="docs/images/report.png" alt="Example narrative report generated from simulation evidence" /><br /><b>Reports.</b> Review findings, objections, sales notes, proposed actions, and evidence limits.</td>
+</tr>
+</table>
 
-**Downloads (in the report header):** this page (HTML), print or save as PDF, the report (Markdown), the action plan (JSON), every survey answer and every feed session (CSV), results by audience and creative metrics with ROI (CSV), lead scores (CSV), the sales rehearsal and the social feed (JSON), test ideas (Markdown) and all key numbers (JSON). The same files are written next to `dashboard.html`.
+Screenshots show a completed Fitloop demo with 28 simulated buyers. Fitloop, its audiences, and its supplied pilot figures are invented. Screenshots may show an earlier dashboard revision; their numbers are simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy.
 
-## How realistic is it?
+## Evidence and simulation limits
 
-LLM personas are known to be too positive, too uniform, too eager to engage and too rational. MarketMirror builds in what the 2024-2026 research on synthetic consumers supports, and it tells you when not to trust a number:
+- **Generated interviews remain synthetic.** Detailed biographies and BDE profiles do not turn invented people into customer evidence.
+- **Behavior controls are assumptions.** Attention, fatigue, social proof, and landing friction include hand-set priors that need validation for the intended market.
+- **Seed variation measures simulation variation.** It is not a predictive confidence interval. Repeated agreement and synthetic test–retest consistency do not establish agreement with humans.
+- **Backtests answer specific questions.** The existing no-persona comparator is the mean real outcome in the training set. Beating it alone does not establish general predictive reliability or replace a matched generic-reader LLM comparison.
+- **Calibration depends on coverage and assumptions.** Uncalibrated predictions omit intervals and success probabilities. Validate absolute rates, rankings, and subgroup findings separately on untouched real experiments.
 
-- **People, not labels.** Every simulated person is built from a balanced demographic slot (age, gender, city, upbringing, education, income, thinking style, tech comfort, media diet, one contradiction) and then **interviewed**: twelve life questions, two adaptive follow-ups chosen from their own answers (money pressure, a scam story, who they ask before buying, what annoys them in ads), and three questions about your product. Interview-grounded agents reproduce people's answers far better than demographic prompts ([Park et al. 2024](https://arxiv.org/abs/2411.10109); [AI-moderated interviews beat demographics-only twins](https://arxiv.org/abs/2609.29143)).
-- **Structure beats length.** The interview is distilled into a **BDE card**: Background (who they are, what they believe, how much they agree to be polite, where their words and actions differ), Decision procedure (who they ask, how fast, maximiser or satisficer, risk, patience, what makes them act or close the tab) and Evaluation profile (spare money, what they pay for, dealbreakers, trust cues). Organising persona information this way predicted better than raw transcripts on Twin-2K-500 ([arXiv 2608.20344](https://arxiv.org/abs/2608.20344)).
-- **A stereotype guard.** Digital twins tend to collapse into group stereotypes and hyper-rational reasoning ([Funhouse Mirrors](https://arxiv.org/abs/2509.19088); [sociodemographic prompting](https://arxiv.org/abs/2507.16076)). After generation the planner measures variety per audience, repairs people who share an occupation and city, never shows the model a segment label as an identity, and tells people that gut feeling, habits and time pressure are allowed.
-- **Chances, not single picks.** Simulated populations collapse onto one default answer when each person picks once ([distribution-first simulation](https://arxiv.org/abs/2607.18310)). The survey, the feed test and the email test ask every person for their odds (yes / maybe / no, adding to 100) as well as a pick ([Verbalized Sampling](https://arxiv.org/abs/2510.01171)); the dashboard reports the expected rates next to the realised ones and flags audiences whose odds are suspiciously identical.
-- **Ratings from free text.** Asked for a number, models bunch in the middle. People answer interest, trust, intent and recommendation in their own words first; each verdict clause is mapped to a 1-5 distribution by similarity to anchor statements with the local embedding model (semantic similarity rating, which reproduced real purchase-intent distributions across 57 surveys: [Maier et al. 2025](https://arxiv.org/abs/2510.08338)). The same rating is applied to how people answer a sales pitch.
-- **Attention is decided in code**, leaving is the default, social proof is damped, frequency wears out, and the click is not the conversion (page load on the person's network, patience, language and form fields decide); every rate shows a 95% margin and small samples are flagged; `--seeds N` repeats the feed test and the decision card only says go when every seed agrees.
-- **Test-retest.** `survey --retest 20` re-asks twenty people a simulated week later and reports how often they gave the same verdict, the reliability figure the persona papers use.
-- **Trust, correct or walk away.** With 50-300 real answers (a real survey, your Ads Manager export, email stats) `calibrate` runs the diagnostics of [When can you trust your synthetic users?](https://arxiv.org/abs/2609.13148): covariate overlap between your real customers and the simulated panel, a calibration check per audience, and a doubly-robust (AIPW) corrected estimate with cross-fitting. The verdict and the corrected number go into `calibration.json` and the report.
-- **What the papers warn about.** Twins are *distribution-calibrated but identity-imprecise* ([arXiv 2603.29890](https://arxiv.org/abs/2603.29890); individual correlation around r = 0.2 on Twin-2K-500 while aggregate curves track): audience-level and market-level findings are the trustworthy layer, so every per-person number (lead scores, "call these first") is a ranking signal, not a prediction about that person. Price answers are low-confidence without real price data ([MSI](https://www.msi.org/working-paper/using-llms-for-market-research-2/)), and real campaigns can still surprise ([arXiv 2609.25010](https://arxiv.org/abs/2609.25010)). Use MarketMirror to rank options, find objections and plan tests, then confirm with a small real budget. When a backtest or a calibration disagrees with reality, trust reality.
+Read the [human-behavior research guide](docs/HUMAN_BEHAVIOR_RESEARCH.md) for the papers, inspected code gaps, and proposed memory/state architecture. It distinguishes implemented controls from future work and experimentally supported results.
 
-## Costs
+## Measured runs and costs
 
-Everything runs on your own Anthropic key. Defaults use `claude-haiku-4-5`.
+These are local Fitloop measurements, not speed guarantees. Model, hardware, activity settings, concurrency, and provider limits affect runtime.
 
-- **Personas:** about one call per 8 people.
-- **Feed test:** one call per exposure that catches someone's eye (typically 15-35%), plus one per click for the landing page. `--seeds N` multiplies this by N; the log shows calls and tokens per seed.
-- **Rounds:** one call per active agent per round.
-- **Survey:** one call per person. Mapping the free-text answers to ratings runs on the local embedding model and is free.
-- **Panel:** one call per analyst. **Pitch:** one call per person, plus one per objector for the rebuttal. **Report** and **ideas:** one call each.
+| Run | Simulated buyers | Scope | Measured wall time | Feed-test calls | Invoiced cost |
+|---|---:|---|---:|---:|---|
+| Fitloop launch | 28 | Marketing pipeline | 28m 12s | 75 | Unavailable |
+| Fitloop | 150 | Marketing pipeline | 54m 50s | 262 | Unavailable |
+| Fitloop large | 1,008 | Six Reddit social rounds only | 3m 42s | Not measured | Unavailable |
 
-Measured on the Fitloop runs (`claude-haiku-4-5`, 12 parallel calls, feed test with 5 ads, 6 rounds with launch posts, survey with split test and price questions, pitch with rebuttals, 5 analysts, report). Calls are counted from the logs (one per feed exposure that caught the eye, one per logged agent action, one per survey or pitch answer); dollar figures are estimates from those counts at Haiku list prices, so check your Anthropic console for the exact bill.
+The large run included 14 additional graph/community actors and recorded 431 actions. It is **not** a completed 1,000-person feed-test/survey pipeline; actions are not model-call counts. See the [benchmark record and evidence paths](benchmarks/fitloop_1000_social.json).
 
-| Size | People | Claude calls (about) | Wall time (measured) | Cost (about) |
-|---|---|---|---|---|
-| small | 28 | 500 | 26 min (14 for the people, 12 for the tests) | 3 USD |
-| medium | 60 | 800 | 40 min | 5 USD |
-| large | 150 | 1,500 | 54 min (13 for the people, 41 for the tests) | 10 USD |
-| max | 2,000 | 20,000+ | hours; run one platform, fewer rounds, raise `--parallel` | 100+ USD |
+Preparation, active simulation turns, surveys, email/feed reactions, pitches, and reports can all use model calls. Repeated seeds multiply work. Local gateways report upstream usage when available and label estimates; subscription use does not imply a measured monetary cost. Measure a small run before choosing a large cohort. First-time embedding setup may download model assets even when inference runs locally.
 
-In the 150-person run, 64% of agent turns were a scroll past (`do_nothing`), which is what keeps the rounds cheap and the feeds realistic.
+## Other integrations
 
-Always stop after `prepare` and look at the people before spending on the rest. `--parallel` defaults to your CPU count.
-
-## Under the hood
-
-| Part | Where |
+| Interface | Entry point |
 |---|---|
-| Persona planner, communities, follow graph | `backend/app/services/persona_planner.py` |
-| Feed test, landing page, projections and ROI | `backend/app/services/feed_test.py` |
-| Analyst panel | `backend/app/services/analyst_panel.py` |
-| Per-round persona cards, action budgets, brand posts and launch events inside OASIS | `backend/scripts/agent_context.py`, `event_schedule.py` |
-| Real post view (feed story) | `backend/app/services/feed_story.py`, dashboard `social_feed.py` |
-| Plain-language report | `backend/app/services/market_report.py`, dashboard `report_view.py` |
-| Sales rehearsal | `backend/app/services/pitch.py` |
-| Test ideas from real ad data | `backend/app/services/ideas.py` |
-| Quickstart wizard | `backend/claude_cli/quickstart.py` |
-| Product profile (understand) | `backend/app/services/product_profile.py`, `backend/app/api/product.py` |
-| No-key gateway (Claude Code / Codex logins) | `backend/gateway/local_gateway.py` |
-| API | `backend/app/api/market.py` (+ upstream `simulation.py`) |
-| CLI | `backend/claude_cli/mirofish.py`, `market_cli.py` |
-| Survey analysis, playbook, pricing | `backend/claude_cli/marketing.py` |
-| Free-text ratings (SSR) | `backend/app/services/ssr.py` |
-| Dashboard | `backend/claude_cli/exporter.py`, `feed_view.py`, `vendor/echarts.min.js` |
-| All-in-one command | `mirofish.py market-test` |
-| MCP server (agent tools) | `plugin/skills/market-mirror/scripts/mcp_server.py` |
-| Claude skill | `plugin/skills/market-mirror/` |
+| **REST API** | Backend at `http://127.0.0.1:5001`; [endpoint guide](docs/API.md) and [OpenAPI schema](docs/openapi.json) |
+| **Python SDK** | `pip install -e sdk`, then `from marketmirror import MarketMirror`; [SDK examples](sdk/README.md) |
+| **Docker** | Configure `.env`, then `docker compose up --build`; backend on 5001, viewer on 5050, both published on loopback |
+| **Webhooks** | Set `MIROFISH_WEBHOOK_URL` to receive completion summaries from CLI pipelines, studies, and tests |
 
-Claude runs through Anthropic's OpenAI-compatible endpoint. Memory is a free local knowledge graph (SQLite with BM25 and local multilingual embeddings), so no Zep account is needed. `CLAUDE.md` is the full operating guide for agents, and `HANDOFF.md` lists known gaps. Run the tests with `cd backend && uv run --no-sync python -m pytest tests claude_cli/tests -q`.
+The Docker services mount uploads, scenarios, and run outputs from the host. The host's loopback login gateway is not directly reachable from those containers; use a provider reachable from the container or run the CLI gateway workflow on the host.
 
-## Integrate it anywhere
+## Development
 
-- **REST API**: every test, report and prediction is an endpoint on `http://localhost:5001` ([docs/API.md](docs/API.md), [docs/openapi.json](docs/openapi.json); regenerate with `backend/scripts/gen_api_docs.py`). Long jobs return a task id to poll.
-- **Webhooks**: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`, a study spec or a test spec) and the CLI posts a JSON summary when a run, study or test finishes (three tries): wire it to n8n, Zapier, Slack or your CRM.
-- **Python SDK**: `pip install -e sdk`, then `from marketmirror import MarketMirror` ([sdk/README.md](sdk/README.md)): REST methods one to one, plus `quickstart`, `market_test`, `study`, `run_test`, `research` and `results` wrappers.
-- **Docker**: `docker compose up` starts the backend (port 5001) and the live dashboard (port 5050) with your `.env`; `backend/uploads`, `mirofish_runs` and `scenarios` are mounted from the host.
-- **Agents**: the Claude Code plugin (`/plugin marketplace add DarkWorldCoder/market-mirror`), the MCP server for any MCP client, and a Codex package in [codex/](codex/README.md). Publishing steps: [docs/PUBLISHING.md](docs/PUBLISHING.md).
-- **CI**: GitHub Actions runs the test suite (mocked model, no key) and checks the API docs on every push.
+```bash
+cd backend
+uv sync --python 3.12
+uv run --no-sync python -m pytest tests claude_cli/tests -q
+```
 
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · security: [SECURITY.md](SECURITY.md) · changes: [CHANGELOG.md](CHANGELOG.md).
+Tests mock model calls and do not need a live model key. CI also checks generated API documentation. Backend services live in `backend/app/`, the CLI and report renderer in `backend/claude_cli/`, agent tools in `plugin/`, and the Python SDK in `sdk/`.
+
+## Documentation
+
+- [Local installation, providers, and agent setup](docs/LOCAL_AGENTS.md)
+- [Persona, creative, and experiment input formats](docs/INPUT_FORMATS.md)
+- [Real product URL testing: carts, signup, and browser evidence](docs/WEBSITE_TESTING.md)
+- [Agent plugin](plugin/README.md) · [Codex setup](codex/README.md)
+- [REST API](docs/API.md) · [OpenAPI schema](docs/openapi.json) · [Python SDK](sdk/README.md)
+- [Human-behavior research and proposed improvements](docs/HUMAN_BEHAVIOR_RESEARCH.md)
+- [Publishing](docs/PUBLISHING.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## Credits and license
 
-MarketMirror is built on [MiroFish](https://github.com/666ghj/MiroFish) (simulation engine, AGPL-3.0) and [OASIS](https://github.com/camel-ai/oasis) (social simulation). The original MiroFish README is kept at [docs/MIROFISH-UPSTREAM.md](docs/MIROFISH-UPSTREAM.md). The dashboard embeds [Apache ECharts](https://echarts.apache.org) 5.5.1 (Apache-2.0, see `backend/claude_cli/vendor/`). MarketMirror is released under AGPL-3.0.
+MarketMirror is released under [AGPL-3.0](LICENSE). It builds on [MiroFish](https://github.com/666ghj/MiroFish) and [OASIS](https://github.com/camel-ai/oasis). The dashboard embeds [Apache ECharts](https://echarts.apache.org); third-party notices are in [the vendor directory](backend/claude_cli/vendor/README.md). The [original MiroFish README](docs/MIROFISH-UPSTREAM.md) is preserved.

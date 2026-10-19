@@ -25,11 +25,39 @@ def follow_plan(config: Dict[str, Any]) -> Dict[int, List[int]]:
 
 
 async def seed_community_follows(env, config: Dict[str, Any], manual_action_cls, action_type_cls,
-                                 log: Callable[[str], None] = print) -> int:
-    """Run one env step in which every member follows their community peers. Returns follow count."""
+                                 log: Callable[[str], None] = print, batch_size: int = 50) -> int:
+    """Seed follows in bounded env steps so large cohorts do not stall one oversized step."""
     plan = follow_plan(config)
     if not plan:
         return 0
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    platform_follow = getattr(getattr(env, "platform", None), "follow", None)
+    if callable(platform_follow):
+        # OASIS manual env.step also asks every account to observe the feed.
+        # Community setup is known graph data, so use the platform's own follow
+        # operation: it updates the same follow table, counters and trace.
+        seeded = 0
+        total = sum(len(targets) for targets in plan.values())
+        failures = []
+        for agent_id, targets in plan.items():
+            try:
+                env.agent_graph.get_agent(agent_id)
+            except Exception:  # noqa: BLE001 - unknown account in saved graph
+                continue
+            for target in targets:
+                result = await platform_follow(agent_id, target)
+                if result.get("success"):
+                    seeded += 1
+                    if seeded % 250 == 0:
+                        log(f"seeded {seeded}/{total} community follows")
+                elif result.get("error") != "Follow record already exists.":
+                    failures.append(f"{agent_id}->{target}: {result.get('error') or 'unknown error'}")
+        if failures:
+            raise RuntimeError(f"community follow seeding failed for {len(failures)} pairs: {failures[:3]}")
+        log(f"seeded {seeded}/{total} community follows via platform")
+        return seeded
+    batches = []
     actions = {}
     count = 0
     for agent_id, targets in plan.items():
@@ -41,9 +69,16 @@ async def seed_community_follows(env, config: Dict[str, Any], manual_action_cls,
                 for t in targets]
         actions[agent] = acts if len(acts) > 1 else acts[0]
         count += len(acts)
+        if len(actions) >= batch_size:
+            batches.append(actions)
+            actions = {}
     if actions:
-        await env.step(actions)
-        log(f"seeded {count} community follows for {len(actions)} agents")
+        batches.append(actions)
+    for i, batch in enumerate(batches, 1):
+        await env.step(batch)
+        log(f"seeded community follows batch {i}/{len(batches)} ({len(batch)} agents)")
+    if batches:
+        log(f"seeded {count} community follows for {sum(len(b) for b in batches)} agents")
     return count
 
 

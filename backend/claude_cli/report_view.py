@@ -28,9 +28,10 @@ DL_LABELS = {
 
 def download_bar(files: Dict[str, str]) -> str:
     btns = ['<button type="button" data-dl="__page__">This page (HTML)</button>',
-            '<button type="button" onclick="window.print()">Print / PDF</button>']
+            '<button type="button" data-print-report>Print report / PDF</button>']
     btns += [f'<button type="button" data-dl="{_e(n)}">{_e(DL_LABELS.get(n, n))}</button>' for n in files]
-    payload = json.dumps(files, ensure_ascii=False).replace("<", "\\u003c")   # no tag can open or close inside
+    # packed (zlib + base64, see ui.deflate_b64): the files are a third of the page otherwise
+    payload = json.dumps({"enc": "deflate+base64", "files": {n: ui.deflate_b64(t) for n, t in files.items()}}).replace("<", "\\u003c")
     return (f'<div class="dl" role="group" aria-label="Downloads">{"".join(btns)}</div>'
             f'<script type="application/json" id="mm-files">{payload}</script>')
 
@@ -38,8 +39,9 @@ def download_bar(files: Dict[str, str]) -> str:
 def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown_to_html,
                    insight: Optional[str] = None) -> Tuple[str, str, str]:
     """The report, download bar first. Without a generated report it still shows the downloads and a hint."""
-    head = ui.section_head("Report", "Written in plain words from this run. Every number comes from the data below. "
-                           "Simulated people, not real customers.", insight, aside=ui.Raw(download_bar(files)))
+    downloads = '<details class="report-downloads"><summary>Export report and data</summary>' + download_bar(files) + '</details>'
+    head = ui.section_head("Report", "Findings from this run's saved artifacts. Simulated people, not real customers.",
+                           insight, aside=ui.Raw(downloads))
     if not mr or not (mr.get("markdown") or "").strip():
         return ("report", "Report", head + '<div class="callout">No report yet. Run <code>mirofish.py report --simulation '
                 '&lt;id&gt;</code> (or let <code>market-test</code> finish) to get the plain-language report here.</div>')
@@ -47,7 +49,8 @@ def report_section(mr: Optional[Dict[str, Any]], files: Dict[str, str], markdown
     method = mr.get("method")
     note = ('<p class="muted small">Data-only report: the writing step failed, so this is the facts without narrative.</p>'
             if method == "fallback" else "")
-    return ("report", "Report", head + note + f'<article class="report mm-report">{body}</article>')
+    return ("report", "Report", head + note + '<p class="report-basis">Exploratory simulation · validate with a real experiment</p>'
+            + f'<article class="report mm-report">{body}</article>')
 
 
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
@@ -143,11 +146,25 @@ def person_lead_score(sv: Dict[str, Any]) -> Optional[int]:
 
 
 REPORT_CSS = """
+#report{background:transparent;border:0;border-radius:0;padding:22px 0}
 #report .section-head .dl{justify-content:flex-end;max-width:620px}
-.mm-report{background:var(--surface);border-radius:24px;padding:22px 26px;max-width:none}
-.mm-report h1{font-size:1.5rem;font-weight:500;letter-spacing:-.02em;margin-top:0}
-.mm-report h2{font-size:1.15rem;font-weight:500;margin-top:26px;padding-top:14px;border-top:1px solid var(--grid)}
-.mm-report table{font-size:.9rem}.mm-report blockquote{border-left-color:var(--mm-accent)}
+.report-downloads{max-width:100%;font-size:.9rem}.report-downloads summary{cursor:pointer;font-weight:500;padding:8px 0;text-align:right}
+.report-downloads[open] summary{margin-bottom:10px}
+.report-basis{font-size:.75rem;color:var(--muted);letter-spacing:.04em;margin:26px 0 12px}
+.mm-report{background:transparent;border:0;border-radius:0;padding:8px 0;max-width:none;font-size:1rem;line-height:1.75;overflow-wrap:anywhere}
+.mm-report h1{font-size:clamp(1.65rem,3vw,2.4rem);font-weight:600;line-height:1.18;letter-spacing:-.035em;margin:0 0 28px;max-width:30ch}
+.mm-report h2{font-size:1.3rem;font-weight:600;line-height:1.3;letter-spacing:-.02em;margin:40px 0 14px;padding:0;border:0}
+.mm-report h3{font-size:1.05rem;font-weight:600;margin:26px 0 10px}
+.mm-report p,.mm-report ul,.mm-report ol,.mm-report blockquote{max-width:82ch}
+.mm-report p{margin:0 0 18px}.mm-report li{margin:6px 0}.mm-report strong{font-weight:600}
+.mm-report table{font-size:.9rem;line-height:1.55;width:100%;border-collapse:collapse;margin:24px 0}
+.mm-report th{background:transparent;text-align:left;font-weight:600;border-bottom:1px solid var(--border)}
+.mm-report td,.mm-report th{padding:12px 16px 12px 0;vertical-align:top}
+.mm-report td{border-bottom:1px solid var(--grid)}
+.mm-report blockquote{border:0;border-radius:0;background:transparent;padding:0 0 0 20px;margin:24px 0;color:var(--text-2);font-style:italic}
+.mm-report pre{max-width:100%;overflow:auto}.mm-report hr{border:0;border-top:1px solid var(--grid);margin:32px 0}
+@media(max-width:700px){#report .section-head .dl{justify-content:flex-start}.report-downloads summary{text-align:left}.mm-report{padding:4px 0}.mm-report table{display:block;overflow-x:auto}.mm-report td,.mm-report th{min-width:110px}}
+@media print{body.print-report{background:#fff;color:#111}body.print-report .wrap>*:not(#report){display:none!important}body.print-report #report{display:block;break-inside:auto;margin:0;padding:0;--text:#111;--text-2:#333;--muted:#555;--border:#bbb;--grid:#ddd}#report .report-downloads{display:none}.mm-report{color:#111;background:transparent}.mm-report h2,.mm-report h3{break-after:avoid}.mm-report tr,.mm-report blockquote{break-inside:avoid}.mm-report table{display:table;font-size:9pt}}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
 .person{background:var(--surface-2);border-radius:20px;padding:14px 16px}
 .person-h{display:flex;gap:10px;align-items:center}.person-h>div{flex:1;min-width:0}

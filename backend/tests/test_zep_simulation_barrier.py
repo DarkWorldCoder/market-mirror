@@ -270,7 +270,8 @@ def test_force_restart_does_not_continue_while_old_ingestion_is_pending(monkeypa
     assert cleanup_called == []
 
 
-def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_path):
+@pytest.mark.parametrize("platform", ["twitter", "reddit", "parallel"])
+def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_path, platform):
     simulation_id = "sim-start-failure"
     sim_dir = tmp_path / "runs" / simulation_id
     scripts_dir = tmp_path / "scripts"
@@ -285,7 +286,7 @@ def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_p
         }),
         encoding="utf-8",
     )
-    (scripts_dir / "run_twitter_simulation.py").write_text("pass\n", encoding="utf-8")
+    (scripts_dir / "run_parallel_simulation.py").write_text("pass\n", encoding="utf-8")
 
     class Process:
         pid = 123
@@ -301,9 +302,14 @@ def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_p
             raise RuntimeError("monitor failed")
 
     terminated = []
+    spawned = []
     monkeypatch.setattr(SimulationRunner, "RUN_STATE_DIR", str(tmp_path / "runs"))
     monkeypatch.setattr(SimulationRunner, "SCRIPTS_DIR", str(scripts_dir))
-    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    def spawn(command, **kwargs):
+        spawned.append(command)
+        assert kwargs["env"]["PYTHONUNBUFFERED"] == "1"
+        return Process()
+    monkeypatch.setattr(runner_module.subprocess, "Popen", spawn)
     monkeypatch.setattr(runner_module.threading, "Thread", BrokenThread)
     monkeypatch.setattr(
         SimulationRunner,
@@ -320,10 +326,13 @@ def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_p
         with pytest.raises(RuntimeError, match="monitor failed"):
             SimulationRunner.start_simulation(
                 simulation_id,
-                platform="twitter",
+                platform=platform,
                 enable_graph_memory_update=False,
             )
         assert terminated == [simulation_id]
+        assert spawned[0][1].endswith("run_parallel_simulation.py")
+        if platform != "parallel":
+            assert f"--{platform}-only" in spawned[0]
         assert simulation_id not in SimulationRunner._processes
         assert simulation_id not in SimulationRunner._action_queues
         assert simulation_id not in SimulationRunner._stdout_files

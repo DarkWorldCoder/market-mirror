@@ -33,6 +33,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import exporter  # noqa: E402
 import marketing  # noqa: E402
 import market_cli  # noqa: E402
@@ -227,9 +228,11 @@ def step_create_sim(c: Client, project_id: str, graph_id: Optional[str], platfor
 
 def step_prepare(c: Client, simulation_id: str, wait: bool = True, timeout: float = 3600, interval: float = 5,
                  parallel: int = 5, entity_types: Optional[List[str]] = None, use_llm: bool = True,
-                 force: bool = False, persona_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                 force: bool = False, persona_spec: Optional[Dict[str, Any]] = None,
+                 resume_only: bool = False) -> Dict[str, Any]:
     payload: Dict[str, Any] = {"simulation_id": simulation_id, "use_llm_for_profiles": use_llm,
-                               "parallel_profile_count": parallel, "force_regenerate": force}
+                               "parallel_profile_count": parallel, "force_regenerate": force,
+                               "resume_only": resume_only}
     if entity_types:
         payload["entity_types"] = entity_types
     if persona_spec:
@@ -335,7 +338,8 @@ def read_messages(v: Optional[str]) -> List[str]:
 def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
                 platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
-                limit: Optional[int] = None, ssr: bool = True, retest: int = 0) -> Dict[str, Any]:
+                limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
+                seed: int = 11) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
 
     ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers)."""
@@ -354,7 +358,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         people = people[:limit]
     if not people:
         raise CLIError("survey: no simulated people found (prepare the simulation first)")
-    assigned = marketing.assign_messages(people, len(messages)) if split else {}
+    assigned = marketing.assign_messages(people, len(messages), seed=seed) if split else {}
     log(f"survey: asking {len(people)} people on {platform}"
         + (f", split test across {len(messages)} messages" if split else "")
         + (f", with price questions in {currency}" if currency else ""))
@@ -385,7 +389,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         # test-retest reliability (the figure the persona papers report): re-ask some people "a week later"
         import random as _random
         answered = [r for r in responses if r.get("answer")]
-        sample = _random.Random(11).sample(answered, min(int(retest), len(answered)))
+        sample = _random.Random(seed).sample(answered, min(int(retest), len(answered)))
         again = [{"agent_id": r["agent_id"], "platform": platform,
                   "prompt": "A week has passed since a researcher last asked you about this. They ask again; answer afresh "
                             "as you feel today, without trying to remember what you said.\n\n"
@@ -412,10 +416,13 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         log(f"survey: retest of {len(sample)} people: {retest_info['agreement_pct']}% gave the same verdict")
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
-              "platform": platform, "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
+              "platform": platform, "assignment_seed": seed if split else None,
+              "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
               "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
+    if responses and not answered:
+        raise RuntimeError("Survey produced no usable answers. Check provider authentication and the interview environment; diagnostic responses were saved for retry.")
     return {"survey": os.path.join(os.path.abspath(out_dir), "survey.json"), "asked": len(responses),
             "answered": answered, "ssr_rated": ssr_info.get("mapped", 0)}
 
@@ -632,11 +639,17 @@ class LiveDashboard:
         except (OSError, ValueError):
             pass
         os.makedirs(self.run_dir, exist_ok=True)
-        page, _md, _summary = exporter.render_dashboard(exporter.load_run_dir(self.run_dir), title=self.title)
+        bundle = exporter.load_run_dir(self.run_dir)
         label = live_stage(m, rs)
-        import re as _re
-        stable = _re.sub(r'(generated_at\\?"\s*:\s*\\?")[^"\\]*|Generated [^<]*', "", page)
+        # Render timestamps also live inside compressed downloads. Hash the
+        # saved inputs, not freshly generated HTML, to avoid reload loops.
+        stable = json.dumps({"bundle": bundle, "title": self.title}, sort_keys=True, ensure_ascii=False, default=str)
         digest = hashlib.sha1(stable.encode("utf-8")).hexdigest()
+        with self.lock:
+            if digest == self._digest:
+                self.label = label
+                return
+        page, _md, _summary = exporter.render_dashboard(bundle, title=self.title)
         with self.lock:
             if digest != self._digest:
                 self._digest = digest
@@ -792,14 +805,24 @@ def load_persona_spec(path: Optional[str], auto: Optional[int], lite: bool = Fal
 
 
 def cmd_prepare(c: Client, a) -> Any:
+    if a.resume_only and (a.force or a.personas or a.auto_personas):
+        raise CLIError("--resume-only uses the saved persona plan; omit --force, --personas and --auto-personas")
     return step_prepare(c, a.simulation, wait=not a.no_wait, timeout=a.timeout, interval=a.interval,
                         parallel=a.parallel, entity_types=a.entity_types, use_llm=not a.no_llm_profiles,
                         force=a.force or bool(a.personas or a.auto_personas),
-                        persona_spec=load_persona_spec(a.personas, a.auto_personas, a.personas_lite))
+                        persona_spec=load_persona_spec(a.personas, a.auto_personas, a.personas_lite),
+                        resume_only=a.resume_only)
 
 
 def cmd_start(c: Client, a) -> Any:
-    return step_start(c, a.simulation, a.platform, a.max_rounds, graph_memory=not a.no_graph_memory,
+    platform = a.platform
+    if platform == "auto":
+        state = c.data("GET", f"/api/simulation/{a.simulation}")
+        twitter, reddit = bool(state.get("enable_twitter")), bool(state.get("enable_reddit"))
+        platform = "parallel" if twitter and reddit else "twitter" if twitter else "reddit" if reddit else ""
+        if not platform:
+            raise CLIError("simulation has no prepared platform")
+    return step_start(c, a.simulation, platform, a.max_rounds, graph_memory=not a.no_graph_memory,
                       force=not a.no_force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval)
 
 
@@ -970,7 +993,8 @@ def cmd_live(c: Optional[Client], a) -> Any:
 def cmd_survey(c: Client, a) -> Any:
     out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
-                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr, retest=a.retest)
+                      a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr,
+                      retest=a.retest, seed=a.assignment_seed)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -999,6 +1023,44 @@ def cmd_feedtest(c: Client, a) -> Any:
     return _reexport(c, a, out_dir, res)
 
 
+def cmd_website_test(c: Client, a) -> Any:
+    """Drive a real URL with prepared personas and export browser evidence."""
+    from app.services import website_test
+    from pathlib import Path
+    import uuid
+    try:
+        spec = market_cli._load_json_arg(a.spec) if a.spec else {}
+        spec = dict(spec)
+        for arg, key in (("url", "url"), ("goal", "goal"), ("task", "task"),
+                         ("limit", "max_personas"), ("steps", "max_steps"), ("device", "device"),
+                         ("headless", "headless"), ("record_video", "record_video"),
+                         ("record_trace", "record_trace"), ("recoveries", "max_recoveries"),
+                         ("observation_mode", "observation_mode"), ("observation_text_chars", "observation_text_chars"),
+                         ("max_model_calls", "max_model_calls"), ("max_input_tokens", "max_input_tokens"),
+                         ("max_elapsed_s", "max_elapsed_s"), ("loop_limit", "loop_limit")):
+            value = getattr(a, arg, None)
+            if value is not None:
+                spec[key] = value
+        spec = website_test.normalize(spec)
+    except (ValueError, OSError, TypeError) as error:
+        raise CLIError(f"website-test: {error}") from error
+    started = c.data("POST", "/api/simulation/website-test", json={"simulation_id": a.simulation, "spec": spec})
+    try:
+        market_cli.wait_task(c, started["task_id"], "website-test", log)
+    except RuntimeError as error:
+        raise CLIError(str(error)) from error
+    result = c.data("GET", f"/api/simulation/{a.simulation}/website-test", params={"run_id": started["run_id"]})
+    folder = Path(a.out or os.path.join("mirofish_runs", f"{a.simulation}_website_{uuid.uuid4().hex[:6]}")).resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    dashboard = folder / ("website_dashboard.html" if (folder / "dashboard.html").exists() else "dashboard.html")
+    dashboard.write_text(website_test.render_report(result), encoding="utf-8")
+    result["files"]["exported_dashboard"] = str(dashboard)
+    (folder / "website_test.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": result["status"], "run_id": started["run_id"], "summary": result["summary"],
+            "milestones": result["milestones"], "dashboard": str(dashboard),
+            "result_file": str(folder / "website_test.json"), "interpretation": result["interpretation"]}
+
+
 def cmd_panel(c: Client, a) -> Any:
     out_dir = _run_dir_for(a)
     try:
@@ -1022,6 +1084,9 @@ def cmd_backtest(c: Optional[Client], a) -> Any:
             feed = json.load(f)
         with open(a.actuals, encoding="utf-8") as f:
             actual = json.load(f)
+        if isinstance(actual, dict) and "observations" in actual:
+            import actuals as actuals_importer
+            actual = actuals_importer.ad_backtest_table(actual)
     except (OSError, ValueError) as e:
         raise CLIError(f"backtest: {e}")
     mapping = dict(m.split("=", 1) for m in (a.map or []) if "=" in m)
@@ -1077,7 +1142,21 @@ def cmd_market_test(c: Client, a) -> Any:
     def checkpoint():
         save_json(out_dir, "run_manifest", state)
 
+    state.pop("finished_at", None)
     sid = cfg.get("simulation_id") or state.get("simulation_id")
+    research_ref = cfg.get("research")
+    if isinstance(research_ref, str):
+        research_path = research_ref if os.path.isabs(research_ref) else os.path.join(base, research_ref)
+        research_path = research_path if research_path.endswith("research.json") else os.path.join(os.path.dirname(research_path) if research_path.endswith(".json") else research_path, "research.json")
+        if os.path.isfile(research_path):
+            with open(research_path, encoding="utf-8") as f:
+                save_json(out_dir, "research", json.load(f))
+    plan_ref = cfg.get("campaign_plan")
+    if isinstance(plan_ref, str):
+        plan_path = plan_ref if os.path.isabs(plan_ref) else os.path.join(base, plan_ref)
+        if os.path.isfile(plan_path):
+            with open(plan_path, encoding="utf-8") as f:
+                save_json(out_dir, "campaign_plan", json.load(f))
     persona_spec = cfg.get("personas")
     if isinstance(persona_spec, str):
         with open(_cfg_path(base, persona_spec), encoding="utf-8") as f:
@@ -1149,12 +1228,15 @@ def cmd_market_test(c: Client, a) -> Any:
         steps.append("events")
     creatives = cfg.get("creatives")
     if creatives:
-        cpath = _cfg_path(base, creatives)
-        arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
-        state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
-                                                 int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                                                 int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                                                 int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5))
+        if cfg.get("resume_steps") and state.get("feed_test") and market_cli.saved_step_usable(out_dir, "feed_test"):
+            log("market-test: reusing completed feed test in this study cell")
+        else:
+            cpath = _cfg_path(base, creatives)
+            arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
+            state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
+                                                     int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
+                                                     int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
+                                                     int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5))
         steps.append("feed_test")
         checkpoint()
     emails = cfg.get("emails")
@@ -1173,29 +1255,40 @@ def cmd_market_test(c: Client, a) -> Any:
     if survey and rounds < 1:
         rounds = 1                      # the survey interviews a live simulation environment
     if rounds:
-        rs = step_start(c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=True, force=True)
-        state["runner_status"] = rs.get("runner_status")
+        live = _try("environment", lambda: c.data("POST", "/api/simulation/env-status", json={"simulation_id": sid})) if cfg.get("resume_steps") else None
+        if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
+            log("market-test: reusing live interview environment in this study cell")
+        else:
+            rs = step_start(c, sid, cfg.get("platform") or "parallel", rounds,
+                            graph_memory=bool(cfg.get("graph_memory", True)), force=True)
+            state["runner_status"] = rs.get("runner_status")
         steps.append(f"{rounds} rounds")
         checkpoint()
     if survey:
-        msgs = survey.get("messages")
-        if isinstance(msgs, str):
-            mp = _cfg_path(base, msgs)
-            msgs = read_messages("@" + mp) if mp != msgs or msgs.startswith("@") else read_messages(msgs)
-        state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
-                                      msgs or [], bool(survey.get("split")), survey.get("pricing"),
-                                      ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0))
+        if cfg.get("resume_steps") and state.get("survey") and market_cli.saved_step_usable(out_dir, "survey"):
+            log("market-test: reusing completed survey in this study cell")
+        else:
+            msgs = survey.get("messages")
+            if isinstance(msgs, str):
+                mp = _cfg_path(base, msgs)
+                # Study cells use absolute paths. They still denote files even when
+                # _cfg_path returns the same string, so always read an existing file.
+                msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
+            state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
+                                          msgs or [], bool(survey.get("split")), survey.get("pricing"),
+                                          ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
+                                          seed=int(cfg.get("seed", 11)))
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
     if pitch_cfg:
         script = pitch_cfg.get("script") or ""
         sp = _cfg_path(base, script)
-        script = read_text_arg("@" + sp) if sp != script or str(script).startswith("@") else script
+        script = read_text_arg("@" + sp) if isinstance(sp, str) and os.path.isfile(sp) else read_text_arg(script)
         rb = pitch_cfg.get("rebuttals")
         if isinstance(rb, str):
             rp = _cfg_path(base, rb)
-            rb = read_text_arg("@" + rp) if rp != rb or rb.startswith("@") else rb
+            rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
         try:
             state["pitch"] = market_cli.pitch(c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
                                               str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment"))
@@ -1214,6 +1307,8 @@ def cmd_market_test(c: Client, a) -> Any:
         state["report_id"] = rep.get("report_id")
         steps.append("engine report")
     collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
+    if cfg.get("study_cell"):
+        market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
         state["report"] = market_cli.report(c, sid, out_dir, log, load_bundle=exporter.load_run_dir,
@@ -1385,6 +1480,63 @@ def cmd_understand(c: Client, a) -> Any:
             "unknowns": prof.get("unknowns"), "method": prof.get("method")}
 
 
+def cmd_campaign_plan(c: Optional[Client], a) -> Any:
+    import campaign_flow
+    if a.project:
+        if c is None:
+            c = Client(a.base_url, lang=a.lang)
+        profile = c.data("GET", f"/api/graph/project/{a.project}/profile")
+    elif a.profile:
+        with open(a.profile, encoding="utf-8") as f:
+            profile = json.load(f)
+    else:
+        raise CLIError("campaign-plan: supply --profile or --project")
+    research = None
+    if a.research:
+        with open(a.research, encoding="utf-8") as f:
+            research = json.load(f)
+    elif a.project:
+        try:
+            research = c.data("GET", f"/api/graph/project/{a.project}/voices").get("voices")
+        except CLIError:
+            pass
+    try:
+        plan = campaign_flow.build(profile, a.goal, {"amount": a.budget, "currency": a.currency,
+                                                      "period": a.period}, a.channels, research, a.project or "")
+    except ValueError as e:
+        raise CLIError(str(e)) from e
+    path = campaign_flow.save(plan, a.out or "campaign_plan.json")
+    return {"file": path, "plan": plan}
+
+
+def cmd_actuals_import(c: Optional[Client], a) -> Any:
+    import actuals
+    try:
+        mapping = dict(pair.split("=", 1) for pair in (a.map or []))
+        result = actuals.normalize(a.file, a.source_type, mapping, a.source or "", a.market or "",
+                                   a.date or "", a.quality or "")
+    except (OSError, ValueError) as e:
+        raise CLIError(f"actuals-import: {e}") from e
+    path = actuals.save(result, a.out or os.path.splitext(a.file)[0] + ".normalized.json")
+    return {"file": path, **result}
+
+
+def cmd_holdout_backtest(c: Optional[Client], a) -> Any:
+    from app.services import predict as prediction
+    with open(a.pairs, encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = data.get("pairs") if isinstance(data, dict) else data
+    if not isinstance(pairs, list):
+        raise CLIError("holdout-backtest: JSON must be an array or {pairs: [...]} ")
+    result = prediction.holdout_backtest(pairs)
+    if a.out:
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        result["file"] = os.path.abspath(a.out)
+    return result
+
+
 def cmd_calibrate(c: Client, a) -> Any:
     """Check the run's survey against real answers (CSV) and write calibration.json with the verdict + corrected rate."""
     import csv
@@ -1516,7 +1668,8 @@ def cmd_study(c: Client, a) -> Any:
             log(f"study: report written ({data.get('method')})")
         except CLIError as e:
             log(f"study: report call failed, using the data-only report: {e}")
-    md = md or study_mod.render_markdown(summary, st.get("brand") or "")
+    md = ("**Evidence status: exploratory simulation.** Seed agreement does not establish real-world lift or a success probability.\n\n" + md) \
+        if md else study_mod.render_markdown(summary, st.get("brand") or "")
     with open(os.path.join(root, "study_report.md"), "w", encoding="utf-8") as f:
         f.write(md)
     links = {f"{x['scenario']} seed {x['seed']}": os.path.join(os.path.relpath(x["path"], root), "dashboard.html") for x in summary["cells"]}
@@ -1774,11 +1927,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="let Claude plan about N personas (and their communities) from the requirement")
     s.add_argument("--personas-lite", action="store_true", help="skip the life interviews (cheaper, shallower people)")
     s.add_argument("--force", action="store_true", help="regenerate even if prepared")
+    s.add_argument("--resume-only", action="store_true", help="finish from complete saved profiles; never regenerate profiles")
     waitopts(s)
 
     s = sub.add_parser("start", help="start the simulation (and wait for it by default)")
     s.add_argument("--simulation", required=True)
-    s.add_argument("--platform", choices=["twitter", "reddit", "parallel"], default="parallel")
+    s.add_argument("--platform", choices=["auto", "twitter", "reddit", "parallel"], default="auto")
     s.add_argument("--max-rounds", type=int)
     s.add_argument("--no-graph-memory", action="store_true")
     s.add_argument("--no-force", action="store_true", help="don't restart/clean an already-run simulation")
@@ -1857,6 +2011,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--wait-s", type=int, default=600, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
     s.add_argument("--retest", type=int, default=0, help="re-ask N people a week later (simulated) and report agreement")
+    s.add_argument("--assignment-seed", type=int, default=11,
+                   help="reproducible split-message assignment and retest sample (default %(default)s)")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
     s.add_argument("--run-dir", help="where survey.json and the dashboard go (default mirofish_runs/<simulation>)")
@@ -1881,6 +2037,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-export", action="store_true")
     s.add_argument("--title")
 
+    s = sub.add_parser("website-test", help="prepared personas browse a real product URL; record actions, screenshots and DOM-verified goals")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--url", help="real product or landing-page URL")
+    s.add_argument("--goal", choices=("explore_product", "add_to_cart", "reach_signup", "complete_signup", "reach_checkout", "custom"))
+    s.add_argument("--task", help="the visitor's specific task and constraints")
+    s.add_argument("--spec", help="@website_test.json with outcome checks and optional supplied test data")
+    s.add_argument("--limit", type=int, help="synthetic visitors, 1–20; default 3")
+    s.add_argument("--steps", type=int, help="actions per visitor, 1–30; default 12")
+    s.add_argument("--device", choices=("mobile", "desktop"))
+    s.add_argument("--headed", action="store_const", const=False, default=None, dest="headless", help="show the Chromium window (requires a graphical session)")
+    s.add_argument("--record-video", action="store_true", default=None, help="save visitor tab recordings; use disposable test data")
+    s.add_argument("--record-trace", action="store_true", default=None, help="save Playwright traces; traces may contain unredacted test data")
+    s.add_argument("--recoveries", type=int, help="fresh-observation recoveries per visitor, 0–5; default 2")
+    s.add_argument("--observation-mode", choices=("compact", "full"), help="compact model context (default) or full observations for comparison")
+    s.add_argument("--observation-text-chars", type=int, help="compact page text limit, 1000–10000; default 4000")
+    s.add_argument("--max-model-calls", type=int, help="whole-run model call limit, including failures")
+    s.add_argument("--max-input-tokens", type=int, help="whole-run reported input-token threshold, including cached tokens; checked between calls")
+    s.add_argument("--max-elapsed-s", type=float, help="whole-run time threshold; cannot interrupt an in-flight operation")
+    s.add_argument("--loop-limit", type=int, help="stop before this repeated action on equivalent state, 2–10; default 3")
+    s.add_argument("--out", help="export folder; default a separate website run")
+
     s = sub.add_parser("panel", help="independent, anonymized analyst panel over posts, comments, feed test and survey")
     s.add_argument("--simulation", required=True)
     s.add_argument("--analysts", type=int, default=5, help="2-9 analysts, each with a different lens")
@@ -1895,10 +2072,35 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", help="summary + benchmarks JSON (default next to --out)")
     s.add_argument("--title")
 
+    s = sub.add_parser("actuals-import", help="normalize ads, email, website, CRM or survey export with provenance and validation errors")
+    s.add_argument("file", help="CSV or JSON export")
+    s.add_argument("--source-type", required=True, choices=["ads", "email", "website", "crm", "survey"])
+    s.add_argument("--map", nargs="*", help="normalized_field=export_column pairs")
+    s.add_argument("--source", help="human-readable export source")
+    s.add_argument("--market", help="market when absent in export")
+    s.add_argument("--date", help="YYYY-MM-DD when absent in export")
+    s.add_argument("--quality", help="quality label, default user_export_unverified")
+    s.add_argument("--out", help="normalized JSON output path")
+
+    s = sub.add_parser("campaign-plan", help="turn a product profile and cited research into a saved campaign plan and runnable test specs")
+    s.add_argument("--profile", help="product_profile.json")
+    s.add_argument("--project", help="existing project id")
+    s.add_argument("--research", help="research.json or voices.json")
+    s.add_argument("--goal", required=True, help="business conversion goal")
+    s.add_argument("--budget", required=True, type=float)
+    s.add_argument("--currency", default="USD")
+    s.add_argument("--period", default="test period")
+    s.add_argument("--channels", nargs="*", help="search organic paid_social email sales referral")
+    s.add_argument("--out", help="campaign_plan.json path")
+
+    s = sub.add_parser("holdout-backtest", help="compare persona estimates against a training-mean no-persona baseline on held-out real experiments")
+    s.add_argument("--pairs", required=True, help="JSON rows with sim, real and split=train|holdout")
+    s.add_argument("--out", help="save backtest JSON")
+
     s = sub.add_parser("backtest", help="compare simulated creative rankings with real ad results (stores real-vs-simulated CTR pairs for predict)")
     s.add_argument("--brand", help="brand name for the calibration store")
     s.add_argument("--run-dir", required=True, help="run folder with feed_test.json")
-    s.add_argument("--actuals", required=True, help="JSON written by ads-import")
+    s.add_argument("--actuals", required=True, help="JSON written by actuals-import or ads-import")
     s.add_argument("--map", nargs="*", help="creative_id=Real ad name pairs (or set 'real_ad' on each creative)")
 
     s = sub.add_parser("captions", help="write platform-native post/ad captions from a brief (and a run's objections)")
@@ -2028,7 +2230,9 @@ COMMANDS = {
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
     "chat": cmd_chat, "interview": cmd_interview, "profiles": cmd_profiles, "list": cmd_list,
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
-    "panel": cmd_panel, "ads-import": cmd_ads_import, "backtest": cmd_backtest, "market-test": cmd_market_test,
+    "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
+    "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
+    "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
 }
@@ -2039,7 +2243,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        offline = offline_export or offline_live or a.cmd in ("ads-import", "research") or (a.cmd == "quickstart" and a.no_run)
+        offline = offline_export or offline_live or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research") or \
+            (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run)
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

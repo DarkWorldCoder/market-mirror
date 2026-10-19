@@ -4,7 +4,7 @@ services:
     container_name: marketmirror
     env_file: .env                     # LLM_API_KEY=... (or the gateway settings below)
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     volumes:
       - ./backend/uploads:/app/backend/uploads     # knowledge graph, simulations, embedding model, calibration store
       - ./mirofish_runs:/app/mirofish_runs         # run folders with dashboards and reports
@@ -18,12 +18,11 @@ services:
     environment:
       - MIROFISH_URL=http://backend:5001
     ports:
-      - "5050:5050"
+      - "127.0.0.1:5050:5050"
     volumes:
       - ./mirofish_runs:/app/mirofish_runs
     depends_on:
       - backend
 
-  # No API key? Run on your Claude Code or ChatGPT login instead (personal use): the CLI must be logged in on the host,
-  # so run the gateway on the host (python backend/gateway/local_gateway.py --backend claude) and point LLM_BASE_URL at
-  # http://host.docker.internal:5055/v1 in .env.
+  # For a local Codex / Claude Code login gateway, use ./mm on the host.
+  # The authenticated gateway binds to host loopback and is not exposed to containers.

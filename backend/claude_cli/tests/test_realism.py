@@ -136,6 +136,20 @@ class SurveyTextTest(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_split_survey_records_seed_and_assignment(self):
+        d = tempfile.mkdtemp()
+        try:
+            c = StubClient()
+            mirofish.step_survey(c, "sim_x", d, "offer", "sign up", ["A", "B"],
+                                split=True, ssr=False, seed=23)
+            survey = json.load(open(os.path.join(d, "survey.json")))
+            ids = [r["agent_id"] for r in survey["responses"]]
+            self.assertEqual(survey["assignment_seed"], 23)
+            self.assertEqual({r["agent_id"]: r["assigned_message"] for r in survey["responses"]},
+                             mk.assign_messages(ids, 2, seed=23))
+        finally:
+            shutil.rmtree(d)
+
 
 class SSRAnalysisTest(unittest.TestCase):
     def test_segments_report_mean_and_spread(self):

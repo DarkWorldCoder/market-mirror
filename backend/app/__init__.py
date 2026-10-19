@@ -54,7 +54,10 @@ def create_app(config_class=Config):
         logger = get_logger('mirofish.request')
         logger.debug(f"请求: {request.method} {request.path}")
         if request.content_type and 'json' in request.content_type:
-            logger.debug(f"请求体: {request.get_json(silent=True)}")
+            body = request.get_json(silent=True)
+            if request.path == '/api/simulation/website-test' and isinstance(body, dict):
+                body = {**body, 'spec': {**(body.get('spec') or {}), 'test_data': '[redacted]'}} if isinstance(body.get('spec'), dict) else body
+            logger.debug(f"请求体: {body}")
     
     @app.after_request
     def log_response(response):

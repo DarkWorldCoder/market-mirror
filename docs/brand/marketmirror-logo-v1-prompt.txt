@@ -1,0 +1,11 @@
+Generated using the built-in image_gen tool with transparent_background=true.
+
+Use case: logo-brand.
+Asset type: primary horizontal logo for MarketMirror, an open-source app for audience simulation and evidence-led marketing experiments.
+Create one polished, distinctive logo lockup: a compact geometric symbol on the left and the exact wordmark "MarketMirror" on the right.
+Symbol concept: two mirrored, bold angular ribbon shapes forming a readable abstract M, with a precise diamond-shaped negative-space aperture at their meeting point. Convey reflection and comparing possible outcomes through the geometry. Simple strong silhouette, balanced proportions, crisp flat edges, legible as a small app icon.
+Typography: custom-feeling contemporary grotesk sans serif, medium-bold weight, careful optical spacing, uppercase M in Market and Mirror; spell exactly MarketMirror, no other text.
+Palette: near-black #111111 for wordmark and primary geometry, a restrained warm yellow #F3D64B accent on one small facet of the mark, consistent with the app's existing neutral and yellow interface.
+Composition: a single horizontal lockup, generous clear space around it, symbol and lettering aligned optically. Transparent background with genuine alpha, no white or colored canvas.
+Style: refined minimal vector-like brand identity, flat solid fills, no shading.
+Avoid: presentation sheets, multiple alternatives, mockups, borders, enclosing card, gradients, shadows, 3D, stock arrows, bar charts, network nodes, robot faces, sparkles, taglines, watermarks.

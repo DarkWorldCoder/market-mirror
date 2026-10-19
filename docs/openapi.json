@@ -18,6 +18,9 @@
       "name": "Real voices"
     },
     {
+      "name": "Campaign planning"
+    },
+    {
       "name": "Tests on simulated people"
     },
     {
@@ -162,6 +165,58 @@
         ]
       }
     },
+    "/api/graph/campaign-plan": {
+      "post": {
+        "summary": "Save a draft evidence-led campaign plan and runnable test specs",
+        "tags": [
+          "Campaign planning"
+        ],
+        "responses": {
+          "200": {
+            "description": "{plan, file}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "profile": {
+                  "name": "Brand"
+                },
+                "project_id": "",
+                "goal": "trial signup",
+                "budget": {
+                  "amount": 500,
+                  "currency": "USD"
+                },
+                "channels": [
+                  "search",
+                  "email"
+                ],
+                "research": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/graph/project/{project_id}/voices": {
       "put": {
         "summary": "Attach real voices (from research) to a project",
@@ -243,6 +298,98 @@
         "parameters": [
           {
             "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/simulation/website-test": {
+      "post": {
+        "summary": "Real-browser journeys by synthetic visitors with screenshots and supplied DOM outcome checks; background task",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{task_id, simulation_id, run_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "simulation_id": "sim_x",
+                "spec": {
+                  "url": "https://your-product.example",
+                  "goal": "add_to_cart",
+                  "max_personas": 3,
+                  "checks": [
+                    {
+                      "name": "cart_added",
+                      "selector": "[data-testid=cart-count]",
+                      "text": "1"
+                    }
+                  ],
+                  "goal_check": "cart_added",
+                  "observation_mode": "compact",
+                  "max_model_calls": 12,
+                  "max_input_tokens": 100000,
+                  "max_elapsed_s": 180
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/{simulation_id}/website-test": {
+      "get": {
+        "summary": "Browser journey evidence; optional ?run_id=website_x selects the exact run",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "website_test.json with sessions, summary, milestones and artifact paths",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "simulation_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -336,6 +483,95 @@
             }
           }
         ]
+      }
+    },
+    "/api/simulation/actuals-import": {
+      "post": {
+        "summary": "Normalize a local ads/email/website/CRM/survey CSV or JSON export with provenance",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{file, observations, validation_errors, summary}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "file": "/path/to/export.csv",
+                "source_type": "ads",
+                "mapping": {
+                  "clicks": "Link clicks"
+                },
+                "market": "PH"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/holdout-backtest": {
+      "post": {
+        "summary": "Compare calibrated persona predictions with no-persona baseline on held-out real experiments",
+        "tags": [
+          "Reliability and prediction"
+        ],
+        "responses": {
+          "200": {
+            "description": "{status, persona_mae, no_persona_baseline_mae}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "pairs": [
+                  {
+                    "sim": 2.0,
+                    "real": 1.0,
+                    "split": "train"
+                  }
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/api/simulation/email-test": {

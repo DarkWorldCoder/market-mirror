@@ -66,6 +66,23 @@ class RoundsDoneTest(unittest.TestCase):
                                                "reddit_completed": False, "reddit_running": True}))
         self.assertTrue(mirofish.rounds_done({"runner_status": "completed"}))
 
+    def test_start_auto_uses_only_prepared_platform(self):
+        import argparse
+        import mirofish
+        from unittest.mock import patch
+
+        class Client:
+            def data(self, method, path):
+                self_call = (method, path)
+                assert self_call == ("GET", "/api/simulation/sim_x")
+                return {"enable_twitter": False, "enable_reddit": True}
+
+        args = argparse.Namespace(simulation="sim_x", platform="auto", max_rounds=6,
+                                  no_graph_memory=True, no_force=True, no_wait=True, timeout=60, interval=5)
+        with patch.object(mirofish, "step_start", return_value={"status": "running"}) as start:
+            mirofish.cmd_start(Client(), args)
+        self.assertEqual(start.call_args.args[1:3], ("sim_x", "reddit"))
+
 
 class MCPServerTest(unittest.TestCase):
     def test_protocol_and_tools(self):

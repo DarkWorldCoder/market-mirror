@@ -24,6 +24,34 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import marketing
 
 
+def saved_step_usable(path: str, step: str) -> bool:
+    """Reject failed saved outputs when resuming a study or copying a seed."""
+    try:
+        with open(os.path.join(path, step + ".json"), encoding="utf-8") as f:
+            data = json.load(f)
+        if step == "survey":
+            return any(r.get("answer") for r in data.get("responses") or [])
+        live = (data.get("realism") or {}).get("llm_feed_calls") or 0
+        return not (live and (data.get("failed") or 0) >= live)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def prune_unrequested_study_artifacts(path: str, config: Dict[str, Any]) -> None:
+    """A reused simulation may have results from a different earlier campaign.
+
+    Remove those snapshots from this cell, preserving backend originals and
+    the evidence/inputs. Only requested steps can contribute to its report.
+    """
+    for name, requested in {"analyst_panel": config.get("panel"), "pitch": config.get("pitch"),
+                            "email_test": config.get("emails"), "market_report": config.get("report"),
+                            "report": config.get("engine_report") or config.get("report") == "upstream",
+                            "feed_test": config.get("creatives"), "survey": config.get("survey")}.items():
+        artifact = os.path.join(path, name + ".json")
+        if not requested and os.path.isfile(artifact):
+            os.remove(artifact)
+
+
 def _load_json_arg(v: Optional[str]) -> Any:
     if not v:
         return None
@@ -473,7 +501,9 @@ def backtest(feed: Dict[str, Any], actual: Dict[str, Any], mapping: Dict[str, st
         r = real_rows[real_name]
         pairs.append({"creative": cr["id"], "real_ad": real_name, "sim_ctr": per[cr["id"]]["ctr"] or 0,
                       "real_ctr": r["ctr"] or 0, "sim_conv": ((per[cr["id"]].get("landing") or {}).get("conversion_rate")),
-                      "real_conv_rate": r.get("conv_rate"), "real_clicks": int(r["clicks"]), "real_conversions": int(r["conversions"])})
+                      "real_conv_rate": r.get("conv_rate"), "real_clicks": int(r["clicks"]), "real_conversions": int(r["conversions"]),
+                      "sources": r.get("sources") or [], "markets": r.get("markets") or [], "dates": r.get("dates") or [],
+                      "quality": actual.get("quality") or "legacy_import_unverified"})
     if len(pairs) < 2:
         return {"pairs": pairs, "note": "need at least 2 creatives mapped to real ads (creative 'real_ad' field or --map id=Ad name)"}
     sim, real = [p["sim_ctr"] for p in pairs], [p["real_ctr"] for p in pairs]

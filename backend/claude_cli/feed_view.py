@@ -260,7 +260,7 @@ def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Op
             f'<div class="ftc-top"><span class="pill {"accent" if i == 0 and len(ranked) > 1 else ""}">{_e(PLATFORM_LABEL.get(cr.get("platform"), ""))} · {_e(cid)}'
             f'{" · best" if i == 0 and len(ranked) > 1 else ""}</span>'
             f'<button type="button" class="replay" data-replay>▶ Replay the scroll</button></div>'
-            f'<div class="pm-wrap" data-events="{_e(events)}">{post_mock(cr, m)}</div>'
+            f'<div class="pm-wrap" data-events-z="{ui.deflate_b64(events)}">{post_mock(cr, m)}</div>'
             f'<ol class="scroll-log" data-role="log" aria-live="polite"></ol></div>'
             f'<div class="ftc-r"><h3>{_e(cr.get("name") or cid)}{low_n_pill(n // n_seeds)}</h3>'
             f'<p class="muted small">Shown to {n // n_seeds} simulated people in their own feed among organic posts'
@@ -274,8 +274,8 @@ def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Op
             + "</div></div>")
     intro = (f'{ft.get("personas_tested", 0)} simulated people scrolled realistic feeds '
              f'({ft.get("feeds", 0)} feeds, {ft.get("waves", 1)} waves; later waves saw earlier reactions'
-             + (f'; repeated with {n_seeds} seeds' if n_seeds > 1 else '') + '). ± values are 95% '
-             'margins of error; small samples are flagged.'
+             + (f'; repeated with {n_seeds} seeds' if n_seeds > 1 else '') + '). Rates describe simulated responses; '
+             'small samples are flagged. Observed seed ranges describe simulation variation, not real-world prediction intervals.'
              + ('' if n_seeds > 1 else ' One seed only: run with --seeds 3 to see how much the result moves.'))
     head = ui.section_head("Feed test", intro, insight)
     return ("feedtest", "Feed test", head + seeds_card + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
@@ -327,7 +327,9 @@ def backtest_section(b: Dict[str, Any], chart, insight: Optional[str] = None) ->
     if b.get("note"):
         return ("backtest", "Backtest", head + f'<div class="callout">{_e(b["note"])}</div>')
     rows = "".join(f'<tr><td>{_e(p["creative"])}</td><td>{_e(p["real_ad"])}</td><td class="num">{p["sim_ctr"]}%</td>'
-                   f'<td class="num">{p["real_ctr"]}%</td><td class="num">{p["real_clicks"]}</td><td class="num">{p["real_conversions"]}</td></tr>'
+                   f'<td class="num">{p["real_ctr"]}%</td><td class="num">{p["real_clicks"]}</td><td class="num">{p["real_conversions"]}</td>'
+                   f'<td>{_e(", ".join(p.get("sources") or []))}</td><td>{_e(", ".join(p.get("dates") or []))}</td>'
+                   f'<td>{_e(", ".join(p.get("markets") or []))}</td><td>{_e(p.get("quality") or "unverified")}</td></tr>'
                    for p in b["pairs"])
     sc = chart("scatter", {"points": [[p["real_ctr"], p["sim_ctr"], p["creative"]] for p in b["pairs"]]}, 300,
                "Simulated CTR against real CTR per creative")
@@ -341,7 +343,8 @@ def backtest_section(b: Dict[str, Any], chart, insight: Optional[str] = None) ->
             f'<p>{_e(verdict)}</p>' + (f'<ul class="small">{warn}</ul>' if warn else "") + '</div>'
             f'<div class="card"><h3>Simulated vs real CTR</h3>{sc}</div></div>'
             f'<div class="card" style="margin-top:14px"><div class="tbl"><table class="sortable"><thead><tr><th>Creative</th><th>Real ad</th><th class="num">Simulated CTR</th>'
-            f'<th class="num">Real CTR</th><th class="num">Real clicks</th><th class="num">Real conversions</th></tr></thead><tbody>{rows}</tbody></table></div></div>')
+            f'<th class="num">Real CTR</th><th class="num">Real clicks</th><th class="num">Real conversions</th>'
+            f'<th>Source</th><th>Date</th><th>Market</th><th>Quality</th></tr></thead><tbody>{rows}</tbody></table></div></div>')
 
 
 # --------------------------------------------------------------------------
@@ -488,8 +491,14 @@ function describe(ev){var a=[];if(!ev.stopped)return ev.name+' ('+ev.segment+') 
  if(ev.landing){var L=ev.landing;a.push(L.loaded?('page loaded in '+L.load_seconds+'s on '+L.network+(L.completed?' → converted':(L.drop_reason?' → left: '+L.drop_reason:' → left'))):('left: page took '+L.load_seconds+'s on '+L.network));}
  return ev.name+' ('+ev.segment+'): '+a.join(' · ');}
 document.querySelectorAll('[data-replay]').forEach(function(btn){
- btn.addEventListener('click',function(){var card=btn.closest('.ftc');var wrap=card.querySelector('[data-events]');var log=card.querySelector('[data-role=log]');
-  var evs;try{evs=JSON.parse(wrap.getAttribute('data-events'));}catch(e){return;}
+ btn.addEventListener('click',function(){var card=btn.closest('.ftc');var wrap=card.querySelector('[data-events-z],[data-events]');var log=card.querySelector('[data-role=log]');
+  if(!wrap)return;var raw=wrap.getAttribute('data-events');
+  if(raw){try{play(JSON.parse(raw));}catch(e){}return;}
+  if(wrap.__evs){play(wrap.__evs);return;}
+  btn.textContent='… unpacking';
+  window.MM.inflate(wrap.getAttribute('data-events-z')).then(function(t){wrap.__evs=JSON.parse(t);play(wrap.__evs);},
+   function(){btn.textContent='Replay needs a newer browser';});
+  function play(evs){
   if(btn.__t){clearInterval(btn.__t);}
   var counters={};wrap.querySelectorAll('[data-count]').forEach(function(c){counters[c.getAttribute('data-count')]=counters[c.getAttribute('data-count')]||[];counters[c.getAttribute('data-count')].push(c);c.textContent='0';});
   var cbox=wrap.querySelector('[data-role=comments]');var saved=cbox?cbox.innerHTML:'';if(cbox)cbox.innerHTML='';log.innerHTML='';
@@ -499,12 +508,15 @@ document.querySelectorAll('[data-replay]').forEach(function(btn){
    var ev=evs[i++];var li=el('li',ev.stopped?'act':'',describe(ev));log.insertBefore(li,log.firstChild);
    if(ev.reaction&&ev.reaction!=='none'){if(ev.reaction==='upvote')bump('score',1);else if(ev.reaction==='downvote')bump('score',-1);else bump('react',1);}
    if(ev.comment){bump('comment',1);if(cbox){var d=el('div','pm-c');var b=el('div','pm-bubble');var n=el('b','',ev.name.split(' ')[0]);var t=el('div','',ev.comment);b.appendChild(n);b.appendChild(t);d.appendChild(b);cbox.insertBefore(d,cbox.firstChild);}}
-   if(ev.share&&ev.share!=='none')bump('share',1);if(ev.save)bump('save',1);},420);});});
-var files={};try{files=JSON.parse((document.getElementById('mm-files')||{}).textContent||'{}');}catch(e){}
+   if(ev.share&&ev.share!=='none')bump('share',1);if(ev.save)bump('save',1);},420);}});});
+var pack={};try{pack=JSON.parse((document.getElementById('mm-files')||{}).textContent||'{}');}catch(e){}
+var files=pack.files||pack,packed=pack.enc==='deflate+base64';
+function getFile(n){return packed?window.MM.inflate(files[n]||''):Promise.resolve(files[n]||'');}
 function save(name,text,type){var b=new Blob([text],{type:type||'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);}
 document.querySelectorAll('[data-dl]').forEach(function(b){b.addEventListener('click',function(){var n=b.getAttribute('data-dl');
  if(n==='__page__'){save('market-mirror-dashboard.html','<!doctype html>\n'+document.documentElement.outerHTML,'text/html');return;}
- save(n,files[n]||'',n.endsWith('.csv')?'text/csv':n.endsWith('.json')?'application/json':'text/markdown');});});
+ getFile(n).then(function(text){save(n,text,n.endsWith('.csv')?'text/csv':n.endsWith('.json')?'application/json':'text/markdown');},
+  function(){alert('This browser cannot unpack the file. It is saved next to dashboard.html as '+n+'.');});});});
 })();
 """
 
@@ -613,7 +625,7 @@ def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, A
     if (pc.get("verdict") or {}).get("winner"):
         v = pc["verdict"]
         signals.append({"name": "Analyst panel", "vote": v["winner"],
-                        "detail": f"{v['agreement']}% of {pc.get('analysts_ok')} analysts; success chance {pc.get('success_probability')}%",
+                        "detail": f"{v['agreement']}% agreement among {pc.get('analysts_ok')} simulated analysts",
                         "n": pc.get("analysts_ok") or 0})
     if not signals:
         return None
@@ -624,7 +636,7 @@ def decision(bundle: Dict[str, Any], mk: Dict[str, Any]) -> Optional[Dict[str, A
     agree = votes.count(final) / len(votes)
     small = any(s["n"] < 30 for s in signals if s["name"] != "Analyst panel")
     confidence = "high" if agree == 1 and not small and len(signals) >= 2 else "medium" if agree >= 0.5 and not small else "low"
-    why = {"go": "Signals support launching or scaling this, with the fixes below.",
+    why = {"go": "Signals support a small real-world test, with the fixes below.",
            "iterate": "Promising, but fix the blockers and retest before spending at scale.",
            "no-go": "Do not scale this as is. Rethink the offer, audience or message."}[final]
     return {"decision": final, "confidence": confidence, "summary": why, "signals": signals,
@@ -638,7 +650,7 @@ def decision_section(d: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, st
     rows = "".join(f'<li><span><span class="pill {"mint" if s["vote"] == "go" else "accent" if s["vote"] == "iterate" else "orchid"}">'
                    f'{_e(s["vote"])}</span> <b>{_e(s["name"])}</b>: {_e(s["detail"])}</span></li>' for s in d["signals"])
     fixes = "".join(f"<li>{_e(f)}</li>" for f in d.get("fixes") or [])
-    return ("decision", "Decision", f'<div class="panel dec"><div class="eyebrow">Decision · {_e(d["confidence"])} confidence</div>'
+    return ("decision", "Decision", f'<div class="panel dec"><div class="eyebrow">Next experiment · {_e(d["confidence"])} simulation agreement</div>'
             f'<div class="headline"><span class="pill lg {color}" style="margin-right:10px">'
             f'{_e(d["decision"].upper())}</span>{_e(d["summary"])}</div><ul class="verdicts">{rows}</ul>'
             + (f'<div class="eyebrow" style="margin-top:14px">Fix first</div><ul class="verdicts">{fixes}</ul>' if fixes else "")

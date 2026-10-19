@@ -19,11 +19,15 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 TYPES = ("ad", "message", "price", "offer", "positioning", "naming", "landing", "launch", "pitch", "email",
-         "creator_post", "channel_mix", "conjoint")
+         "creator_post", "channel_mix", "conjoint", "search_content", "organic_content", "nurture", "retention",
+         "referral", "sales_outreach", "sales_followup")
 METRIC_DEFAULT = {"ad": "expected_ctr", "message": "convert_yes", "price": "convert_yes", "offer": "convert_yes",
                   "positioning": "convert_yes", "naming": "convert_yes", "landing": "conversion_after_click",
                   "launch": "brand_post_engagement", "pitch": "pitch_score", "email": "click_rate",
-                  "creator_post": "brand_post_engagement", "channel_mix": "expected_ctr", "conjoint": "share_of_choice"}
+                  "creator_post": "brand_post_engagement", "channel_mix": "expected_ctr", "conjoint": "share_of_choice",
+                  "search_content": "convert_yes", "organic_content": "convert_yes", "nurture": "click_rate",
+                  "retention": "click_rate", "referral": "convert_yes", "sales_outreach": "pitch_score",
+                  "sales_followup": "pitch_score"}
 PLATFORMS = ("facebook", "instagram", "tiktok", "reddit", "linkedin", "x")
 
 
@@ -36,12 +40,20 @@ def normalize(spec: Any) -> Dict[str, Any]:
     variants = spec.get("variants") or []
     if t not in ("launch", "landing", "conjoint") and len(variants) < 1:
         raise ValueError("variants are required")
-    if t in ("message", "offer", "positioning", "naming", "price") and len(variants) < 2:
+    if t in ("message", "offer", "positioning", "naming", "price", "search_content", "organic_content",
+             "nurture", "retention", "referral", "sales_outreach", "sales_followup") and len(variants) < 2:
         raise ValueError(f"a {t} test needs at least two variants")
     out = {"type": t, "name": str(spec.get("name") or t), "variants": variants, "audience": spec.get("audience") or {},
            "metric": str(spec.get("metric") or METRIC_DEFAULT[t]), "budget": spec.get("budget") or {}, "rounds": int(spec.get("rounds") or 0),
            "seeds": max(1, int(spec.get("seeds") or 1)), "extra": {k: v for k, v in spec.items()
                                                                  if k not in ("type", "name", "variants", "audience", "metric", "budget", "rounds", "seeds")}}
+    contexts = {"search_content": "search query and result snippet", "organic_content": "unpaid content feed",
+                "nurture": "opted-in lifecycle inbox", "retention": "existing-customer inbox",
+                "referral": "customer referral invitation", "sales_outreach": "first sales conversation",
+                "sales_followup": "follow-up sales conversation"}
+    out["exposure_context"] = str(spec.get("exposure_context") or contexts.get(t) or t)
+    out["next_real_world_test"] = str(spec.get("next_real_world_test") or
+                                      f"Randomize the same audience between variants in a real {t} test and measure {out['metric']}.")
     return out
 
 
@@ -130,6 +142,10 @@ def to_emails(exp: Dict[str, Any]) -> Dict[str, Any]:
     for i, v in enumerate(exp["variants"]):
         d = dict(v) if isinstance(v, dict) else {"subject": str(v)}
         d.setdefault("id", _vid(v, i))
+        if d.get("text") and not (d.get("subject") or d.get("body")):
+            d["subject"] = str(d["text"])[:90]
+            d["body"] = str(d["text"])
+        d.setdefault("from_name", exp["extra"].get("brand") or "The brand")
         d.setdefault("segments", exp["audience"].get("segments") or [])
         d.setdefault("countries", exp["audience"].get("countries") or [])
         emails.append(d)
@@ -247,7 +263,10 @@ def conclude(exp: Dict[str, Any], rows: List[Dict[str, Any]], files: Dict[str, s
         "creator_post": "same as launch, posted by the creator or community account", "pitch": "pitch score 0-100 after rebuttals (yes = 1, maybe = 0.5)",
         "email": "click rate per email among the people it was sent to; opens are decided by the attention gate", "conjoint": "share of choice",
     }.get(exp["type"], "")
-    return {"type": exp["type"], "name": exp["name"], "metric": exp["metric"], "variants": rows, "ranked": [r["id"] for r in ranked],
+    return {"type": exp["type"], "name": exp["name"], "metric": exp["metric"],
+            "audience": exp.get("audience") or {}, "exposure_context": exp.get("exposure_context"),
+            "next_real_world_test": exp.get("next_real_world_test"), "interpretation": "exploratory simulation",
+            "variants": rows, "ranked": [r["id"] for r in ranked],
             "winner": winner["id"] if winner else None, "runner_up": runner["id"] if runner else None, "lift": lift, "clear_winner": clear,
             "unit": (winner or {}).get("unit", "%"), "how_to_read": how, "files": files,
             "verdict": (f"{winner['id']} leads by {lift} {('points' if (winner or {}).get('unit', '%') == '%' else '')} ({'clear' if clear else 'within the margin: treat as a tie'})"
@@ -289,7 +308,7 @@ def run(c, exp: Dict[str, Any], simulation_id: str, run_dir: str, log: Callable[
             ft = _read(os.path.join(run_dir, "feed_test.json"))
             files["feed_test"] = os.path.join(run_dir, "feed_test.json")
             rows = from_feed_test(exp, ft)
-    elif t in ("message", "offer", "positioning", "naming", "price"):
+    elif t in ("message", "offer", "positioning", "naming", "price", "search_content", "organic_content", "referral"):
         msgs = to_messages(exp)
         engines["survey"](c, simulation_id, run_dir, exp["extra"].get("offer") or "", exp["extra"].get("goal") or "", msgs, True,
                           exp["extra"].get("currency") if t == "price" else None)
@@ -307,7 +326,7 @@ def run(c, exp: Dict[str, Any], simulation_id: str, run_dir: str, log: Callable[
         story = _read(os.path.join(run_dir, "feed_story.json"))
         files["feed_story"] = os.path.join(run_dir, "feed_story.json")
         rows = from_feed_story(exp, story)
-    elif t == "pitch":
+    elif t in ("pitch", "sales_outreach", "sales_followup"):
         for p in to_pitches(exp):
             sub = os.path.join(run_dir, f"pitch_{p['id']}")
             os.makedirs(sub, exist_ok=True)
@@ -315,7 +334,7 @@ def run(c, exp: Dict[str, Any], simulation_id: str, run_dir: str, log: Callable[
             pj = _read(os.path.join(sub, "pitch.json"))
             files[p["id"]] = os.path.join(sub, "pitch.json")
             rows.append(from_pitch(p["id"], p["script"][:80], pj))
-    elif t == "email":
+    elif t in ("email", "nurture", "retention"):
         engines["emailtest"](c, simulation_id, json.dumps(to_emails(exp)), run_dir, log)
         et = _read(os.path.join(run_dir, "email_test.json"))
         files["email_test"] = os.path.join(run_dir, "email_test.json")

@@ -91,6 +91,10 @@ class ParseTest(unittest.TestCase):
         for m in mk.assign_messages(list(range(31)), 3).values():
             counts[m] = counts.get(m, 0) + 1
         self.assertEqual(sorted(counts.values()), [10, 10, 11])
+        people = list(range(80))
+        same_seed = mk.assign_messages(people, 2, seed=7)
+        self.assertEqual(same_seed, mk.assign_messages(list(reversed(people)), 2, seed=7))
+        self.assertNotEqual(same_seed, mk.assign_messages(people, 2, seed=8))
 
     def test_interview_texts_handles_both_platforms(self):
         res = {"result": {"results": {"twitter_0": {"agent_id": 0, "response": "no json"},

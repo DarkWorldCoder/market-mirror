@@ -296,6 +296,7 @@ class UsageMeter:
         self._client = client
         self._lock = threading.Lock()
         self.calls = self.input_tokens = self.output_tokens = 0
+        self.usage_sources = set()
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def __getattr__(self, name):            # base_url etc. for is_claude_target
@@ -308,6 +309,7 @@ class UsageMeter:
             self.calls += 1
             self.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
             self.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
+            self.usage_sources.add(getattr(resp, "usage_source", None) or ("provider" if usage else "unavailable"))
         return resp
 
     def snapshot(self) -> Dict[str, int]:
@@ -599,15 +601,19 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
     if landing:
         run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel)
+    failed = sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))
+    if llm_calls and failed == llm_calls:
+        raise RuntimeError("No usable model decisions: all noticed exposures failed. Check provider authentication and availability before retrying.")
     end_usage = meter.snapshot()
     usage = {k: end_usage[k] - start_usage[k] for k in end_usage}
     return {"creatives": creatives, "sessions": sessions, "landing": landing, "waves": waves, "exposures": exposures,
             "seed": seed, "usage": usage,
+            "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
                         "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
             "summary": summarize(creatives, sessions, benchmarks),
             "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total,
-            "failed": sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))}
+            "completion_status": "partial" if failed else "complete", "failed": failed}
 
 
 def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[int, Dict[str, Any]],

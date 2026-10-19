@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "market-mirror",
+  "version": "0.4.0",
+  "description": "Analyze real ad data, research markets, survey simulated buyers, and test marketing, sales, and product journeys through your agent.",
+  "author": {"name": "DarkWorldCoder"},
+  "homepage": "https://github.com/DarkWorldCoder/market-mirror",
+  "repository": "https://github.com/DarkWorldCoder/market-mirror",
+  "license": "AGPL-3.0",
+  "keywords": ["marketing", "sales", "research", "experiments", "MCP"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/market-mirror/SKILL.md",
+      "interface": {
+        "displayName": "MarketMirror",
+        "shortDescription": "Analyze ads and test marketing with your agent",
+        "longDescription": "Bring real ad data from your agent's authorized tools or exports. Research feedback, survey simulated buyers, compare ads, offers and pricing, rehearse sales, and test product URLs with synthetic visitors. Review evidence and plan the next real experiment.",
+        "developerName": "DarkWorldCoder",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://github.com/DarkWorldCoder/market-mirror"
+      }
+    }
+  }
+}

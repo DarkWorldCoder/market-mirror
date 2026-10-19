@@ -268,7 +268,41 @@ def test_seed_community_follows_runs_one_step():
     acts = env.steps[0]
     assert acts["agent0"] == [("FOLLOW", {"followee_id": 1}), ("FOLLOW", {"followee_id": 2})]
     assert acts["agent1"] == ("FOLLOW", {"followee_id": 0})
+    env.steps.clear()
+    n = asyncio.run(community_seed.seed_community_follows(env, cfg, MA, AT, log=lambda m: None, batch_size=1))
+    assert n == 3 and len(env.steps) == 2
+    assert list(env.steps[0]) == ["agent0"] and list(env.steps[1]) == ["agent1"]
     assert asyncio.run(community_seed.seed_community_follows(env, {}, MA, AT)) == 0
+
+
+def test_seed_community_follows_uses_platform_without_agent_observations():
+    class Platform:
+        def __init__(self):
+            self.follows = []
+
+        async def follow(self, follower, followee):
+            self.follows.append((follower, followee))
+            return {"success": True}
+
+    class Env:
+        platform = Platform()
+        agent_graph = SimpleNamespace(get_agent=lambda i: f"agent{i}")
+
+        async def step(self, _actions):
+            raise AssertionError("community setup must not prompt agents")
+
+    env = Env()
+    n = asyncio.run(community_seed.seed_community_follows(
+        env, {"community_config": {"follows": [[0, 1], [0, 2], [1, 0]]}}, None, None, log=lambda m: None))
+    assert n == 3 and env.platform.follows == [(0, 1), (0, 2), (1, 0)]
+
+    async def failed(_follower, _followee):
+        return {"success": False, "error": "database unavailable"}
+
+    env.platform.follow = failed
+    with pytest.raises(RuntimeError, match="community follow seeding failed"):
+        asyncio.run(community_seed.seed_community_follows(
+            env, {"community_config": {"follows": [[0, 1]]}}, None, None, log=lambda m: None))
 
 
 def test_short_runs_start_at_peak_hours():

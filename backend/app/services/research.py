@@ -210,7 +210,9 @@ def voices(quotes: List[Dict[str, Any]], country_hint: str = "") -> List[Dict[st
     for q in quotes:
         t = q["text"]
         if 30 <= len(t) <= 400 and q.get("kind") != "listing" and q.get("kind") != "page":
-            out.append({"text": t, "source": q["source"], "url": q["url"], "sentiment": q["sentiment"], "country": country_hint,
+            out.append({"text": t, "source": q["source"], "url": q["url"], "sentiment": q["sentiment"],
+                        "date": q.get("date") or None, "market": q.get("market") or "unspecified",
+                        "quality": q.get("quality") or "public_feedback_unverified", "country": q.get("market") or "",
                         "app": q.get("app"), "rating": q.get("score") if q.get("kind") == "review" else None})
     return out[:300]
 
@@ -269,6 +271,9 @@ def run(query: str, sources: List[str], out_dir: str, country: str = "us", subre
         key = q["text"][:120].lower()
         if key not in seen:
             seen.add(key)
+            q["market"] = country.upper() if q.get("source") == "appstore" else "unspecified"
+            q["quality"] = "public_review_unverified" if q.get("kind") == "review" else \
+                           "public_listing" if q.get("kind") == "listing" else "public_feedback_unverified"
             uniq.append(q)
     summary = summarize(query, uniq, notes)
     with open(os.path.join(out_dir, "research.json"), "w", encoding="utf-8") as f:

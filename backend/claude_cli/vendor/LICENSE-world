@@ -1,0 +1,12 @@
+world.geo.json: country outlines derived from Natural Earth, "Admin 0 - Countries", 1:110m scale
+(https://www.naturalearthdata.com/, GeoJSON build from https://github.com/nvkelso/natural-earth-vector,
+file geojson/ne_110m_admin_0_countries.geojson).
+
+Natural Earth is in the public domain: "All versions of Natural Earth raster + vector map data found on this
+website are in the public domain. You may use the maps in any manner, including modifying the content and design,
+electronically displaying them, offloading them to print. No permission is needed to use Natural Earth.
+Crediting the authors is unnecessary." (https://www.naturalearthdata.com/about/terms-of-use/)
+
+Changes made here: every property except the country name (NAME) was dropped, coordinates were rounded to
+0.01 degrees and simplified (Douglas-Peucker, 0.05 degree tolerance), Antarctica and the French Southern and
+Antarctic Lands were removed. 175 countries remain.
