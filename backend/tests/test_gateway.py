@@ -176,3 +176,61 @@ def test_gateway_returns_openai_tool_calls(tmp_path):
     assert ch["message"]["tool_calls"][0]["function"]["name"] == "create_post"
     r2 = g.complete({"messages": [{"role": "user", "content": "go"}], "tools": TOOLS, "tool_choice": "none"})
     assert r2["choices"][0]["finish_reason"] == "stop" and r2["choices"][0]["message"]["content"] == "plain answer"
+
+
+def test_usage_limit_is_parsed_and_pauses_the_gateway(tmp_path):
+    import time as _t
+    now = _t.mktime((2026, 10, 19, 10, 0, 0, 0, 0, -1))
+    assert _t.localtime(gw.parse_reset("You've hit your session limit · resets 12:45pm", now))[3:5] == (12, 45)
+    assert gw.parse_reset("try again in 2 hours 13 minutes", now) == now + 2 * 3600 + 13 * 60
+    assert gw.parse_reset("usage limit reached|1760000000", now) == 1760000000
+    assert gw.parse_reset("rate limit", now) is None
+    err = gw.cli_failure("claude", "You've hit your session limit · resets 12:45pm")
+    assert err.status == 429 and err.retry_at
+
+    calls = []
+
+    class B(gw.Backend):
+        name = "fake"
+
+        def complete(self, system, prompt):
+            calls.append(prompt)
+            raise gw.cli_failure("claude", "You've hit your session limit · resets 12:45pm")
+    b = B()
+    b.request = threading.local()
+    g = gw.Gateway(b, workers=1, cache=gw.Cache(None))
+    body = {"messages": [{"role": "user", "content": "hi"}], "temperature": 0.9}
+    with pytest.raises(gw.GatewayError) as first:
+        g.complete(body)
+    assert first.value.status == 429 and g.pause_state()["paused"]
+    with pytest.raises(gw.GatewayError) as second:                      # paused: answered locally, no upstream call
+        g.complete(body)
+    assert second.value.status == 429 and len(calls) == 1
+    g.paused_until = 0                                                  # reset reached: upstream is tried again
+    with pytest.raises(gw.GatewayError):
+        g.complete(body)
+    assert len(calls) == 2
+
+
+def test_http_429_carries_retry_after():
+    class B(gw.Backend):
+        name = "fake"
+
+        def complete(self, system, prompt):
+            raise gw.cli_failure("claude", "Claude AI usage limit reached|9999999999")
+    b = B()
+    b.request = threading.local()
+    g = gw.Gateway(b, workers=1, cache=gw.Cache(None))
+    hits_before = gw.STATS.get("limit_hits", 0)                        # STATS is shared by the module's tests
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), gw.make_handler(g))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps({"messages": [{"role": "user", "content": "x"}]}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 429 and int(e.value.headers["Retry-After"]) > 0
+    assert json.loads(e.value.read())["error"]["resets_at"]
+    health = json.loads(urllib.request.urlopen(base + "/health", timeout=5).read())
+    assert health["paused"] and health["limit_hits"] == hits_before + 1
+    srv.shutdown()

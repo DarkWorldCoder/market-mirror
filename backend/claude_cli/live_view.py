@@ -153,7 +153,7 @@ CONTROL_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><m
 @keyframes pulse{50%{opacity:.25}}
 h1{font-size:clamp(1.8rem,3.4vw,2.8rem);font-weight:500;letter-spacing:-.045em;text-transform:uppercase;margin:0 0 4px;line-height:1}
 .sub{color:var(--mut);margin:0 0 20px;font-size:13px}
-.stages{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:18px;scrollbar-width:none}
+.stages{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
 .st{flex:none;display:flex;align-items:center;gap:8px;height:40px;padding:0 14px 0 6px;border-radius:999px;background:var(--card);color:var(--mut);font-size:13px}
 .st i{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--sunk);font-style:normal;font-size:12px}
 .st.done{color:var(--ink)}.st.done i{background:var(--ink);color:var(--card)}
@@ -201,7 +201,7 @@ function render(d){$('title').textContent=d.title;$('h1').textContent=d.title;$(
  $('label').lastChild.textContent=d.label||(d.error?'Stopped':'Running');$('err').textContent=d.error?('Stopped with error: '+d.error):'';
  $('stages').innerHTML=d.stages.map(function(s,i){return '<span class="st '+s.state+'"><i>'+(s.state==='done'?'✓':s.state==='fail'?'!':(i+1))+'</i>'+esc(s.label)+'</span>';}).join('');
  var c=d.counters,sv=c.surveyed?(c.yes+' yes · '+c.maybe+' maybe · '+c.no+' no'):'';
- $('kpis').innerHTML=k(c.people,'simulated people')+k((c.round!=null?c.round:'–')+(c.rounds?' / '+c.rounds:''),'social round')+k(c.actions,'actions',c.posts+' posts · '+c.comments+' comments · '+c.likes+' likes')
+ $('kpis').innerHTML=k(c.people,'simulated people')+k((c.round!=null?c.round:'–')+(c.rounds?' / '+c.rounds:''),(c.rounds===1?'social round':'social rounds'))+k(c.actions,'actions',c.posts+' posts · '+c.comments+' comments · '+c.likes+' likes')
   +k(c.ad_views,'ad views',c.ad_clicks+' clicks')+k(c.surveyed,'surveyed',sv)+k(c.pitched,'pitched');
  $('people').innerHTML=d.people.length?d.people.map(function(p){var cl='p'+(p.acts?' a':'')+(p.verdict?' '+p.verdict:'')+(p.hot?' hot':'')+(p.clicked?' clk':'');
   return '<span class="'+cl+'" title="'+esc(p.name+' · '+(p.segment||'')+' · '+(p.country||'')+' · '+p.acts+' actions'+(p.verdict?' · '+p.verdict:''))+'"></span>';}).join(''):'<p class="empty">People appear once they are created.</p>';

@@ -204,10 +204,58 @@ class Backend:
 
 
 class GatewayError(RuntimeError):
-    def __init__(self, message: str, status: int = 502, kind: str = "backend_error"):
+    def __init__(self, message: str, status: int = 502, kind: str = "backend_error", retry_at: Optional[float] = None):
         super().__init__(message)
         self.status = status
         self.kind = kind
+        self.retry_at = retry_at
+
+
+LIMIT_WORDS = ("rate limit", "rate_limit", "usage limit", "limit reached", "session limit", "hit your limit",
+               "weekly limit", "out of credits", "quota exceeded", "too many requests")
+DEFAULT_PAUSE_S = 15 * 60          # when the message names no reset time
+RESET_GRACE_S = 60
+
+
+def parse_reset(text: str, now: Optional[float] = None) -> Optional[float]:
+    """When a usage limit lifts, as an epoch, from the wording the CLIs use:
+    "resets 12:45pm (Asia/Kathmandu)", "try again at 3:05 PM", "try again in 2 hours 13 minutes",
+    "usage limit reached|1760000000", "Retry after 120 seconds". None when no time is given."""
+    import re
+    from datetime import datetime, timedelta
+    now = time.time() if now is None else now
+    low = text.lower()
+    m = re.search(r"limit reached\|(\d{9,11})", low)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+((?:\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b[\s,and]*)+)", low)
+    if m:
+        secs = 0
+        for n, unit in re.findall(r"(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b", m.group(1)):
+            secs += int(n) * (86400 if unit.startswith("d") else 3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
+        return now + secs if secs else None
+    m = re.search(r"(?:resets?|try again at|available at|reset at)\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([A-Za-z_]+/[A-Za-z_]+)\))?", text, re.I)
+    if m:
+        hour, minute, ampm, tzname = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").lower(), m.group(4)
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            return None
+        tz = None
+        if tzname:
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(tzname)
+            except Exception:  # noqa: BLE001 - unknown zone: local time
+                tz = None
+        base = datetime.fromtimestamp(now, tz) if tz else datetime.fromtimestamp(now)
+        at = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if at.timestamp() <= now:
+            at += timedelta(days=1)
+        return at.timestamp()
+    return None
 
 
 def cli_failure(name: str, detail: str, status: Optional[int] = None) -> GatewayError:
@@ -215,8 +263,9 @@ def cli_failure(name: str, detail: str, status: Optional[int] = None) -> Gateway
     text = detail.lower()
     if status in (401, 403) or any(s in text for s in ("not logged in", "authentication", "invalid api key", "expired token", "please run /login")):
         return GatewayError(f"{name} authorization failed or expired. Log in to that CLI and retry.", 401, "authentication_error")
-    if status == 429 or any(s in text for s in ("rate limit", "rate_limit", "usage limit", "limit reached")):
-        return GatewayError(f"{name} usage is limited. Wait for the account limit to reset before retrying.", 429, "rate_limit")
+    if status == 429 or any(s in text for s in LIMIT_WORDS):
+        return GatewayError(f"{name} usage is limited. Wait for the account limit to reset before retrying.", 429, "rate_limit",
+                            retry_at=parse_reset(detail))
     return GatewayError(f"{name} CLI request failed. Check its local login and model availability.")
 
 
@@ -435,6 +484,23 @@ class Gateway:
         self.slots = threading.BoundedSemaphore(max(1, workers))
         self.workers = workers
         self.auth_token = auth_token
+        self.paused_until = 0.0         # usage limit: answer 429 locally until then, no upstream calls
+
+    def pause(self, retry_at: Optional[float]) -> float:
+        if not retry_at or retry_at <= time.time():
+            retry_at = time.time() + DEFAULT_PAUSE_S
+        until = retry_at + RESET_GRACE_S
+        with STATS_LOCK:
+            if until > self.paused_until:
+                self.paused_until = until
+            STATS["limit_hits"] = STATS.get("limit_hits", 0) + 1
+        return self.paused_until
+
+    def pause_state(self) -> Dict[str, Any]:
+        left = self.paused_until - time.time()
+        return {"paused": left > 0, "paused_until": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.paused_until)) if left > 0 else None,
+                "paused_until_epoch": self.paused_until if left > 0 else None, "resume_in_s": max(0, int(left)),
+                "limit_hits": STATS.get("limit_hits", 0)}
 
     def complete(self, body: Dict[str, Any]) -> Dict[str, Any]:
         system, prompt = flatten_messages(body.get("messages") or [])
@@ -462,8 +528,16 @@ class Gateway:
             with STATS_LOCK:
                 STATS["cache_hits"] += 1
         else:
+            if time.time() < self.paused_until:
+                raise GatewayError(f"{self.backend.name} usage is limited; paused until the reset.", 429, "rate_limit",
+                                   retry_at=self.paused_until)
             with self.slots:
-                text = self.backend.complete(system, prompt)
+                try:
+                    text = self.backend.complete(system, prompt)
+                except GatewayError as e:
+                    if e.status == 429:
+                        e.retry_at = self.pause(e.retry_at)
+                    raise
             with STATS_LOCK:
                 STATS["upstream_calls"] += 1
             if temperature <= 0.3:
@@ -514,9 +588,11 @@ def make_handler(gw: Gateway):
             if os.environ.get("GATEWAY_VERBOSE"):
                 sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-        def _send(self, code: int, payload: Dict[str, Any]) -> None:
+        def _send(self, code: int, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -528,7 +604,7 @@ def make_handler(gw: Gateway):
                     stats = dict(STATS)
                 self._send(200, {"status": "ok", "backend": gw.backend.name, "model": gw.backend.model,
                                  "available": gw.backend.available(), "auth_required": bool(gw.auth_token),
-                                 "workers": gw.workers, **stats})
+                                 "workers": gw.workers, **stats, **gw.pause_state()})
             elif self.path.startswith("/v1/models"):
                 self._send(200, {"object": "list", "data": [{"id": gw.backend.model or gw.backend.name, "object": "model",
                                                              "owned_by": gw.backend.name}]})
@@ -571,7 +647,12 @@ def make_handler(gw: Gateway):
             except GatewayError as e:
                 with STATS_LOCK:
                     STATS["failures"] += 1
-                self._send(e.status, {"error": {"message": str(e), "type": e.kind}})
+                err: Dict[str, Any] = {"message": str(e), "type": e.kind}
+                headers = {}
+                if e.status == 429 and e.retry_at:
+                    err["resets_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(e.retry_at))
+                    headers["Retry-After"] = str(max(1, int(e.retry_at - time.time())))
+                self._send(e.status, {"error": err}, headers)
             except Exception as e:  # noqa: BLE001
                 with STATS_LOCK:
                     STATS["failures"] += 1

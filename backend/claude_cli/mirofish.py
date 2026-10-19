@@ -38,6 +38,7 @@ import exporter  # noqa: E402
 import marketing  # noqa: E402
 import market_cli  # noqa: E402
 import live_view  # noqa: E402
+import quota  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
@@ -381,6 +382,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         + (f", with price questions in {currency}" if currency else ""))
     responses: List[Dict[str, Any]] = []
     for start in range(0, len(people), max(1, batch)):
+        quota.wait_if_paused(log)          # don't spend batches while the model account is paused
         chunk = people[start:start + batch]
         interviews = [{"agent_id": aid, "platform": platform,
                        "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
@@ -1269,10 +1271,10 @@ def cmd_market_test(c: Client, a) -> Any:
         else:
             cpath = _cfg_path(base, creatives)
             arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
-            state["feed_test"] = market_cli.feedtest(c, sid, arg, out_dir, log, None, None,
-                                                     int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                                                     int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                                                     int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5))
+            state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
+                c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
+                int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
+                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5)), log)
         steps.append("feed_test")
         checkpoint()
     emails = cfg.get("emails")
@@ -1280,8 +1282,9 @@ def cmd_market_test(c: Client, a) -> Any:
         epath = _cfg_path(base, emails)
         earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
         try:
-            state["email_test"] = market_cli.emailtest(c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
-                                                       cfg.get("list_size"))
+            state["email_test"] = quota.guarded("the email test", lambda: market_cli.emailtest(
+                c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
+                cfg.get("list_size")), log)
             steps.append("email_test")
         except (ValueError, RuntimeError, CLIError) as e:
             log(f"email test skipped: {e}")
@@ -1295,8 +1298,8 @@ def cmd_market_test(c: Client, a) -> Any:
         if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
             log("market-test: reusing live interview environment in this study cell")
         else:
-            rs = step_start(c, sid, cfg.get("platform") or "parallel", rounds,
-                            graph_memory=bool(cfg.get("graph_memory", True)), force=True)
+            rs = quota.guarded("the social rounds", lambda: step_start(
+                c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True), log)
             state["runner_status"] = rs.get("runner_status")
         steps.append(f"{rounds} rounds")
         checkpoint()
@@ -1310,10 +1313,10 @@ def cmd_market_test(c: Client, a) -> Any:
                 # Study cells use absolute paths. They still denote files even when
                 # _cfg_path returns the same string, so always read an existing file.
                 msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
-            state["survey"] = step_survey(c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "",
-                                          msgs or [], bool(survey.get("split")), survey.get("pricing"),
-                                          ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
-                                          seed=int(cfg.get("seed", 11)))
+            state["survey"] = quota.guarded("the survey", lambda: step_survey(
+                c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
+                survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
+                seed=int(cfg.get("seed", 11))), log)
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -1326,8 +1329,9 @@ def cmd_market_test(c: Client, a) -> Any:
             rp = _cfg_path(base, rb)
             rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
         try:
-            state["pitch"] = market_cli.pitch(c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
-                                              str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment"))
+            state["pitch"] = quota.guarded("the sales pitch", lambda: market_cli.pitch(
+                c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
+                str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
             steps.append("pitch")
         except (ValueError, RuntimeError, CLIError) as e:
             log(f"pitch skipped: {e}")
@@ -1335,8 +1339,9 @@ def cmd_market_test(c: Client, a) -> Any:
     panel_cfg = cfg.get("panel")
     if panel_cfg:
         collect(c, out_dir, state.get("project_id"), sid)
-        state["panel"] = market_cli.panel(c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5),
-                                          str(panel_cfg.get("brief") or ""), load_bundle=exporter.load_run_dir)
+        state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
+            c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
+            load_bundle=exporter.load_run_dir), log)
         steps.append("panel")
     if cfg.get("report") == "upstream" or cfg.get("engine_report"):
         rep = step_report(c, sid)
@@ -1347,8 +1352,8 @@ def cmd_market_test(c: Client, a) -> Any:
         market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
-        state["report"] = market_cli.report(c, sid, out_dir, log, load_bundle=exporter.load_run_dir,
-                                            brand=str(cfg.get("brand") or ""))
+        state["report"] = quota.guarded("the report", lambda: market_cli.report(
+            c, sid, out_dir, log, load_bundle=exporter.load_run_dir, brand=str(cfg.get("brand") or "")), log)
         steps.append("report")
         collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
