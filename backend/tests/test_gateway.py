@@ -234,3 +234,12 @@ def test_http_429_carries_retry_after():
     health = json.loads(urllib.request.urlopen(base + "/health", timeout=5).read())
     assert health["paused"] and health["limit_hits"] == hits_before + 1
     srv.shutdown()
+
+
+def test_request_model_and_default():
+    assert gw.request_model("claude", "sonnet") == "sonnet"
+    assert gw.request_model("claude", "claude-haiku-4-5") == "claude-haiku-4-5"
+    assert gw.request_model("claude", "claude") is None                 # the generic name means "the gateway's model"
+    assert gw.request_model("claude", "gpt-5") is None
+    assert gw.request_model("codex", "gpt-5") == "gpt-5"
+    assert gw.DEFAULT_MODELS["claude"] == "sonnet"

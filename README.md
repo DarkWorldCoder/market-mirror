@@ -132,6 +132,8 @@ Browser runs use compact model observations while retaining full local evidence.
 
 **Usage limits pause the run instead of breaking it.** When a Claude Code or Codex login hits its session or weekly limit, the gateway reads the reset time from the message, stops sending calls, and answers `429` with `Retry-After` until then. `market-test` and `study` wait for the reset, then redo only the step that was hit, so a half-answered survey never becomes a result. `curl 127.0.0.1:5055/health` shows `paused`, `paused_until` and `limit_hits`.
 
+**Pick the gateway's model.** Through the Claude Code gateway every simulated person is one Claude Code call, and the model decides how fast your subscription's limit runs out. The gateway uses Sonnet unless you set `LLM_GATEWAY_MODEL` (`haiku`, `sonnet`, `opus`, a full model id, or `default` for Claude Code's own default) or set `LLM_MODEL_NAME` to one of those names. A 1,000-person run makes several thousand calls; with an API key there is no session limit and calls run 30–50 at a time.
+
 For a login gateway, start it **before** `./mm provider check` and `./mm start`. Use one gateway at a time. If changing providers while the backend is running, restart it with `./mm stop` followed by `./mm start`.
 
 API keys are entered privately in your terminal. `./mm configure --open-guide` can open the provider's key console; `./mm provider status` shows masked configuration. Agents can configure an existing secret with `--key-env` instead of placing it in tool arguments. See [provider setup and troubleshooting](docs/LOCAL_AGENTS.md).

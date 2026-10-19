@@ -203,6 +203,20 @@ class Backend:
         raise NotImplementedError
 
 
+CLAUDE_ALIASES = ("haiku", "sonnet", "opus")
+DEFAULT_MODELS = {"claude": "sonnet"}    # never fall back to the CLI's own default (often the largest model)
+
+
+def request_model(backend_name: str, model: Any) -> Optional[str]:
+    """The request's model when this backend can run it ("haiku", "sonnet", "claude-sonnet-5-5"), else None."""
+    m = str(model or "").strip()
+    if backend_name == "claude" and (m.lower() in CLAUDE_ALIASES or (m.lower().startswith("claude-") and len(m) > 7)):
+        return m
+    if backend_name == "codex" and m.lower().startswith(("gpt-", "o3", "o4", "codex")):
+        return m
+    return None
+
+
 class GatewayError(RuntimeError):
     def __init__(self, message: str, status: int = 502, kind: str = "backend_error", retry_at: Optional[float] = None):
         super().__init__(message)
@@ -281,10 +295,12 @@ class ClaudeBackend(Backend):
             settings["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = os.environ["LLM_GATEWAY_EFFORT"]
         cmd = [self.binary, "-p", prompt, "--output-format", "json", "--no-session-persistence",
                "--tools", "", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+               "--setting-sources", "",          # no user/project settings, memory files or plugins in persona calls
                "--settings", json.dumps(settings),
                "--system-prompt", (GUARD + "\n\n" + system).strip()]
-        if self.model:
-            cmd += ["--model", self.model]
+        model = getattr(self.request, "model", None) or self.model
+        if model:
+            cmd += ["--model", model]
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
         if p.returncode != 0:
             raise cli_failure("claude", p.stderr + p.stdout)
@@ -514,9 +530,10 @@ class Gateway:
         if max_tokens is not None and (isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or not 1 <= max_tokens <= 128000):
             raise ValueError("max_tokens must be an integer between 1 and 128000")
         self.backend.request.max_tokens = max_tokens
-        # A local relay has one configured model. Reflect the actual selection,
-        # rather than echoing an arbitrary request model the CLI never received.
-        model = str(self.backend.model or self.backend.name)
+        # The request's model when the CLI can run it (LLM_MODEL_NAME=sonnet / claude-haiku-...), else the gateway's
+        # configured model. Report what the CLI actually received, never an arbitrary request string.
+        self.backend.request.model = request_model(self.backend.name, body.get("model"))
+        model = str(self.backend.request.model or self.backend.model or self.backend.name)
         key = cache_key(self.backend.name, model, system, prompt, temperature)
         key = hashlib.sha256(f"{key}|{max_tokens}".encode()).hexdigest()
         cached = self.cache.get(key) if temperature <= 0.3 else None      # creative calls are not cached
@@ -677,7 +694,7 @@ def serve(backend: Backend, host: str, port: int, workers: int, cache_path: Opti
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="OpenAI-compatible gateway over Sign in with ChatGPT or local CLI fallbacks.")
     ap.add_argument("--backend", choices=sorted(BACKENDS), default=os.environ.get("LLM_GATEWAY", "claude"))
-    ap.add_argument("--model", default=os.environ.get("LLM_GATEWAY_MODEL") or None, help="model passed to the CLI (optional)")
+    ap.add_argument("--model", default=os.environ.get("LLM_GATEWAY_MODEL") or None, help="model passed to the CLI (claude default: sonnet; 'default' = the CLI's own default)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=int(os.environ.get("LLM_GATEWAY_PORT") or 5055))
     ap.add_argument("--workers", type=int, default=int(os.environ.get("LLM_GATEWAY_WORKERS") or 2))
@@ -687,7 +704,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--auth-token-file", help="0600 file containing the local gateway bearer token")
     ap.add_argument("--check", action="store_true", help="print availability and exit")
     a = ap.parse_args(argv)
-    backend = BACKENDS[a.backend](model=a.model, timeout=a.timeout, binary=a.binary)
+    model = a.model or DEFAULT_MODELS.get(a.backend)
+    if model in ("default", "cli"):          # explicitly use the CLI's own default model
+        model = None
+    backend = BACKENDS[a.backend](model=model, timeout=a.timeout, binary=a.binary)
     if a.check:
         print(json.dumps({"backend": a.backend, "available": backend.available(),
                           "binary": shutil.which(backend.binary) if a.backend != "siwc" else None}))
