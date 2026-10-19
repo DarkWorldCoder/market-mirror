@@ -121,5 +121,57 @@ class LiveServerTest(unittest.TestCase):
             urllib.request.urlopen(base + "/nope", timeout=5)
 
 
+class ControlRoomTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        def w(name, data):
+            with open(os.path.join(self.dir, name), "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        w("run_manifest.json", {"title": "T", "project_id": "p", "graph_id": "g", "simulation_id": "s"})
+        w("config.json", {"persona_index": [{"agent_id": i, "kind": "persona", "name": f"P{i}", "country": "India"} for i in range(3)]})
+        w("actions.json", [{"agent_id": 0, "agent_name": "P0", "action_type": "CREATE_POST", "action_args": {"content": "hello"},
+                            "round_num": 0, "platform": "reddit", "timestamp": "2026-10-19T10:00:00"},
+                           {"agent_id": 1, "agent_name": "P1", "action_type": "DO_NOTHING", "round_num": 1, "timestamp": "2026-10-19T10:01:00"}])
+        w("survey.json", {"responses": [{"agent_id": 2, "answer": {"would_convert": "yes"}}]})
+        with open(os.path.join(self.dir, "progress.log"), "w") as f:
+            f.write("[10:00:00] survey: 1/3 asked\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_feed(self):
+        d = mirofish.live_view.feed(self.dir, "Simulating")
+        states = {s["key"]: s["state"] for s in d["stages"]}
+        self.assertEqual(states["simulation_id"], "done")
+        self.assertEqual(states["feed_test"], "run")                      # first missing stage is the running one
+        self.assertEqual(d["counters"]["posts"], 1)
+        self.assertEqual(d["counters"]["yes"], 1)
+        self.assertEqual([p["verdict"] for p in d["people"]], [None, None, "yes"])
+        self.assertEqual([e["text"] for e in d["stream"]], ["hello"])     # silent scrolls are left out
+        self.assertEqual(d["log"], ["[10:00:00] survey: 1/3 asked"])
+
+    def test_endpoints_and_finished_runs_are_not_recollected(self):
+        port = free_port()
+        live = mirofish.LiveDashboard(None, self.dir)
+        threading.Thread(target=mirofish.serve_live, args=(live, "127.0.0.1", port, 1), daemon=True).start()
+        base = f"http://127.0.0.1:{port}"
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                page = urllib.request.urlopen(base + "/live", timeout=2).read().decode("utf-8")
+                break
+            except OSError:
+                time.sleep(0.2)
+        self.assertIn("/__live/feed", page)
+        feed = json.loads(urllib.request.urlopen(base + "/__live/feed", timeout=5).read())
+        self.assertEqual(feed["title"], "T")
+        with open(os.path.join(self.dir, "run_manifest.json"), "w") as f:
+            json.dump({"project_id": "p", "simulation_id": "s", "finished_at": "now"}, f)
+        fake = mirofish.LiveDashboard(object(), self.dir)
+        with patch.object(mirofish, "collect") as collect:
+            fake.refresh()
+        collect.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

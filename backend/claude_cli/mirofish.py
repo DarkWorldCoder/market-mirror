@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import exporter  # noqa: E402
 import marketing  # noqa: E402
 import market_cli  # noqa: E402
+import live_view  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
@@ -49,9 +50,24 @@ class CLIError(RuntimeError):
 DEFAULT_PARALLEL = max(4, min(16, (os.cpu_count() or 4)))   # LLM calls in flight for profiles / feed test
 
 
+PROGRESS_PATH: Optional[str] = None   # <run dir>/progress.log while a pipeline runs (the live control room tails it)
+
+
 def log(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
+    if PROGRESS_PATH:
+        try:
+            with open(PROGRESS_PATH, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {msg}\n")
+        except OSError:
+            pass
+
+
+def progress_to(run_dir: Optional[str]) -> None:
+    """Also write log lines to <run_dir>/progress.log (None stops it)."""
+    global PROGRESS_PATH
+    PROGRESS_PATH = os.path.join(run_dir, live_view.PROGRESS_FILE) if run_dir else None
 
 
 # --------------------------------------------------------------------------
@@ -568,12 +584,13 @@ def do_export(run_dir: str, out: Optional[str], title: Optional[str] = None) -> 
 
 LIVE_SCRIPT = """
 <div id="mf-live" style="position:fixed;right:12px;bottom:12px;z-index:9999;padding:6px 12px;border-radius:999px;
-font:12px/1.4 system-ui,sans-serif;background:rgba(20,20,20,.85);color:#fff;max-width:calc(100vw - 24px)">%s</div>
+font:12px/1.4 system-ui,sans-serif;background:rgba(20,20,20,.85);color:#fff;max-width:calc(100vw - 24px)"><span>%s</span>
+ · <a href="/live" style="color:#f3d64b;text-decoration:none">Live control room ↗</a></div>
 <script>(function(){
 var v=%s,ms=%d;
 try{var y=sessionStorage.getItem('mf_live_y');if(y){sessionStorage.removeItem('mf_live_y');window.scrollTo(0,+y);}}catch(e){}
 function tick(){fetch('/__live/state',{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
-var b=document.getElementById('mf-live');if(b)b.textContent=s.label;
+var b=document.querySelector('#mf-live span');if(b)b.textContent=s.label;
 if(s.version!==v){try{sessionStorage.setItem('mf_live_y',String(window.scrollY));}catch(e){}location.reload();return;}
 setTimeout(tick,ms);}).catch(function(){setTimeout(tick,ms);});}
 setTimeout(tick,ms);})();</script>
@@ -637,7 +654,9 @@ class LiveDashboard:
         m = read_manifest(self.run_dir)
         pid = self.project_id or m.get("project_id")
         sid = self.simulation_id or m.get("simulation_id")
-        if self.c is not None and (pid or sid):
+        # a finished run is frozen: its simulation may be reused (studies, later tests), and collecting again
+        # would overwrite this run's saved actions and status with the newer activity
+        if self.c is not None and (pid or sid) and not m.get("finished_at"):
             with _quiet_logs():
                 collect(self.c, self.run_dir, pid, sid, m.get("report_id"))
         rs = None
@@ -711,6 +730,11 @@ def serve_live(live: LiveDashboard, host: str, port: int, interval: float) -> No
             path = self.path.split("?", 1)[0]
             if path == "/__live/state":
                 return self._send(json.dumps(live.state()).encode(), "application/json")
+            if path == "/__live/feed":
+                data = live_view.feed(live.run_dir, live.state().get("label", ""))
+                return self._send(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"), "application/json")
+            if path in ("/live", "/live/"):
+                return self._send(live_view.CONTROL_HTML.encode("utf-8"), "text/html; charset=utf-8")
             if path in ("/", "/index.html", "/dashboard.html"):
                 return self._send(live.page(interval_ms).encode("utf-8"), "text/html; charset=utf-8")
             self.send_error(404)
@@ -728,7 +752,8 @@ def serve_live(live: LiveDashboard, host: str, port: int, interval: float) -> No
 
     threading.Thread(target=loop, daemon=True).start()
     srv = ThreadingHTTPServer((host, port), H)
-    log(f"live: serving {os.path.abspath(live.run_dir)} at http://{host}:{port}/ (refresh every {interval:g}s, Ctrl+C to stop)")
+    log(f"live: serving {os.path.abspath(live.run_dir)} at http://{host}:{port}/ (refresh every {interval:g}s, Ctrl+C to stop); "
+        f"live control room at http://{host}:{port}/live")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -1139,6 +1164,7 @@ def cmd_market_test(c: Client, a) -> Any:
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cfg.get("name") or "market_test"))
     out_dir = _cfg_path(base, cfg.get("out")) if cfg.get("out") else os.path.join("mirofish_runs", name)
     os.makedirs(out_dir, exist_ok=True)
+    progress_to(out_dir)
     state: Dict[str, Any] = {"out_dir": os.path.abspath(out_dir), "title": cfg.get("title") or name,
                              "started_at": datetime.now().isoformat()}
     manifest_path = os.path.join(out_dir, "run_manifest.json")

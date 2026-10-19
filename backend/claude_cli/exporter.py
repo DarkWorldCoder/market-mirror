@@ -1327,7 +1327,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     html_out = (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        f"<title>{esc(page_title)}</title>\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
+        f"<title>{esc(page_title)}</title>\n<link rel=\"icon\" href=\"{shell.FAVICON}\">\n<meta name=\"description\" content=\"{esc(trunc(req, 200))}\">\n"
         f"<script>{ui.HEAD_JS}</script>\n"
         # tokens.TOKENS_CSS comes last so its palette and components win over the per-module styles
         f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"

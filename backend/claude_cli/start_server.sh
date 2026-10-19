@@ -25,8 +25,16 @@ fi
 cd "$BACKEND"
 UV_ARGS=(run --no-sync)
 if [ "${1:-}" = "--sync" ] || [ ! -d "$BACKEND/.venv" ]; then UV_ARGS=(run); fi
+if command -v uv >/dev/null 2>&1; then
+  RUN=(uv "${UV_ARGS[@]}" python)
+elif [ -x "$BACKEND/.venv/bin/python" ] && [ "${1:-}" != "--sync" ]; then
+  RUN=("$BACKEND/.venv/bin/python")          # uv not on PATH: the environment is already installed, use it
+else
+  echo "uv is not installed and backend/.venv is missing; run bash install.sh first" >&2
+  exit 1
+fi
 FLASK_PORT="$PORT" FLASK_DEBUG=False PYTHONUNBUFFERED=1 \
-  nohup uv "${UV_ARGS[@]}" python run.py >"$LOG" 2>&1 &
+  nohup "${RUN[@]}" run.py >"$LOG" 2>&1 &
 echo $! >"$PIDFILE"
 
 for _ in $(seq 1 "$TIMEOUT"); do

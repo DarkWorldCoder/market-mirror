@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="docs/brand/marketmirror-logo-v1.png#gh-light-mode-only" alt="MarketMirror" width="520" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/marketmirror-logo-dark.png" />
+  <img src="docs/brand/marketmirror-logo-light.png" alt="MarketMirror" width="480" />
+</picture>
 
 # MarketMirror
 

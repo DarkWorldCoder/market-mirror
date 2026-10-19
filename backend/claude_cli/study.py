@@ -107,7 +107,9 @@ def cell_config(study: Dict[str, Any], scenario: Dict[str, Any], seed: int, stud
                     cfg[key][child] = resolve(cfg[key][child])
     cfg["simulation_id"] = study["simulation_id"]
     # every cell remembers only its own tests: a control cell never reads a treatment cell's memories
-    cfg["memory_scope"] = f"{study.get('name') or 'study'}:{scenario.get('name') or 'base'}:s{seed}"
+    # ("memory": false in the spec keeps behaviour memory off, e.g. to match cells run before it existed)
+    cfg["memory_scope"] = ("off" if study.get("memory") is False
+                           else f"{study.get('name') or 'study'}:{scenario.get('name') or 'base'}:s{seed}")
     cfg["approve_spend"] = True
     cfg["resume_steps"] = True
     cfg["study_cell"] = True

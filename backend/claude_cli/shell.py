@@ -19,6 +19,14 @@ except ImportError:  # pragma: no cover - imported as a package
 
 _e = ui.esc
 
+# the MarketMirror mark (docs/brand), traced: two dark wedges + the yellow facet; dark parts follow the theme
+MARK_SVG = ('<svg class="mm-mark" viewBox="0 0 200 190" aria-hidden="true"><g stroke-linejoin="round" stroke-width="8">'
+            '<path fill="currentColor" stroke="currentColor" d="M14 14 95 62 58 99 95 127 14 176Z"/>'
+            '<path fill="#f3d64b" stroke="#f3d64b" d="M107 70 186 16V72L146 96Z"/>'
+            '<path fill="currentColor" stroke="currentColor" d="M146 99 186 75V176L108 128Z"/></g></svg>')
+FAVICON = ("data:image/svg+xml," + MARK_SVG.replace('class="mm-mark" ', 'xmlns="http://www.w3.org/2000/svg" ')
+           .replace("currentColor", "%23111").replace("#f3d64b", "%23f3d64b").replace('"', "'").replace("<", "%3C").replace(">", "%3E"))
+
 GROUPS: List[Tuple[str, Sequence[str]]] = [
     ("Overview", ("kpis", "decision", "worldmap", "report", "brief")),
     ("Buyers", ("results", "ratings", "funnel", "audiences", "objections", "messages", "pricing", "voices")),
@@ -98,8 +106,8 @@ def sidebar(nav: List[Tuple[str, str]], title: str = "", subtitle: str = "", sta
         + "</div>" for name, items in blocks)
     return (
         '<aside class="side" aria-label="Dashboard">'
-        '<a class="side-brand" href="#top" aria-label="MarketMirror, back to top"><span class="logo" aria-hidden="true"></span>'
-        '<span class="word">MARKET<span>MIRROR</span></span></a>'
+        '<a class="side-brand" href="#top" aria-label="MarketMirror, back to top">' + MARK_SVG
+        + '<span class="word">MarketMirror</span></a>'
         f'<nav class="toc" data-scrollspy aria-label="Sections">{links}</nav>'
         '<p class="side-foot">Simulated people, simulated answers: directions with margins, not measurements.</p>'
         "</aside>")
@@ -142,14 +150,11 @@ body{margin:0}
 .app{display:grid;grid-template-columns:256px minmax(0,1fr);min-height:100vh;background:var(--bg)}
 /* sidebar: same canvas as the page, no border, no coloured edges */
 .side{position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:22px;
-padding:26px 12px 20px 20px;background:var(--bg);color:var(--text);border:0}
+padding:24px 12px 20px 20px;background:var(--bg);color:var(--text);border:0}
 .side::-webkit-scrollbar{display:none}
-.side-brand{display:flex;align-items:center;gap:10px;height:44px;padding:0 6px;text-decoration:none;color:var(--text)}
-.side-brand .logo{width:30px;height:30px;border-radius:50%;flex:none;
-background:conic-gradient(from 200deg,#6250d6,#e87ba4,#eb6834,#f3d64b,#2a78d6,#6250d6);
--webkit-mask:radial-gradient(circle,transparent 7px,#000 7.5px);mask:radial-gradient(circle,transparent 7px,#000 7.5px)}
-.side-brand .word{font-size:1.02rem;letter-spacing:.32em;font-weight:500}
-.side-brand .word span{font-weight:300}
+.side-brand{display:flex;align-items:center;gap:10px;height:52px;flex:none;padding:0 8px;text-decoration:none;color:var(--text)}
+.side-brand .mm-mark{width:30px;height:29px;flex:none;color:var(--text)}
+.side-brand .word{font-size:1.18rem;letter-spacing:-.035em;font-weight:750}
 .side nav.toc{position:static;display:flex;flex-direction:column;gap:18px;margin:0;padding:0;background:transparent;overflow:visible}
 .side .nav-group{display:flex;flex-direction:column;gap:2px}
 .side .nav-h{margin:0 0 6px;padding:0 12px;font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0}
