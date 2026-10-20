@@ -6,7 +6,8 @@ MarketMirror API: marketing tests that run on a prepared simulation's personas.
     GET  /api/simulation/<simulation_id>/feed-test
     POST /api/simulation/analyst-panel         {simulation_id, material:{...}, analysts?, brief?}
     GET  /api/simulation/<simulation_id>/analyst-panel
-    POST /api/simulation/ssr                   {items:[{id, scale, text}], temperature?}  (synchronous)
+    POST /api/simulation/ssr                   {items:[{id, scale, text}], temperature?, engine?}  (synchronous)
+    POST /api/simulation/objection-check       {items:[{id, text, self_tag}]}  (synchronous, Jev)
 
 The feed test takes `seeds` (repeat with different seeds and report the spread)
 or `seed` (one run with that seed).
@@ -315,16 +316,40 @@ def semantic_similarity_rating():
     rows = [it if isinstance(it, dict) else {} for it in items]
     try:
         temperature = float(data.get("temperature") or 1.0)
-        rated = ssr.rate([(str(r.get("scale") or ""), r.get("text")) for r in rows], temperature=temperature)
+        # engine: embeddings (default, or SSR_ENGINE), jev, or auto (Jev, embeddings for what it did not rate)
+        rated, engines, info = ssr.rate_engine([(str(r.get("scale") or ""), r.get("text")) for r in rows],
+                                               engine=data.get("engine"), temperature=temperature)
+    except ssr.jev.JevUnavailable as e:
+        return jsonify({"success": False, "error": str(e)}), 503
     except ssr.SSRUnavailable as e:
         return jsonify({"success": False, "error": str(e)}), 503
     except (TypeError, ValueError) as e:
         return jsonify({"success": False, "error": str(e)}), 400
-    embedder = ssr.get_embedder()
+    per_item = info["engine"] == "auto"
     return jsonify({"success": True, "data": {
-        "model": getattr(embedder, "model_name", None), "anchors_version": ssr.ANCHORS_VERSION,
-        "scales": list(ssr.SCALES), "temperature": temperature,
-        "results": [{"id": r.get("id"), "scale": r.get("scale"), **res} for r, res in zip(rows, rated) if res]}})
+        **info, "anchors_version": ssr.ANCHORS_VERSION, "scales": list(ssr.SCALES), "temperature": temperature,
+        "results": [{"id": r.get("id"), "scale": r.get("scale"), **res, **({"engine": eng} if per_item else {})}
+                    for r, res, eng in zip(rows, rated, engines) if res]}})
+
+
+@simulation_bp.route('/objection-check', methods=['POST'])
+def objection_check():
+    """Jev labels survey objections with the survey's own types; agreement with each person's self-tag.
+    POST {items:[{id, text, self_tag}]} (synchronous, needs a Jev key)."""
+    from claude_cli import marketing
+    from ..services import jev, search_and_geo
+    data = request.get_json() or {}
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 5000:
+        return jsonify({"success": False, "error": "items must be a list of {id, text, self_tag} (max 5000)"}), 400
+    if not jev.available():
+        return jsonify({"success": False, "error": f"Jev is not configured: {jev.settings()['reason']}"}), 503
+    criteria = {t: marketing.OBJECTION_LABELS.get(t, t) for t in marketing.OBJECTION_TYPES}
+    try:
+        res = search_and_geo.run_objection_check(items, criteria)
+    except jev.JevUnavailable as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+    return jsonify({"success": True, "data": res})
 
 
 @simulation_bp.route('/analyst-panel', methods=['POST'])
@@ -956,8 +981,14 @@ def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people:
                 if not isinstance(url, str):
                     raise ValueError("url must be text")
                 validate_url(url, allow_loopback=False, resolve=False)
+            classifier = str(data.get("classifier") or "model").strip().lower()
+            if classifier not in search_and_geo.CLASSIFIERS:
+                raise ValueError(f"classifier must be one of {', '.join(search_and_geo.CLASSIFIERS)}")
+            if classifier == "jev" and not search_and_geo.jev.available():
+                raise ValueError(f"classifier jev needs a Jev key: {search_and_geo.jev.settings()['reason']}")
             return lambda progress: search_and_geo.run_voc_grounding(
-                _client_for(people), model, url=url, raw_reviews=reviews, run_data=rd, parallel=par, progress=progress)
+                _client_for(people), model, url=url, raw_reviews=reviews, run_data=rd, parallel=par, progress=progress,
+                classifier=classifier)
         return lambda progress: search_and_geo.run_dark_social_cascade(
             _client_for(people), model, people=people, offer=data.get("offer") or "", seed=seed, cohort_size=cohort or 36,
             profile=profile, parallel=par, progress=progress)

@@ -276,6 +276,8 @@ def attach_ssr(responses: List[Dict[str, Any]], results: List[Dict[str, Any]]) -
         if ans is None or scale not in TEXT_FIELDS or not isinstance(res.get("pmf"), list):
             continue
         ans.setdefault("ssr", {})[scale] = {k: res.get(k) for k in ("pmf", "mean", "sd", "score10")}
+        if res.get("engine"):                     # engine "auto" says which engine rated each answer
+            ans["ssr"][scale]["engine"] = res["engine"]
     return sum(1 for r in responses if (r.get("answer") or {}).get("ssr"))
 
 
@@ -540,6 +542,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
     ]
     out["ssr"] = (survey.get("ssr") or {}) if any(r.get("ssr") for r in rows) else None
     out["retest"] = survey.get("retest")
+    oc = survey.get("objection_check")
+    out["objection_check"] = oc if isinstance(oc, dict) and (oc.get("agreement") or {}).get("n") else None
     # mode-collapse check (arXiv 2607.18310): inside a segment, stated chances should not all be the same number
     segs_p: Dict[str, List[float]] = defaultdict(list)
     for r in rows:
@@ -1080,11 +1084,21 @@ def ssr_section(a: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tu
                                   [[r["key"], r["n"]] + [_ms((r.get("ssr") or {}).get(sc)) for sc in SSR_SCALES] for r in segs],
                                   "Show mean ± spread by segment"))
     info = a.get("ssr") or {}
-    model = f' Embedding model: {info["model"]}.' if info.get("model") else ""
+    engine = info.get("engine") or "embeddings"
+    failed = (info.get("counts") or {}).get("failed") or 0
+    if engine == "embeddings":
+        how = ('Each answer is mapped to a 1-5 scale by its similarity to anchor statements ("I would definitely do it" … '
+               '"I definitely would not"), which gives a distribution instead of a single number (semantic similarity '
+               'rating, arXiv 2510.08338).')
+        model = f' Embedding model: {info["model"]}.' if info.get("model") else ""
+    else:
+        how = ('Each answer was rated against the same anchor statements ("I would definitely do it" … "I definitely '
+               'would not") by the Jev decision model, whose probability for each of the five levels is the distribution '
+               '(semantic similarity rating, arXiv 2510.08338, with Jev in place of embeddings).')
+        model = (f' Rated by {info.get("method") or engine}.'
+                 + (f' {failed} answers could not be rated and are left out.' if failed else ""))
     return ("ratings", "Ratings", ui.section_head("How they rate it, in their own words", insight=insight) + '<div class="card">'
-            '<p class="muted small">Every person first answered in one or two sentences. Each answer is mapped to a 1-5 '
-            'scale by its similarity to anchor statements ("I would definitely do it" … "I definitely would not"), which '
-            'gives a distribution instead of a single number (semantic similarity rating, arXiv 2510.08338). Direct '
+            f'<p class="muted small">Every person first answered in one or two sentences. {how} Direct '
             f'numeric answers from simulated people bunch up and run positive; they are shown only for comparison.{_e(model)}</p>'
             + dist + _table_view(["Scale", "1", "2", "3", "4", "5", "Mean ± spread", "Stated 0-10"], overall_rows,
                                  "Show the distributions") + seg_html + "</div>")
@@ -1224,6 +1238,13 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
         + "".join(f'<p style="margin-top:8px">“{_e(trunc_text(ex["text"], 220))}”</p><div class="who">{_e(ex["name"])} · '
                   f'{_e(ex["segment"])}' + (f' · would say yes if: {_e(trunc_text(ex["fix"], 140))}' if ex.get("fix") else "")
                   + "</div>" for ex in x["examples"][:2]) + "</div>" for x in objs[:4])
+    oc = a.get("objection_check") or {}
+    ag = oc.get("agreement") or {}
+    if ag.get("n"):
+        obj_chart += (f'<p class="muted small">Check: the Jev decision model ({_e(oc.get("model") or "jev")}) gave the '
+                      f'same objection type as the person\'s own tag for {_e(_fmt_pct(ag.get("pct")))} of {_e(ag["n"])} '
+                      f'answers (95% range {_e(_fmt_pct(ag.get("lo")))}–{_e(_fmt_pct(ag.get("hi")))})'
+                      + (f'; {_e(oc["failed"])} not labelled' if oc.get("failed") else "") + '.</p>')
     sections.append(("objections", "Objections", shead("objections", "What stops people") + '<div class="grid2">'
                      f'<div class="card"><h3>Objections</h3>{obj_chart}</div>'
                      f'<div class="card"><h3>In their words</h3><div class="quotes">{obj_examples or "<p class=empty>None.</p>"}</div></div></div>'))
@@ -1296,7 +1317,7 @@ def summary_block(a: Dict[str, Any]) -> Dict[str, Any]:
                 "engagement_by_segment": a.get("engagement_by_segment")}
     keep = ("has_survey", "people", "engaged", "answered", "offer", "goal", "overall", "funnel", "verdicts",
             "by_segment", "by_country", "by_community", "by_age", "objections", "messages_ranked", "split_test",
-            "message_grid", "pricing", "playbook", "ssr", "dispersion", "retest")
+            "message_grid", "pricing", "playbook", "ssr", "dispersion", "retest", "objection_check")
     out = {k: a.get(k) for k in keep}
     out["objections"] = [{k: v for k, v in x.items() if k != "examples"} for x in a.get("objections") or []]
     if out.get("pricing"):

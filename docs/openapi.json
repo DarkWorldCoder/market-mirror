@@ -788,13 +788,13 @@
     },
     "/api/simulation/ssr": {
       "post": {
-        "summary": "Free-text answers to 1-5 rating distributions (semantic similarity rating)",
+        "summary": "Free-text answers to 1-5 rating distributions (semantic similarity rating; engine embeddings, jev or auto)",
         "tags": [
           "Tests on simulated people"
         ],
         "responses": {
           "200": {
-            "description": "{results:[{pmf, mean, sd}]}",
+            "description": "{engine, method, model, counts, results:[{pmf, mean, sd}]}",
             "content": {
               "application/json": {
                 "schema": {
@@ -823,6 +823,52 @@
                     "id": "1",
                     "scale": "purchase",
                     "text": "Maybe: if it is really free"
+                  }
+                ],
+                "engine": "embeddings"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/objection-check": {
+      "post": {
+        "summary": "Jev labels survey objections; agreement with each person's own tag (Wilson 95% range). Needs a Jev key",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{agreement:{pct, lo, hi, k, n}, labelled, failed, model, usage}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "items": [
+                  {
+                    "id": "1",
+                    "text": "Not sure it is really free",
+                    "self_tag": "price"
                   }
                 ]
               }

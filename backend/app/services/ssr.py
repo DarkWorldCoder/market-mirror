@@ -19,6 +19,12 @@ and the distribution is the average over anchor sets. The embedder is the
 local multilingual fastembed model also used by the memory graph, so answers
 in any language map onto the English anchors at no API cost.
 
+Optional engine: Jev (TypeSafe's decision model, services/jev.py). With SSR_ENGINE=jev (or engine "jev" per
+request) each answer is sent whole as the state of one `score` question whose five levels are this scale's
+anchor statements (level 0 -> rating 1 ... level 4 -> rating 5); Jev's level probabilities are the rating
+distribution. An answer Jev fails on gets no rating (counted as failed). Engine "auto" uses Jev when a key is
+configured and the embeddings for the answers Jev did not rate, and records which engine rated each answer.
+
 Only the verdict clause of an answer is embedded: the first sentence, cut at the
 first colon or dash. The survey asks every answer to open with a verdict ("No /
 Probably not / Maybe / Probably yes / Yes, definitely") followed by a reason, and
@@ -39,6 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..utils.logger import get_logger
+from . import jev
 
 logger = get_logger("mirofish.ssr")
 
@@ -200,3 +207,118 @@ def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1
         sims = anchors @ v                                                  # (sets, points)
         out[i] = describe(pmf_from_similarities(sims, temperature, epsilon))
     return out
+
+
+# --------------------------------------------------------------------------
+# Engines: local embeddings (default), Jev, or Jev with embeddings for what it did not rate
+# --------------------------------------------------------------------------
+
+ENGINES = ("embeddings", "jev", "auto")
+_ENGINE_ALIASES = {"embedding": "embeddings", "embeddings": "embeddings", "fastembed": "embeddings", "local": "embeddings",
+                   "jev": "jev", "auto": "auto"}
+SCALE_TOPICS = {"interest": "how interested they are in the offer",
+                "trust": "how much they trust the offer and the company behind it",
+                "purchase": "whether they would take the action they were asked about (sign up or buy)",
+                "recommend": "whether they would recommend it to other people"}
+
+
+def engine_name(value: Any = None, env: Optional[Dict[str, str]] = None) -> str:
+    """The SSR engine: `value`, else SSR_ENGINE, else embeddings. Raises ValueError for an unknown name."""
+    raw = str(value or "").strip().lower() or jev.settings(env)["ssr_engine"]
+    if raw not in _ENGINE_ALIASES:
+        raise ValueError(f"unknown SSR engine {raw!r} (choose from {', '.join(ENGINES)})")
+    return _ENGINE_ALIASES[raw]
+
+
+def jev_levels(scale: str) -> List[str]:
+    """The scale's anchor statements as Jev score levels: level k lists every anchor set's statement for point k+1."""
+    return [" / ".join(f'"{st[k]}"' for st in ANCHORS[scale]) for k in range(POINTS)]
+
+
+def _jev_instructions(scale: str) -> str:
+    return (f"The state is one simulated buyer's free-text answer to a survey question about {SCALE_TOPICS[scale]}. "
+            "Pick the level whose example statements best match what the answer says, from the most negative "
+            "(level 0) to the most positive (level 4).")
+
+
+def _texts(items: Sequence[Tuple[str, str]]) -> List[Tuple[int, str, str]]:
+    return [(i, scale, str(text).strip()) for i, (scale, text) in enumerate(items)
+            if scale in ANCHORS and text is not None and str(text).strip()]
+
+
+def rate_jev(items: Sequence[Tuple[str, str]], usage: Optional["jev.JevUsage"] = None, parallel: Optional[int] = None,
+             env: Optional[Dict[str, str]] = None) -> Tuple[List[Optional[Dict[str, Any]]], Dict[str, Any]]:
+    """[(scale, text)] -> (one {pmf, mean, sd, score10} or None per item, info). One Jev request per answer.
+    info: model, rated, failed (answers sent but not rated), usage. Raises jev.JevUnavailable without a key."""
+    usage = usage or jev.JevUsage()
+    out: List[Optional[Dict[str, Any]]] = [None] * len(items)
+    todo = _texts(items)
+    jobs = [(text, {"rating": jev.score_question(jev_levels(scale), _jev_instructions(scale))}) for _, scale, text in todo]
+    answers = jev.ask_many(jobs, parallel=parallel, usage=usage, env=env) if jobs else []
+    models: Dict[str, int] = {}
+    failed = 0
+    for (i, _, _), res in zip(todo, answers):
+        pmf = jev.score_pmf((res.get("answers") or {}).get("rating"), POINTS) if res.get("ok") else None
+        if pmf is None:
+            failed += 1
+            continue
+        out[i] = describe(pmf)
+        models[res["model"]] = models.get(res["model"], 0) + 1
+    model = max(models, key=models.get) if models else None
+    return out, {"model": model, "rated": len(todo) - failed, "failed": failed, "usage": usage.snapshot()}
+
+
+def rate_engine(items: Sequence[Tuple[str, str]], engine: Any = None, temperature: float = 1.0,
+                env: Optional[Dict[str, str]] = None
+                ) -> Tuple[List[Optional[Dict[str, Any]]], List[Optional[str]], Dict[str, Any]]:
+    """[(scale, text)] -> (ratings, engine per item, info) with the chosen engine.
+
+    info names the engine and the method that produced the distributions ("embeddings (<model>)", "jev (<model>)",
+    or both for auto) and counts the answers each engine rated and the failures. The embeddings read the verdict
+    clause, Jev the whole answer. Raises SSRUnavailable (embeddings) or jev.JevUnavailable (jev without a key)."""
+    name = engine_name(engine, env)
+    n_text = len(_texts(items))
+    if name == "embeddings":
+        rated = rate(items, temperature=temperature)
+        model = getattr(get_embedder(), "model_name", None)
+        n = sum(1 for r in rated if r)
+        return rated, ["embeddings" if r else None for r in rated], {
+            "engine": "embeddings", "method": f"embeddings ({model})" if model else "embeddings", "model": model,
+            "input": "verdict clause", "counts": {"embeddings": n, "failed": n_text - n}}
+    if name == "jev":
+        rated, ji = rate_jev(items, env=env)
+        return rated, ["jev" if r else None for r in rated], {
+            "engine": "jev", "method": jev.method_label(ji["model"]), "model": ji["model"], "input": "full answer",
+            "counts": {"jev": ji["rated"], "failed": ji["failed"]}, "usage": ji["usage"]}
+    # auto: Jev when configured, the embeddings for every answer Jev did not rate
+    jev_cfg = jev.settings(env)
+    rated: List[Optional[Dict[str, Any]]] = [None] * len(items)
+    ji: Dict[str, Any] = {}
+    if jev_cfg["configured"]:
+        rated, ji = rate_jev(items, env=env)
+    engines: List[Optional[str]] = ["jev" if r else None for r in rated]
+    rest = [i for i, _, _ in _texts(items) if rated[i] is None]
+    emb_model, emb_error = None, None
+    if rest:
+        try:
+            for i, r in zip(rest, rate([items[i] for i in rest], temperature=temperature)):
+                if r:
+                    rated[i], engines[i] = r, "embeddings"
+            emb_model = getattr(get_embedder(), "model_name", None)
+        except SSRUnavailable as e:
+            emb_error = str(e)
+    n_jev, n_emb = engines.count("jev"), engines.count("embeddings")
+    parts = ([f"{jev.method_label(ji.get('model'))} for {n_jev}"] if n_jev else []) + \
+            ([f"embeddings ({emb_model or 'local'}) for {n_emb}"] if n_emb else [])
+    info: Dict[str, Any] = {
+        "engine": "auto", "method": "auto: " + (", ".join(parts) if parts else "nothing rated"),
+        "model": ji.get("model") if n_jev >= n_emb else emb_model, "jev_model": ji.get("model"),
+        "embedding_model": emb_model, "input": {"jev": "full answer", "embeddings": "verdict clause"},
+        "counts": {"jev": n_jev, "embeddings": n_emb, "failed": n_text - n_jev - n_emb, "jev_failed": ji.get("failed", 0)}}
+    if ji.get("usage"):
+        info["usage"] = ji["usage"]
+    if not jev_cfg["configured"]:
+        info["jev_unavailable"] = jev_cfg["reason"]
+    if emb_error:
+        info["embeddings_unavailable"] = emb_error
+    return rated, engines, info

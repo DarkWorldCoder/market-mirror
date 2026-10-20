@@ -399,10 +399,12 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
                 platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
                 limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
-                seed: int = 11) -> Dict[str, Any]:
+                seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
 
-    ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers)."""
+    ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers).
+    ssr_engine: embeddings (default, or the backend's SSR_ENGINE), jev or auto.
+    objection_check: have Jev label each main objection and report agreement with the person's own tag."""
     messages = messages or []
     if split and len(messages) < 2:
         raise CLIError("--split needs at least two messages (--messages @file)")
@@ -446,7 +448,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                               "answer": marketing.parse_answer(raw, len(messages)) if raw else None})
         ok = sum(1 for r in responses if r["answer"])
         log(f"survey: {min(start + batch, len(people))}/{len(people)} asked, {ok} usable answers")
-    ssr_info = step_ssr(c, responses) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
+    ssr_info = step_ssr(c, responses, engine=ssr_engine) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
+    obj_check = step_objection_check(c, responses) if objection_check else None
     retest_info = None
     if retest:
         # test-retest reliability (the figure the persona papers report): re-ask some people "a week later"
@@ -486,7 +489,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
-              "responses": responses}
+              **({"objection_check": obj_check} if obj_check else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     if responses and not answered:
@@ -495,26 +498,74 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
             "answered": answered, "ssr_rated": ssr_info.get("mapped", 0)}
 
 
-def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000) -> Dict[str, Any]:
-    """Semantic similarity rating (arXiv 2510.08338): the backend embeds each free-text answer with the local
-    fastembed model and maps it to a 1-5 distribution. Attaches answer["ssr"]; never fails the survey."""
+def _add_counts(total: Dict[str, Any], part: Optional[Dict[str, Any]]) -> None:
+    for k, v in (part or {}).items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            total[k] = round(total.get(k, 0) + v, 6)
+        elif isinstance(v, dict):
+            _add_counts(total.setdefault(k, {}), v)
+
+
+def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000, engine: Optional[str] = None) -> Dict[str, Any]:
+    """Semantic similarity rating (arXiv 2510.08338): the backend maps each free-text answer to a 1-5 distribution,
+    by default with the local fastembed model (engine "jev": TypeSafe's Jev decision model; "auto": Jev, embeddings
+    for what it did not rate). Attaches answer["ssr"]; never fails the survey. The result records the engine."""
     items = marketing.ssr_items(responses)
     if not items:
         return {"used": False, "reason": "no free-text answers"}
     results: List[Dict[str, Any]] = []
     info: Dict[str, Any] = {}
+    counts: Dict[str, Any] = {}
+    usage: Dict[str, Any] = {}
+    methods: List[str] = []
     try:
         for start in range(0, len(items), batch):
-            info = c.data("POST", "/api/simulation/ssr", json={"items": items[start:start + batch]}, timeout=600) or {}
+            body = {"items": items[start:start + batch], **({"engine": engine} if engine else {})}
+            info = c.data("POST", "/api/simulation/ssr", json=body, timeout=1800 if engine else 600) or {}
             results += info.get("results") or []
+            _add_counts(counts, info.get("counts"))
+            if isinstance(info.get("usage"), dict):
+                _add_counts(usage, {k: v for k, v in info["usage"].items() if k not in ("models", "errors")})
+            if info.get("method") and info["method"] not in methods:
+                methods.append(info["method"])
     except CLIError as e:
         log(f"survey: free-text rating (SSR) unavailable, using the stated numbers instead: {e}")
-        return {"used": False, "reason": str(e)[:300]}
+        return {"used": False, "reason": str(e)[:300], **({"engine": engine} if engine else {})}
     mapped = marketing.attach_ssr(responses, results)
-    log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
-        f"(SSR, {info.get('model') or 'local embeddings'}; no Claude calls)")
-    return {"used": True, "method": "semantic similarity rating, arXiv 2510.08338", "model": info.get("model"),
-            "anchors_version": info.get("anchors_version"), "temperature": info.get("temperature"), "mapped": mapped}
+    used_engine = info.get("engine") or "embeddings"
+    out = {"used": True, "engine": used_engine, "model": info.get("model"), "anchors_version": info.get("anchors_version"),
+           "temperature": info.get("temperature"), "mapped": mapped, "counts": counts or None}
+    if used_engine == "embeddings":
+        out["method"] = "semantic similarity rating, arXiv 2510.08338"
+        log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
+            f"(SSR, {info.get('model') or 'local embeddings'}; no Claude calls)")
+    else:
+        out.update(method="; ".join(methods) or used_engine, usage=usage or None)
+        if info.get("jev_unavailable"):
+            out["jev_unavailable"] = info["jev_unavailable"]
+        log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
+            f"(SSR, {out['method']}; {counts.get('failed', 0)} answers not rated)")
+    return out
+
+
+def step_objection_check(c: Client, responses: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Jev labels each person's main objection with the survey's objection types; the backend reports how often it
+    agrees with the person's own tag (Wilson 95% range). Never fails the survey."""
+    items = [{"id": str(i), "text": (r.get("answer") or {}).get("main_objection"),
+              "self_tag": (r.get("answer") or {}).get("objection_type")}
+             for i, r in enumerate(responses) if (r.get("answer") or {}).get("main_objection")]
+    if not items:
+        return None
+    try:
+        res = c.data("POST", "/api/simulation/objection-check", json={"items": items}, timeout=1800) or {}
+    except CLIError as e:
+        log(f"survey: objection check skipped: {e}")
+        return {"available": False, "reason": str(e)[:300]}
+    ag = res.get("agreement") or {}
+    if ag.get("n"):
+        log(f"survey: objection check: Jev agreed with the person's own tag for {ag.get('pct')}% of {ag.get('n')} "
+            f"answers (95% range {ag.get('lo')}-{ag.get('hi')}%), {res.get('failed', 0)} not labelled")
+    return {"available": True, **res}
 
 
 def save_json(out_dir: str, name: str, data: Any) -> None:
@@ -1075,7 +1126,8 @@ def cmd_survey(c: Client, a) -> Any:
     out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
                       a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr,
-                      retest=a.retest, seed=a.assignment_seed)
+                      retest=a.retest, seed=a.assignment_seed, ssr_engine=a.ssr_engine,
+                      objection_check=a.objection_check)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -1376,7 +1428,8 @@ def cmd_market_test(c: Client, a) -> Any:
             state["survey"] = quota.guarded("the survey", lambda: step_survey(
                 c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
                 survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
-                seed=int(cfg.get("seed", 11))), log)
+                seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
+                objection_check=bool(survey.get("objection_check"))), log)
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -2120,6 +2173,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="reproducible split-message assignment and retest sample (default %(default)s)")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
+    s.add_argument("--ssr-engine", choices=["embeddings", "jev", "auto"],
+                   help="what maps free text to ratings: local embeddings (default, or the backend's SSR_ENGINE), "
+                        "jev (TypeSafe's decision model, needs a key) or auto (Jev, embeddings for what it did not rate)")
+    s.add_argument("--objection-check", action="store_true",
+                   help="have Jev label each main objection and report agreement with the person's own tag (needs a Jev key)")
     s.add_argument("--run-dir", help="where survey.json and the dashboard go (default mirofish_runs/<simulation>)")
     s.add_argument("--no-export", action="store_true", help="don't re-collect and re-export the dashboard")
     s.add_argument("--title")
@@ -2347,6 +2405,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", required=True, help="folder for comparison.json and comparison.html")
     s.add_argument("--title", default="Provider comparison")
 
+    s = sub.add_parser("jev", help="check the optional Jev decision model (TypeSafe): key, route and model; --ping calls it once")
+    s.add_argument("action", nargs="?", choices=["check"], default="check")
+    s.add_argument("--check", action="store_true", help="same as the default action")
+    s.add_argument("--ping", action="store_true", help="send one tiny request to confirm the key works (billed)")
+
     s = sub.add_parser("setup", help="open the provider settings page in your browser (choose a login or an API key, start gateways)")
     s.add_argument("--no-open", action="store_true", help="only print the link")
 
@@ -2368,6 +2431,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--url", help="teardown / voc: public page URL")
     s.add_argument("--page", help="teardown: page text or @page.txt instead of a URL")
     s.add_argument("--reviews", help="voc: @reviews.json list of customer quotes, or @reviews.txt with one per line")
+    s.add_argument("--classifier", choices=["model", "jev"], help="voc: label real and simulated text with the model prompt (default) or the Jev decision model")
     s.add_argument("--need", help="geo: the need people have, without the product's name (default: the product profile)")
     s.add_argument("--message", action="append", dest="messages", help="roleplay: rep message (repeat for follow-ups)")
     s.add_argument("--attributes", help="whatif: @attributes.json {name: [levels]} (default: proposed from the offer)")
@@ -2388,6 +2452,7 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--move", action="append", dest="moves")
         s.add_argument("--url")
         s.add_argument("--reviews")
+        s.add_argument("--classifier", choices=["model", "jev"])
         s.add_argument("--need")
         s.add_argument("--message", action="append", dest="messages")
         s.set_defaults(gtm_alias=test)
@@ -2459,7 +2524,8 @@ def _json_or_text(v: Optional[str]) -> Any:
 
 def _gtm_body(a, out_dir: str) -> Dict[str, Any]:
     body: Dict[str, Any] = {"simulation_id": a.simulation, "parallel": a.parallel}
-    for key in ("cohort", "seed", "generations", "spend", "audience", "price", "currency", "rounds", "segments", "url", "need"):
+    for key in ("cohort", "seed", "generations", "spend", "audience", "price", "currency", "rounds", "segments", "url", "need",
+                "classifier"):
         if getattr(a, key, None) is not None:
             body[key] = getattr(a, key)
     for key in ("offer", "creative", "tiers", "touches", "attributes", "stimulus", "page", "reviews"):
@@ -2552,7 +2618,44 @@ def cmd_search(c: Optional[Client], a) -> Any:
     return {"run_dir": os.path.abspath(run_dir), "indexed_records": len(docs), **res}
 
 
+def _load_jev():
+    """backend/app/services/jev.py by path (stdlib + requests only), so the check works without the backend's packages."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", "jev.py")
+    spec = importlib.util.spec_from_file_location("mm_jev", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def cmd_jev(c: Optional[Client], a) -> Any:
+    """Whether a Jev key is configured and which route and model would be used. Calls the API only with --ping."""
+    jv = _load_jev()
+    cfg = jv.settings()
+    out: Dict[str, Any] = {
+        "configured": cfg["configured"], "route": cfg["route"], "endpoint": cfg["endpoint"], "model": cfg["model"],
+        "key": f"{cfg['key_env']} is set" if cfg["configured"] else cfg["reason"],
+        "ssr_engine": cfg["ssr_engine"], "parallel": cfg["parallel"],
+        "used_for": ["survey rating distributions (SSR_ENGINE=jev or survey --ssr-engine jev)",
+                     "real vs simulated concerns (gtm voc --classifier jev)",
+                     "survey objection check (survey --objection-check)"]}
+    if not a.ping:
+        return out
+    if not cfg["configured"]:
+        raise CLIError(f"Jev is not configured: {cfg['reason']}")
+    t0 = time.time()
+    try:
+        res = jv.ask("I would definitely sign up for this.",
+                     {"check": jv.noul_question("Does the person say they would sign up?")})
+        out["ping"] = {"ok": True, "model": res["model"], "answer": res["answers"]["check"], "usage": res["usage"],
+                       "seconds": round(time.time() - t0, 2)}
+    except jv.JevError as e:
+        out["ping"] = {"ok": False, "error": str(e)}
+    return out
+
+
 COMMANDS = {
+    "jev": cmd_jev,
     "health": cmd_health, "run": cmd_run, "upload": cmd_upload, "build-graph": cmd_build_graph,
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
     "stop": cmd_stop, "close-env": cmd_close_env, "status": cmd_status, "report": cmd_report,
@@ -2575,7 +2678,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run)
         if a.cmd == "backtest":
             try:

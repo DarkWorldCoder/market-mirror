@@ -187,6 +187,18 @@ Login subscriptions have their own limits. Antigravity's Gemini 4 Argon quota ra
 
 API keys are entered privately in your terminal. `./mm configure --open-guide` can open the provider's key console; `./mm provider status` shows masked configuration. Agents can configure an existing secret with `--key-env` instead of placing it in tool arguments. See [provider setup and troubleshooting](docs/LOCAL_AGENTS.md).
 
+### Scoring with Jev (optional)
+
+[Jev](https://docs.typesafe.ai/introduction/quickstart) is TypeSafe's decision model. It does not write text: it reads a piece of text and answers typed questions (pick one label, place it on a scale, yes or no) with a probability for every option. MarketMirror can use it in three places:
+
+- **Rating distributions.** Each free-text survey answer is scored against the same five anchor statements the embedding method uses (level 0 = rating 1 ... level 4 = rating 5), and Jev's probabilities become the 1-5 distribution. The embeddings stay the default. `auto` uses Jev and falls back to the embeddings for the answers Jev did not rate, and records which engine rated each one. In `jev` mode an answer Jev fails on gets no rating and is counted as failed.
+- **Concern classification.** `gtm voc --classifier jev` labels the real text and the simulated objections with the same Jev question (concern types plus "none").
+- **Objection check.** `survey --objection-check` has Jev label each person's main objection with the survey's objection types and reports how often that matches the person's own tag, as a percentage with a 95% range (one line in the dashboard's Objections section).
+
+Jev cannot write or play the simulated people; the chat model you chose above still does that. Its accuracy for these tasks has not been validated in this project, so treat a Jev distribution as a different measurement, not a better one; the dashboard's go / iterate cut-offs were set on the embedding method.
+
+To enable it, set `TYPESAFE_API_KEY` in `.env` (direct to `api.typesafe.ai`), or use OpenRouter with `OPENROUTER_API_KEY` and `JEV_VIA=openrouter`. `JEV_MODEL` overrides the model (`jev-latest` direct, `~typesafe/jev-latest` on OpenRouter), `JEV_BASE_URL` the endpoint and `JEV_PARALLEL` the number of parallel requests (default 4). Then choose where to use it: `SSR_ENGINE=jev` (or `auto`) for every survey, `survey --ssr-engine jev`, or `"survey": {"ssr_engine": "jev", "objection_check": true}` in `market_test.json`. `./mm cli jev check` shows whether a key is configured and which route and model would be used without calling the API; `--ping` sends one request. Each result records the requests, failures and tokens used (and the cost when OpenRouter reports it).
+
 The default knowledge graph uses local SQLite and local embeddings; no Zep account is required. Model downloads and public-source research require network access. Hosted providers and CLI gateways receive model prompts through the selected provider. Model usage remains subject to that account's limits and charges.
 
 ## Connect your agent
