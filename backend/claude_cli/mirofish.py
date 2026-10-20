@@ -2320,6 +2320,9 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--title")
         s.add_argument("--wait-s", type=int, default=7200)
 
+    s = sub.add_parser("setup", help="open the provider settings page in your browser (choose a login or an API key, start gateways)")
+    s.add_argument("--no-open", action="store_true", help="only print the link")
+
     s = sub.add_parser("gtm", help="marketing and sales tests answered by the simulated people: committee, creative, battlecard, "
                                     "journey, pricing, competitors, teardown, roleplay, whatif, personalize, thoughts")
     s.add_argument("tests", nargs="+", help="one or more of: committee creative battlecard journey pricing competitors teardown roleplay whatif personalize thoughts")
@@ -2357,6 +2360,23 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--message", action="append", dest="messages")
         s.set_defaults(gtm_alias=test)
     return p
+
+
+def cmd_setup(c: Client, a) -> Any:
+    """Open the settings page with this backend's setup token (kept after # so it never reaches server logs)."""
+    c.get("/health", retries=1, timeout=10)
+    tok_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "setup.token")
+    try:
+        with open(tok_file, encoding="utf-8") as f:
+            tok = f.read().strip()
+    except OSError:
+        raise CLIError("no setup token yet: start the backend with ./mm start, then run this again")
+    url = f"{c.base}/setup#t={tok}"
+    if not a.no_open:
+        import webbrowser
+        webbrowser.open(url)
+    log("setup: the settings page is open in your browser (the link works on this computer only)")
+    return {"url": url}
 
 
 GTM_TESTS = ("committee", "creative", "battlecard", "journey", "pricing", "competitors", "teardown", "roleplay",
@@ -2457,7 +2477,7 @@ COMMANDS = {
     "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
-    "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
+    "setup": cmd_setup, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
 }
 

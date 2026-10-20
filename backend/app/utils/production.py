@@ -387,7 +387,8 @@ def install_production_middleware(app: Flask) -> None:
         if request.path in ("/health", "/ready") or request.method == "OPTIONS":
             return None
 
-        protected = request.path.startswith("/api/") or request.path == "/metrics"
+        # /api/setup/* has its own stricter guard (this computer only + the setup token from ./mm setup)
+        protected = (request.path.startswith("/api/") and not request.path.startswith("/api/setup/")) or request.path == "/metrics"
         ip = _client_ip()
 
         # 1. Optional per-client rate limiting (counts every /api request, authenticated or not)
