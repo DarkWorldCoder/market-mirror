@@ -249,4 +249,23 @@ def test_full_gtm_suite_all_five_engines_and_dashboard_render(tmp_path):
     assert "Head-to-Head Agent Bake-Off" in c_sec[2]
     assert "Competitive War-Game" in c_sec[2]
 
+    # 8. CRO, What-If & Roleplay Lab (Wynter + Neurons + Hyperbound + Subconscious + Mutiny + Evidenza)
+    cro = suite["cro_lab"]
+    assert cro["landing_teardown"]["overall_5s_score"] > 0
+    assert len(cro["landing_teardown"]["scroll_zones"]) == 5
+    assert len(cro["landing_teardown"]["sentiment_pins"]) == 3
+    assert cro["sales_roleplay"]["overall_score"] > 0
+    assert len(cro["sales_roleplay"]["sparring_personas"]) == 3
+    assert len(cro["causal_whatif"]["attributes"]) == 6
+    assert len(cro["segment_personalization"]["segment_playbooks"]) >= 2
+    assert len(cro["segment_personalization"]["category_entry_points"]) == 4
+
+    cro_sec = report_view.cro_lab_section({"gtm_suite": suite})
+    assert cro_sec is not None and cro_sec[0] == "cro-lab"
+    assert "Interactive What-If Price &amp; Feature Conjoint Simulator" in cro_sec[2]
+    assert "Wynter + Neurons 5-Second Landing Page Teardown" in cro_sec[2]
+    assert "Interactive AI Buyer Roleplay Sparring Dojo" in cro_sec[2]
+    assert "Mutiny 1:1 Segment Personalizer" in cro_sec[2]
+
+
 

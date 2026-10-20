@@ -86,6 +86,7 @@ RUN_FILES = [
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
     "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
+    "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
 ]
 
 
@@ -1163,7 +1164,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (report_view.competitor_section(bundle, insights.get("competitors")),
+    for extra in (report_view.cro_lab_section(bundle, insights.get("cro-lab")),
+                  report_view.competitor_section(bundle, insights.get("competitors")),
                   report_view.gtm_section(bundle, insights.get("gtm")),
                   report_view.thoughts_section(bundle, insights.get("thoughts")),
                   report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
@@ -1188,7 +1190,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     if (bundle.get("ideas") or {}).get("ideas"):
         files["ideas.md"] = bundle["ideas"].get("markdown") or ""
         files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)
-    for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel"):
+    for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel", "cro_lab"):
         if bundle.get(name):
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))

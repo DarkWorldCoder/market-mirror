@@ -1599,6 +1599,18 @@ def run_full_gtm_suite(
     pricing = run_pricing_conjoint(client, model, people, seed=seed + 11)
     comp_intel = run_competitor_intelligence(client, model, offer, people, competitors=competitors, seed=seed + 17)
 
+    from . import cro_and_sparring
+    teardown = cro_and_sparring.run_landing_teardown(client, model, offer, people, seed=seed + 23)
+    roleplay = cro_and_sparring.run_sales_roleplay(client, model, people, offer=offer_str, seed=seed + 29)
+    whatif = cro_and_sparring.run_causal_whatif_model(people, seed=seed + 31)
+    personalizer = cro_and_sparring.run_segment_personalizer(client, model, offer, people, seed=seed + 37)
+    cro_lab = {
+        "landing_teardown": teardown,
+        "sales_roleplay": roleplay,
+        "causal_whatif": whatif,
+        "segment_personalization": personalizer,
+    }
+
     suite = {
         "generated_at": datetime.now().isoformat(),
         "offer": offer,
@@ -1608,6 +1620,7 @@ def run_full_gtm_suite(
         "journey_simulation": journey,
         "pricing_conjoint": pricing,
         "competitor_intelligence": comp_intel,
+        "cro_lab": cro_lab,
     }
     if run_dir and os.path.isdir(run_dir):
         try:
@@ -1615,6 +1628,8 @@ def run_full_gtm_suite(
                 json.dump(suite, f, ensure_ascii=False, indent=2)
             with open(os.path.join(run_dir, "competitor_intel.json"), "w", encoding="utf-8") as f:
                 json.dump(comp_intel, f, ensure_ascii=False, indent=2)
+            with open(os.path.join(run_dir, "cro_lab.json"), "w", encoding="utf-8") as f:
+                json.dump(cro_lab, f, ensure_ascii=False, indent=2)
         except OSError as e:
             logger.warning(f"could not save gtm_suite.json to {run_dir}: {e}")
     return suite

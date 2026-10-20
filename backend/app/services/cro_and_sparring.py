@@ -633,3 +633,4 @@ def run_segment_personalizer(
         "category_entry_points": ceps,
         "avg_personalization_lift_pts": round(sum(p["lift_pts"] for p in playbooks) / max(1, len(playbooks)), 1),
     }
+

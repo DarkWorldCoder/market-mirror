@@ -385,7 +385,8 @@ border:1px solid var(--grid);border-radius:18px;overflow:hidden}
 DL_LABELS.update({"pitch.json": "Sales rehearsal (JSON)", "ideas.md": "Test ideas (Markdown)",
                   "ideas.json": "Test ideas (JSON)", "thought_stream.json": "Agent mindstream (JSON)",
                   "gtm_suite.json": "Marketing & Sales GTM Suite (JSON)",
-                  "competitor_intel.json": "Competitor Intelligence & AI Suggestions (JSON)"})
+                  "competitor_intel.json": "Competitor Intelligence & AI Suggestions (JSON)",
+                  "cro_lab.json": "CRO, What-If & Roleplay Lab (JSON)"})
 
 
 def _mix_bar(m: Dict[str, Any]) -> str:
@@ -1016,6 +1017,289 @@ def competitor_section(bundle: Dict[str, Any], insight: Optional[str] = None) ->
     return ("competitors", "Competitor & AI strategy", body)
 
 
+def cro_lab_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'CRO, What-If & Roleplay Lab': Subconscious-style interactive What-If Conjoint Sliders,
+    Wynter + Neurons 5-Second Landing Page Teardown & Scroll Decay, Hyperbound/Yoodli Interactive AI Buyer
+    Roleplay Sparring Dojo, and Mutiny 1:1 Segment Personalization + Evidenza CEPs."""
+    if not isinstance(bundle, dict):
+        return None
+    suite = bundle.get("gtm_suite") if isinstance(bundle.get("gtm_suite"), dict) else {}
+    lab = bundle.get("cro_lab") or suite.get("cro_lab") or {}
+    td = lab.get("landing_teardown") or bundle.get("landing_teardown")
+    rp = lab.get("sales_roleplay") or bundle.get("sales_roleplay")
+    wi = lab.get("causal_whatif") or bundle.get("causal_whatif")
+    sp = lab.get("segment_personalization") or bundle.get("segment_personalization")
+    if not any(isinstance(x, dict) and x for x in (td, rp, wi, sp)):
+        return None
+
+    kpis = []
+    if isinstance(td, dict):
+        p = td.get("pillars") or {}
+        kpis.append(ui.kpi(f"{td.get('overall_5s_score', 0):g}/100", "5-Second Clarity Score",
+                           f"Clarity {p.get('clarity', 0)} · Trust {p.get('credibility', 0)}", hl=True))
+    if isinstance(rp, dict):
+        kpis.append(ui.kpi(f"{rp.get('overall_score', 0)}/100", "Roleplay Coaching Score",
+                           str(rp.get("certification_grade") or "Ready")))
+    if isinstance(sp, dict):
+        kpis.append(ui.kpi(f"+{sp.get('avg_personalization_lift_pts', 0):g} pts", "1:1 Personalization Lift",
+                           f"{len(sp.get('segment_playbooks') or [])} segment micro-pages"))
+    if isinstance(wi, dict):
+        kpis.append(ui.kpi(str(len(wi.get("attributes") or [])), "Interactive What-If Levers",
+                           "Toggle features & price live below"))
+    kpis_html = f'<div class="kpis auto">{"".join(kpis)}</div>' if kpis else ""
+
+    parts: List[str] = []
+
+    # 1. Interactive Subconscious.ai-Style What-If Feature & Price Simulator
+    if isinstance(wi, dict) and wi.get("attributes"):
+        cur = str(wi.get("currency") or "USD")
+        base_p = float(wi.get("base_price") or 12.0)
+        min_p = float(wi.get("min_price") or 3.0)
+        max_p = float(wi.get("max_price") or 30.0)
+        step_p = float(wi.get("price_step") or 1.0)
+        attrs_html = "".join(
+            f'<label class="wi-toggle"><input type="checkbox" data-wi-attr="{_e(a["id"])}" '
+            f'data-conv="{a.get("marginal_conv_lift_pts", 0)}" data-share="{a.get("marginal_win_share_pts", 0)}" '
+            f'data-drop="{a.get("card_dropoff_reduction_pts", 0)}" data-ret="{a.get("retention_lift_pts", 0)}" '
+            f'{"checked" if a.get("default_on") else ""}>'
+            f'<span><b>{_e(a.get("label"))}</b> <small class="muted">({a.get("category")} · +{a.get("marginal_conv_lift_pts", 0):g} pts conv)</small></span></label>'
+            for a in wi.get("attributes") or []
+        )
+        seg_opts = "".join(
+            f'<option value="{i}" data-bconv="{s.get("base_conversion_pct", 15)}" data-bshare="{s.get("base_win_share_pct", 36)}" '
+            f'data-bdrop="{s.get("base_card_dropoff_pct", 52)}" data-bret="{s.get("base_retention_pct", 55)}" '
+            f'data-elast="{s.get("price_elasticity_per_10pct", -1.8)}">{_e(s.get("segment"))}</option>'
+            for i, s in enumerate(wi.get("segments") or [])
+        )
+        parts.append(
+            '<div class="card" id="mm-whatif-box"><h3>1. Interactive What-If Price &amp; Feature Conjoint Simulator (Subconscious.ai Pattern)</h3>'
+            '<p class="small muted">Toggle product/offer attributes and drag the price slider to simulate real-time shifts in Conversion Rate, Competitive Win Share, Card Drop-Off, and 90-Day Revenue.</p>'
+            '<div class="wi-controls">'
+            f'<label><b>Target Segment:</b> <select id="mm-wi-seg">{seg_opts}</select></label>'
+            f'<label><b>Monthly Price ({_e(cur)}):</b> <input type="range" id="mm-wi-price" min="{min_p:g}" max="{max_p:g}" step="{step_p:g}" value="{base_p:g}" data-base="{base_p:g}" data-cur="{_e(cur)}"> '
+            f'<b id="mm-wi-price-out">{_e(cur)} {base_p:g}</b></label>'
+            '</div>'
+            f'<div class="wi-grid">{attrs_html}</div>'
+            '<div class="kpis auto" style="margin-top:12px">'
+            '<div class="kpi hl"><div class="v" id="mm-wi-conv">34.9%</div><div class="k">Predicted Conversion Rate</div><div class="h">From landing visit to signup</div></div>'
+            '<div class="kpi"><div class="v" id="mm-wi-share">62.7%</div><div class="k">Brand Win Share vs Competitors</div><div class="h">Head-to-head preference share</div></div>'
+            '<div class="kpi"><div class="v" id="mm-wi-drop">12.0%</div><div class="k">Card / Form Drop-Off</div><div class="h">Say-vs-Do abandonment rate</div></div>'
+            f'<div class="kpi"><div class="v" id="mm-wi-rev">{_e(cur)} 820,000</div><div class="k">Projected 90d Revenue / 1k Visitors</div><div class="h">Net of Day-30 churn</div></div>'
+            '</div></div>'
+        )
+
+    # 2. Wynter + Neurons 5-Second Landing Page Teardown & Scroll Decay
+    if isinstance(td, dict):
+        pil = td.get("pillars") or {}
+        z_rows = "".join(
+            f"<tr><td><b>{_e(z.get('zone'))}</b><div class='small muted'>{_e(z.get('focal_element'))}</div></td>"
+            f"<td class='num'><b>{z.get('attention_retained_pct', 0)}%</b></td>"
+            f"<td>{_pill(z.get('cognitive_load'))}</td>"
+            f"<td class='small'>{_e(z.get('drop_off_warning'))}</td></tr>"
+            for z in (td.get("scroll_zones") or [])
+        )
+        pin_cards = []
+        for pin in (td.get("sentiment_pins") or []):
+            p_col = str(pin.get("pin_color") or "yellow")
+            p_cls = "mint" if p_col == "green" else ("stop" if p_col == "red" else "accent")
+            pin_cards.append(
+                f'<div class="thought-card">'
+                f'<div class="person-h"><div><b>{_e(pin.get("section"))}</b>'
+                f'<div class="small muted">{_e(pin.get("buyer_name"))} · {_e(pin.get("segment"))} · Score: {pin.get("score_0_10", 0)}/10</div></div>'
+                f'<span class="pill {p_cls}">{_e(pin.get("pin_label"))}</span></div>'
+                f'<div class="th-box"><span class="th-lbl">👀 5-Second Buyer Reaction</span><p>{_e(pin.get("buyer_quote"))}</p></div>'
+                f'<div class="th-sys2"><b>Before:</b> {_e(pin.get("before_copy"))}</div>'
+                f'<div class="th-act"><b>✨ AI High-Converting Rewrite ({_e(pin.get("expected_lift"))}):</b> {_e(pin.get("after_rewrite"))}</div>'
+                f'</div>'
+            )
+        parts.append(
+            '<div class="card"><h3>2. Wynter + Neurons 5-Second Landing Page Teardown &amp; Scroll-Decay Curve</h3>'
+            f'<p class="small muted">4-Pillar 5-Second Audit — Clarity: <b>{pil.get("clarity", 0)}/10</b> · Relevance: <b>{pil.get("relevance", 0)}/10</b> · '
+            f'Differentiation: <b>{pil.get("differentiation", 0)}/10</b> · Credibility / Anti-BS: <b>{pil.get("credibility", 0)}/10</b>.</p>'
+            '<div class="tbl"><table><thead><tr><th>Viewport Scroll Fold</th><th class="num">Attention Retained</th><th>Cognitive Load</th><th>Scroll-Drop Diagnosis</th></tr></thead>'
+            f'<tbody>{z_rows}</tbody></table></div>'
+            f'<div class="people" style="margin-top:12px">{"".join(pin_cards)}</div></div>'
+        )
+
+    # 3. Hyperbound / Yoodli Interactive AI Buyer Roleplay Sparring Dojo
+    if isinstance(rp, dict) and rp.get("sparring_personas"):
+        rub = rp.get("rubrics") or {}
+        sp_json = json.dumps(rp.get("sparring_personas") or [], ensure_ascii=False).replace("<", "\\u003c")
+        persona_btns = "".join(
+            f'<button type="button" class="dojo-p-btn" data-dojo-p="{i}" aria-pressed="{"true" if i == 0 else "false"}">'
+            f'<b>{_e(p.get("name"))}</b> <small>({_e(p.get("difficulty"))})</small></button>'
+            for i, p in enumerate(rp.get("sparring_personas") or [])
+        )
+        p0 = rp["sparring_personas"][0]
+        opt0 = (p0.get("response_options") or [{}])[0]
+        opt_btns = "".join(
+            f'<button type="button" class="dojo-opt-btn" data-dojo-opt="{j}" aria-pressed="{"true" if j == 0 else "false"}">{_e(o.get("approach"))}</button>'
+            for j, o in enumerate(p0.get("response_options") or [])
+        )
+        parts.append(
+            '<div class="card" id="mm-dojo-box"><h3>3. Interactive AI Buyer Roleplay Sparring Dojo &amp; Rubric Grader (Hyperbound / Yoodli Pattern)</h3>'
+            f'<p class="small muted">Practice handling live buyer objections across difficulty levels. Overall Coaching Rubric: <b>{rp.get("overall_score", 0)}/100 ({_e(rp.get("certification_grade"))})</b> — '
+            f'Discovery: {rub.get("discovery_depth", 0)} · Empathy: {rub.get("empathy_and_local_fit", 0)} · BDE Disarming: {rub.get("bde_objection_resolution", 0)} · Clarity: {rub.get("clarity_and_conciseness", 0)}.</p>'
+            f'<div class="dojo-bar" role="group" aria-label="Select sparring buyer">{persona_btns}</div>'
+            '<div class="thought-card" style="margin-top:10px">'
+            f'<div class="th-sys2" id="mm-dojo-obj"><b>🗣️ Buyer Objection:</b> {_e(p0.get("opening_objection"))}</div>'
+            f'<div class="th-sys2 muted" id="mm-dojo-sys1"><b>💭 Hidden System-1 Impulse:</b> {_e(p0.get("private_system1_thought"))}</div>'
+            f'<div class="dojo-opts" id="mm-dojo-opts">{opt_btns}</div>'
+            f'<div class="th-box"><span class="th-lbl">🎙️ Your Sales Response</span><p id="mm-dojo-rep">{_e(opt0.get("rep_line"))}</p></div>'
+            f'<div class="th-sys2" id="mm-dojo-reply"><b>⚡ Buyer Spoken Reply:</b> {_e(opt0.get("buyer_reply"))}</div>'
+            f'<div class="th-act" id="mm-dojo-score"><b>🏆 Sparring Outcome:</b> <span class="pill mint">{_e(opt0.get("verdict"))}</span> · '
+            f'Conviction: <b>{opt0.get("conviction_after", 0)}/100</b> · Rubric Grade: <b>{opt0.get("rubric_score", 0)}/100</b> '
+            f'· <i>Private thought: “{_e(opt0.get("buyer_private_thought"))}”</i></div>'
+            '</div>'
+            f'<script type="application/json" id="mm-dojo-data">{sp_json}</script>'
+            '</div>'
+        )
+
+    # 4. Mutiny 1:1 Segment Personalization & Evidenza Category Entry Points (CEPs)
+    if isinstance(sp, dict):
+        pb_cards = []
+        for p in (sp.get("segment_playbooks") or []):
+            pb_cards.append(
+                f'<div class="thought-card">'
+                f'<div class="person-h"><div><b>1:1 Micro-Page · {_e(p.get("segment"))} ({_e(p.get("country"))})</b>'
+                f'<div class="small muted">Wallet: {_e(p.get("wallet_profile"))} · {p.get("personas_count", 0)} buyers</div></div>'
+                f'<span class="pill mint">+{p.get("lift_pts", 0):g} pts lift ({p.get("generic_conversion_pct", 0)}% → {p.get("personalized_conversion_pct", 0)}%)</span></div>'
+                f'<div class="th-box"><span class="th-lbl">🎯 Personalized Hero H1</span><p>“{_e(p.get("personalized_h1"))}”</p></div>'
+                f'<div class="th-sys2"><b>Subheadline:</b> {_e(p.get("personalized_subhead"))}</div>'
+                f'<div class="th-sys2"><b>Proof Banner:</b> {_e(p.get("social_proof_banner"))}</div>'
+                f'<div class="th-act"><b>Recommended Package &amp; CTA:</b> {_e(p.get("recommended_package"))} · <code>[{_e(p.get("personalized_cta"))}]</code></div>'
+                f'</div>'
+            )
+        cep_rows = "".join(
+            f"<tr><td><b>{_e(c.get('cep_trigger'))}</b></td>"
+            f"<td class='num'><b>{c.get('buyer_urgency', 0)}/10</b></td>"
+            f"<td>{_e(c.get('current_leader'))}</td>"
+            f"<td class='num'>{c.get('our_current_recall_pct', 0)}% → <b>{c.get('target_recall_after_wedge_pct', 0)}%</b></td>"
+            f"<td class='small'>{_e(c.get('winning_hook_to_own_cep'))}</td></tr>"
+            for c in (sp.get("category_entry_points") or [])
+        )
+        parts.append(
+            '<div class="card"><h3>4. Mutiny 1:1 Segment Personalizer &amp; Evidenza Category Entry Points (CEPs)</h3>'
+            f'<div class="people">{"".join(pb_cards)}</div>'
+            + ('<h4 style="margin-top:16px">Category Entry Points (CEP) Recall &amp; Trigger Map</h4>'
+               '<div class="tbl"><table><thead><tr><th>Real-Life Buyer Trigger Moment (CEP)</th><th class="num">Urgency</th>'
+               '<th>Current Category Recall Leader</th><th class="num">Our Recall Share</th><th>Winning Hook to Capture Trigger</th></tr></thead>'
+               f'<tbody>{cep_rows}</tbody></table></div>' if cep_rows else "")
+            + '</div>'
+        )
+
+    # Inline self-contained interactive JS for What-If Simulator and Roleplay Dojo
+    interactive_js = """
+<script>
+(function(){
+  var wiBox = document.getElementById('mm-whatif-box');
+  if (wiBox) {
+    var segSel = document.getElementById('mm-wi-seg');
+    var priceIn = document.getElementById('mm-wi-price');
+    var priceOut = document.getElementById('mm-wi-price-out');
+    var cbs = wiBox.querySelectorAll('input[data-wi-attr]');
+    function recalc() {
+      var opt = segSel && segSel.options[segSel.selectedIndex];
+      var bConv = opt ? parseFloat(opt.getAttribute('data-bconv') || '15') : 15;
+      var bShare = opt ? parseFloat(opt.getAttribute('data-bshare') || '36') : 36;
+      var bDrop = opt ? parseFloat(opt.getAttribute('data-bdrop') || '52') : 52;
+      var bRet = opt ? parseFloat(opt.getAttribute('data-bret') || '55') : 55;
+      var elast = opt ? parseFloat(opt.getAttribute('data-elast') || '-1.8') : -1.8;
+      var price = priceIn ? parseFloat(priceIn.value || '12') : 12;
+      var baseP = priceIn ? parseFloat(priceIn.getAttribute('data-base') || '12') : 12;
+      var cur = priceIn ? (priceIn.getAttribute('data-cur') || 'USD') : 'USD';
+      if (priceOut) priceOut.textContent = cur + ' ' + price;
+      var pctDiff10 = ((price - baseP) / Math.max(1, baseP)) * 10;
+      var conv = bConv + pctDiff10 * elast;
+      var share = bShare + pctDiff10 * (elast * 1.1);
+      var drop = bDrop + Math.max(0, pctDiff10 * 1.5);
+      var ret = bRet;
+      cbs.forEach(function(cb){
+        if (cb.checked) {
+          conv += parseFloat(cb.getAttribute('data-conv') || '0');
+          share += parseFloat(cb.getAttribute('data-share') || '0');
+          drop -= parseFloat(cb.getAttribute('data-drop') || '0');
+          ret += parseFloat(cb.getAttribute('data-ret') || '0');
+        }
+      });
+      conv = Math.max(2, Math.min(88, conv));
+      share = Math.max(5, Math.min(92, share));
+      drop = Math.max(4, Math.min(85, drop));
+      ret = Math.max(20, Math.min(95, ret));
+      var rev = Math.round((conv / 100) * 1000 * price * (1 + (ret / 100) * 2));
+      var elC = document.getElementById('mm-wi-conv'); if (elC) elC.textContent = conv.toFixed(1) + '%';
+      var elS = document.getElementById('mm-wi-share'); if (elS) elS.textContent = share.toFixed(1) + '%';
+      var elD = document.getElementById('mm-wi-drop'); if (elD) elD.textContent = drop.toFixed(1) + '%';
+      var elR = document.getElementById('mm-wi-rev'); if (elR) elR.textContent = cur + ' ' + rev.toLocaleString();
+    }
+    if (segSel) segSel.addEventListener('change', recalc);
+    if (priceIn) priceIn.addEventListener('input', recalc);
+    cbs.forEach(function(cb){ cb.addEventListener('change', recalc); });
+    recalc();
+  }
+  var dojoDataEl = document.getElementById('mm-dojo-data');
+  var dojoBox = document.getElementById('mm-dojo-box');
+  if (dojoDataEl && dojoBox) {
+    try {
+      var personas = JSON.parse(dojoDataEl.textContent);
+      var curP = 0;
+      function renderOpt(pIdx, oIdx) {
+        var p = personas[pIdx] || personas[0];
+        var o = (p.response_options || [])[oIdx] || (p.response_options || [])[0] || {};
+        var repEl = document.getElementById('mm-dojo-rep'); if (repEl) repEl.textContent = o.rep_line || '';
+        var rplEl = document.getElementById('mm-dojo-reply'); if (rplEl) rplEl.innerHTML = '<b>⚡ Buyer Spoken Reply:</b> ' + (o.buyer_reply || '');
+        var scEl = document.getElementById('mm-dojo-score');
+        if (scEl) {
+          var cls = (o.rubric_score || 0) >= 80 ? 'mint' : ((o.rubric_score || 0) >= 45 ? 'accent' : 'stop');
+          scEl.innerHTML = '<b>🏆 Sparring Outcome:</b> <span class="pill ' + cls + '">' + (o.verdict || '') + '</span> · Conviction: <b>' + (o.conviction_after || 0) + '/100</b> · Rubric Grade: <b>' + (o.rubric_score || 0) + '/100</b> · <i>Private thought: “' + (o.buyer_private_thought || '') + '”</i>';
+        }
+      }
+      function renderPersona(pIdx) {
+        curP = pIdx;
+        var p = personas[pIdx] || personas[0];
+        var objEl = document.getElementById('mm-dojo-obj'); if (objEl) objEl.innerHTML = '<b>🗣️ Buyer Objection:</b> ' + (p.opening_objection || '');
+        var s1El = document.getElementById('mm-dojo-sys1'); if (s1El) s1El.innerHTML = '<b>💭 Hidden System-1 Impulse:</b> ' + (p.private_system1_thought || '');
+        var optsWrap = document.getElementById('mm-dojo-opts');
+        if (optsWrap) {
+          optsWrap.innerHTML = '';
+          (p.response_options || []).forEach(function(o, j){
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'dojo-opt-btn';
+            b.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+            b.textContent = o.approach || ('Option ' + (j + 1));
+            b.addEventListener('click', function(){
+              optsWrap.querySelectorAll('.dojo-opt-btn').forEach(function(x){ x.setAttribute('aria-pressed', 'false'); });
+              b.setAttribute('aria-pressed', 'true');
+              renderOpt(curP, j);
+            });
+            optsWrap.appendChild(b);
+          });
+        }
+        renderOpt(pIdx, 0);
+      }
+      dojoBox.querySelectorAll('[data-dojo-p]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          dojoBox.querySelectorAll('[data-dojo-p]').forEach(function(x){ x.setAttribute('aria-pressed', 'false'); });
+          btn.setAttribute('aria-pressed', 'true');
+          renderPersona(parseInt(btn.getAttribute('data-dojo-p') || '0', 10));
+        });
+      });
+      renderPersona(0);
+    } catch(e) {}
+  }
+})();
+</script>"""
+
+    intro = (
+        "Interactive Conversion Rate Optimization (CRO), What-If Conjoint Simulator, 5-Second Landing Page Teardown, "
+        "AI Buyer Roleplay Sparring Dojo, and 1:1 Segment Personalization inspired by Wynter, Neurons, Subconscious.ai, Hyperbound, and Mutiny."
+    )
+    body = ui.section_head("CRO, What-If & roleplay lab", intro, insight) + kpis_html + "".join(parts) + interactive_js
+    return ("cro-lab", "CRO & roleplay lab", body)
+
+
+
 
 
 
@@ -1031,4 +1315,10 @@ pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono);margin:8px 0 0}
 .th-box p{margin:0;font-size:.88rem;line-height:1.45;color:var(--text);font-style:italic}
 .th-sys2{font-size:.8rem;color:var(--text-2);line-height:1.4}
 .th-act{font-size:.8rem;color:var(--text);padding-top:4px;border-top:1px dashed var(--border)}
+.wi-controls{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:10px 0;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-lg)}
+.wi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-top:8px}
+.wi-toggle{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.83rem}
+.dojo-bar,.dojo-opts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.dojo-p-btn,.dojo-opt-btn{font:inherit;font-size:.8rem;padding:6px 12px;border-radius:var(--r-pill);border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+.dojo-p-btn[aria-pressed="true"],.dojo-opt-btn[aria-pressed="true"]{background:var(--text);color:var(--surface);border-color:var(--text)}
 """

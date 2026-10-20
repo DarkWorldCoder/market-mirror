@@ -2291,6 +2291,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--competitors", nargs="*", help="competitor names or @competitors.json")
     s.add_argument("--no-export", action="store_true")
     s.add_argument("--title")
+
+    s = sub.add_parser("teardown", help="run Wynter + Neurons 5-Second Landing Page Teardown & Scroll-Decay Attention Simulator")
+    s.add_argument("--simulation", help="simulation ID (or use --run-dir offline)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--url", help="live landing page URL or copy text")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("roleplay", help="run Hyperbound / Yoodli AI Buyer Roleplay Sparring Dojo & 5-Rubric Coaching Grader")
+    s.add_argument("--simulation", help="simulation ID (or use --run-dir offline)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--message", nargs="*", help="rep pitch / rebuttal messages to score")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("personalize", help="run Mutiny 1:1 Segment Personalizer & Evidenza Category Entry Points (CEPs)")
+    s.add_argument("--simulation", help="simulation ID (or use --run-dir offline)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--offer", help="offer headline/text")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
     return p
 
 
@@ -2374,6 +2395,58 @@ def cmd_competitor_analysis(c: Optional[Client], a) -> Any:
     return res
 
 
+def _load_offline_people(out_dir: str) -> List[Dict[str, Any]]:
+    cfg_path = os.path.join(out_dir, "config.json")
+    if not os.path.exists(cfg_path):
+        cfg_path = os.path.join(out_dir, "simulation_config.json")
+    if os.path.exists(cfg_path):
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            if isinstance(d, dict) and "data" in d and isinstance(d["data"], dict):
+                d = d["data"]
+            return d.get("persona_index") or []
+    return []
+
+
+def cmd_teardown(c: Optional[Client], a) -> Any:
+    out_dir = a.run_dir or (_run_dir_for(a) if getattr(a, "simulation", None) else "mirofish_runs/fitloop")
+    os.makedirs(out_dir, exist_ok=True)
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from app.services import cro_and_sparring
+    res = cro_and_sparring.run_landing_teardown(None, "", getattr(a, "url", None) or "15-Minute Daily Routine App", _load_offline_people(out_dir))
+    with open(os.path.join(out_dir, "landing_teardown.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    if not getattr(a, "no_export", False):
+        do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
+
+
+def cmd_roleplay(c: Optional[Client], a) -> Any:
+    out_dir = a.run_dir or (_run_dir_for(a) if getattr(a, "simulation", None) else "mirofish_runs/fitloop")
+    os.makedirs(out_dir, exist_ok=True)
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from app.services import cro_and_sparring
+    res = cro_and_sparring.run_sales_roleplay(None, "", _load_offline_people(out_dir), rep_messages=getattr(a, "message", None))
+    with open(os.path.join(out_dir, "sales_roleplay.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    if not getattr(a, "no_export", False):
+        do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
+
+
+def cmd_personalize(c: Optional[Client], a) -> Any:
+    out_dir = a.run_dir or (_run_dir_for(a) if getattr(a, "simulation", None) else "mirofish_runs/fitloop")
+    os.makedirs(out_dir, exist_ok=True)
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from app.services import cro_and_sparring
+    res = cro_and_sparring.run_segment_personalizer(None, "", getattr(a, "offer", None) or "15-Minute Daily Routine", _load_offline_people(out_dir))
+    with open(os.path.join(out_dir, "segment_personalization.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    if not getattr(a, "no_export", False):
+        do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
+
+
 COMMANDS = {
     "health": cmd_health, "run": cmd_run, "upload": cmd_upload, "build-graph": cmd_build_graph,
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
@@ -2386,6 +2459,7 @@ COMMANDS = {
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "thoughts": cmd_thoughts, "gtm-suite": cmd_gtm_suite, "competitor-analysis": cmd_competitor_analysis,
+    "teardown": cmd_teardown, "roleplay": cmd_roleplay, "personalize": cmd_personalize,
 }
 
 
@@ -2396,7 +2470,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_live = a.cmd == "live" and a.offline
         offline = offline_export or offline_live or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
-            (a.cmd in ("gtm-suite", "competitor-analysis") and not getattr(a, "simulation", None))
+            (a.cmd in ("gtm-suite", "competitor-analysis", "teardown", "roleplay", "personalize") and not getattr(a, "simulation", None))
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

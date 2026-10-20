@@ -1073,4 +1073,83 @@ def get_competitor_analysis(simulation_id: str):
     return jsonify({"success": True, "data": res})
 
 
+@simulation_bp.route('/landing-teardown', methods=['POST'])
+def start_landing_teardown():
+    """POST {simulation_id, url?: str, page?: dict|str, seed?} — Wynter + Neurons 5-Second Teardown & Scroll Decay."""
+    from ..services import cro_and_sparring
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("simulation_id") or "").strip()
+    try:
+        root = _sim_dir(sid)
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    page_input = data.get("url") or data.get("page") or data.get("offer") or "15-Minute Daily Routine App"
+    res = cro_and_sparring.run_landing_teardown(None, Config.LLM_MODEL_NAME, page_input, people, seed=int(data.get("seed") or 53))
+    with open(os.path.join(root, "landing_teardown.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    return jsonify({"success": True, "data": res})
+
+
+@simulation_bp.route('/sales-roleplay', methods=['POST'])
+def start_sales_roleplay():
+    """POST {simulation_id, rep_messages?: [str], persona_id?: int, offer?: str} — Hyperbound/Yoodli AI Buyer Roleplay Dojo."""
+    from ..services import cro_and_sparring
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("simulation_id") or "").strip()
+    try:
+        root = _sim_dir(sid)
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    res = cro_and_sparring.run_sales_roleplay(
+        None, Config.LLM_MODEL_NAME, people,
+        rep_messages=data.get("rep_messages"),
+        persona_id=data.get("persona_id"),
+        offer=str(data.get("offer") or ""),
+    )
+    with open(os.path.join(root, "sales_roleplay.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    return jsonify({"success": True, "data": res})
+
+
+@simulation_bp.route('/whatif-simulator', methods=['POST'])
+def start_whatif_simulator():
+    """POST {simulation_id, base_price?: float, currency?: str} — Subconscious.ai Causal Marginal Utility & What-If Model."""
+    from ..services import cro_and_sparring
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("simulation_id") or "").strip()
+    try:
+        root = _sim_dir(sid)
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    res = cro_and_sparring.run_causal_whatif_model(
+        people,
+        base_price=float(data.get("base_price") or 12.0),
+        currency=str(data.get("currency") or "USD"),
+    )
+    with open(os.path.join(root, "causal_whatif.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    return jsonify({"success": True, "data": res})
+
+
+@simulation_bp.route('/segment-personalizer', methods=['POST'])
+def start_segment_personalizer():
+    """POST {simulation_id, offer?} — Mutiny 1:1 Segment Personalizer & Evidenza Category Entry Points (CEPs)."""
+    from ..services import cro_and_sparring
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("simulation_id") or "").strip()
+    try:
+        root = _sim_dir(sid)
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    res = cro_and_sparring.run_segment_personalizer(None, Config.LLM_MODEL_NAME, data.get("offer") or "15-Min Daily Routine", people)
+    with open(os.path.join(root, "segment_personalization.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    return jsonify({"success": True, "data": res})
+
+
+
 
