@@ -75,8 +75,42 @@ def progress_to(run_dir: Optional[str]) -> None:
 # HTTP client
 # --------------------------------------------------------------------------
 
+REPO_ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
+TOKEN_ENV_KEYS = ("MM_API_AUTH_TOKEN", "API_AUTH_TOKEN")
+
+
+def api_token(env_file: Optional[str] = None) -> str:
+    """The backend API token: MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from the environment, else the repo .env.
+
+    The value is only ever placed in the Authorization header; it is never logged or printed.
+    """
+    for key in TOKEN_ENV_KEYS:
+        value = (os.environ.get(key) or "").strip()
+        if value:
+            return value
+    path = env_file or REPO_ENV_FILE
+    found: Dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].strip()
+                key, sep, value = line.partition("=")
+                if sep and key.strip() in TOKEN_ENV_KEYS:
+                    found[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    for key in TOKEN_ENV_KEYS:
+        if found.get(key):
+            return found[key]
+    return ""
+
+
 class Client:
-    def __init__(self, base_url: str, timeout: float = 60, lang: str = "en"):
+    def __init__(self, base_url: str, timeout: float = 60, lang: str = "en", token: Optional[str] = None):
         try:
             import requests  # noqa: F401
         except ImportError as e:  # pragma: no cover
@@ -87,7 +121,13 @@ class Client:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers["Accept-Language"] = lang
+        token = api_token() if token is None else token.strip()
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
         self.memory_scope = "default"   # behaviour-memory scope the tests read and write ("off" disables; study cells set their own)
+
+    def __repr__(self) -> str:   # never show the session headers (they carry the token)
+        return f"Client(base={self.base!r})"
 
     def _handle(self, resp, method: str, path: str) -> Any:
         try:
@@ -96,6 +136,8 @@ class Client:
             raise CLIError(f"{method} {path} -> HTTP {resp.status_code}: {resp.text[:500]}")
         if resp.status_code >= 400 or (isinstance(body, dict) and body.get("success") is False):
             err = body.get("error") or body.get("message") if isinstance(body, dict) else body
+            if resp.status_code == 401:
+                err = f"{err} (set MM_API_AUTH_TOKEN in the environment or the repo .env to the backend's token)"
             raise CLIError(f"{method} {path} -> HTTP {resp.status_code}: {err}")
         return body
 

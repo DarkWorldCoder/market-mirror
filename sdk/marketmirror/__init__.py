@@ -27,12 +27,42 @@ class MarketMirrorError(RuntimeError):
     pass
 
 
+_TOKEN_KEYS = ("MM_API_AUTH_TOKEN", "API_AUTH_TOKEN")
+
+
+def _token_from(repo: str) -> str:
+    """MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from the environment, else from <repo>/.env."""
+    for key in _TOKEN_KEYS:
+        if (os.environ.get(key) or "").strip():
+            return os.environ[key].strip()
+    found: Dict[str, str] = {}
+    try:
+        with open(os.path.join(repo, ".env"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                key, sep, value = line.partition("=")
+                if sep and not line.startswith("#") and key.strip() in _TOKEN_KEYS:
+                    found[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    return next((found[k] for k in _TOKEN_KEYS if found.get(k)), "")
+
+
 class MarketMirror:
-    def __init__(self, base_url: str = "http://localhost:5001", repo: Optional[str] = None, timeout: float = 120):
+    def __init__(self, base_url: str = "http://localhost:5001", repo: Optional[str] = None, timeout: float = 120,
+                 token: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.repo = repo or os.environ.get("MARKET_MIRROR_HOME") or os.getcwd()
         self.timeout = timeout
         self.s = requests.Session()
+        token = _token_from(self.repo) if token is None else token.strip()
+        if token:   # sent as a header only; never logged or included in errors
+            self.s.headers["Authorization"] = f"Bearer {token}"
+
+    def __repr__(self) -> str:
+        return f"MarketMirror(base_url={self.base_url!r}, repo={self.repo!r})"
 
     # ---- transport ----
     def _call(self, method: str, path: str, **kw) -> Any:
@@ -159,7 +189,11 @@ class MarketMirror:
         if not os.path.exists(py):
             py = "python3"
         cmd = [py, os.path.join(self.repo, "backend", "claude_cli", "mirofish.py"), "--base-url", self.base_url, *args]
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=self.repo)
+        env = dict(os.environ)
+        auth = self.s.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            env["MM_API_AUTH_TOKEN"] = auth[7:]   # via the environment, never argv (visible in ps)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=self.repo, env=env)
         out = p.stdout.strip()
         try:
             data = json.loads(out) if out else {}

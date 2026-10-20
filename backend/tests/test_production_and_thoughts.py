@@ -51,14 +51,13 @@ def test_production_middleware_auth_ratelimit_probes_and_metrics(tmp_path, monke
 
     r_ready = client.get("/ready")
     assert r_ready.status_code == 200
-    ready_data = r_ready.get_json()
-    assert ready_data["ready"] is True
-    assert "upload_folder" in ready_data["checks"]
+    assert r_ready.get_json() == {"ready": True}   # public probe: no paths, provider or disk details
 
-    # 2. System status and Prometheus /metrics
+    # 2. System status (details) and Prometheus /metrics
     r_sys = client.get("/api/system/status")
     assert r_sys.status_code == 200
     assert r_sys.get_json()["data"]["version"] == "2.0.0"
+    assert "upload_folder" in r_sys.get_json()["data"]["checks"]
 
     r_metrics = client.get("/metrics")
     assert r_metrics.status_code == 200
