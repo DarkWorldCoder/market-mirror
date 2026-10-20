@@ -95,9 +95,13 @@ def test_only_a_stratified_sample_is_interviewed():
 def test_auto_depth_switches_above_the_threshold(monkeypatch):
     monkeypatch.setattr(pp, "FAST_ABOVE", 10)
     client = CardClient()
-    pp.generate_personas(client, "m", pp.PersonaSpec.from_dict({"segments": [seg(count=12)], "interview": False}),
-                         "req", "ctx")
+    pp.generate_personas(client, "m", pp.PersonaSpec.from_dict({"segments": [seg(count=12)], "interview": False,
+                                                              "depth": "auto"}), "req", "ctx")
     assert client.calls[0].startswith("Write 12 distinct people")
+    full = CardClient()
+    pp.generate_personas(full, "m", pp.PersonaSpec.from_dict({"segments": [seg(count=12)], "interview": False}),
+                         "req", "ctx")
+    assert full.calls[0].startswith("Write 5 distinct synthetic people")      # the older method is the default
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "depth": "deep"})
 

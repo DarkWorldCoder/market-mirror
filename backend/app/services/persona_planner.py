@@ -46,7 +46,7 @@ SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
 RETRY_PAUSE_S = float(os.environ.get("PERSONA_RETRY_PAUSE_S") or 3)
-# depth "auto" switches to cards plus an interviewed sample above this many people (MM_FAST_ABOVE)
+# depth "auto" (opt-in) switches to cards plus an interviewed sample above this many people (MM_FAST_ABOVE)
 FAST_ABOVE = max(0, int(os.environ.get("MM_FAST_ABOVE") or 300))
 MAX_PER_CALL = 5                 # shorter calls: a retry costs less and segments finish sooner
 # a guard against typos, not a model limit; raise it with MM_MAX_PERSONAS for larger markets
@@ -198,7 +198,7 @@ class PersonaSpec:
     population: Dict[str, Any] = field(default_factory=dict)   # {country: {"age": {...}, "gender": {...}}} target shares
     real_profiles: List[Dict[str, Any]] = field(default_factory=list)  # grounded customer excerpts/records with provenance
     seed: int = 7
-    depth: str = "auto"                # full: every person interviewed | fast: cards + an interviewed sample | auto
+    depth: str = "full"                # full: every person interviewed | fast: cards + an interviewed sample | auto
     interview_share: float = 0.1       # fast depth: share of each segment x provider given the full interview
 
     @classmethod
@@ -229,7 +229,7 @@ class PersonaSpec:
             population=dict(d.get("population") or {}) if isinstance(d.get("population"), dict) else {},
             real_profiles=real_raw,
             seed=_int(d.get("seed"), 7),
-            depth=str(d.get("depth") or "auto").lower(),
+            depth=str(d.get("depth") or "full").lower(),
             interview_share=max(0.0, min(1.0, _float(d.get("interview_share", 0.1), 0.1))),
         )
         if spec.depth not in ("auto", "full", "fast"):
