@@ -143,7 +143,10 @@ Browser runs use compact model observations while retaining full local evidence.
 | **Local Antigravity (Gemini models)** | `./mm gateway start antigravity --port 5057 --model gemini-3.8-flash-medium` | Existing local Antigravity login; `agy models` lists the models it offers |
 | **Ollama / LM Studio** | Choose the provider in `./mm configure` | A locally installed, tool-capable model |
 | **Claude / OpenAI API** | Choose the provider in `./mm configure` | Provider API key and available model access |
-| **Other compatible servers** | Configure the endpoint and model | Provider-dependent |
+| **Other API providers**: DeepSeek, Kimi (Moonshot AI), Mistral, xAI (Grok), Groq, Together AI, Fireworks AI, OpenRouter, Qwen (Alibaba Model Studio), Z.ai (GLM), Cerebras, MiniMax | `./mm configure`, the settings page (`./mm cli setup`), or `.env`: `LLM_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` (base URL and a default model are filled in; Qwen also needs `QWEN_BASE_URL`, which contains your workspace id) | That provider's API key (`MOONSHOT_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `DASHSCOPE_API_KEY`, otherwise `<NAME>_API_KEY`) |
+| **Other compatible servers** | Configure the endpoint and model, or the pool slot `custom` (`CUSTOM_BASE_URL`, `CUSTOM_API_KEY`, `CUSTOM_MODEL_NAME`) | Provider-dependent |
+
+Several providers in one market: `LLM_POOL=deepseek,kimi,claude` with each provider's key set (`<name>:<model>` picks a model, for example `deepseek:deepseek-v4-pro`).
 
 **Usage limits pause the run instead of breaking it.** When a Claude Code or Codex login hits its session or weekly limit, the gateway reads the reset time from the message, stops sending calls, and answers `429` with `Retry-After` until then. `market-test` and `study` wait for the reset, then redo only the step that was hit, so a half-answered survey never becomes a result. `curl 127.0.0.1:5055/health` shows `paused`, `paused_until` and `limit_hits`.
 

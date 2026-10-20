@@ -986,6 +986,20 @@ def _get_comment_info(
     return None
 
 
+def _model_pool_tables():
+    """backend/app/utils/model_pool.py (stdlib only at import), loaded by path: importing the app package would
+    load .env again with override and replace the settings this run was started with."""
+    import importlib.util
+    name = "_mm_model_pool_tables"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_backend_dir, "app", "utils", "model_pool.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def create_model(config: Dict[str, Any], use_boost: bool = False):
     """
     创建LLM模型
@@ -1020,10 +1034,22 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
         llm_model = os.environ.get("LLM_MODEL_NAME", "")
         config_label = "[通用LLM]"
     
+    # Provider defaults (base URL, model, key variable) come from PROVIDER_DEFAULTS in app/utils/model_pool.py
+    _mp = _model_pool_tables()
+    _raw_provider = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
+    _provider = _mp.PROVIDER_ALIASES.get(_raw_provider, _raw_provider)
+    _hosted = _provider in ('claude', 'gemini') or _provider in _mp.API_PROVIDERS
+    _defaults = _mp.PROVIDER_DEFAULTS.get(_provider, {}) if _hosted else {}
+    if _hosted and not (use_boost and has_boost_config):
+        # LLM_PROVIDER=deepseek (or claude, ...) with only DEEPSEEK_API_KEY and <NAME>_BASE_URL / _MODEL_NAME set
+        llm_api_key = llm_api_key or _mp.provider_api_key(_provider)
+        llm_base_url = llm_base_url or os.environ.get(f'{_provider.upper()}_BASE_URL', '')
+        llm_model = llm_model or os.environ.get(f'{_provider.upper()}_MODEL_NAME', '')
+
     # 如果 .env 中没有模型名，则使用 config 作为备用
     if not llm_model:
-        llm_model = config.get("llm_model", "gpt-4o-mini")
-    
+        llm_model = config.get("llm_model") or _defaults.get("model") or "gpt-4o-mini"
+
     # 设置 camel-ai 所需的环境变量
     if llm_api_key:
         os.environ["OPENAI_API_KEY"] = llm_api_key
@@ -1036,22 +1062,18 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
     
-    # Claude / Gemini / OpenAI: configure OpenAI-compatible base URL & model defaults
-    _provider = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
+    # Claude / Gemini / hosted OpenAI-compatible APIs: their base URL when none is set; Claude and Gemini also
+    # replace a model id of another family
     _base = os.environ.get('OPENAI_API_BASE_URL', '')
+    if not _base and _defaults.get('base_url'):
+        os.environ['OPENAI_API_BASE_URL'] = _defaults['base_url']
 
-    if _provider == 'claude' and not _base:
-        os.environ['OPENAI_API_BASE_URL'] = 'https://api.anthropic.com/v1/'
-    elif _provider == 'gemini' and not _base:
-        os.environ['OPENAI_API_BASE_URL'] = 'https://generativelanguage.googleapis.com/v1beta/openai/'
-
-    if _provider == 'claude' and not llm_model.startswith('claude'):
-        llm_model = os.environ.get('LLM_MODEL_NAME') or 'claude-haiku-4-5'
-    elif _provider == 'gemini' and not llm_model.startswith('gemini'):
-        llm_model = os.environ.get('LLM_MODEL_NAME') or 'gemini-2.5-flash'
+    if _provider in ('claude', 'gemini') and not llm_model.startswith(_provider):
+        llm_model = os.environ.get('LLM_MODEL_NAME') or _defaults['model']
 
     _is_compat = (
-        _provider in ('claude', 'gemini')
+        _hosted
+        or bool(_mp.api_provider_for_url(os.environ.get('OPENAI_API_BASE_URL', '')))
         or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')
         or 'generativelanguage.googleapis.com' in os.environ.get('OPENAI_API_BASE_URL', '')
         or '127.0.0.1' in os.environ.get('OPENAI_API_BASE_URL', '')

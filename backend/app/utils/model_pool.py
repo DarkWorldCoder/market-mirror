@@ -1,7 +1,8 @@
 """
 Multi-Provider Agent Pool (`MultiProviderPool`).
 
-Allows MarketMirror to run Claude, OpenAI/ChatGPT, Google Gemini, and local models
+Allows MarketMirror to run Claude, OpenAI/ChatGPT, Google Gemini, hosted OpenAI-compatible APIs (DeepSeek, Kimi,
+Mistral, xAI, Groq, Together, Fireworks, OpenRouter, Qwen, Z.ai, Cerebras, MiniMax) and local models
 concurrently in a single simulation or research run:
 - Deterministic agent-to-provider assignment (`for_agent(agent_id)`) so a simulated
   person stays on a consistent model family across steps unless that provider hits a 429.
@@ -24,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-PROVIDER_DEFAULTS: Dict[str, Dict[str, str]] = {
+PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "claude": {
         "base_url": "https://api.anthropic.com/v1/",
         "model": "claude-haiku-4-5",
@@ -70,6 +71,7 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, str]] = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "model": "gemini-2.5-flash",
         "key_env": "GEMINI_API_KEY",
+        "alt_key_envs": ("GOOGLE_API_KEY",),
     },
     "ollama": {
         "base_url": "http://127.0.0.1:11434/v1",
@@ -77,6 +79,42 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, str]] = {
         "key_env": "",
     },
 }
+
+# Hosted OpenAI-compatible APIs reached with their own key. key_env is the provider's documented variable and
+# alt_key_envs are read too; hosts name the provider of a base URL. qwen needs QWEN_BASE_URL (Model Studio URLs carry
+# the workspace id) and custom needs CUSTOM_BASE_URL and CUSTOM_MODEL_NAME.
+API_PROVIDERS: Dict[str, Dict[str, Any]] = {
+    "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com", "model": "deepseek-flash",
+                 "key_env": "DEEPSEEK_API_KEY", "hosts": ("deepseek.com",)},
+    "kimi": {"label": "Kimi (Moonshot AI)", "base_url": "https://api.moonshot.ai/v1", "model": "kimi-k2.6",
+             "key_env": "MOONSHOT_API_KEY", "alt_key_envs": ("KIMI_API_KEY",), "hosts": ("moonshot.ai", "moonshot.cn", "kimi.ai")},
+    "mistral": {"label": "Mistral", "base_url": "https://api.mistral.ai/v1", "model": "mistral-small-latest",
+                "key_env": "MISTRAL_API_KEY", "hosts": ("mistral.ai",)},
+    "xai": {"label": "xAI (Grok)", "base_url": "https://api.x.ai/v1", "model": "grok-4.3",
+            "key_env": "XAI_API_KEY", "alt_key_envs": ("GROK_API_KEY",), "hosts": ("x.ai",)},
+    "groq": {"label": "Groq", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile",
+             "key_env": "GROQ_API_KEY", "hosts": ("groq.com",)},
+    "together": {"label": "Together AI", "base_url": "https://api.together.ai/v1", "model": "openai/gpt-oss-120b",
+                 "key_env": "TOGETHER_API_KEY", "hosts": ("together.ai", "together.xyz")},
+    "fireworks": {"label": "Fireworks AI", "base_url": "https://api.fireworks.ai/inference/v1",
+                  "model": "accounts/fireworks/models/gpt-oss-120b", "key_env": "FIREWORKS_API_KEY", "hosts": ("fireworks.ai",)},
+    "openrouter": {"label": "OpenRouter", "base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-oss-120b",
+                   "key_env": "OPENROUTER_API_KEY", "hosts": ("openrouter.ai",)},
+    "qwen": {"label": "Qwen (Alibaba Model Studio)", "base_url": "", "model": "qwen3.8-flash",
+             "key_env": "DASHSCOPE_API_KEY", "alt_key_envs": ("QWEN_API_KEY",), "hosts": ("aliyuncs.com",)},
+    "zhipu": {"label": "Z.ai (GLM)", "base_url": "https://api.z.ai/api/paas/v4/", "model": "glm-5.3-flash",
+              "key_env": "ZAI_API_KEY", "alt_key_envs": ("ZHIPU_API_KEY",), "hosts": ("z.ai", "bigmodel.cn")},
+    "cerebras": {"label": "Cerebras", "base_url": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b",
+                 "key_env": "CEREBRAS_API_KEY", "hosts": ("cerebras.ai",)},
+    "minimax": {"label": "MiniMax", "base_url": "https://api.minimax.io/v1", "model": "MiniMax-M3.1-Flash",
+                "key_env": "MINIMAX_API_KEY", "hosts": ("minimax.io", "minimaxi.com")},
+    "custom": {"label": "Another OpenAI-compatible API", "base_url": "", "model": "", "key_env": "CUSTOM_API_KEY"},
+}
+PROVIDER_DEFAULTS.update(API_PROVIDERS)
+# model id prefixes that name the family of a requested model (hosts such as Groq or OpenRouter serve many families)
+_MODEL_PREFIXES = (("deepseek", ("deepseek-",)), ("kimi", ("kimi-", "moonshot-")),
+                   ("mistral", ("mistral-", "ministral-", "magistral-", "codestral-", "devstral-", "pixtral-")),
+                   ("xai", ("grok-",)), ("zhipu", ("glm-",)), ("qwen", ("qwen-", "qwen2", "qwen3")), ("minimax", ("minimax-",)))
 
 PROVIDER_ALIASES = {
     "anthropic": "claude",
@@ -93,6 +131,29 @@ PROVIDER_ALIASES = {
     "agy": "antigravity",
     "claude_code": "claude_code",
     "gemini_cli": "gemini_cli",
+    "deepseek": "deepseek",
+    "kimi": "kimi",
+    "moonshot": "kimi",
+    "moonshotai": "kimi",
+    "mistral": "mistral",
+    "mistralai": "mistral",
+    "xai": "xai",
+    "grok": "xai",
+    "groq": "groq",
+    "together": "together",
+    "togetherai": "together",
+    "fireworks": "fireworks",
+    "openrouter": "openrouter",
+    "qwen": "qwen",
+    "dashscope": "qwen",
+    "alibaba": "qwen",
+    "zhipu": "zhipu",
+    "glm": "zhipu",
+    "zai": "zhipu",
+    "z.ai": "zhipu",
+    "cerebras": "cerebras",
+    "minimax": "minimax",
+    "custom": "custom",
 }
 GATEWAY_PROVIDERS = ("codex", "antigravity", "claude_code", "gemini_cli")
 # what a gateway's /health "backend" field means as a pool provider label
@@ -145,9 +206,32 @@ def gateway_label(base_url: str, env: Optional[Dict[str, str]] = None, ttl: floa
     return label
 
 
+def api_provider_for_url(base_url: Optional[str]) -> Optional[str]:
+    """The hosted API provider (deepseek, kimi, groq, ...) whose host serves `base_url`, else None."""
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse((base_url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return None
+    for prov, spec in API_PROVIDERS.items():
+        if any(host == h or host.endswith("." + h) for h in spec.get("hosts", ())):
+            return prov
+    return None
+
+
+def provider_api_key(provider: str, env: Optional[Dict[str, str]] = None) -> str:
+    """The key of a hosted API provider from its own variables (key_env, then alt_key_envs); empty when unset."""
+    env_map = os.environ if env is None else env
+    spec = PROVIDER_DEFAULTS.get(provider) or {}
+    for name in (spec.get("key_env"), *spec.get("alt_key_envs", ())):
+        if name and env_map.get(name):
+            return env_map[name]
+    return ""
+
+
 def canonical_provider(name: Optional[str], base_url: Optional[str] = None, model: Optional[str] = None,
                        env: Optional[Dict[str, str]] = None) -> str:
-    """Resolve a canonical provider name ('claude', 'openai', 'gemini', 'ollama', 'codex', 'antigravity', ...).
+    """Resolve a canonical provider name ('claude', 'openai', 'gemini', 'ollama', 'codex', 'deepseek', ...).
 
     A loopback URL that is a MarketMirror gateway is labelled by what the gateway runs (its /health backend, or
     LLM_GATEWAY), never as "openai", even when LLM_PROVIDER=openai (the gateway speaks the OpenAI format)."""
@@ -163,14 +247,21 @@ def canonical_provider(name: Optional[str], base_url: Optional[str] = None, mode
         label = gateway_label(base_url or "", env)
         if label:
             return label
-    if raw in PROVIDER_ALIASES:
+    if raw in PROVIDER_ALIASES and raw != "custom":
         return PROVIDER_ALIASES[raw]
+    hosted = api_provider_for_url(url)
+    if hosted:
+        return hosted
     if "anthropic.com" in url or mod.startswith("claude"):
         return "claude"
     if "generativelanguage.googleapis.com" in url or mod.startswith("gemini") or mod.startswith("models/gemini"):
         return "gemini"
     if "openai.com" in url or mod.startswith(("gpt-", "o1", "o3", "o4")):
         return "openai"
+    if not url:
+        for prov, prefixes in _MODEL_PREFIXES:
+            if mod.startswith(prefixes):
+                return prov
     if port is not None:
         return "gateway"
     return raw or "openai"
@@ -460,7 +551,8 @@ class MultiProviderPool:
         return healthy + paused
 
     def _adapt_kwargs_for_slot(self, slot: ProviderSlot, kwargs: Dict[str, Any], is_failover: bool) -> Dict[str, Any]:
-        from .openai_chat_compat import CLAUDE_DEFAULT_MAX_TOKENS, is_claude_target, is_gemini_target, is_gpt5_family
+        from .openai_chat_compat import (CLAUDE_DEFAULT_MAX_TOKENS, JSON_PROMPT_HINT, fixed_sampling_target,
+                                         is_claude_target, is_gemini_target, is_gpt5_family, json_mode_by_prompt)
 
         adapted = dict(kwargs)
         req_model = str(adapted.get("model") or "").strip()
@@ -474,19 +566,22 @@ class MultiProviderPool:
             model = model.split("/", 1)[1]
             adapted["model"] = model
 
-        claude = is_claude_target(slot.client or slot, model)
+        target = slot.client or slot
+        claude = is_claude_target(target, model)
         gpt5 = is_gpt5_family(model)
 
-        # Normalize response_format vs prompt JSON instruction when crossing between Claude and OpenAI/Gemini
-        if claude and "response_format" in adapted:
+        # Normalize response_format vs prompt JSON instruction when crossing between Claude/MiniMax and the others
+        if "response_format" in adapted and json_mode_by_prompt(target, model):
             adapted.pop("response_format", None)
             msgs = list(adapted.get("messages") or [])
-            json_hint = "Respond with a single valid JSON object only. No markdown fences, no extra text."
-            if not msgs or json_hint not in str(msgs[-1].get("content", "")):
-                msgs.append({"role": "user", "content": json_hint})
+            if not msgs or JSON_PROMPT_HINT not in str(msgs[-1].get("content", "")):
+                msgs.append({"role": "user", "content": JSON_PROMPT_HINT})
             adapted["messages"] = msgs
         if claude and "max_tokens" not in adapted and "max_completion_tokens" not in adapted:
             adapted["max_tokens"] = CLAUDE_DEFAULT_MAX_TOKENS
+        if fixed_sampling_target(target, model):
+            adapted.pop("temperature", None)
+            adapted.pop("top_p", None)
 
         if gpt5:
             adapted.pop("temperature", None)
@@ -650,7 +745,7 @@ class MultiProviderPool:
                 except ValueError:
                     specs = []
             elif pool_spec.lower() in ("auto", "all", "*"):
-                for prov in ("claude", "openai", "gemini", *GATEWAY_PROVIDERS):
+                for prov in ("claude", "openai", "gemini", *GATEWAY_PROVIDERS, *API_PROVIDERS):
                     specs.append({"provider": prov})
             else:
                 for item in pool_spec.split(","):
@@ -688,10 +783,17 @@ class MultiProviderPool:
                     key = env_map.get("GEMINI_API_KEY") or env_map.get("GOOGLE_API_KEY") or (env_map.get("LLM_API_KEY") if llm_provider == "gemini" else "") or ""
                 elif prov == "ollama":
                     key = "local"
+                elif prov in API_PROVIDERS:
+                    key = provider_api_key(prov, env_map) or (env_map.get("LLM_API_KEY") if llm_provider and
+                                                              PROVIDER_ALIASES.get(llm_provider) == prov else "") or ""
             if not key and prov != "ollama":
                 continue
             base_url = base_url or env_map.get(f"{prov.upper()}_BASE_URL") or defaults["base_url"]
+            if not base_url and prov in API_PROVIDERS and llm_provider and PROVIDER_ALIASES.get(llm_provider) == prov:
+                base_url = env_map.get("LLM_BASE_URL") or ""
             model = spec.get("model") or env_map.get(f"{prov.upper()}_MODEL_NAME") or defaults["model"]
+            if not (base_url and model):
+                continue                         # qwen without QWEN_BASE_URL, custom without its URL or model
             resolved.append({"provider": prov, "model": model, "base_url": base_url, "api_key": key})
 
         slots: List[ProviderSlot] = []
@@ -722,6 +824,7 @@ class MultiProviderPool:
                 or (env_map.get("ANTHROPIC_API_KEY") if prov == "claude" else None)
                 or (env_map.get("GEMINI_API_KEY") or env_map.get("GOOGLE_API_KEY") if prov == "gemini" else None)
                 or (env_map.get("OPENAI_API_KEY") if prov == "openai" else None)
+                or (provider_api_key(prov, env_map) if prov in API_PROVIDERS else None)
                 or "local"
             )
             base_url = base_url or defaults["base_url"] or PROVIDER_DEFAULTS["claude"]["base_url"]

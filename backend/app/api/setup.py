@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, Response, jsonify, request
 
 from ..config import Config
+from ..utils.model_pool import API_PROVIDERS, PROVIDER_ALIASES, provider_api_key
 
 setup_bp = Blueprint("setup", __name__)
 
@@ -35,7 +36,10 @@ BACKEND = Path(__file__).resolve().parents[2]
 ROOT = BACKEND.parent
 LOGS = BACKEND / "logs"
 TOKEN_FILE = LOGS / "setup.token"
-KEY_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "LLM_API_KEY")
+# keys the page may store (masked, owner-only): one per API provider, plus TYPESAFE_API_KEY for scoring integrations
+STORED_KEY_NAMES = tuple(dict.fromkeys(("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+                                        *(s["key_env"] for s in API_PROVIDERS.values()), "TYPESAFE_API_KEY")))
+KEY_NAMES = STORED_KEY_NAMES + ("LLM_API_KEY",)
 GATEWAY_BACKENDS = {
     "claude": {"label": "Claude Code login", "bins": ["claude"], "models": ["sonnet", "haiku", "opus"], "default": "sonnet", "port": 5055},
     "codex": {"label": "Codex login (ChatGPT account)", "bins": ["codex", "/usr/lib/chatgpt/resources/codex",
@@ -139,17 +143,20 @@ def _mask(v: Optional[str]) -> Optional[str]:
 def apply_to_backend() -> Dict[str, Any]:
     """Reload the provider settings from .env into this running backend (new tasks use them)."""
     env = _read_env()
-    for k in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_POOL", "LLM_GATEWAY") + KEY_NAMES[:3]:
+    for k in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_POOL", "LLM_GATEWAY") + STORED_KEY_NAMES:
         if env.get(k):
             os.environ[k] = env[k]
         elif k in ("LLM_POOL", "LLM_GATEWAY"):
             os.environ.pop(k, None)
     prov = (env.get("LLM_PROVIDER") or "claude").lower()
+    hosted = PROVIDER_ALIASES.get(prov)
     Config.LLM_PROVIDER = prov
     Config.LLM_POOL = env.get("LLM_POOL", "")
     Config.LLM_API_KEY = (env.get("LLM_API_KEY") or (env.get("ANTHROPIC_API_KEY") if prov == "claude" else None)
                           or (env.get("GEMINI_API_KEY") if prov == "gemini" else None)
-                          or (env.get("OPENAI_API_KEY") if prov == "openai" else None) or Config.LLM_API_KEY)
+                          or (env.get("OPENAI_API_KEY") if prov == "openai" else None)
+                          or (provider_api_key(hosted, {**os.environ, **env}) if hosted in API_PROVIDERS else None)
+                          or Config.LLM_API_KEY)
     if env.get("LLM_BASE_URL"):
         Config.LLM_BASE_URL = env["LLM_BASE_URL"]
     if env.get("LLM_MODEL_NAME"):
@@ -275,14 +282,15 @@ def setup_state():
     import providers  # noqa: E402
     env = _read_env()
     catalog = [{"id": k, "label": v["label"], "key_required": v.get("key_required", False), "base_url": v.get("base_url", ""),
-                "key_env": v.get("key_env", ""), "key_url": v.get("key_url", "")}
+                "key_env": v.get("key_env", ""), "key_url": v.get("key_url", ""), "default_model": v.get("default_model", ""),
+                "note": v.get("note", "")}
                for k, v in providers.CATALOG.items() if not v.get("gateway")]
     logins = [{"id": k, "label": v["label"], "installed": bool(_find_bin(k)), "models": v["models"], "default_model": v["default"],
                "port": v["port"]} for k, v in GATEWAY_BACKENDS.items()]
     return jsonify({"success": True, "data": {
         "current": {**providers.status(ROOT), "gateway": env.get("LLM_GATEWAY") or None,
                     "running": {"provider": Config.LLM_PROVIDER, "model": Config.LLM_MODEL_NAME}},
-        "keys": {k: _mask(env.get(k) or os.environ.get(k)) for k in KEY_NAMES[:3]},
+        "keys": {k: _mask(env.get(k) or os.environ.get(k)) for k in STORED_KEY_NAMES},
         "api_providers": catalog, "logins": logins, "gateways": gateways()}})
 
 
@@ -293,8 +301,8 @@ def setup_key():
         return bad
     data = request.get_json(silent=True) or {}
     name, value = str(data.get("name") or ""), str(data.get("value") or "").strip()
-    if name not in KEY_NAMES[:3]:
-        return jsonify({"success": False, "error": f"key name must be one of {', '.join(KEY_NAMES[:3])}"}), 400
+    if name not in STORED_KEY_NAMES:
+        return jsonify({"success": False, "error": f"key name must be one of {', '.join(STORED_KEY_NAMES)}"}), 400
     if len(value) < 16 or any(c.isspace() for c in value):
         return jsonify({"success": False, "error": "that does not look like an API key"}), 400
     _write_env({name: value})
@@ -327,8 +335,10 @@ def setup_provider():
             raise ValueError("choose an API provider")
         spec = providers.CATALOG[prov]
         env = _read_env()
-        key = env.get(spec.get("key_env") or "") or os.environ.get(spec.get("key_env") or "") or (str(data.get("key") or "").strip())
-        providers.write_config(ROOT, prov, str(data.get("model") or ""), str(data.get("base_url") or ""), key or "")
+        key = next((env.get(n) or os.environ.get(n) for n in (spec.get("key_env"), *spec.get("alt_key_envs", ()))
+                    if n and (env.get(n) or os.environ.get(n))), "") or str(data.get("key") or "").strip()
+        model = str(data.get("model") or "").strip() or (spec.get("default_model", "") if prov in providers.API_GUIDES else "")
+        providers.write_config(ROOT, prov, model, str(data.get("base_url") or ""), key or "")
         _write_env({"LLM_GATEWAY": None})
         return jsonify({"success": True, "data": {"applied": apply_to_backend()}})
     except (ValueError, KeyError) as e:
@@ -416,13 +426,13 @@ button.ghost{background:var(--sunk);color:var(--ink)}button:disabled{opacity:.5;
 <h2>Or use an API key</h2>
 <div class="grid">
  <div class="card"><h3>Your keys</h3><p>Stored in .env on this computer (owner-only). They are never shown again.</p>
-  <label>Which key</label><select id="kname"><option>ANTHROPIC_API_KEY</option><option>OPENAI_API_KEY</option><option>GEMINI_API_KEY</option></select>
+  <label>Which key</label><select id="kname"></select>
   <label>Key</label><input id="kval" type="password" autocomplete="off" placeholder="paste the key">
   <button id="ksave">Save key</button><div id="kstate" class="small" style="margin-top:10px"></div></div>
  <div class="card"><h3>Answer with an API</h3><p>Uses the saved key for that provider.</p>
   <label>Provider</label><select id="aprov"></select>
   <label>Model</label><input id="amodel" placeholder="for example claude-sonnet-5-5, gpt-5.4-mini, gemini-3.8-flash">
-  <label>Endpoint (only for another OpenAI-compatible server)</label><input id="aurl" placeholder="https://...">
+  <label>Endpoint (only for Qwen or another OpenAI-compatible server)</label><input id="aurl" placeholder="https://...">
   <button id="ause">Use this provider</button></div>
 </div>
 <h2>Gateways running</h2><div class="card" id="gws"></div>
@@ -446,8 +456,18 @@ function render(d){
    (running?' <span class="pill acc">running on '+running.port+(running.paused?' · paused until '+esc(running.paused_until):'')+'</span>':'')+'</p>'+
    '<div class="row"><div><label>Model</label><select id="m_'+l.id+'">'+opts+'</select></div><div style="flex:0 0 96px"><label>Port</label><input id="p_'+l.id+'" value="'+(running?running.port:l.port)+'"></div></div>'+
    '<button data-use="'+l.id+'"'+(l.installed?'':' disabled')+'>Start and use</button> <button class="ghost" data-start="'+l.id+'"'+(l.installed?'':' disabled')+'>Start only</button></div>';}).join('');
+ var prev=$('aprov').value,kprev=$('kname').value;
  $('aprov').innerHTML=d.api_providers.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.label)+'</option>';}).join('');
- $('kstate').innerHTML=Object.keys(d.keys).map(function(k){return esc(k)+': '+(d.keys[k]?'<span class="pill ok">'+esc(d.keys[k])+'</span>':'<span class="pill">not set</span>');}).join('<br>');
+ if(prev)$('aprov').value=prev;
+ $('aprov').onchange=function(){var p=d.api_providers.filter(function(x){return x.id===$('aprov').value;})[0]||{};
+  $('amodel').placeholder=p.default_model?('default '+p.default_model):'model identifier from your provider';
+  $('aurl').placeholder=p.note||p.base_url||'https://...';
+  if(p.key_env&&d.keys.hasOwnProperty(p.key_env))$('kname').value=p.key_env;};
+ $('kname').innerHTML=Object.keys(d.keys).map(function(k){return '<option>'+esc(k)+'</option>';}).join('');
+ if(kprev)$('kname').value=kprev;
+ var saved=Object.keys(d.keys).filter(function(k){return d.keys[k];});
+ $('kstate').innerHTML=saved.length?saved.map(function(k){return esc(k)+': <span class="pill ok">'+esc(d.keys[k])+'</span>';}).join('<br>'):'<span class="pill">no keys saved</span>';
+ $('aprov').onchange();
  $('gws').innerHTML=d.gateways.length?d.gateways.map(function(g){return '<div class="gw"><div><b>'+esc(g.backend)+'</b> on port '+g.port+' · model '+esc(g.model||'default')+
   ' · '+(g.requests||0)+' requests'+(g.paused?' · <span class="pill no">paused until '+esc(g.paused_until)+'</span>':'')+'</div><button class="ghost" data-stop="'+g.port+'">Stop</button></div>';}).join(''):'<p class="small">None running.</p>';
 }
