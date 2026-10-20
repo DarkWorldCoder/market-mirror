@@ -316,9 +316,30 @@ These are local Fitloop measurements, not speed guarantees. Model, hardware, act
 |---|---:|---|---:|---:|---|
 | Fitloop launch | 28 | Marketing pipeline | 28m 12s | 75 | Unavailable |
 | Fitloop | 150 | Marketing pipeline | 54m 50s | 262 | Unavailable |
-| Fitloop large | 1,008 | Six Reddit social rounds only | 3m 42s | Not measured | Unavailable |
+| Fitloop large (social only) | 1,008 | Six Reddit social rounds only | 3m 42s | Not measured | Unavailable |
+| Fitloop 1,000 | 1,008 | Full pipeline on Sonnet via the Claude Code gateway: feed test, 4 Reddit rounds, survey of 1,008 + retest of 30, 5 analysts, report | about 52m of active work | Not measured across restarts | Subscription (no invoice) |
 
-The large run included 14 additional graph/community actors and recorded 431 actions. It is **not** a completed 1,000-person feed-test/survey pipeline; actions are not model-call counts. See the [benchmark record and evidence paths](benchmarks/fitloop_1000_social.json).
+The 1,000-person run's active time breaks down as feed test 10m 17s, four social rounds 18m 28s (1,159 actions), survey and retest 20m 29s, analyst panel and report about 3m. Its wall-clock time was much longer: the Claude Code session limit paused it for about four hours mid-survey, and it resumed on its own after the reset. With an API key there is no session limit.
+
+### The 1,000-person run: what 1,008 simulated buyers said
+
+Offer: 7-day free trial without a card, then USD 4.99 a month, shown to young professionals, parents and students in India, the Philippines and Kenya.
+
+| Measure | Result |
+|---|---|
+| Answered the survey | 1,001 of 1,008 |
+| Would start the trial | 1.1% yes, 74.8% maybe, 24.1% no |
+| Purchase intent from free-text answers (1–5) | 3.07 ± 1.12 |
+| Top objection | "Looks like a scam / trust": 70.3% |
+| Most willing audience | Kenya young professionals: 2.8% yes, 8.3% would click |
+| Least willing audience | Students: 0% yes (their answers were too similar to trust; flagged in the report) |
+| By country, would start | Kenya 2.0%, India 0.9%, the Philippines 0.8% |
+| Best survey message | "A month of Fitloop costs less than one gym visit": 1.5% yes vs 0.9% for the others |
+| Acceptable price range | USD 1.80–7.99, sweet spot around USD 2.49 |
+| Test–retest agreement (30 people, a simulated week later) | 86.7% gave the same verdict |
+| Analyst panel | 5 of 5 analysts: iterate |
+
+**What it concluded: iterate** (medium agreement across the survey, the feed test and the five analysts). The idea interests people (three in four said maybe), but trust blocks them. The report also caught a concrete flaw: the ad promises "no card", while the landing page form asks for a card number, expiry and CVV, and simulated people dropped off at that step. The next step it recommends is to remove the card step, add proof from real users in each country, and retest. These are simulated people; treat every rate as a direction until a real experiment confirms it.
 
 Preparation, active simulation turns, surveys, email/feed reactions, pitches, and reports can all use model calls. Repeated seeds multiply work. Local gateways report upstream usage when available and label estimates; subscription use does not imply a measured monetary cost. Measure a small run before choosing a large cohort. First-time embedding setup may download model assets even when inference runs locally.
 

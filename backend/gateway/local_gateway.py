@@ -204,6 +204,7 @@ class Backend:
 
 
 CLAUDE_ALIASES = ("haiku", "sonnet", "opus")
+ARG_SAFE_CHARS = 100_000                 # Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN)
 DEFAULT_MODELS = {"claude": "sonnet"}    # never fall back to the CLI's own default (often the largest model)
 
 
@@ -293,15 +294,19 @@ class ClaudeBackend(Backend):
         settings = {"disableAllHooks": True, "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(output_limit)}}
         if os.environ.get("LLM_GATEWAY_EFFORT"):
             settings["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = os.environ["LLM_GATEWAY_EFFORT"]
-        cmd = [self.binary, "-p", prompt, "--output-format", "json", "--no-session-persistence",
+        # The prompt goes over stdin: a 1,000-person analyst brief is larger than the OS allows for one argument.
+        sys_text = (GUARD + "\n\n" + system).strip()
+        if len(sys_text) > ARG_SAFE_CHARS:
+            prompt, sys_text = sys_text + "\n\n" + prompt, GUARD
+        cmd = [self.binary, "-p", "--output-format", "json", "--no-session-persistence",
                "--tools", "", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
                "--setting-sources", "",          # no user/project settings, memory files or plugins in persona calls
                "--settings", json.dumps(settings),
-               "--system-prompt", (GUARD + "\n\n" + system).strip()]
+               "--system-prompt", sys_text]
         model = getattr(self.request, "model", None) or self.model
         if model:
             cmd += ["--model", model]
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
+        p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=self.timeout)
         if p.returncode != 0:
             raise cli_failure("claude", p.stderr + p.stdout)
         try:
@@ -358,8 +363,12 @@ class CodexBackend(Backend):
             cmd = [self.binary, "exec", "--json", "-o", out_path, "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only"]
             if self.model:
                 cmd += ["-m", self.model]
-            cmd.append(full)
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
+            if len(full) > ARG_SAFE_CHARS:      # too large for one argument: "-" reads the prompt from stdin
+                cmd.append("-")
+                p = subprocess.run(cmd, input=full, capture_output=True, text=True, timeout=self.timeout)
+            else:
+                cmd.append(full)
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
             if p.returncode != 0:
                 raise cli_failure("codex", p.stderr + p.stdout)
             try:

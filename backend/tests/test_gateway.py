@@ -44,7 +44,7 @@ def test_parse_outputs():
 
 
 def test_claude_backend_with_fake_cli(tmp_path):
-    b = _fake_bin(tmp_path, "claude", 'printf \'{"type":"result","result":"echo: %s"}\' "$2"\n')
+    b = _fake_bin(tmp_path, "claude", 'p=$(cat); printf \'{"type":"result","result":"echo: %s"}\' "$p"\n')
     out = gw.ClaudeBackend(binary=b, timeout=10).complete("sys", "the prompt")
     assert out == "echo: the prompt"
 
@@ -76,7 +76,7 @@ def test_codex_backend_with_fake_cli(tmp_path):
 
 def test_http_contract_and_cache(tmp_path):
     counter = tmp_path / "calls"
-    b = _fake_bin(tmp_path, "claude", f'echo x >> "{counter}"; printf \'{{"result":"reply to %s"}}\' "$2"\n')
+    b = _fake_bin(tmp_path, "claude", f'echo x >> "{counter}"; p=$(cat); printf \'{{"result":"reply to %s"}}\' "$p"\n')
     backend = gw.ClaudeBackend(binary=b, timeout=10)
     g = gw.Gateway(backend, workers=2, cache=gw.Cache(str(tmp_path / "cache.sqlite")))
     srv = ThreadingHTTPServer(("127.0.0.1", 0), gw.make_handler(g))
@@ -243,3 +243,12 @@ def test_request_model_and_default():
     assert gw.request_model("claude", "gpt-5") is None
     assert gw.request_model("codex", "gpt-5") == "gpt-5"
     assert gw.DEFAULT_MODELS["claude"] == "sonnet"
+
+
+
+def test_huge_prompt_goes_over_stdin(tmp_path):
+    b = _fake_bin(tmp_path, "claude", 'n=$(wc -c); printf \'{"type":"result","result":"got %s bytes"}\' "$n"\n')
+    backend = gw.ClaudeBackend(binary=str(b))
+    big = "x" * 200_000                                                 # > 128 KiB: too large for one argument
+    assert backend.complete("short system", big).startswith("got 2000")
+    assert backend.complete("s" * 150_000, "hi").startswith("got 15")   # an oversized system prompt rides in stdin
