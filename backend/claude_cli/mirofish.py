@@ -39,6 +39,7 @@ import marketing  # noqa: E402
 import market_cli  # noqa: E402
 import live_view  # noqa: E402
 import quota  # noqa: E402
+import settle as settle_mod  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
@@ -399,8 +400,12 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
                 platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
                 limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
-                seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False) -> Dict[str, Any]:
+                seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False,
+                settle: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
+
+    settle: {"margin": 5, "min_n": 60, "cells": "provider"|"segment"|"segment,provider"|"all"}: ask in random
+    batches interleaved across cells and stop asking a cell once its would-convert shares are settled (settle.py).
 
     ssr: map the free-text answers to rating distributions on the backend (falls back to stated numbers).
     ssr_engine: embeddings (default, or the backend's SSR_ENGINE), jev or auto.
@@ -425,9 +430,31 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         + (f", split test across {len(messages)} messages" if split else "")
         + (f", with price questions in {currency}" if currency else ""))
     responses: List[Dict[str, Any]] = []
-    for start in range(0, len(people), max(1, batch)):
+    settler = None
+    if settle is not None:
+        keys = [k.strip() for k in str(settle.get("cells") or "provider").split(",") if k.strip()]
+        field = {"provider": "model_provider", "segment": "segment", "country": "country"}
+
+        def cell_of(aid):
+            m = meta.get(aid) or {}
+            return "|".join(str(m.get(field.get(k, k)) or "?") for k in keys) if keys != ["all"] else "all"
+        settler = settle_mod.Settler(people, cell_of, margin=float(settle.get("margin") or 5),
+                                     min_n=int(settle.get("min_n") or 60), seed=seed)
+        log(f"survey: settle mode, cells by {'+'.join(keys)}: {', '.join(settler.cells)}")
+
+    def chunks():
+        if settler is None:
+            for start in range(0, len(people), max(1, batch)):
+                yield people[start:start + batch]
+            return
+        while not settler.done:
+            nxt = settler.next_batch(max(1, batch))
+            if not nxt:
+                return
+            yield nxt
+
+    for chunk in chunks():
         quota.wait_if_paused(log)          # don't spend batches while the model account is paused
-        chunk = people[start:start + batch]
         interviews = [{"agent_id": aid, "platform": platform,
                        "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
                       for aid in chunk]
@@ -446,8 +473,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
             responses.append({"agent_id": aid, "name": (meta.get(aid) or {}).get("name"),
                               "assigned_message": assigned.get(aid), "raw": raw,
                               "answer": marketing.parse_answer(raw, len(messages)) if raw else None})
+            if settler is not None and responses[-1]["answer"]:
+                settler.record(aid, *marketing.conv_probs(responses[-1]["answer"]))
         ok = sum(1 for r in responses if r["answer"])
-        log(f"survey: {min(start + batch, len(people))}/{len(people)} asked, {ok} usable answers")
+        line = f"survey: {len(responses)}/{len(people)} asked, {ok} usable answers"
+        if settler is not None:
+            st = settler.update()
+            line += "; " + ", ".join(f"{c} n={v['n']} +/-{v['half_width']:g}{' settled' if v['settled'] else ''}"
+                                     for c, v in sorted(st.items()))
+        log(line)
     ssr_info = step_ssr(c, responses, engine=ssr_engine) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
     obj_check = step_objection_check(c, responses) if objection_check else None
     retest_info = None
@@ -489,6 +523,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
+              **({"settle": settler.summary(len(people))} if settler is not None else {}),
               **({"objection_check": obj_check} if obj_check else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
@@ -1127,7 +1162,8 @@ def cmd_survey(c: Client, a) -> Any:
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
                       a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr,
                       retest=a.retest, seed=a.assignment_seed, ssr_engine=a.ssr_engine,
-                      objection_check=a.objection_check)
+                      objection_check=a.objection_check,
+                      settle={"margin": a.settle_margin, "min_n": a.settle_min, "cells": a.settle_cells} if a.settle else None)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -1429,7 +1465,8 @@ def cmd_market_test(c: Client, a) -> Any:
                 c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
                 survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
                 seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
-                objection_check=bool(survey.get("objection_check"))), log)
+                objection_check=bool(survey.get("objection_check")),
+                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None)), log)
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -2169,6 +2206,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--wait-s", type=int, default=600, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
     s.add_argument("--retest", type=int, default=0, help="re-ask N people a week later (simulated) and report agreement")
+    s.add_argument("--settle", action="store_true", help="stop asking once the would-convert shares are settled (settle.py)")
+    s.add_argument("--settle-margin", type=float, default=5.0, help="settle: target +/- points per cell (default 5)")
+    s.add_argument("--settle-min", type=int, default=60, help="settle: minimum answers per cell (default 60)")
+    s.add_argument("--settle-cells", default="provider", help="settle: provider, segment, segment,provider or all")
     s.add_argument("--assignment-seed", type=int, default=11,
                    help="reproducible split-message assignment and retest sample (default %(default)s)")
     s.add_argument("--no-ssr", action="store_true",

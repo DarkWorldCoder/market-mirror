@@ -519,6 +519,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "surveyed": len(survey.get("responses") or []), "answered": len(rows),
         "offer": survey.get("offer"), "goal": survey.get("goal"), "messages": messages,
         "currency": survey.get("currency"),
+        "settle": survey.get("settle") if isinstance(survey.get("settle"), dict) else None,
     }
     # engagement by segment even without a survey
     seg_people: Dict[str, List[int]] = defaultdict(list)
@@ -1176,6 +1177,11 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
                  + (f'<span class="pill">Goal: {_e(a.get("goal"))}</span>' if a.get("goal") else "")
                  + (f'<span class="pill sky">Split test of {len(a.get("messages") or [])} messages</span>' if a.get("split_test") else "")
                  + "</p>")
+    st = a.get("settle")
+    if st:
+        offer += (f'<p class="muted small">Asked {st.get("asked", 0):,} of {st.get("people", 0):,} simulated people: asking '
+                  f'stopped in each group once its would-convert shares were within ±{st.get("margin", 5):g} points '
+                  f'({_e(", ".join(f"{k} n={v.get("n")}" for k, v in (st.get("cells") or {}).items()))}).</p>')
     sections.append(("results", "Results", shead("results", "Marketing results") + f'{offer}<div class="mm-top">{panel}{kpi_html}</div>'))
     rs = ssr_section(a, ins.get("ratings"))
     if rs:
