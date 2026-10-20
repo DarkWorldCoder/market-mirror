@@ -72,3 +72,24 @@ class MemoryApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_stale_running_status_reads_as_stopped(tmp_path):
+    import json as _json
+    from app.api import market
+    (tmp_path / "run_state.json").write_text(_json.dumps({"runner_status": "running", "process_pid": 999999999}))
+    assert market._runner_status(str(tmp_path)) == "stopped"
+    (tmp_path / "run_state.json").write_text(_json.dumps({"runner_status": "running", "process_pid": __import__("os").getpid()}))
+    assert market._runner_status(str(tmp_path)) == "running"
+
+
+def test_env_is_not_alive_when_its_process_is_gone(tmp_path, monkeypatch):
+    import json as _json
+    from app.services.simulation_runner import SimulationRunner
+    monkeypatch.setattr(SimulationRunner, "RUN_STATE_DIR", str(tmp_path))
+    d = tmp_path / "sim_x"
+    d.mkdir()
+    (d / "env_status.json").write_text(_json.dumps({"status": "alive", "reddit_available": True}))
+    (d / "run_state.json").write_text(_json.dumps({"runner_status": "running", "process_pid": 999999999}))
+    assert SimulationRunner.check_env_alive("sim_x") is False
+    assert SimulationRunner.get_env_status_detail("sim_x")["status"] == "stopped"

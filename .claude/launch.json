@@ -10,7 +10,7 @@
         "--interval",
         "8",
         "--run-dir",
-        "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs/fitloop"
+        "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs/fitloop_1000_sonnet"
       ],
       "port": 5050
     },

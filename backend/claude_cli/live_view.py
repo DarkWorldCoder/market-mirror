@@ -65,12 +65,17 @@ def feed(run_dir: str, label: str = "") -> Dict[str, Any]:
 
     # stages: done when the manifest has the key; the first missing one is running (unless finished or failed)
     stages, running_set = [], False
-    for key, label_ in STAGES:
-        done = bool(m.get(key))
+    last_done = max((i for i, (key, _) in enumerate(STAGES) if m.get(key)), default=-1)
+    for i, (key, label_) in enumerate(STAGES):
+        done = bool(m.get(key)) or i < last_done        # a later stage done means the earlier ones were (or were reused)
         state = "done" if done else "wait"
         if not done and not running_set and not m.get("finished_at") and not m.get("error") and m:
             state, running_set = "run", True
         stages.append({"key": key, "label": label_, "state": state})
+    if rs.get("runner_status") == "running" and not m.get("finished_at"):   # rounds running (again): that stage is the live one
+        idx = next(i for i, x in enumerate(stages) if x["key"] == "runner_status")
+        for i, x in enumerate(stages):
+            x["state"] = "done" if i < idx else "run" if i == idx else "wait"
     if m.get("error"):
         nxt = next((s for s in stages if s["state"] == "wait"), None)
         if nxt:

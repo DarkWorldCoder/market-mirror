@@ -618,12 +618,27 @@ def market_result(simulation_id: str, kind: str):
 # Brand posts and scheduled events inside the simulation (MarketMirror)
 # --------------------------------------------------------------------------
 
+def _pid_alive(pid) -> bool:
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (TypeError, ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+
+
 def _runner_status(sim_dir: str) -> str:
+    """The runner status on file; "running" whose process is gone (machine restart, killed server) reads as "stopped"."""
     try:
         with open(os.path.join(sim_dir, "run_state.json"), encoding="utf-8") as f:
-            return str(json.load(f).get("runner_status") or "")
+            st = json.load(f)
     except (OSError, ValueError):
         return ""
+    status = str(st.get("runner_status") or "")
+    if status == "running" and st.get("process_pid") and not _pid_alive(st["process_pid"]):
+        return "stopped"
+    return status
 
 
 @simulation_bp.route('/<simulation_id>/memory', methods=['GET', 'POST'])

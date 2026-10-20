@@ -1652,8 +1652,28 @@ class SimulationRunner:
         if not os.path.exists(sim_dir):
             return False
 
+        if cls._runner_process_dead(sim_dir):
+            return False                 # env_status.json can say "alive" long after the process died (restart, kill)
         ipc_client = SimulationIPCClient(sim_dir)
         return ipc_client.check_env_alive()
+
+    @staticmethod
+    def _runner_process_dead(sim_dir: str) -> bool:
+        """True when run_state.json names a runner process that no longer exists."""
+        try:
+            with open(os.path.join(sim_dir, "run_state.json"), encoding="utf-8") as f:
+                pid = json.load(f).get("process_pid")
+        except (OSError, ValueError):
+            return False
+        if not pid:
+            return False
+        try:
+            os.kill(int(pid), 0)
+            return False
+        except ProcessLookupError:
+            return True
+        except (PermissionError, ValueError, TypeError):
+            return False
 
     @classmethod
     def get_env_status_detail(cls, simulation_id: str) -> Dict[str, Any]:
@@ -1676,7 +1696,7 @@ class SimulationRunner:
             "timestamp": None
         }
         
-        if not os.path.exists(status_file):
+        if not os.path.exists(status_file) or cls._runner_process_dead(sim_dir):
             return default_status
         
         try:

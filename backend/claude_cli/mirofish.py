@@ -617,11 +617,11 @@ def live_stage(manifest: Dict[str, Any], run_status: Optional[Dict[str, Any]] = 
         return "Writing the report"
     rs = run_status or {}
     status = rs.get("runner_status")
-    if manifest.get("runner_status") or status in TERMINAL_RUN:
-        return "Simulation finished; writing the report"
-    if status == "running":
+    if status == "running":             # the live runner wins over what an earlier attempt left in the manifest
         cur, total = rs.get("current_round"), rs.get("total_rounds")
         return f"Simulating round {cur}/{total}" if cur is not None and total else "Simulating"
+    if manifest.get("runner_status") or status in TERMINAL_RUN:
+        return "Simulation finished; writing the report"
     if manifest.get("simulation_id"):
         return "Preparing agents"
     if manifest.get("graph_id"):
