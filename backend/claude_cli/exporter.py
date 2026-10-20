@@ -89,6 +89,7 @@ RUN_FILES = [
     "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
+    "geo_visibility", "voc_grounding", "dark_social", "search_index",
 ]
 
 
@@ -1166,7 +1167,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (gtm_view.cro_lab_section(bundle, insights.get("cro-lab")),
+    for extra in (gtm_view.search_geo_section(bundle, insights.get("search-geo")),
+                  gtm_view.cro_lab_section(bundle, insights.get("cro-lab")),
                   gtm_view.competitor_section(bundle, insights.get("competitors")),
                   gtm_view.lab_section(bundle, insights.get("gtm")),
                   gtm_view.thoughts_section(bundle, insights.get("thoughts")),

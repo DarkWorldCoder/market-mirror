@@ -819,13 +819,15 @@ GTM_ENGINES = {
     "journey": "journey_sim.json", "pricing": "pricing_conjoint.json", "competitors": "competitor_intel.json",
     "teardown": "landing_teardown.json", "roleplay": "sales_roleplay.json", "whatif": "causal_whatif.json",
     "personalize": "segment_personalization.json", "thoughts": "thought_stream.json",
+    "geo": "geo_visibility.json", "voc": "voc_grounding.json", "cascade": "dark_social.json",
 }
 RESULT_FILES.update({f"gtm-{k}": v for k, v in GTM_ENGINES.items()})
 RESULT_FILES["gtm-suite"] = "gtm_suite.json"
 LEGACY_GTM_ROUTES = {"buying-committee": "committee", "creative-optimizer": "creative", "sales-battlecard": "battlecard",
                      "journey": "journey", "pricing-conjoint": "pricing", "competitor-analysis": "competitors",
                      "landing-teardown": "teardown", "sales-roleplay": "roleplay", "whatif-simulator": "whatif",
-                     "segment-personalizer": "personalize", "thought-stream": "thoughts"}
+                     "segment-personalizer": "personalize", "thought-stream": "thoughts",
+                     "geo-audit": "geo", "voc-grounding": "voc", "dark-social": "cascade"}
 
 
 def _num_arg(data: Dict[str, Any], key: str, kind=int, lo=None, hi=None):
@@ -845,7 +847,7 @@ def _run_data(sim_dir: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """What the run already produced: feed test and pitch from the simulation folder, survey answers from the
     request (the CLI keeps them in the run folder) or the simulation folder."""
     out = {}
-    for key, name in (("feed_test", "feed_test.json"), ("pitch", "pitch.json"), ("survey", "survey.json")):
+    for key, name in (("feed_test", "feed_test.json"), ("pitch", "pitch.json"), ("survey", "survey.json"), ("research", "research.json")):
         try:
             with open(os.path.join(sim_dir, name), encoding="utf-8") as f:
                 out[key] = json.load(f)
@@ -853,6 +855,8 @@ def _run_data(sim_dir: str, data: Dict[str, Any]) -> Dict[str, Any]:
             pass
     if isinstance(data.get("survey"), dict):
         out["survey"] = data["survey"]
+    if isinstance(data.get("research"), dict):
+        out["research"] = data["research"]
     return out
 
 
@@ -899,6 +903,21 @@ def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people:
             raise ValueError("stimulus is required")
         return lambda progress: agent_thoughts.run_thought_simulation(_client(), model, stim, people, max_personas=cohort or 40,
                                                                       parallel=par, seed=seed, progress=progress)
+    if engine in ("geo", "voc", "cascade"):
+        from ..services import search_and_geo
+        if engine == "geo":
+            return lambda progress: search_and_geo.run_geo_visibility_audit(
+                _client(), model, offer=data.get("offer") or "", people=people, queries=data.get("queries"),
+                competitors=data.get("competitors"), seed=seed, cohort_size=cohort or 30, profile=profile,
+                parallel=par, progress=progress)
+        if engine == "voc":
+            return lambda progress: search_and_geo.run_voc_grounding(
+                _client(), model, offer=data.get("offer") or "", people=people, url=data.get("url"),
+                raw_reviews=data.get("raw_reviews") or data.get("reviews"), run_data=rd, seed=seed,
+                profile=profile, parallel=par, progress=progress)
+        return lambda progress: search_and_geo.run_dark_social_cascade(
+            _client(), model, people=people, offer=data.get("offer") or "", seed=seed, cohort_size=cohort or 36,
+            profile=profile, parallel=par, progress=progress)
     raise LookupError(f"unknown test: {engine} (choose from {', '.join(GTM_ENGINES)})")
 
 
@@ -1017,3 +1036,45 @@ def get_thought_stream(simulation_id: str):
 @simulation_bp.route('/<simulation_id>/competitor-analysis', methods=['GET'])
 def get_competitor_analysis(simulation_id: str):
     return get_gtm_test(simulation_id, "competitors")
+
+
+@simulation_bp.route('/search', methods=['POST'])
+def search_simulation():
+    """POST {simulation_id, query, top_k?, type?, segment?, ask?: bool} -> ranked evidence + optional cited answer."""
+    from ..services import search_and_geo
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "request body must be an object"}), 400
+    sid = str(data.get("simulation_id") or "").strip()
+    query = str(data.get("query") or data.get("q") or "").strip()
+    try:
+        sim_dir = _sim_dir(sid)
+        people, _ = _people(sid)
+        top_k = _num_arg(data, "top_k", int, 1, 100) or 12
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    idx = search_and_geo.build_search_index(people=people, sim_dir=sim_dir, bundle=data.get("bundle"))
+    if data.get("ask"):
+        res = search_and_geo.ask_market_copilot(query, idx, client=_client(), model=Config.LLM_MODEL_NAME, top_k=top_k)
+    else:
+        res = search_and_geo.search_market_evidence(query, idx, top_k=top_k, doc_type=data.get("type"), segment=data.get("segment"))
+    return jsonify({"success": True, "data": res})
+
+
+@simulation_bp.route('/<simulation_id>/search', methods=['GET'])
+def get_simulation_search(simulation_id: str):
+    from ..services import search_and_geo
+    query = str(request.args.get("q") or request.args.get("query") or "").strip()
+    try:
+        sim_dir = _sim_dir(simulation_id)
+        people, _ = _people(simulation_id)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    idx = search_and_geo.build_search_index(people=people, sim_dir=sim_dir)
+    res = search_and_geo.search_market_evidence(
+        query, idx, top_k=int(request.args.get("top_k") or 12),
+        doc_type=request.args.get("type"), segment=request.args.get("segment"),
+    )
+    return jsonify({"success": True, "data": res})

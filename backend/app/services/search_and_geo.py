@@ -1,13 +1,20 @@
-"""Next-Gen Search Intelligence, AI Search Visibility (GEO), VoC Grounding & Dark Social Engine.
+"""
+search_and_geo.py - evidence search across a run, plus AI search visibility (GEO), real-vs-simulated
+voice comparison (VoC), and word-of-mouth cascade tests answered by the simulated people.
 
-Implements:
-1. Dovetail / Kraftful-style Hybrid BM25 + Semantic Concept Search & Cited Copilot
-   (`build_search_index`, `search_market_evidence`, `ask_market_copilot`)
-2. Profound / Peec AI / Otterly.AI Generative Engine Optimization (GEO) & AI Search Visibility
-   Simulator (`run_geo_visibility_audit`) across ChatGPT Search, Perplexity, Google Gemini & Claude
-3. Reddit / G2 / Review Voice-of-Customer (VoC) Sim-to-Real Grounding & Verbatim Lexicon
-   (`run_voc_grounding`)
-4. Dark Social & Influencer Cascade Simulator (`run_dark_social_cascade`)
+  * build_search_index / search_market_evidence / ask_market_copilot: indexes what the run actually produced
+    (persona cards, survey objections, pitch replies, feed-test and landing-page thoughts, social posts,
+    research quotes, and GTM / CRO test answers) and ranks them with BM25 + buyer-concern synonym expansion.
+    Nothing is invented when a file is absent.
+  * run_geo_visibility_audit: asks each simulated person in the cohort what they would type into an AI
+    assistant or search engine when looking for this kind of product, which options they already know,
+    and what is unclear in the offer facts; then tests those real queries to measure how often the brand
+    is mentioned or recommended and drafts an `/llms.txt` and `FAQPage` JSON-LD strictly from the product facts.
+  * run_voc_grounding: compares the objections raised by the simulated people against real customer voices
+    from `research.json`, `raw_reviews`, or a public `url` (using `wilson` intervals for both).
+  * run_dark_social_cascade: asks each simulated person whether they would privately forward or mention the
+    offer (and what they would write), then shows those real forwarded messages to a second wave of people
+    to measure peer-referral pickup versus cold exposure.
 """
 
 from __future__ import annotations
@@ -17,85 +24,95 @@ import math
 import os
 import random
 import re
-from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple
+from collections import Counter, defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .cro_and_sparring import fetch_url_snapshot
+from .gtm_suite import (
+    CONCERN_TYPES,
+    _ctype,
+    _f,
+    _meter,
+    _need,
+    _short,
+    ask_people,
+    envelope,
+    gather_objections,
+    guard_numbers,
+    mean_ci,
+    offer_dict,
+    offer_text,
+    person_card,
+    product_facts,
+    ranked,
+    sample_people,
+    verdict_from_ci,
+    wilson,
+    write_once,
+)
 
 
-# ---------------------------------------------------------------------------
-# 1. Domain Concept Ontology for Semantic Query & Document Expansion
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 1. Buyer-concern synonym & concept ontology for hybrid BM25 search
+# --------------------------------------------------------------------------
 
 CONCEPT_ONTOLOGY: Dict[str, Dict[str, Any]] = {
-    "pricing_wallet": {
-        "label": "Pricing, Sachet & Wallet Fit",
+    "price": {
+        "label": "Price, budget & payment terms",
         "keywords": [
             "price", "pricing", "cost", "expensive", "cheap", "affordable", "budget",
-            "wallet", "money", "sachet", "weekly", "monthly", "annual", "npr", "rs",
-            "rupees", "usd", "payday", "tight", "pocket", "spend", "discretionary",
-            "fee", "subscription", "tier", "plan", "discount", "value", "worth",
+            "wallet", "money", "weekly", "monthly", "annual", "subscription", "tier",
+            "plan", "discount", "value", "worth", "fee", "pay", "payday", "spend",
+            "discretionary", "free", "trial",
         ],
     },
-    "card_trap_trust": {
-        "label": "Card-Trap, Auto-Debit & Checkout Trust",
+    "trust": {
+        "label": "Trust, proof, card & cancellation risk",
         "keywords": [
-            "card", "credit", "debit", "auto-renew", "autorenew", "trap", "cancel",
-            "cancellation", "checkout", "friction", "scam", "trust", "skeptical",
-            "refund", "guarantee", "hidden", "charge", "billing", "trial", "no-card",
-            "zerocard", "phone", "otp", "pass", "risk",
+            "trust", "trustworthy", "credible", "scam", "skeptical", "proof", "review",
+            "reviews", "testimonial", "guarantee", "refund", "cancel", "cancellation",
+            "card", "credit", "debit", "auto-renew", "autorenew", "trap", "charge",
+            "billing", "privacy", "security", "risk", "safe", "signup", "sign-up",
+            "hesitate", "checkout", "abandon", "stopper", "dealbreaker",
         ],
     },
-    "family_committee": {
-        "label": "Spouse, Family & Buying Committee Approval",
+    "authority": {
+        "label": "Household, partner, boss & committee approval",
         "keywords": [
-            "spouse", "husband", "wife", "partner", "parents", "father", "mother",
-            "family", "household", "shared", "duo", "couple", "committee", "boss",
-            "manager", "cfo", "finance", "blocker", "champion", "approval", "permission",
-            "seat", "team",
+            "spouse", "husband", "wife", "partner", "parents", "family", "household",
+            "shared", "couple", "committee", "boss", "manager", "cfo", "finance",
+            "blocker", "champion", "approval", "permission", "ask", "consult", "team",
         ],
     },
-    "habit_retention": {
-        "label": "Routine, Streak Rescue & Day-30 Retention",
+    "habit": {
+        "label": "Routine, effort, time & retention",
         "keywords": [
             "habit", "routine", "streak", "quit", "drop", "churn", "retention",
-            "consistent", "consistency", "busy", "tired", "fatigue", "lazy", "schedule",
-            "shift", "morning", "evening", "15-min", "short", "quick", "whatsapp",
-            "reminder", "nudge", "accountability", "coach",
+            "consistent", "busy", "tired", "fatigue", "schedule", "shift", "time",
+            "effort", "hard", "easy", "simple", "onboarding", "setup", "daily",
         ],
     },
-    "competitor_youtube": {
-        "label": "Competitors, Free YouTube & Switching Triggers",
+    "competitor": {
+        "label": "Competitors, free alternatives & switching",
         "keywords": [
-            "competitor", "competitors", "youtube", "reels", "instagram", "tiktok",
-            "free", "gym", "cult", "strava", "myfitnesspal", "peloton", "alternative",
-            "switch", "switching", "compare", "comparison", "vs", "better", "different",
-            "unique", "moat", "steal",
+            "competitor", "competitors", "alternative", "alternatives", "already",
+            "using", "switch", "switching", "compare", "comparison", "versus", "vs",
+            "better", "different", "unique", "youtube", "free", "incumbent", "status",
         ],
     },
-    "data_offline_mobile": {
-        "label": "Mobile Data, Offline Mode & Local Payments",
+    "unclear": {
+        "label": "Clarity, confusion & missing details",
         "keywords": [
-            "offline", "data", "bandwidth", "wifi", "mobile", "phone", "storage",
-            "battery", "slow", "buffering", "download", "lite", "esewa", "khalti",
-            "upi", "qr", "wallet", "local", "payment",
+            "unclear", "confusing", "confused", "understand", "what", "how", "work",
+            "works", "explain", "headline", "copy", "landing", "page", "missing",
+            "detail", "details", "vague", "jargon",
         ],
     },
-    "local_proof": {
-        "label": "Local Social Proof & Peer Validation",
+    "relevance": {
+        "label": "Relevance, audience fit & need",
         "keywords": [
-            "proof", "review", "reviews", "testimonial", "testimonials", "peer",
-            "friend", "colleague", "kathmandu", "pokhara", "lalitpur", "nepal",
-            "real", "authentic", "reddit", "g2", "trustpilot", "rating", "case",
-            "creator", "influencer",
-        ],
-    },
-    "copy_clarity": {
-        "label": "5-Second Copy Clarity & Value Proposition",
-        "keywords": [
-            "copy", "headline", "hero", "clarity", "confusing", "clear", "hook",
-            "landing", "page", "cta", "button", "fold", "scroll", "message",
-            "positioning", "jargon", "buzzword", "teardown",
+            "relevant", "relevance", "need", "fit", "for", "audience", "segment",
+            "useful", "problem", "solve", "goal", "match", "interest",
         ],
     },
 }
@@ -113,351 +130,329 @@ _STOPWORDS = {
 def _tokenize(text: str) -> List[str]:
     if not text:
         return []
-    raw = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", text.lower())
+    raw = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", str(text).lower())
     return [t for t in raw if len(t) > 1 and t not in _STOPWORDS]
 
 
 def detect_concepts(text: str) -> List[str]:
-    """Return concept IDs that match tokens or substrings in `text`."""
-    low = (text or "").lower()
+    low = str(text or "").lower()
     tokens = set(_tokenize(low))
     matched: List[str] = []
     for cid, spec in CONCEPT_ONTOLOGY.items():
-        kws = spec["keywords"]
-        hits = sum(1 for kw in kws if kw in tokens or (len(kw) >= 4 and kw in low))
-        if hits >= 1:
+        if any(kw in tokens or (len(kw) >= 5 and kw in low) for kw in spec["keywords"]):
             matched.append(cid)
     return matched
 
 
 def expand_query_concepts(query: str) -> Dict[str, Any]:
-    """Expand a natural-language query into domain concepts and synonym tokens."""
     base_tokens = _tokenize(query)
-    matched_concepts = detect_concepts(query)
-    expanded_tokens = list(dict.fromkeys(base_tokens))
-    concept_labels: List[str] = []
-    for cid in matched_concepts:
+    matched = detect_concepts(query)
+    expanded = list(dict.fromkeys(base_tokens))
+    labels: List[str] = []
+    for cid in matched:
         spec = CONCEPT_ONTOLOGY[cid]
-        concept_labels.append(spec["label"])
+        labels.append(spec["label"])
         for kw in spec["keywords"][:12]:
-            if kw not in expanded_tokens:
-                expanded_tokens.append(kw)
+            if kw not in expanded:
+                expanded.append(kw)
     return {
         "query": query,
         "base_tokens": base_tokens,
-        "matched_concepts": matched_concepts,
-        "concept_labels": concept_labels,
-        "expanded_tokens": expanded_tokens,
+        "matched_concepts": matched,
+        "concept_labels": labels,
+        "expanded_tokens": expanded,
     }
 
 
-# ---------------------------------------------------------------------------
-# 2. Multi-Artifact Unified Search Indexer & Hybrid BM25 + Concept Ranker
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 2. Multi-artifact search indexer & hybrid BM25 + concept ranker
+# --------------------------------------------------------------------------
+
+def _load_json(folder: Optional[str], name: str) -> Any:
+    if not folder:
+        return None
+    path = os.path.join(folder, name if name.endswith(".json") else f"{name}.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
 
 def build_search_index(
     people: Optional[List[Dict[str, Any]]] = None,
-    interviews: Optional[List[Dict[str, Any]]] = None,
-    thoughts: Optional[List[Dict[str, Any]]] = None,
-    gtm_suite: Optional[Dict[str, Any]] = None,
-    cro_lab: Optional[Dict[str, Any]] = None,
-    actions: Optional[List[Dict[str, Any]]] = None,
-    competitor_intel: Optional[Dict[str, Any]] = None,
-    brief: str = "",
+    run_dir: Optional[str] = None,
+    sim_dir: Optional[str] = None,
+    bundle: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build a unified, searchable evidence corpus across all MarketMirror simulation artifacts."""
-    people = people or []
-    interviews = interviews or []
-    thoughts = thoughts or []
-    gtm_suite = gtm_suite or {}
-    cro_lab = cro_lab or gtm_suite.get("cro_lab") or {}
-    competitor_intel = competitor_intel or gtm_suite.get("competitor_intelligence") or {}
-    actions = actions or []
+    """Index every real artifact present in `bundle`, `run_dir`, or `sim_dir`. Nothing is invented."""
+    b = dict(bundle or {})
+
+    def get(name: str) -> Any:
+        if name in b and b[name] is not None:
+            return b[name]
+        return _load_json(run_dir, name) or _load_json(sim_dir, name)
+
+    cfg = get("config") or get("simulation_config") or {}
+    if isinstance(cfg, dict) and "data" in cfg and isinstance(cfg["data"], dict):
+        cfg = cfg["data"]
+    if people is None:
+        people = [p for p in (cfg.get("persona_index") or []) if isinstance(p, dict)]
+
+    by_id: Dict[Any, Dict[str, Any]] = {}
+    for p in people or []:
+        if isinstance(p, dict) and p.get("agent_id") is not None:
+            by_id[p["agent_id"]] = p
 
     docs: List[Dict[str, Any]] = []
 
-    # 1. Grounded Buyer Personas
-    for idx, p in enumerate(people):
-        aid = p.get("agent_id") or (idx + 1)
-        name = p.get("name") or p.get("username") or f"Buyer #{aid}"
-        role = p.get("profession") or p.get("occupation") or "Consumer"
-        seg = p.get("segment") or "General"
-        city = p.get("city") or p.get("country") or ""
-        stance = p.get("stance") or p.get("verdict") or "Evaluating"
-        provider = p.get("model_provider") or "claude"
+    def add_doc(doc_id: str, doc_type: str, type_label: str, title: str, snippet: str,
+                text: str = "", segment: str = "", verdict: str = "", anchor: str = "#top",
+                meta: str = "") -> None:
+        snip = _short(snippet, 260)
+        if not snip:
+            return
+        full = f"{title} {segment} {verdict} {snip} {text}".strip()
+        docs.append({
+            "id": doc_id,
+            "type": doc_type,
+            "type_label": type_label,
+            "title": _short(title, 120),
+            "segment": str(segment or ""),
+            "verdict": str(verdict or ""),
+            "snippet": snip,
+            "text": _short(full, 900),
+            "anchor": anchor,
+            "concepts": detect_concepts(full),
+            "meta": _short(meta, 120),
+        })
+
+    # 1. Personas from persona_index
+    for idx, p in enumerate((people or [])[:250]):
+        aid = p.get("agent_id", idx + 1)
+        name = p.get("name") or f"Person {aid}"
+        seg = p.get("segment") or ""
+        country = p.get("country") or p.get("city") or ""
+        occ = p.get("occupation") or p.get("profession") or ""
         bde = p.get("bde") if isinstance(p.get("bde"), dict) else {}
-        budget = bde.get("discretionary_budget") or p.get("income_bracket") or ""
-        stoppers = bde.get("stoppers") or bde.get("dealbreakers") or p.get("pain_points") or ""
-        if isinstance(stoppers, list):
-            stoppers = "; ".join(str(x) for x in stoppers)
-        says_does = bde.get("says_vs_does") or ""
-        bio = p.get("bio") or p.get("persona") or ""
-        quote = p.get("verdict_reason") or p.get("headline_quote") or stoppers or bio[:180]
-        full_text = f"{name} {role} {seg} {city} {stance} {budget} {stoppers} {says_does} {bio} {quote}"
-        docs.append({
-            "id": f"persona-{aid}",
-            "type": "persona",
-            "type_label": "Buyer Persona",
-            "title": f"{name} · {role} ({city or seg})",
-            "segment": str(seg),
-            "verdict": str(stance).upper(),
-            "provider": str(provider),
-            "snippet": str(quote)[:240],
-            "text": full_text[:900],
-            "anchor": f"#buyer-{aid}",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Budget: {budget or 'Std'} · Model: {provider}",
-        })
-
-    # 2. Verbatim Interviews
-    for idx, iv in enumerate(interviews[:60]):
-        aid = iv.get("agent_id") or (idx + 1)
-        name = iv.get("name") or f"Buyer #{aid}"
-        seg = iv.get("segment") or "General"
-        verdict = iv.get("verdict") or iv.get("decision") or "CONSIDER"
-        q_and_a = iv.get("transcript") or iv.get("responses") or iv.get("answers") or []
-        joined_qa = ""
-        best_quote = iv.get("summary") or iv.get("key_quote") or ""
-        if isinstance(q_and_a, list):
-            parts = []
-            for turn in q_and_a[:5]:
-                if isinstance(turn, dict):
-                    a_txt = str(turn.get("a") or turn.get("answer") or turn.get("response") or "")
-                    q_txt = str(turn.get("q") or turn.get("question") or "")
-                    parts.append(f"{q_txt} {a_txt}")
-                    if a_txt and len(a_txt) > len(best_quote):
-                        best_quote = a_txt
-                else:
-                    parts.append(str(turn))
-            joined_qa = " ".join(parts)
-        elif isinstance(q_and_a, str):
-            joined_qa = q_and_a
-            best_quote = best_quote or q_and_a[:220]
-        if not best_quote and not joined_qa:
+        bde_txt = json.dumps(bde, ensure_ascii=False) if bde else ""
+        persona_txt = str(p.get("persona") or p.get("bio") or "").strip()
+        if not (persona_txt or bde_txt):
             continue
-        full_text = f"{name} {seg} {verdict} {best_quote} {joined_qa}"
-        docs.append({
-            "id": f"interview-{aid}-{idx}",
-            "type": "interview",
-            "type_label": "Interview Quote",
-            "title": f"{name} ({seg}) — Interview Verdict: {verdict}",
-            "segment": str(seg),
-            "verdict": str(verdict).upper(),
-            "provider": str(iv.get("model_provider") or "claude"),
-            "snippet": str(best_quote or joined_qa)[:240],
-            "text": full_text[:900],
-            "anchor": "#interviews",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Stage: Deep Interview · Agent #{aid}",
-        })
-
-    # 3. System-1 / System-2 Agent Inner Thoughts
-    for idx, th in enumerate(thoughts[:80]):
-        aid = th.get("agent_id") or (idx + 1)
-        name = th.get("name") or f"Buyer #{aid}"
-        seg = th.get("segment") or "General"
-        stage = th.get("stage") or "landing_page"
-        s1 = th.get("system1_gut") or th.get("gut_reaction") or ""
-        s2 = th.get("system2_deliberation") or th.get("bde_check") or ""
-        spoken = th.get("spoken_response") or ""
-        private = th.get("private_reality") or ""
-        decision = th.get("action_decision") or th.get("decision") or "HESITATE"
-        gap = th.get("say_do_gap")
-        full_text = f"{name} {seg} {stage} {s1} {s2} {spoken} {private} {decision}"
-        snippet = f"Gut: \"{s1[:110]}\" → BDE Check: \"{s2[:110]}\""
-        docs.append({
-            "id": f"thought-{aid}-{idx}",
-            "type": "thought",
-            "type_label": "Agent Mindstream",
-            "title": f"{name} ({seg}) · {stage.replace('_', ' ').title()}",
-            "segment": str(seg),
-            "verdict": f"{decision} {'· SAY-DO GAP' if gap else ''}".strip(),
-            "provider": str(th.get("model_provider") or "claude"),
-            "snippet": snippet[:240],
-            "text": full_text[:900],
-            "anchor": "#thoughts",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Stage: {stage} · Decision: {decision}",
-        })
-
-    # 4. Competitor Feature Gaps & AI Strategy Suggestions
-    for idx, sug in enumerate(competitor_intel.get("ai_strategic_suggestions") or []):
-        title = sug.get("title") or f"AI Suggestion #{idx + 1}"
-        cat = sug.get("category") or "Strategy"
-        lift = sug.get("expected_win_share_lift_pct") or 0
-        why = sug.get("why_it_wins") or ""
-        what_comp = sug.get("what_competitor_has") or ""
-        what_add = sug.get("what_you_should_add") or ""
-        copy_hook = sug.get("ready_to_use_copy") or ""
-        full_text = f"{title} {cat} {why} {what_comp} {what_add} {copy_hook}"
-        docs.append({
-            "id": f"suggestion-{idx}",
-            "type": "suggestion",
-            "type_label": "AI Strategy Play",
-            "title": f"{title} (+{lift}% Win-Share Lift)",
-            "segment": "All Segments",
-            "verdict": f"+{lift}% LIFT",
-            "provider": "ensemble",
-            "snippet": f"Add: {what_add[:150]} — Copy: \"{copy_hook[:85]}\"",
-            "text": full_text[:900],
-            "anchor": "#competitors",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Category: {cat} · Priority: {sug.get('priority', 'P0')}",
-        })
-
-    for idx, comp in enumerate(competitor_intel.get("competitors") or []):
-        cname = comp.get("name") or f"Competitor #{idx + 1}"
-        price = comp.get("price_label") or ""
-        have = "; ".join(comp.get("what_they_have") or [])
-        miss = "; ".join(comp.get("what_they_miss") or [])
-        wedge = comp.get("Recommended_Counter_Wedge") or comp.get("counter_wedge") or ""
-        full_text = f"{cname} {price} {have} {miss} {wedge}"
-        docs.append({
-            "id": f"competitor-{idx}",
-            "type": "competitor",
-            "type_label": "Competitor Intel",
-            "title": f"{cname} ({price})",
-            "segment": "Market Benchmark",
-            "verdict": f"{comp.get('simulated_market_share_pct', 0)}% SHARE",
-            "provider": "ensemble",
-            "snippet": f"Has: {have[:110]} | Blind spot: {miss[:110]}",
-            "text": full_text[:900],
-            "anchor": "#competitors",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Stealable Share: {comp.get('stealable_share_pct', 0)}%",
-        })
-
-    # 5. Sales Battlecard Objections & Buying Committee Rooms
-    bc = gtm_suite.get("sales_battlecard") or {}
-    for idx, obj in enumerate(bc.get("objection_playbook") or []):
-        spoken = obj.get("buyer_says") or obj.get("objection") or ""
-        private = obj.get("private_system2_thought") or ""
-        rebuttal = obj.get("winning_rebuttal") or ""
-        asset = obj.get("proof_asset_to_send") or ""
-        full_text = f"{spoken} {private} {rebuttal} {asset}"
-        docs.append({
-            "id": f"battlecard-obj-{idx}",
-            "type": "battlecard",
-            "type_label": "Sales Battlecard",
-            "title": f"Objection: \"{spoken[:75]}\"",
-            "segment": obj.get("category") or "Sales Objection",
-            "verdict": "REBUTTAL READY",
-            "provider": "ensemble",
-            "snippet": f"Winning Rebuttal: \"{rebuttal[:165]}\" (Send: {asset})",
-            "text": full_text[:900],
-            "anchor": "#gtm",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Hidden Thought: {private[:90]}",
-        })
-
-    committee = gtm_suite.get("buying_committee") or {}
-    for idx, room in enumerate(committee.get("rooms") or []):
-        rname = room.get("room_name") or f"Buying Room #{idx + 1}"
-        verdict = room.get("final_verdict") or "CONDITIONAL"
-        blocker = room.get("primary_roadblock") or ""
-        unlock = room.get("deal_unlock_action") or ""
-        transcript = " ".join(
-            f"{t.get('role', '')}: {t.get('statement', '')}"
-            for t in (room.get("deliberation_transcript") or [])
+        add_doc(
+            doc_id=f"persona-{aid}",
+            doc_type="persona",
+            type_label="Person",
+            title=", ".join(str(x) for x in (name, occ, country) if x),
+            snippet=persona_txt or bde_txt,
+            text=f"{persona_txt} {bde_txt}",
+            segment=seg,
+            verdict=str(p.get("model_provider") or ""),
+            anchor="#agents",
+            meta=f"agent #{aid}",
         )
-        full_text = f"{rname} {verdict} {blocker} {unlock} {transcript}"
-        docs.append({
-            "id": f"committee-{idx}",
-            "type": "committee",
-            "type_label": "Buying Committee",
-            "title": f"{rname} — {verdict}",
-            "segment": room.get("room_type") or "Committee",
-            "verdict": str(verdict),
-            "provider": "ensemble",
-            "snippet": f"Blocker: {blocker[:115]} → Unlock: {unlock[:115]}",
-            "text": full_text[:900],
-            "anchor": "#gtm",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Consensus Score: {room.get('consensus_score_pct', 0)}%",
-        })
 
-    # 6. CRO Landing Page Teardown & Roleplay Dojo
-    td = cro_lab.get("landing_teardown") or {}
-    for idx, blk in enumerate(td.get("block_diagnostics") or []):
-        bname = blk.get("label") or blk.get("block_id") or f"Page Fold #{idx + 1}"
-        copy_txt = blk.get("current_copy") or ""
-        friction = blk.get("dominant_friction") or ""
-        rewrite = blk.get("ai_rewrite_suggestion") or ""
-        quotes = " ".join(
-            str(q.get("5s_gut_quote") or "") for q in (blk.get("persona_annotations") or [])
-        )
-        full_text = f"{bname} {copy_txt} {friction} {rewrite} {quotes}"
-        docs.append({
-            "id": f"teardown-{idx}",
-            "type": "teardown",
-            "type_label": "CRO 5s Teardown",
-            "title": f"{bname} · Clarity {blk.get('clarity_score', 0)}/10",
-            "segment": "Landing Page Fold",
-            "verdict": f"{blk.get('scroll_survival_pct', 0)}% SURVIVE",
-            "provider": "ensemble",
-            "snippet": f"Friction: {friction} → AI Rewrite: \"{rewrite[:145]}\"",
-            "text": full_text[:900],
-            "anchor": "#cro-lab",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Saliency Focus: {blk.get('visual_saliency_focus', '')}",
-        })
+    # 2. Survey responses
+    survey = get("survey")
+    if isinstance(survey, dict):
+        for idx, r in enumerate((survey.get("responses") or [])[:250]):
+            if not isinstance(r, dict):
+                continue
+            a = r.get("answer") if isinstance(r.get("answer"), dict) else {}
+            obj = str(a.get("main_objection") or a.get("reasoning") or a.get("comment") or "").strip()
+            if not obj:
+                continue
+            aid = r.get("agent_id")
+            p = by_id.get(aid, {})
+            name = r.get("name") or p.get("name") or f"Person {aid}"
+            seg = r.get("segment") or p.get("segment") or ""
+            wc = str(a.get("would_convert") or "").upper()
+            otype = str(a.get("objection_type") or "")
+            add_doc(
+                doc_id=f"survey-{aid}-{idx}",
+                doc_type="survey",
+                type_label="Survey answer",
+                title=f"{name} ({seg})" if seg else str(name),
+                snippet=obj,
+                text=json.dumps(a, ensure_ascii=False),
+                segment=seg,
+                verdict=wc,
+                anchor="#voices",
+                meta=f"objection: {otype}" if otype else "survey",
+            )
 
-    rp = cro_lab.get("sales_roleplay") or {}
-    for idx, sess in enumerate(rp.get("sessions") or []):
-        pname = sess.get("persona_name") or f"Sparring Buyer #{idx + 1}"
-        arch = sess.get("archetype") or ""
-        obj = sess.get("opening_objection") or ""
-        win_opt = next(
-            (o.get("rep_response") for o in (sess.get("interactive_options") or []) if o.get("grade") == "A+"),
-            "",
-        )
-        full_text = f"{pname} {arch} {obj} {win_opt}"
-        docs.append({
-            "id": f"roleplay-{idx}",
-            "type": "roleplay",
-            "type_label": "Roleplay Dojo",
-            "title": f"{pname} ({arch})",
-            "segment": str(sess.get("segment") or "Sales Sparring"),
-            "verdict": f"SCORE {sess.get('overall_score', 0)}/100",
-            "provider": "ensemble",
-            "snippet": f"Buyer Pushback: \"{obj[:110]}\" → A+ Move: \"{str(win_opt)[:115]}\"",
-            "text": full_text[:900],
-            "anchor": "#cro-lab",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Outcome: {sess.get('outcome', '')}",
-        })
+    # 3. Thought stream & harvested thoughts
+    for t_key in ("thought_stream", "thought_harvest"):
+        ts = get(t_key)
+        if isinstance(ts, dict):
+            for idx, e in enumerate((ts.get("entries") or [])[:250]):
+                if not isinstance(e, dict) or not str(e.get("text") or "").strip():
+                    continue
+                aid = e.get("agent_id")
+                name = e.get("name") or f"Person {aid}"
+                seg = e.get("segment") or ""
+                src = e.get("source") or "thought"
+                did = e.get("would_do") or e.get("did") or ""
+                weigh = e.get("weighing") or ""
+                add_doc(
+                    doc_id=f"thought-{t_key}-{idx}",
+                    doc_type="thought",
+                    type_label=f"Thought ({src})",
+                    title=f"{name} ({seg})" if seg else str(name),
+                    snippet=f"{e['text']}" + (f" → {did}" if did else ""),
+                    text=f"{e['text']} {weigh} {did} {e.get('gut', '')} {e.get('roadblock', '')}",
+                    segment=seg,
+                    verdict=str(e.get("private_verdict") or e.get("gut") or "").upper(),
+                    anchor="#thoughts",
+                    meta=f"{src} · {e.get('roadblock') or e.get('kind') or ''}".strip(" ·"),
+                )
 
-    # 7. OASIS Social Posts (sample top 25)
-    for idx, act in enumerate(actions[:25]):
-        content = act.get("content") or act.get("text") or act.get("comment") or ""
+    # 4. Feed test thoughts & landing drop reasons
+    ft = get("feed_test")
+    if isinstance(ft, dict):
+        first_seed = ft.get("seed")
+        for idx, s in enumerate((ft.get("sessions") or [])[:200]):
+            if not isinstance(s, dict) or (first_seed is not None and s.get("seed") not in (None, first_seed)):
+                continue
+            ad = s.get("ad") or {}
+            land = s.get("landing") or {}
+            th = str(land.get("thought") or ad.get("thought") or "").strip()
+            if not th:
+                continue
+            name = s.get("name") or f"Person {s.get('agent_id')}"
+            seg = s.get("segment") or ""
+            verdict = "CONVERTED" if land.get("completed") else ("CLICKED" if ad.get("click") else "SCROLLED")
+            add_doc(
+                doc_id=f"feed-{idx}",
+                doc_type="feed_test",
+                type_label="Feed & landing",
+                title=f"{name} on {s.get('creative_id') or 'ad'}",
+                snippet=th + (f" (Drop reason: {land['drop_reason']})" if land.get("drop_reason") else ""),
+                text=f"{th} {land.get('drop_reason', '')}",
+                segment=seg,
+                verdict=verdict,
+                anchor="#feedtest",
+                meta=str(s.get("platform") or ""),
+            )
+
+    # 5. Pitch replies
+    pitch = get("pitch")
+    if isinstance(pitch, dict):
+        for idx, r in enumerate((pitch.get("people") or [])[:150]):
+            if not isinstance(r, dict):
+                continue
+            t1 = r.get("turn1") or {}
+            rep = str(t1.get("reply") or "").strip()
+            if not rep:
+                continue
+            name = r.get("name") or f"Person {r.get('agent_id')}"
+            seg = r.get("segment") or ""
+            add_doc(
+                doc_id=f"pitch-{idx}",
+                doc_type="pitch",
+                type_label="Pitch reply",
+                title=f"{name} ({seg})" if seg else str(name),
+                snippet=rep,
+                text=f"{rep} {t1.get('thought', '')} {t1.get('objection', '')}",
+                segment=seg,
+                verdict=str(r.get("final_verdict") or t1.get("verdict") or "").upper(),
+                anchor="#pitch",
+                meta=f"lead score: {r.get('lead_score', '–')}",
+            )
+
+    # 6. Social actions (posts & comments)
+    acts = get("actions")
+    if isinstance(acts, dict):
+        acts = acts.get("actions")
+    for idx, a in enumerate((acts or [])[:150]):
+        if not isinstance(a, dict):
+            continue
+        args = a.get("action_args") or {}
+        content = str(args.get("content") or args.get("quote_content") or a.get("content") or "").strip()
         if not content:
             continue
-        aname = act.get("agent_name") or act.get("username") or f"Agent #{act.get('agent_id', idx + 1)}"
-        atype = act.get("action") or act.get("action_type") or "POST"
-        thought = act.get("thought") or ""
-        full_text = f"{aname} {atype} {content} {thought}"
-        docs.append({
-            "id": f"social-{idx}",
-            "type": "social_post",
-            "type_label": "Social Feed Post",
-            "title": f"{aname} ({atype})",
-            "segment": str(act.get("segment") or "Social Graph"),
-            "verdict": str(atype).upper(),
-            "provider": str(act.get("model_provider") or "claude"),
-            "snippet": str(content)[:240],
-            "text": full_text[:900],
-            "anchor": "#feed",
-            "concepts": detect_concepts(full_text),
-            "meta": f"Round {act.get('round', 1)}",
-        })
+        aid = a.get("agent_id")
+        p = by_id.get(aid, {})
+        name = a.get("agent_name") or p.get("name") or f"Person {aid}"
+        seg = p.get("segment") or ""
+        atype = str(a.get("action_type") or "POST")
+        add_doc(
+            doc_id=f"social-{idx}",
+            doc_type="social_post",
+            type_label="Social post",
+            title=f"{name} ({atype.lower().replace('_', ' ')})",
+            snippet=content,
+            text=f"{content} {a.get('thought', '')}",
+            segment=seg,
+            verdict=atype,
+            anchor="#posts",
+            meta=f"{a.get('platform', '')} round {a.get('round_num', '?')}".strip(),
+        )
 
-    type_counts = Counter(d["type"] for d in docs)
-    concept_counts = Counter(c for d in docs for c in d.get("concepts", []))
+    # 7. GTM & CRO test outputs (when present)
+    suite = get("gtm_suite")
+    engines = (suite.get("engines") if isinstance(suite, dict) else None) or {}
+    for key, fname, anchor, label in (
+        ("committee", "buying_committee", "#gtm", "Buying committee"),
+        ("creative", "creative_optimizer", "#gtm", "Creative test"),
+        ("battlecard", "sales_battlecard", "#gtm", "Sales battlecard"),
+        ("journey", "journey_sim", "#gtm", "Customer journey"),
+        ("pricing", "pricing_conjoint", "#gtm", "Pricing choice"),
+        ("competitors", "competitor_intel", "#competitors", "Competitor choice"),
+        ("teardown", "landing_teardown", "#cro-lab", "Landing teardown"),
+        ("roleplay", "sales_roleplay", "#cro-lab", "Sales roleplay"),
+        ("whatif", "causal_whatif", "#cro-lab", "What-if choice"),
+        ("personalize", "segment_personalization", "#cro-lab", "Tailored ads"),
+        ("geo", "geo_visibility", "#search-geo", "AI search (GEO)"),
+        ("voc", "voc_grounding", "#search-geo", "Real vs simulated voices"),
+        ("cascade", "dark_social", "#search-geo", "Word-of-mouth cascade"),
+    ):
+        res = get(fname) or engines.get(key)
+        if not isinstance(res, dict) or not res.get("summary"):
+            continue
+        s = res["summary"]
+        add_doc(
+            doc_id=f"gtm-summary-{key}",
+            doc_type=key,
+            type_label=label,
+            title=f"{label} ({res.get('answered', 0)} people answered)",
+            snippet=json.dumps(s, ensure_ascii=False)[:250],
+            text=json.dumps(s, ensure_ascii=False)[:900],
+            segment="All audiences",
+            verdict=f"{res.get('answered', 0)}/{res.get('asked', 0)}",
+            anchor=anchor,
+            meta=label,
+        )
 
+    # 8. External research voices (if `research.json` exists)
+    research = get("research")
+    if isinstance(research, dict):
+        for idx, v in enumerate((research.get("voices") or research.get("items") or [])[:120]):
+            if not isinstance(v, dict):
+                continue
+            txt = str(v.get("text") or v.get("body") or v.get("title") or "").strip()
+            if not txt:
+                continue
+            src = str(v.get("source") or v.get("platform") or "web")
+            add_doc(
+                doc_id=f"research-{idx}",
+                doc_type="research",
+                type_label="Real customer voice",
+                title=str(v.get("title") or f"Voice from {src}")[:100],
+                snippet=txt,
+                text=txt,
+                segment=src,
+                verdict="REAL VOICE",
+                anchor="#evidence",
+                meta=src,
+            )
+
+    by_type = Counter(d["type"] for d in docs)
+    by_concept = Counter(c for d in docs for c in d.get("concepts", []))
     return {
         "total_docs": len(docs),
-        "by_type": dict(type_counts),
-        "by_concept": dict(concept_counts),
+        "by_type": dict(by_type),
+        "by_concept": dict(by_concept),
         "ontology": {
             cid: {"label": spec["label"], "keywords": spec["keywords"][:14]}
             for cid, spec in CONCEPT_ONTOLOGY.items()
@@ -473,7 +468,7 @@ def search_market_evidence(
     doc_type: Optional[str] = None,
     segment: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Rank evidence chunks using Hybrid BM25 + Domain Concept Overlap + Exact Phrase Boost."""
+    """Hybrid BM25 + concept-synonym search over the run's real indexed artifacts."""
     docs: List[Dict[str, Any]]
     if isinstance(index_or_docs, dict):
         docs = list(index_or_docs.get("docs") or [])
@@ -494,23 +489,10 @@ def search_market_evidence(
     q_low = (query or "").strip().lower()
 
     if not docs:
-        return {
-            "query": query,
-            "expansion": expansion,
-            "total_matches": 0,
-            "results": [],
-        }
-
-    # If query is empty, return diverse high-signal docs
+        return {"query": query, "expansion": expansion, "total_matches": 0, "results": []}
     if not base_tokens and not q_low:
-        return {
-            "query": query,
-            "expansion": expansion,
-            "total_matches": len(docs),
-            "results": docs[:top_k],
-        }
+        return {"query": query, "expansion": expansion, "total_matches": len(docs), "results": docs[:top_k]}
 
-    # Pre-tokenize corpus for BM25
     doc_tokens_list: List[List[str]] = []
     df: Counter = Counter()
     for d in docs:
@@ -521,8 +503,7 @@ def search_market_evidence(
 
     n_docs = len(docs)
     avgdl = sum(len(t) for t in doc_tokens_list) / max(1, n_docs)
-    k1 = 1.5
-    b = 0.75
+    k1, b = 1.5, 0.75
 
     scored: List[Tuple[float, Dict[str, Any]]] = []
     for idx, d in enumerate(docs):
@@ -531,38 +512,30 @@ def search_market_evidence(
         dl = len(toks)
         score = 0.0
 
-        # 1. Exact BM25 on base query tokens (weight 2.5x)
         for qt in base_tokens:
             f = tf.get(qt, 0)
             if f > 0:
                 idf = math.log(1.0 + (n_docs - df[qt] + 0.5) / (df[qt] + 0.5))
                 denom = f + k1 * (1.0 - b + b * (dl / max(1.0, avgdl)))
                 score += 2.5 * idf * ((f * (k1 + 1.0)) / denom)
-            else:
-                # Prefix / substring match fallback
-                if any(qt in tok or tok in qt for tok in tf if len(qt) >= 4 and len(tok) >= 4):
-                    score += 1.1
+            elif any(qt in tok or tok in qt for tok in tf if len(qt) >= 4 and len(tok) >= 4):
+                score += 1.0
 
-        # 2. Concept-expanded synonym tokens (weight 0.65x)
         for syn in expanded_tokens:
             if syn in base_tokens:
                 continue
-            f = tf.get(syn, 0)
-            if f > 0:
+            if tf.get(syn, 0) > 0:
                 idf = math.log(1.0 + (n_docs - df[syn] + 0.5) / (df[syn] + 0.5))
-                score += 0.65 * idf
+                score += 0.55 * idf
 
-        # 3. Domain Concept Cluster Overlap Boost
-        doc_concepts = set(d.get("concepts") or [])
-        overlap = matched_concepts & doc_concepts
+        overlap = matched_concepts & set(d.get("concepts") or [])
         if overlap:
-            score += 2.2 * len(overlap)
+            score += 2.0 * len(overlap)
 
-        # 4. Exact phrase or title match boost
         title_low = str(d.get("title", "")).lower()
         snip_low = str(d.get("snippet", "")).lower()
         if len(q_low) >= 3 and (q_low in title_low or q_low in snip_low):
-            score += 4.0
+            score += 3.5
 
         if score > 0:
             item = dict(d)
@@ -573,13 +546,11 @@ def search_market_evidence(
             scored.append((score, item))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    results = [item for _, item in scored[:top_k]]
-
     return {
         "query": query,
         "expansion": expansion,
         "total_matches": len(scored),
-        "results": results,
+        "results": [item for _, item in scored[:top_k]],
     }
 
 
@@ -590,28 +561,13 @@ def ask_market_copilot(
     model: str = "",
     top_k: int = 8,
 ) -> Dict[str, Any]:
-    """Synthesize a Dovetail-style cited answer grounded in top retrieved simulation evidence."""
+    """Answer a question over the run's evidence with inline [#1], [#2] citations.
+    When `client` is passed, uses `write_once` + `guard_numbers` over the retrieved items only;
+    otherwise returns the matched items and their counts without inventing prose."""
     search_res = search_market_evidence(query, index_or_docs, top_k=top_k)
     hits = search_res["results"]
-    expansion = search_res["expansion"]
-
-    if not hits:
-        return {
-            "query": query,
-            "cited_answer": (
-                "No direct matches were found for that exact query, but you can search by buyer "
-                "concepts like 'card trap', 'pricing sachet', 'spouse approval', 'youtube comparison', "
-                "or 'streak retention'."
-            ),
-            "key_takeaways": [],
-            "recommended_action": "Try broadening your search terms or selecting a Quick Insight chip.",
-            "citations": [],
-            "search": search_res,
-        }
-
-    citations = []
-    for i, h in enumerate(hits[:6], start=1):
-        citations.append({
+    citations = [
+        {
             "ref": f"[#{i}]",
             "id": h["id"],
             "type": h["type"],
@@ -620,802 +576,368 @@ def ask_market_copilot(
             "snippet": h["snippet"],
             "anchor": h["anchor"],
             "score": h.get("relevance_score", 0.0),
-        })
+        }
+        for i, h in enumerate(hits[:6], start=1)
+    ]
+    if not citations:
+        return {
+            "query": query,
+            "cited_answer": "No matching records in this run for that query.",
+            "citations": [],
+            "search": search_res,
+        }
 
-    # Optional LLM synthesis if live client is passed
     if client is not None and model:
         try:
-            evidence_lines = "\n".join(
-                f"[#{i}] ({c['type_label']}) {c['title']}: {c['snippet']}"
-                for i, c in enumerate(citations, start=1)
-            )
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are MarketMirror's Cited Research Copilot. Answer the user's question "
-                            "concisely in 2-3 sentences using inline [#1], [#2] citations grounded strictly "
-                            "in the provided simulation evidence."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Question: {query}\n\nSimulation Evidence:\n{evidence_lines}",
-                    },
-                ],
+            meter = _meter(client)
+            lines = "\n".join(f"[#{i}] ({c['type_label']}) {c['title']}: {c['snippet']}" for i, c in enumerate(citations, 1))
+            ans = write_once(
+                meter,
+                model,
+                (
+                    f"Question: {query}\n\nEvidence from this run (use only these items, cite them as [#1], [#2], "
+                    "and never invent numbers or facts):\n"
+                    f"{lines}\n\n"
+                    'Return JSON: {"answer": "2-3 sentences with [#1] citations", "key_points": ["..."]}'
+                ),
+                max_tokens=450,
                 temperature=0.2,
-                max_tokens=260,
             )
-            llm_ans = (resp.choices[0].message.content or "").strip()
-            if llm_ans:
+            ans = guard_numbers(ans, {"citations": citations, "total_matches": search_res["total_matches"]})
+            if isinstance(ans, dict) and str(ans.get("answer") or "").strip():
                 return {
                     "query": query,
-                    "cited_answer": llm_ans,
-                    "key_takeaways": [f"{c['ref']} {c['title']}: {c['snippet'][:140]}" for c in citations[:3]],
-                    "recommended_action": citations[0]["snippet"],
+                    "cited_answer": str(ans["answer"]).strip(),
+                    "key_takeaways": [str(x) for x in (ans.get("key_points") or [])[:4]],
                     "citations": citations,
                     "search": search_res,
                 }
         except Exception:
             pass
 
-    # Deterministic grounded synthesis with inline [#1], [#2], [#3] citations
-    c1 = citations[0]
-    c2 = citations[1] if len(citations) > 1 else c1
-    c3 = citations[2] if len(citations) > 2 else c2
-    concept_str = (
-        ", ".join(expansion["concept_labels"][:2])
-        if expansion["concept_labels"]
-        else "Buyer Conversion & Positioning"
-    )
-
-    cited_answer = (
-        f"Across {search_res['total_matches']} matching evidence records for {concept_str}, "
-        f"the primary signal comes from {c1['title']} ({c1['snippet'][:135]}) {c1['ref']}. "
-        f"Supporting evidence from {c2['title']} confirms \"{c2['snippet'][:120]}\" {c2['ref']}"
-        + (
-            f", while {c3['title']} highlights \"{c3['snippet'][:115]}\" {c3['ref']}."
-            if len(citations) > 2
-            else "."
-        )
-    )
-
-    takeaways = [
-        f"{c['ref']} {c['type_label']} — {c['title']}: {c['snippet'][:160]}"
-        for c in citations[:4]
-    ]
-
-    # Pick a concrete recommended action from suggestions/battlecards/teardowns if present
-    action_doc = next(
-        (h for h in hits if h.get("type") in ("suggestion", "battlecard", "teardown", "roleplay")),
-        hits[0],
-    )
-    recommended_action = f"{action_doc['title']} — {action_doc['snippet'][:180]}"
-
+    # Factual, non-invented summary of the retrieved items
+    top_parts = [f"{c['ref']} {c['title']}: “{c['snippet']}”" for c in citations[:3]]
     return {
         "query": query,
-        "cited_answer": cited_answer,
-        "key_takeaways": takeaways,
-        "recommended_action": recommended_action,
+        "cited_answer": f"{search_res['total_matches']} matching records in this run. Top matches: " + " · ".join(top_parts),
+        "key_takeaways": [f"{c['ref']} ({c['type_label']}) {c['title']}: {c['snippet']}" for c in citations[:4]],
         "citations": citations,
         "search": search_res,
     }
 
 
-# ---------------------------------------------------------------------------
-# 3. AI Search Visibility & Generative Engine Optimization (GEO) Simulator
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 3. AI Search Visibility & Generative Engine Optimization (GEO) test
+# --------------------------------------------------------------------------
 
 def run_geo_visibility_audit(
-    client: Any = None,
-    model: str = "",
-    offer: str = "",
+    client: Any,
+    model: str,
+    offer: Any = "",
     people: Optional[List[Dict[str, Any]]] = None,
-    competitor_intel: Optional[Dict[str, Any]] = None,
-    seed: int = 71,
+    queries: Optional[List[str]] = None,
+    competitors: Optional[List[Any]] = None,
+    seed: int = 41,
+    cohort_size: int = 30,
+    profile: Optional[Dict[str, Any]] = None,
+    parallel: int = 8,
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Any]:
-    """Simulate AI Search Visibility & Share-of-Model across ChatGPT, Perplexity, Gemini, and Claude."""
-    rng = random.Random(seed)
-    people = people or []
-    competitor_intel = competitor_intel or {}
+    """One call per person: how they would search for this in an AI assistant or search engine, which options
+    they already know before seeing the offer, and what facts are missing from the offer for an AI answer or FAQ."""
+    _need(client)
+    meter = _meter(client)
+    o = offer_dict(offer, profile)
+    facts = product_facts(profile, o)
+    brand = o.get("name") or o.get("headline")[:40]
+    cohort = sample_people(people or [], cohort_size, seed)
 
-    # Infer brand name & category from offer/brief
-    brand_name = "FitLoop"
-    if offer:
-        m = re.search(r"\b([A-Z][A-Za-z0-9_-]{2,20})\b", offer.strip())
-        if m and m.group(1).lower() not in ("the", "our", "this", "launch", "build", "test", "for"):
-            brand_name = m.group(1)
+    jobs = [
+        {
+            "person": p,
+            "prompt": (
+                f"WHO YOU ARE\n{person_card(p)}\n\n"
+                "STEP 1 — Before you see any specific brand, imagine you have the problem or need this kind of product "
+                "solves and you ask an AI assistant (like ChatGPT, Perplexity or Gemini) or a search engine for help.\n"
+                "STEP 2 — Then read this offer:\n"
+                f"{offer_text(o)}\n\n"
+                "Answer honestly as yourself.\n"
+                'Return JSON: {"search_query": "the exact question or search you would type in your own words", '
+                '"known_alternatives": ["up to 3 brands, tools or free ways you already knew before seeing this"], '
+                '"would_ask_ai_about_brand": "what you would ask an AI assistant to verify about this offer before trusting it", '
+                '"understood_category": "what category or kind of product you think this is", '
+                '"would_shortlist": "yes|maybe|no", '
+                '"missing_fact": "what fact is missing from the offer that an FAQ or AI answer would need to state, or empty", '
+                f'"missing_type": "{"|".join(CONCERN_TYPES)}|none"}}'
+            ),
+        }
+        for p in cohort
+    ]
+    asked = ask_people(meter, model, jobs, parallel, progress, max_tokens=500)
+    ok = [r for r in asked if r["ok"]]
+    n = len(ok)
 
-    cities = Counter(
-        str(p.get("city") or p.get("country") or "Kathmandu")
-        for p in people
-        if p.get("city") or p.get("country")
+    shortlist = Counter(str(r["data"].get("would_shortlist") or "").lower() for r in ok)
+    known_counts: Counter = Counter()
+    for r in ok:
+        for alt in (r["data"].get("known_alternatives") or [])[:3]:
+            s_alt = _short(alt, 60)
+            if s_alt:
+                known_counts[s_alt] += 1
+
+    person_queries = [_short(r["data"].get("search_query"), 160) for r in ok if r["data"].get("search_query")]
+    verify_questions = [_short(r["data"].get("would_ask_ai_about_brand"), 160) for r in ok if r["data"].get("would_ask_ai_about_brand")]
+    missing = ranked(
+        [(_ctype(r["data"].get("missing_type")) or "unclear", r["data"].get("missing_fact"))
+         for r in ok if r["data"].get("missing_fact")],
+        n,
     )
-    top_city = cities.most_common(1)[0][0] if cities else "Kathmandu"
 
-    competitor_names = [
-        c.get("name") for c in (competitor_intel.get("competitors") or []) if c.get("name")
-    ] or ["Free YouTube / IG Reels", "Cult.fit / Global Apps", "Local Gym Membership"]
+    # Draft /llms.txt and FAQPage JSON-LD strictly from the provided product facts and the top questions people asked
+    top_questions = (verify_questions + person_queries)[:6]
+    geo_assets = write_once(
+        meter,
+        model,
+        (
+            "Using ONLY the product facts below (do not invent any prices, features, guarantees or statistics; if a "
+            "question cannot be answered from the facts, state what is not specified yet), write:\n"
+            "1. A concise `/llms.txt` markdown summary of the product for AI search crawlers.\n"
+            "2. Up to 4 FAQ pairs answering the questions simulated buyers asked.\n\n"
+            f"PRODUCT FACTS:\n{facts}\n\n"
+            f"QUESTIONS BUYERS ASKED AI:\n{json.dumps(top_questions, ensure_ascii=False)}\n\n"
+            'Return JSON: {"llms_txt": "# Brand\\n...", "faqs": [{"question": "...", "answer": "...", "in_facts": true}], '
+            '"unanswered_gaps": ["facts buyers asked for that are not in the product facts yet"]}'
+        ),
+        max_tokens=1200,
+        temperature=0.2,
+    )
+    geo_assets = guard_numbers(geo_assets, {"facts": facts, "offer": o})
 
-    engines = [
-        {
-            "engine_id": "chatgpt_search",
-            "name": "ChatGPT Search (OpenAI)",
-            "crawler_bot": "OAI-SearchBot",
-            "brand_sov_pct": 24,
-            "citation_rate_pct": 33,
-            "top_competitor_cited": competitor_names[0],
-            "competitor_sov_pct": 48,
-            "sentiment": "Neutral-Positive (Missing Local Pricing Proof)",
-            "primary_citation_sources": ["Reddit threads", "Best-of listicles", "Product FAQ page"],
-            "biggest_gap": (
-                f"ChatGPT defaults to '{competitor_names[0]}' and global apps unless prompted with "
-                f"'WhatsApp coach' or 'no credit card trial in {top_city}'."
-            ),
-        },
-        {
-            "engine_id": "perplexity",
-            "name": "Perplexity AI",
-            "crawler_bot": "PerplexityBot",
-            "brand_sov_pct": 31,
-            "citation_rate_pct": 50,
-            "top_competitor_cited": competitor_names[min(1, len(competitor_names) - 1)],
-            "competitor_sov_pct": 41,
-            "sentiment": "Positive (Cites 15-min habit structure)",
-            "primary_citation_sources": ["Direct comparison table", "G2 / Trustpilot reviews", "llms.txt"],
-            "biggest_gap": (
-                "Needs a public machine-readable comparison table (Price, Card Requirement, Offline Mode) "
-                "to win numbered inline citations [1][2]."
-            ),
-        },
-        {
-            "engine_id": "gemini_ai_overviews",
-            "name": "Google Gemini & AI Overviews",
-            "crawler_bot": "Google-Extended",
-            "brand_sov_pct": 28,
-            "citation_rate_pct": 33,
-            "top_competitor_cited": competitor_names[0],
-            "competitor_sov_pct": 45,
-            "sentiment": "Cautious (Flags missing FAQPage JSON-LD schema)",
-            "primary_citation_sources": ["Google Business / Play Store", "Structured FAQ Schema", "YouTube"],
-            "biggest_gap": (
-                "Missing JSON-LD `SoftwareApplication` and `FAQPage` schema with explicit NPR/sachet pricing "
-                "and zero-card trial attributes."
-            ),
-        },
-        {
-            "engine_id": "claude_search",
-            "name": "Claude Web Search (Anthropic)",
-            "crawler_bot": "ClaudeBot",
-            "brand_sov_pct": 29,
-            "citation_rate_pct": 50,
-            "top_competitor_cited": competitor_names[min(1, len(competitor_names) - 1)],
-            "competitor_sov_pct": 39,
-            "sentiment": "Positive on Behavioral / Streak Design",
-            "primary_citation_sources": ["Technical docs / llms.txt", "Community discussions", "Independent reviews"],
-            "biggest_gap": (
-                "High skepticism toward 'free trial' claims unless zero-card / 1-tap cancel policy is "
-                "documented in plain markdown."
-            ),
-        },
-    ]
-
-    prompts = [
-        {
-            "prompt": f"Best 15-minute beginner home workout app in {top_city} without a credit card",
-            "intent_stage": "High-Intent Problem Aware",
-            "est_monthly_queries": 1850,
-            "chatgpt_winner": brand_name,
-            "perplexity_winner": brand_name,
-            "gemini_winner": competitor_names[0],
-            "claude_winner": brand_name,
-            "our_citation_rank": "#1 when Zero-Card Schema is indexed",
-            "ai_answer_preview": (
-                f"For beginners in {top_city} who want short 15-minute routines without entering a credit card, "
-                f"{brand_name} offers a 7-day phone-only pass and WhatsApp streak nudges, whereas {competitor_names[0]} "
-                f"is free but lacks structured daily accountability."
-            ),
-            "geo_fix": "Publish a dedicated `/no-card-trial` FAQ block with JSON-LD schema so Gemini AI Overviews cites it.",
-        },
-        {
-            "prompt": f"Is {brand_name} worth paying for compared to free YouTube workout videos?",
-            "intent_stage": "Bottom-of-Funnel Comparison",
-            "est_monthly_queries": 1420,
-            "chatgpt_winner": competitor_names[0],
-            "perplexity_winner": brand_name,
-            "gemini_winner": competitor_names[0],
-            "claude_winner": brand_name,
-            "our_citation_rank": "#2 (Needs side-by-side Day-30 streak completion data)",
-            "ai_answer_preview": (
-                f"YouTube workouts are 100% free, making them ideal if you already have high self-discipline. "
-                f"However, {brand_name} is designed for busy professionals and students who quit after Day 4, "
-                f"providing adaptive 15-min progressions and WhatsApp streak rescue."
-            ),
-            "geo_fix": f"Add an honest '{brand_name} vs Free YouTube' comparison table with Day-30 completion stats.",
-        },
-        {
-            "prompt": f"Affordable fitness app with weekly sachet pass or eSewa / Khalti / UPI payment",
-            "intent_stage": "Transactional Wallet-Fit",
-            "est_monthly_queries": 2190,
-            "chatgpt_winner": "Unclaimed Whitespace",
-            "perplexity_winner": brand_name,
-            "gemini_winner": "Unclaimed Whitespace",
-            "claude_winner": "Unclaimed Whitespace",
-            "our_citation_rank": "#1 Opportunity (Zero competitor coverage)",
-            "ai_answer_preview": (
-                f"Most international fitness apps require USD/INR annual credit card subscriptions. "
-                f"{brand_name} stands out by supporting weekly pocket sachet passes and local QR wallet checkout."
-            ),
-            "geo_fix": "List exact local payment rails (eSewa, Khalti, Fonepay, UPI) and weekly sachet pricing in `llms.txt`.",
-        },
-        {
-            "prompt": "Best workout app for couples or roommates to share one subscription",
-            "intent_stage": "Household / Buying Committee",
-            "est_monthly_queries": 1640,
-            "chatgpt_winner": competitor_names[min(1, len(competitor_names) - 1)],
-            "perplexity_winner": brand_name,
-            "gemini_winner": competitor_names[min(1, len(competitor_names) - 1)],
-            "claude_winner": brand_name,
-            "our_citation_rank": "#2 (Duo Pass page needed)",
-            "ai_answer_preview": (
-                f"Shared Duo & Family passes reduce per-person cost by ~40% and increase partner accountability. "
-                f"{brand_name}'s Shared Duo Pass lets two household members track streaks together."
-            ),
-            "geo_fix": "Create a crawlable 'Shared Duo & Family Pass' section with per-seat price math.",
-        },
-        {
-            "prompt": "Workout app for irregular shift workers and busy college students",
-            "intent_stage": "Persona Pain Discovery",
-            "est_monthly_queries": 1280,
-            "chatgpt_winner": brand_name,
-            "perplexity_winner": brand_name,
-            "gemini_winner": brand_name,
-            "claude_winner": brand_name,
-            "our_citation_rank": "#1 Category Leader",
-            "ai_answer_preview": (
-                f"For night-shift nurses, devs, and students during exams, rigid 60-minute programs fail. "
-                f"{brand_name}'s 10-to-15 minute adaptive micro-sessions adjust when energy is low."
-            ),
-            "geo_fix": "Seed 3 real student & shift-worker case studies on Reddit and review directories.",
-        },
-        {
-            "prompt": f"{brand_name} review — is there a hidden auto-debit cancellation trap?",
-            "intent_stage": "Risk & Trust Verification",
-            "est_monthly_queries": 960,
-            "chatgpt_winner": "Mixed / Unverified",
-            "perplexity_winner": brand_name,
-            "gemini_winner": "Mixed / Unverified",
-            "claude_winner": brand_name,
-            "our_citation_rank": "Critical Trust Query",
-            "ai_answer_preview": (
-                f"Buyers frequently search whether fitness trials auto-charge their card on Day 8. "
-                f"{brand_name} explicitly offers a Zero-Card 7-Day Pass so users cannot be auto-debited."
-            ),
-            "geo_fix": "Put 'No Credit Card Required — Zero Auto-Debit Guarantee' in `<meta name=\"description\">` and H2.",
-        },
-    ]
-
-    hallucination_risks = [
-        {
-            "risk_id": "hal-card-assumption",
-            "severity": "HIGH",
-            "what_ai_hallucinates": (
-                f"ChatGPT and Gemini assume {brand_name}'s '7-Day Free Trial' requires an upfront credit card "
-                "like Western SaaS apps, scaring away card-averse buyers."
-            ),
-            "ground_truth_correction": (
-                f"{brand_name} provides a Zero-Card 7-Day Instant Pass activated via phone/WhatsApp with "
-                "zero auto-debit risk."
-            ),
-            "technical_remediation": "Expose `requiresCreditCard: false` and explicit FAQ schema on the root landing page.",
-        },
-        {
-            "risk_id": "hal-price-currency",
-            "severity": "MEDIUM",
-            "what_ai_hallucinates": (
-                "LLMs quote generic USD $14.99–$29.99/mo pricing when local currency sachet/monthly tiers "
-                "aren't marked up in structured Offer schema."
-            ),
-            "ground_truth_correction": (
-                "Weekly Sachet Pass (~Rs 199 / $2) and Shared Duo Pass lower the effective per-person cost by 40%+."
-            ),
-            "technical_remediation": "Add multi-currency `AggregateOffer` JSON-LD and `/llms.txt` pricing table.",
-        },
-        {
-            "risk_id": "hal-offline-bandwidth",
-            "severity": "MEDIUM",
-            "what_ai_hallucinates": (
-                "AI search engines assume video workouts require continuous high-speed streaming Wi-Fi."
-            ),
-            "ground_truth_correction": (
-                f"{brand_name} supports Offline Lite low-data caching (<25MB per week) for commuters and students."
-            ),
-            "technical_remediation": "Add 'Offline Low-Data Mode' to product feature bullets and app store metadata.",
-        },
-    ]
-
-    llms_txt = f"""# {brand_name} — Official AI & LLM Indexing Guide (/llms.txt)
-> Adaptive 15-minute home workout & WhatsApp habit accountability platform built for busy professionals, students, and families in {top_city} and South Asia.
-
-## Key Facts for AI Answer Engines (ChatGPT, Perplexity, Gemini, Claude)
-- **Trial Policy**: Zero-Card 7-Day Instant Pass (No credit card required upfront; zero auto-debit trap).
-- **Pricing Tiers**:
-  - **7-Day Zero-Card Trial**: Free (Phone / WhatsApp activation only)
-  - **Weekly Pocket Sachet Pass**: Rs 199 / week (Pay-as-you-go, no recurring lock-in)
-  - **Monthly Standard Plan**: Rs 799 / month (1-tap WhatsApp pause or cancel anytime)
-  - **Shared Duo / Family Pass**: Rs 1,099 / month for 2 household members (~Rs 550/person)
-- **Local Payment Rails Supported**: eSewa, Khalti, Fonepay QR, UPI, and standard cards.
-- **Core Differentiators vs Free YouTube**:
-  1. Adaptive 15-minute daily progression that adjusts to low-energy or night-shift days.
-  2. Automated WhatsApp Streak Rescue Bot (recovers missed days without guilt).
-  3. Offline Lite Mode (<25MB/week mobile data footprint).
-"""
-
-    faq_schema_obj = {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": [
-            {
-                "@type": "Question",
-                "name": f"Does {brand_name} require a credit card for the 7-day free trial?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": f"No. {brand_name} offers a Zero-Card 7-Day Instant Pass. You never enter card details to try your first 3 workouts, so there is zero risk of surprise auto-debit charges.",
-                },
-            },
-            {
-                "@type": "Question",
-                "name": f"How is {brand_name} different from free YouTube workout videos?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": f"Unlike random YouTube videos where 82% of beginners quit by Day 5, {brand_name} adapts your 15-minute routine to your daily energy and uses a WhatsApp Streak Rescue coach plus Shared Duo accountability.",
-                },
-            },
-            {
-                "@type": "Question",
-                "name": f"What payment methods and sachet plans does {brand_name} support?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": f"{brand_name} supports weekly pocket sachet passes, monthly plans, and Shared Duo/Family passes via local QR wallets (eSewa, Khalti, UPI) with 1-tap cancellation.",
-                },
-            },
+    summary = {
+        "brand": brand,
+        "would_shortlist": {k: wilson(shortlist.get(k, 0), n) for k in ("yes", "maybe", "no")},
+        "known_alternatives": [
+            {"name": k, "count": c, "share": wilson(c, n)} for k, c in known_counts.most_common(8)
         ],
+        "buyer_search_queries": person_queries[:12],
+        "verification_questions": verify_questions[:10],
+        "missing_facts_for_ai": missing,
+        "understood_as": [_short(r["data"].get("understood_category"), 120) for r in ok if r["data"].get("understood_category")][:8],
+        "llms_txt": str(geo_assets.get("llms_txt") or "").strip(),
+        "faqs": [x for x in (geo_assets.get("faqs") or []) if isinstance(x, dict) and x.get("question")][:5],
+        "unanswered_gaps": [_short(x, 180) for x in (geo_assets.get("unanswered_gaps") or []) if x][:6],
     }
-
-    avg_sov = round(sum(e["brand_sov_pct"] for e in engines) / len(engines), 1)
-    avg_cit = round(sum(e["citation_rate_pct"] for e in engines) / len(engines), 1)
-    projected_sov_after_geo = min(78.0, round(avg_sov + 29.5, 1))
-
-    return {
-        "brand_name": brand_name,
-        "overall_ai_sov_pct": avg_sov,
-        "projected_sov_after_geo_pct": projected_sov_after_geo,
-        "avg_citation_rate_pct": avg_cit,
-        "geo_readiness_score": 68,
-        "hallucination_risk_count": len(hallucination_risks),
-        "engines": engines,
-        "prompts": prompts,
-        "hallucination_risks": hallucination_risks,
-        "geo_assets": {
-            "llms_txt": llms_txt,
-            "faq_schema_json": json.dumps(faq_schema_obj, indent=2),
-            "citation_seeding_targets": [
-                f"Reddit r/{top_city.lower()} & r/bodyweightfitness: 'Honest 30-day log of 15-min zero-equipment routines'",
-                f"Public Comparison Page: '{brand_name} vs Free YouTube vs Local Gym (Cost-per-Completed-Workout Table)'",
-                "Root `/llms.txt` + `FAQPage` JSON-LD Schema deployment for OAI-SearchBot & PerplexityBot",
-            ],
-        },
-    }
+    return envelope("geo", asked, meter, cohort=len(cohort), summary=summary)
 
 
-# ---------------------------------------------------------------------------
-# 4. Reddit / G2 / Review Voice-of-Customer (VoC) Grounding & Sim-to-Real Audit
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 4. Voice-of-Customer (VoC) real-vs-simulated comparison
+# --------------------------------------------------------------------------
 
 def run_voc_grounding(
-    client: Any = None,
-    model: str = "",
-    offer: str = "",
+    client: Any,
+    model: str,
+    offer: Any = "",
     people: Optional[List[Dict[str, Any]]] = None,
     url: Optional[str] = None,
     raw_reviews: Optional[List[str]] = None,
-    seed: int = 73,
+    run_data: Optional[Dict[str, Any]] = None,
+    seed: int = 43,
+    profile: Optional[Dict[str, Any]] = None,
+    parallel: int = 8,
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Any]:
-    """Audit Sim-to-Real alignment against Voice-of-Customer (VoC) community themes & build a Verbatim Lexicon."""
-    people = people or []
-    total_p = max(1, len(people))
+    """Compare the concerns raised by the simulated people in this run against real customer voices
+    (from `research.json`, `raw_reviews`, or a public `url`)."""
+    _need(client)
+    meter = _meter(client)
+    rd = run_data or {}
+    sim_objs = gather_objections(rd.get("survey"), rd.get("pitch"), rd.get("feed_test"))
 
-    live_snapshot = None
-    if url:
-        live_snapshot = fetch_url_snapshot(url, fallback_copy=offer)
+    real_texts: List[str] = []
+    source_label = ""
+    if raw_reviews:
+        real_texts = [_short(x, 300) for x in raw_reviews if str(x).strip()][:60]
+        source_label = "passed reviews"
+    elif url:
+        snap = fetch_url_snapshot(url)
+        chunks = [s.strip() for s in re.split(r"(?<=[.!?])\s+", snap.get("text") or "") if len(s.strip()) >= 30]
+        real_texts = chunks[:40]
+        source_label = snap.get("url") or url
+    elif isinstance(rd.get("research"), dict):
+        voices = (rd["research"].get("voices") or rd["research"].get("items") or [])
+        real_texts = [_short(v.get("text") or v.get("body") or v.get("title"), 300)
+                      for v in voices if isinstance(v, dict) and (v.get("text") or v.get("body") or v.get("title"))][:60]
+        source_label = "research.json"
 
-    # Measure simulated cohort objection frequencies from BDE / persona fields
-    card_hits = 0
-    price_hits = 0
-    habit_hits = 0
-    youtube_hits = 0
-    family_hits = 0
-    data_hits = 0
+    if not real_texts:
+        return envelope(
+            "voc", [], meter, cohort=0,
+            summary={
+                "available": False,
+                "reason": "Pass `raw_reviews`, a public `url`, or run `mirofish.py research` first so there are real voices to compare against.",
+            },
+        )
 
-    for p in people:
-        blob = json.dumps(p, ensure_ascii=False).lower()
-        if any(k in blob for k in ("card", "auto-renew", "trap", "cancel", "scam", "trust")):
-            card_hits += 1
-        if any(k in blob for k in ("price", "budget", "tight", "expensive", "afford", "wallet", "npr", "rs")):
-            price_hits += 1
-        if any(k in blob for k in ("streak", "habit", "quit", "busy", "tired", "shift", "schedule")):
-            habit_hits += 1
-        if any(k in blob for k in ("youtube", "free", "reels", "instagram")):
-            youtube_hits += 1
-        if any(k in blob for k in ("spouse", "family", "parents", "household", "partner", "shared")):
-            family_hits += 1
-        if any(k in blob for k in ("offline", "data", "wifi", "mobile", "esewa", "khalti", "qr")):
-            data_hits += 1
+    # Tag each real voice with the same CONCERN_TYPES used by the simulated people
+    jobs = [
+        {
+            "person": {"agent_id": i},
+            "prompt": (
+                f"Real customer quote or page excerpt:\n\"{txt}\"\n\n"
+                "Classify the main concern or topic expressed here, and extract the exact phrase the person used.\n"
+                f'Return JSON: {{"concern_type": "{"|".join(CONCERN_TYPES)}|none", '
+                '"exact_phrase": "the key phrase in their own words", "plain_meaning": "one short sentence"}'
+            ),
+        }
+        for i, txt in enumerate(real_texts)
+    ]
+    asked = ask_people(meter, model, jobs, parallel, progress, max_tokens=220, temperature=0.1)
+    ok = [r for r in asked if r["ok"]]
+    n_real = len(ok)
+    n_sim = len(sim_objs)
 
-    def _pct(cnt: int, floor: int) -> int:
-        if not people:
-            return floor
-        raw = round((cnt / total_p) * 100)
-        return max(floor, min(92, raw))
+    real_ranked = ranked(
+        [(_ctype(r["data"].get("concern_type")), r["data"].get("exact_phrase") or real_texts[r["person"]["agent_id"]])
+         for r in ok if _ctype(r["data"].get("concern_type"))],
+        n_real,
+    )
+    sim_ranked = ranked([(x["type"], x["text"]) for x in sim_objs], n_sim) if n_sim else []
 
-    voc_clusters = [
+    real_by_k = {r["key"]: r["share"] for r in real_ranked}
+    sim_by_k = {r["key"]: r["share"] for r in sim_ranked}
+    all_keys = list(dict.fromkeys([r["key"] for r in real_ranked] + [r["key"] for r in sim_ranked]))
+
+    comparison = [
         {
-            "cluster_id": "voc-card-trap",
-            "theme": "Surprise Auto-Debit & 'Free Trial' Card Traps",
-            "source_channels": ["Reddit r/personalfinance", "App Store 1-Star Reviews", "WhatsApp DM Inquiries"],
-            "real_world_voc_share_pct": 44,
-            "simulated_cohort_share_pct": _pct(card_hits, 41),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"Every fitness app says '7 days free' and then silently charges my card on Day 8 when I forget. "
-                "If it asks for a card before I even see one workout, I instant-close the tab.\""
-            ),
-            "product_implication": "Replace 'Start Free Trial (Card Required)' with 'Unlock 3 Workouts Free on WhatsApp — No Card Ever'.",
-        },
-        {
-            "cluster_id": "voc-youtube-free",
-            "theme": "'Why Pay When YouTube & IG Reels Are Free?'",
-            "source_channels": ["Reddit r/Fitness", "YouTube Comments", "College Group Chats"],
-            "real_world_voc_share_pct": 39,
-            "simulated_cohort_share_pct": _pct(youtube_hits, 36),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"I already have 50 workout videos saved on Instagram and YouTube. My problem isn't finding exercises—"
-                "it's that nobody stops me from skipping after a 10-hour workday.\""
-            ),
-            "product_implication": "Position around 'Day-4 Quit Rescue & Adaptive Energy Scaling', never 'Access 500+ Videos'.",
-        },
-        {
-            "cluster_id": "voc-end-of-month-wallet",
-            "theme": "End-of-Month Payday Crunch & Annual Lock-In Rejection",
-            "source_channels": ["Play Store Reviews", "Local Forum Threads", "Exit Surveys"],
-            "real_world_voc_share_pct": 35,
-            "simulated_cohort_share_pct": _pct(price_hits, 38),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"After the 20th of the month my discretionary wallet is basically zero. I can't justify a full month "
-                "or annual subscription upfront, but I'd drop Rs 199 for a 7-day sachet pass.\""
-            ),
-            "product_implication": "Offer a Pocket 7-Day Sachet Pass and post-payday monthly upgrade nudge.",
-        },
-        {
-            "cluster_id": "voc-schedule-guilt",
-            "theme": "All-or-Nothing Streak Guilt for Shift Workers & Parents",
-            "source_channels": ["Reddit r/loseit", "G2 / Trustpilot Reviews"],
-            "real_world_voc_share_pct": 29,
-            "simulated_cohort_share_pct": _pct(habit_hits, 31),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"Most apps punish you when you miss two days because of exams or a night shift, and once my streak "
-                "hits zero I just delete the app out of frustration.\""
-            ),
-            "product_implication": "Highlight '2-Minute Low-Energy Streak Saver Days' so busy users never lose their chain.",
-        },
-        {
-            "cluster_id": "voc-household-justification",
-            "theme": "Spouse / Household Budget Justification",
-            "source_channels": ["Customer Interviews", "WhatsApp Referral Chats"],
-            "real_world_voc_share_pct": 24,
-            "simulated_cohort_share_pct": _pct(family_hits, 22),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"It's much easier to justify a health subscription at home when my partner or sibling gets a free "
-                "second seat on the same plan.\""
-            ),
-            "product_implication": "Bundle a 2-Seat Household / Partner Pass as the default 'Most Popular' tier.",
-        },
-        {
-            "cluster_id": "voc-mobile-data-qr",
-            "theme": "Heavy Video Buffering & Local QR Wallet Friction",
-            "source_channels": ["Play Store South Asia Reviews", "Support Tickets"],
-            "real_world_voc_share_pct": 21,
-            "simulated_cohort_share_pct": _pct(data_hits, 18),
-            "alignment_status": "CALIBRATED",
-            "sample_community_quote": (
-                "\"4K workout videos eat my mobile data in 3 days, and international card checkout fails half the time. "
-                "Just give me Offline Lite downloads and an eSewa / Khalti QR code.\""
-            ),
-            "product_implication": "Add 'Offline Lite (<25MB/wk) + Instant Local QR Checkout' badges above the fold.",
-        },
+            "concern": k,
+            "real_share": real_by_k.get(k) or wilson(0, n_real),
+            "simulated_share": sim_by_k.get(k) or wilson(0, n_sim),
+        }
+        for k in all_keys
     ]
 
-    verbatim_lexicon = [
+    phrases = [
         {
-            "corporate_jargon_to_kill": "AI-Powered Hyper-Personalized Biomechanical Wellness Ecosystem",
-            "exact_buyer_words": "\"15-minute home routine that adjusts when I'm exhausted after work\"",
-            "emotional_trigger": "Relief from guilt & decision fatigue",
-            "where_to_use": "Landing Page H1 & Meta Ad Hook",
-        },
-        {
-            "corporate_jargon_to_kill": "Start Your Risk-Free 7-Day Introductory Subscription Trial",
-            "exact_buyer_words": "\"Try 3 workouts free on WhatsApp — zero credit card, zero auto-debit\"",
-            "emotional_trigger": "Eliminates card-trap suspicion",
-            "where_to_use": "Primary CTA Button & Checkout Microcopy",
-        },
-        {
-            "corporate_jargon_to_kill": "Flexible Multi-Tier Recurring Membership Architecture",
-            "exact_buyer_words": "\"Rs 199 7-day pocket pass or split a Duo Pass with your partner\"",
-            "emotional_trigger": "Fits end-of-month wallet reality",
-            "where_to_use": "Pricing Table & WhatsApp Follow-Up",
-        },
-        {
-            "corporate_jargon_to_kill": "Omnichannel Behavioral Retention Notification Engine",
-            "exact_buyer_words": "\"2-minute Streak Saver mode on days you're too busy for a full workout\"",
-            "emotional_trigger": "Prevents Day-4 quit spiral",
-            "where_to_use": "Onboarding Screen 2 & Sales Battlecard",
-        },
-    ]
+            "concern": _ctype(r["data"].get("concern_type")) or "other",
+            "exact_phrase": _short(r["data"].get("exact_phrase"), 160),
+            "meaning": _short(r["data"].get("plain_meaning"), 160),
+        }
+        for r in ok if r["data"].get("exact_phrase")
+    ][:12]
 
-    # Sim-to-Real alignment score based on mean absolute error between real and simulated shares
-    diffs = [abs(c["real_world_voc_share_pct"] - c["simulated_cohort_share_pct"]) for c in voc_clusters]
-    mae = sum(diffs) / max(1, len(diffs))
-    sim_to_real_score = max(72, min(98, round(100 - mae * 1.8)))
-
-    return {
-        "sim_to_real_alignment_pct": sim_to_real_score,
-        "verdict_label": "HIGH CALIBRATION" if sim_to_real_score >= 85 else "MODERATE CALIBRATION",
-        "live_url_ingested": url or None,
-        "live_page_title": (live_snapshot or {}).get("title") if live_snapshot else None,
-        "voc_clusters": voc_clusters,
-        "verbatim_lexicon": verbatim_lexicon,
-        "blind_spot_alerts": [
-            "Ensure low-bandwidth Offline Lite (<25MB/week) is explicitly tested on commuter/student personas.",
-            "Include post-20th-of-month payday tight-wallet state when stress-testing annual vs sachet pricing.",
-        ],
+    summary = {
+        "available": True,
+        "source": source_label,
+        "real_voices_count": n_real,
+        "simulated_objections_count": n_sim,
+        "real_concerns": real_ranked,
+        "simulated_concerns": sim_ranked,
+        "comparison": comparison,
+        "verbatim_phrases": phrases,
     }
+    return envelope("voc", asked, meter, cohort=n_real, summary=summary)
 
 
-# ---------------------------------------------------------------------------
-# 5. Dark Social & Influencer Cascade Simulator
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 5. Dark-social & word-of-mouth cascade test
+# --------------------------------------------------------------------------
 
 def run_dark_social_cascade(
-    people: Optional[List[Dict[str, Any]]] = None,
-    offer: str = "",
-    base_cac: float = 14.5,
-    seed: int = 79,
+    client: Any,
+    model: str,
+    people: List[Dict[str, Any]],
+    offer: Any = "",
+    seed: int = 47,
+    cohort_size: int = 36,
+    profile: Optional[Dict[str, Any]] = None,
+    parallel: int = 8,
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Any]:
-    """Simulate 4-wave dark-social & creator referral cascades across the persona social graph."""
-    rng = random.Random(seed)
-    people = people or []
+    """Wave 1 asks each person if they would privately forward or mention the offer and what they would write.
+    Wave 2 shows those real forwarded messages to another group of simulated people to test peer-referral pickup."""
+    _need(client)
+    meter = _meter(client)
+    o = offer_dict(offer, profile)
+    cohort = sample_people(people, cohort_size, seed)
+    half = max(1, len(cohort) // 2)
+    wave1_people = cohort[:half]
+    wave2_people = cohort[half:] or cohort[:half]
 
-    # Identify top Super-Spreader personas from the cohort (or synthesize realistic representatives)
-    spreaders: List[Dict[str, Any]] = []
-    for idx, p in enumerate(people[:20]):
-        aid = p.get("agent_id") or (idx + 1)
-        name = p.get("name") or f"Buyer #{aid}"
-        role = p.get("profession") or p.get("occupation") or "Professional"
-        seg = p.get("segment") or "Core Cohort"
-        city = p.get("city") or "Kathmandu"
-        # Score influence potential
-        ext = 0.65 + ((aid * 17) % 30) / 100.0
-        peers = 4 + ((aid * 7) % 11)
-        channel = (
-            "WhatsApp Office & Family Group"
-            if idx % 3 == 0
-            else ("Instagram Story + College DM Group" if idx % 3 == 1 else "Private Slack / Runner Community")
-        )
-        spreaders.append({
-            "agent_id": aid,
-            "name": name,
-            "role": role,
-            "segment": seg,
-            "city": city,
-            "primary_dark_channel": channel,
-            "peer_reach_nodes": peers,
-            "influence_score": round(ext * 100),
-            "share_trigger": (
-                "Shares Day-5 WhatsApp Streak badge + '2-Seat Duo Invite Link' with partner/colleague"
-                if idx % 2 == 0
-                else "Screenshots 'Zero-Card 7-Day Pass' into group chat when friends complain about gym fees"
+    w1_jobs = [
+        {
+            "person": p,
+            "prompt": (
+                f"WHO YOU ARE\n{person_card(p)}\n\nYOU SEE THIS OFFER\n{offer_text(o)}\n\n"
+                "Would you mention, screenshot or forward this to anyone in private (for example a partner, family chat, "
+                "friend group, colleague on WhatsApp/Slack/DM, or nobody)? Be realistic: most ads do not get shared.\n"
+                'Return JSON: {"would_share": "yes|maybe|no", '
+                '"channel": "whatsapp_dm|family_chat|work_chat|social_post|in_person|none", '
+                '"who": "who you would tell, or nobody", '
+                '"message_you_would_send": "the exact message you would send them in your own words, or empty if you would not share", '
+                '"why": "one sentence"}'
             ),
-        })
+        }
+        for p in wave1_people
+    ]
+    asked1 = ask_people(meter, model, w1_jobs, parallel, progress, max_tokens=400)
+    ok1 = [r for r in asked1 if r["ok"]]
+    n1 = len(ok1)
 
-    if not spreaders:
-        spreaders = [
-            {
-                "agent_id": 1,
-                "name": "Aarav Shrestha",
-                "role": "Software Engineer",
-                "segment": "Busy Tech Professional",
-                "city": "Kathmandu",
-                "primary_dark_channel": "Engineering Slack & WhatsApp Group",
-                "peer_reach_nodes": 12,
-                "influence_score": 91,
-                "share_trigger": "Posts Day-7 desk-mobility streak card + Duo Pass invite link",
-            },
-            {
-                "agent_id": 2,
-                "name": "Priya Maharjan",
-                "role": "MBA Student & Creator",
-                "segment": "Student / Early Career",
-                "city": "Lalitpur",
-                "primary_dark_channel": "Instagram Close Friends & College WhatsApp",
-                "peer_reach_nodes": 14,
-                "influence_score": 94,
-                "share_trigger": "Shares 'Rs 199 Sachet Pass vs Gym Membership' reel screenshot",
-            },
-        ]
-
-    spreaders.sort(key=lambda x: x["influence_score"], reverse=True)
-    top_spreaders = spreaders[:5]
-
-    waves = [
+    share_counts = Counter(str(r["data"].get("would_share") or "").lower() for r in ok1)
+    channels = Counter(str(r["data"].get("channel") or "none").lower() for r in ok1 if str(r["data"].get("would_share") or "").lower() in ("yes", "maybe"))
+    shared_msgs = [
         {
-            "wave": "Wave 1 · Practitioner / Micro-Creator Seed",
-            "channel": "Niche Reels + Local Community Seeding",
-            "active_advocates": max(5, len(top_spreaders)),
-            "dark_social_shares": 42,
-            "attributed_by_pixels_pct": 85,
-            "actual_buyers_influenced": 48,
-            "what_happens": (
-                "Early adopters complete Day-3 workout and post their auto-generated WhatsApp Streak Card."
-            ),
-        },
-        {
-            "wave": "Wave 2 · Dark-Social Group Chat Forward",
-            "channel": "WhatsApp Family Groups, IG DMs & Slack Screenshots",
-            "active_advocates": 28,
-            "dark_social_shares": 136,
-            "attributed_by_pixels_pct": 18,
-            "actual_buyers_influenced": 164,
-            "what_happens": (
-                "82% of peer forwards happen inside encrypted DMs with zero UTM tags ('dark funnel')."
-            ),
-        },
-        {
-            "wave": "Wave 3 · Midnight AI Search & Reddit Verification",
-            "channel": "ChatGPT / Perplexity / Google AI Overviews Lookup",
-            "active_advocates": 64,
-            "dark_social_shares": 95,
-            "attributed_by_pixels_pct": 22,
-            "actual_buyers_influenced": 128,
-            "what_happens": (
-                "Referred peers ask ChatGPT/Perplexity 'Is FitLoop legit / no credit card?' before visiting the site."
-            ),
-        },
-        {
-            "wave": "Wave 4 · Duo-Pass & Zero-Card Viral Loop Conversion",
-            "channel": "Direct Traffic + WhatsApp Bot Opt-In",
-            "active_advocates": 92,
-            "dark_social_shares": 180,
-            "attributed_by_pixels_pct": 31,
-            "actual_buyers_influenced": 215,
-            "what_happens": (
-                "Analytics mislabels these buyers as 'Direct / Unattributed', but 69% originated from Wave 2 DMs."
-            ),
-        },
+            "from_name": r["person"].get("name"),
+            "from_segment": r["person"].get("segment"),
+            "channel": str(r["data"].get("channel") or "dm"),
+            "who": _short(r["data"].get("who"), 80),
+            "message": _short(r["data"].get("message_you_would_send"), 220),
+        }
+        for r in ok1
+        if str(r["data"].get("would_share") or "").lower() in ("yes", "maybe")
+        and str(r["data"].get("message_you_would_send") or "").strip()
     ]
 
-    blended_cac = round(base_cac * 0.54, 2)
-    return {
-        "paid_only_cac_usd": round(base_cac, 2),
-        "dark_social_blended_cac_usd": blended_cac,
-        "cac_reduction_pct": 46,
-        "dark_funnel_invisible_share_pct": 71,
-        "simulated_viral_k_factor": 0.64,
-        "waves": waves,
-        "super_spreaders": top_spreaders,
-        "dark_social_playbooks": [
-            {
-                "title": "1-Tap WhatsApp Streak Card + Free Guest Pass Link",
-                "mechanic": "Every Day-3 finisher gets a shareable image card + a 'Give a friend 7 free days (no card)' WhatsApp link.",
-                "expected_k_lift": "+0.28 K-factor",
-            },
-            {
-                "title": "Self-Reported 'How Did You Actually Hear About Us?' Micro-Prompt",
-                "mechanic": "Add a 1-tap post-signup pill ('Friend's WhatsApp', 'ChatGPT / AI Search', 'Instagram Reel', 'Reddit') to capture the 71% dark funnel.",
-                "expected_k_lift": "Recovers 68% of unattributed dark-social ROI",
-            },
-            {
-                "title": "Household 2-Seat Duo Unlock on Checkout",
-                "mechanic": "Let every buyer invite 1 partner/roommate free for 14 days immediately after checkout.",
-                "expected_k_lift": "+34% Household retention & referral velocity",
-            },
-        ],
+    asked2: List[Dict[str, Any]] = []
+    wave2_summary = None
+    if shared_msgs and wave2_people:
+        w2_jobs = []
+        for idx, p in enumerate(wave2_people):
+            m = shared_msgs[idx % len(shared_msgs)]
+            w2_jobs.append({
+                "person": p,
+                "prompt": (
+                    f"WHO YOU ARE\n{person_card(p)}\n\n"
+                    f"Someone you know ({m['who'] or 'a friend'}) sends you this in {m['channel'].replace('_', ' ')}:\n"
+                    f"\"{m['message']}\"\n\n"
+                    f"When you look it up, here is the offer:\n{offer_text(o)}\n\n"
+                    'Return JSON: {"reaction_to_friend_forward": "one sentence", '
+                    '"would_try_from_friend": "yes|maybe|no", "would_try_if_seen_as_cold_ad": "yes|maybe|no", '
+                    '"would_forward_again": "yes|maybe|no"}',
+                ),
+            })
+        asked2 = ask_people(meter, model, w2_jobs, parallel, None, max_tokens=350)
+        ok2 = [r for r in asked2 if r["ok"]]
+        n2 = len(ok2)
+        if n2:
+            friend_try = Counter(str(r["data"].get("would_try_from_friend") or "").lower() for r in ok2)
+            cold_try = Counter(str(r["data"].get("would_try_if_seen_as_cold_ad") or "").lower() for r in ok2)
+            fwd_again = Counter(str(r["data"].get("would_forward_again") or "").lower() for r in ok2)
+            wave2_summary = {
+                "people": n2,
+                "would_try_from_friend": {k: wilson(friend_try.get(k, 0), n2) for k in ("yes", "maybe", "no")},
+                "would_try_if_cold_ad": {k: wilson(cold_try.get(k, 0), n2) for k in ("yes", "maybe", "no")},
+                "would_forward_again": {k: wilson(fwd_again.get(k, 0), n2) for k in ("yes", "maybe", "no")},
+                "reactions": [_short(r["data"].get("reaction_to_friend_forward"), 180) for r in ok2 if r["data"].get("reaction_to_friend_forward")][:6],
+            }
+
+    summary = {
+        "wave1_people": n1,
+        "would_share": {k: wilson(share_counts.get(k, 0), n1) for k in ("yes", "maybe", "no")},
+        "channels": [{"channel": k, "count": c, "share": wilson(c, n1)} for k, c in channels.most_common()],
+        "forwarded_messages": shared_msgs[:8],
+        "why_or_why_not": [_short(r["data"].get("why"), 180) for r in ok1 if r["data"].get("why")][:8],
+        "wave2_peer_pickup": wave2_summary,
     }
-
-
-# ---------------------------------------------------------------------------
-# 6. Full Orchestrator for GTM Suite & Dashboard Export
-# ---------------------------------------------------------------------------
-
-def run_full_search_and_geo(
-    client: Any = None,
-    model: str = "",
-    offer: str = "",
-    people: Optional[List[Dict[str, Any]]] = None,
-    interviews: Optional[List[Dict[str, Any]]] = None,
-    thoughts: Optional[List[Dict[str, Any]]] = None,
-    gtm_suite: Optional[Dict[str, Any]] = None,
-    cro_lab: Optional[Dict[str, Any]] = None,
-    actions: Optional[List[Dict[str, Any]]] = None,
-    url: Optional[str] = None,
-    seed: int = 71,
-) -> Dict[str, Any]:
-    """Run the complete Search Indexer, Preset Copilot Queries, GEO Audit, VoC Grounding & Dark Social Cascade."""
-    people = people or []
-    gtm_suite = gtm_suite or {}
-    cro_lab = cro_lab or gtm_suite.get("cro_lab") or {}
-    comp_intel = gtm_suite.get("competitor_intelligence") or {}
-
-    index_data = build_search_index(
-        people=people,
-        interviews=interviews,
-        thoughts=thoughts,
-        gtm_suite=gtm_suite,
-        cro_lab=cro_lab,
-        actions=actions,
-        competitor_intel=comp_intel,
-        brief=offer,
-    )
-
-    preset_queries = [
-        "Why do buyers refuse free trials or drop off at card checkout?",
-        "Who can afford monthly pricing vs a Rs 199 weekly sachet pass?",
-        "What makes buyers switch from free YouTube workouts to our app?",
-        "Which personas need spouse, family, or committee approval?",
-        "What keeps busy shift workers and students from quitting on Day 4?",
-    ]
-    preset_copilot_answers = [
-        ask_market_copilot(q, index_data, client=None, model="")
-        for q in preset_queries
-    ]
-
-    geo_audit = run_geo_visibility_audit(
-        client=client,
-        model=model,
-        offer=offer,
-        people=people,
-        competitor_intel=comp_intel,
-        seed=seed,
-    )
-    voc_grounding = run_voc_grounding(
-        client=client,
-        model=model,
-        offer=offer,
-        people=people,
-        url=url,
-        seed=seed + 2,
-    )
-    dark_social = run_dark_social_cascade(
-        people=people,
-        offer=offer,
-        seed=seed + 8,
-    )
-
-    return {
-        "search_index_summary": {
-            "total_docs": index_data["total_docs"],
-            "by_type": index_data["by_type"],
-            "by_concept": index_data["by_concept"],
-            "ontology": index_data["ontology"],
-        },
-        "search_docs": index_data["docs"][:140],
-        "preset_copilot_answers": preset_copilot_answers,
-        "geo_visibility": geo_audit,
-        "voc_grounding": voc_grounding,
-        "dark_social_cascade": dark_social,
-    }
+    return envelope("cascade", asked1 + asked2, meter, cohort=len(cohort), summary=summary)
