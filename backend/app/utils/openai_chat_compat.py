@@ -36,6 +36,35 @@ def is_gemini_target(client: Any, model: Optional[str]) -> bool:
     return "generativelanguage.googleapis.com" in base_url or m.startswith("gemini-") or m.startswith("models/gemini-")
 
 
+def _host_of(client: Any) -> str:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(str(getattr(client, "base_url", "") or "")).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _on_host(client: Any, *hosts: str) -> bool:
+    host = _host_of(client)
+    return any(host == h or host.endswith("." + h) for h in hosts)
+
+
+def fixed_sampling_target(client: Any, model: Optional[str]) -> bool:
+    """Kimi models fix temperature (and top_p) per model and reject any other value, so neither is sent."""
+    m = (model or "").strip().lower()
+    return _on_host(client, "moonshot.ai", "moonshot.cn", "kimi.ai") or m.startswith(("kimi-", "moonshotai/kimi"))
+
+
+def json_mode_by_prompt(client: Any, model: Optional[str]) -> bool:
+    """Targets that get the JSON instruction in the prompt instead of response_format: Claude, and MiniMax, whose
+    OpenAI-compatible API does not document response_format."""
+    return is_claude_target(client, model) or _on_host(client, "minimax.io", "minimaxi.com") or \
+        (model or "").strip().lower().startswith("minimax-")
+
+
+JSON_PROMPT_HINT = "Respond with a single valid JSON object only. No markdown fences, no extra text."
+
+
 def create_chat_completion(
     client: Any,
     *,
@@ -54,6 +83,7 @@ def create_chat_completion(
     - For GPT-5 family, avoid sending temperature by default.
     - For token limit, use `max_completion_tokens` on GPT-5, `max_tokens` otherwise.
     - For Gemini targets, strip any leading `models/` prefix from model identifiers.
+    - For Kimi targets, never send temperature; for Claude and MiniMax, ask for JSON in the prompt.
     - When `client` is a `MultiProviderPool`, route by `agent_id` or `slot_index` when provided.
     - Preserve the legacy request shape for every non-GPT-5 model/provider.
     - Propagate provider errors unchanged instead of guessing from message text.
@@ -84,21 +114,18 @@ def create_chat_completion(
 
     claude = is_claude_target(client, model)
 
-    if response_format is not None and not claude:
+    if response_format is not None and not json_mode_by_prompt(client, model):
         kwargs["response_format"] = response_format
-    elif response_format is not None and claude:
+    elif response_format is not None:
         # Ask for JSON in the prompt instead of response_format.
-        kwargs["messages"] = list(messages) + [{
-            "role": "user",
-            "content": "Respond with a single valid JSON object only. No markdown fences, no extra text.",
-        }]
+        kwargs["messages"] = list(messages) + [{"role": "user", "content": JSON_PROMPT_HINT}]
 
     if claude and max_tokens is None:
         max_tokens = CLAUDE_DEFAULT_MAX_TOKENS
 
     gpt5_family = is_gpt5_family(model)
 
-    if temperature is not None and not gpt5_family:
+    if temperature is not None and not gpt5_family and not fixed_sampling_target(client, model):
         kwargs["temperature"] = temperature
 
     if max_tokens is not None:

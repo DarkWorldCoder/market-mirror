@@ -38,6 +38,7 @@ For Claude Code the relay forwards each request's output budget through the docu
 | LM Studio | Load a model and enable its local OpenAI-compatible server; choose `lmstudio` | No for the default local endpoint |
 | Claude API | Choose `anthropic`; the wizard links to the official key console | Yes |
 | OpenAI API | Choose `openai`; the wizard links to the official key console | Yes |
+| Other API providers | Choose `deepseek`, `kimi`, `mistral`, `xai`, `groq`, `together`, `fireworks`, `openrouter`, `qwen`, `zhipu`, `cerebras` or `minimax`; the base URL and a default model are filled in (Qwen asks for its workspace URL). The key comes from that provider's variable, for example `DEEPSEEK_API_KEY` or `MOONSHOT_API_KEY` | Yes |
 | Another compatible server | Choose `compatible`; provide its HTTPS endpoint and model | Provider-dependent |
 | ChatGPT sign-in | Choose `siwc`, follow the returned login command, then start its gateway | Eligible account authorization |
 | Existing CLI login | Choose `codex` or `claude`, then run the returned gateway command | Uses that CLI's local authorization |
@@ -50,6 +51,8 @@ For unattended agents, use an existing environment variable rather than a key in
 
 ```bash
 ./mm provider configure --provider anthropic --model YOUR_MODEL_ID --key-env ANTHROPIC_API_KEY
+# Another API provider; without --model its default model is used:
+./mm provider configure --provider deepseek --key-env DEEPSEEK_API_KEY
 # Or a local model, with no hosted key:
 ./mm provider configure --provider ollama --model YOUR_INSTALLED_MODEL_ID
 ./mm provider status

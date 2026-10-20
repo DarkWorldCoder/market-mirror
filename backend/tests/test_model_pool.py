@@ -265,3 +265,141 @@ def test_config_pool_is_built_once_per_process(monkeypatch):
     assert p1 is p2
     monkeypatch.setenv("LLM_POOL", "claude:claude-haiku-4-5")
     assert Config.get_model_pool() is not p1                               # configuration changed: rebuilt
+    p3 = Config.get_model_pool()
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k-ds-new")
+    assert Config.get_model_pool() is not p3                               # a provider key changed: rebuilt
+    p4 = Config.get_model_pool()
+    monkeypatch.setenv("KIMI_API_KEY", "k-kimi-alt")
+    assert Config.get_model_pool() is not p4
+
+
+# ---------------------------------------------------------------- hosted OpenAI-compatible API providers
+
+from app.utils.model_pool import API_PROVIDERS, PROVIDER_ALIASES, PROVIDER_DEFAULTS, api_provider_for_url
+from app.utils.openai_chat_compat import fixed_sampling_target, json_mode_by_prompt
+
+_WITH_DEFAULT_URL = [p for p in API_PROVIDERS if API_PROVIDERS[p]["base_url"]]
+
+
+def _pool(env):
+    return MultiProviderPool.from_env(env=env, client_factory=lambda api_key, base_url: SimpleNamespace(
+        api_key=api_key, base_url=base_url))
+
+
+@pytest.mark.parametrize("prov", _WITH_DEFAULT_URL)
+def test_each_api_provider_resolves_from_its_own_key(prov):
+    spec = API_PROVIDERS[prov]
+    pool = _pool({"LLM_POOL": prov, spec["key_env"]: f"k-{prov}"})
+    assert pool.providers == [prov]
+    slot = pool.slots[0]
+    assert (slot.base_url, slot.model, slot.api_key) == (spec["base_url"], spec["model"], f"k-{prov}")
+    assert api_provider_for_url(spec["base_url"]) == prov
+    assert canonical_provider(None, spec["base_url"], "any-model") == prov
+    # no key: the slot is left out
+    assert _pool({"LLM_POOL": f"{prov},claude", "ANTHROPIC_API_KEY": "k"}).providers == ["claude"]
+
+
+def test_api_provider_aliases_alt_keys_and_models():
+    env = {"LLM_POOL": "moonshot,grok:grok-4.7,glm,mistralai,togetherai", "KIMI_API_KEY": "k-kimi", "GROK_API_KEY": "k-grok",
+           "ZHIPU_API_KEY": "k-glm", "MISTRAL_API_KEY": "k-mis", "TOGETHER_API_KEY": "k-tog", "ZHIPU_MODEL_NAME": "glm-5.3"}
+    pool = _pool(env)
+    assert pool.providers == ["kimi", "xai", "zhipu", "mistral", "together"]
+    assert [s.model for s in pool.slots] == ["kimi-k2.6", "grok-4.7", "glm-5.3", "mistral-small-latest", "openai/gpt-oss-120b"]
+    assert [s.api_key for s in pool.slots] == ["k-kimi", "k-grok", "k-glm", "k-mis", "k-tog"]
+    for alias, prov in {"moonshot": "kimi", "grok": "xai", "glm": "zhipu", "zai": "zhipu", "dashscope": "qwen",
+                        "alibaba": "qwen", "deepseek": "deepseek", "openrouter": "openrouter"}.items():
+        assert PROVIDER_ALIASES[alias] == prov and canonical_provider(alias) == prov
+    # the documented key name wins over the alternative
+    both = _pool({"LLM_POOL": "kimi", "MOONSHOT_API_KEY": "k-main", "KIMI_API_KEY": "k-alt"})
+    assert both.slots[0].api_key == "k-main"
+
+
+def test_llm_api_key_serves_the_provider_llm_provider_names():
+    pool = _pool({"LLM_POOL": "deepseek,claude", "LLM_PROVIDER": "deepseek", "LLM_API_KEY": "k-llm",
+                  "ANTHROPIC_API_KEY": "k-ant"})
+    assert pool.providers == ["deepseek", "claude"] and pool.slots[0].api_key == "k-llm"
+    # LLM_API_KEY is never handed to a provider LLM_PROVIDER does not name
+    other = _pool({"LLM_POOL": "groq,claude", "LLM_PROVIDER": "deepseek", "LLM_API_KEY": "k-llm", "ANTHROPIC_API_KEY": "k"})
+    assert other.providers == ["claude"]
+
+
+def test_qwen_and_custom_need_their_endpoint():
+    assert _pool({"LLM_POOL": "qwen,claude", "DASHSCOPE_API_KEY": "k-q", "ANTHROPIC_API_KEY": "k"}).providers == ["claude"]
+    url = "https://ws-1.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    pool = _pool({"LLM_POOL": "qwen", "QWEN_API_KEY": "k-q", "QWEN_BASE_URL": url})
+    assert pool.providers == ["qwen"] and pool.slots[0].base_url == url and pool.slots[0].model == "qwen3.8-flash"
+    assert canonical_provider(None, url) == "qwen"
+    assert _pool({"LLM_POOL": "custom,claude", "CUSTOM_API_KEY": "k-c", "ANTHROPIC_API_KEY": "k",
+                  "CUSTOM_BASE_URL": "https://llm.example.com/v1"}).providers == ["claude"]          # no model
+    custom = _pool({"LLM_POOL": "custom", "CUSTOM_API_KEY": "k-c", "CUSTOM_BASE_URL": "https://llm.example.com/v1",
+                    "CUSTOM_MODEL_NAME": "my-model"})
+    assert custom.providers == ["custom"] and custom.slots[0].model == "my-model"
+    assert canonical_provider("custom", "https://llm.example.com/v1", "qwen3-8b") == "custom"
+
+
+def test_single_provider_from_llm_provider_and_its_key():
+    pool = MultiProviderPool.from_env(env={"LLM_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": "k-ds"},
+                                      client_factory=lambda api_key, base_url: SimpleNamespace(api_key=api_key, base_url=base_url),
+                                      primary_provider="deepseek")
+    slot = pool.slots[0]
+    assert (slot.provider, slot.base_url, slot.model, slot.api_key) == \
+        ("deepseek", "https://api.deepseek.com", "deepseek-flash", "k-ds")
+    # an explicit generic provider keeps its name; the host labels it only when no name is given
+    assert canonical_provider("openai", "https://api.groq.com/openai/v1") == "openai"
+    assert canonical_provider(None, "https://openrouter.ai/api/v1", "anthropic/claude-haiku-4.5") == "openrouter"
+    assert canonical_provider(None, "https://api.x.ai.evil.example/v1") == "openai"
+    for model, prov in {"deepseek-v4-pro": "deepseek", "kimi-k3": "kimi", "grok-4.3": "xai", "glm-5.3": "zhipu",
+                        "mistral-small-latest": "mistral", "qwen3.8-flash": "qwen", "MiniMax-M3": "minimax"}.items():
+        assert canonical_provider(None, None, model) == prov
+
+
+def test_auto_pool_includes_api_providers_with_keys():
+    pool = _pool({"LLM_POOL": "auto", "ANTHROPIC_API_KEY": "k-a", "DEEPSEEK_API_KEY": "k-d", "CEREBRAS_API_KEY": "k-c"})
+    assert pool.providers == ["claude", "deepseek", "cerebras"]
+
+
+def test_kimi_never_gets_temperature_and_minimax_gets_json_in_the_prompt():
+    s_kimi, c_kimi = _fake_slot("kimi", "kimi-k2.6", "https://api.moonshot.ai/v1")
+    s_mm, c_mm = _fake_slot("minimax", "MiniMax-M3.1-Flash", "https://api.minimax.io/v1")
+    s_ds, c_ds = _fake_slot("deepseek", "deepseek-flash", "https://api.deepseek.com")
+    pool = MultiProviderPool([s_kimi, s_mm, s_ds])
+    for i in range(3):
+        create_chat_completion(pool, model="deepseek-flash", messages=[{"role": "user", "content": "q"}], temperature=0.7,
+                               max_tokens=200, response_format={"type": "json_object"}, slot_index=i)
+    kimi, mm, ds = c_kimi.calls[0], c_mm.calls[0], c_ds.calls[0]
+    assert "temperature" not in kimi and kimi["response_format"] == {"type": "json_object"} and kimi["model"] == "kimi-k2.6"
+    assert "response_format" not in mm and "JSON" in mm["messages"][-1]["content"] and mm["temperature"] == 0.7
+    assert ds["temperature"] == 0.7 and ds["response_format"] == {"type": "json_object"} and ds["max_tokens"] == 200
+    assert ds["model"] == "deepseek-flash"
+    # direct pool calls (no create_chat_completion) are adapted the same way
+    pool.for_slot(0).chat.completions.create(model="kimi-k2.6", messages=[], temperature=0.3, top_p=0.9)
+    assert "temperature" not in c_kimi.calls[-1] and "top_p" not in c_kimi.calls[-1]
+    # a plain OpenAI client pointed at Moonshot
+    comp = FakeCompletions()
+    plain = SimpleNamespace(chat=SimpleNamespace(completions=comp), base_url="https://api.moonshot.ai/v1/")
+    create_chat_completion(plain, model="kimi-k3", messages=[], temperature=0.5)
+    assert "temperature" not in comp.calls[0]
+    assert fixed_sampling_target(SimpleNamespace(base_url="https://api.together.ai/v1"), "moonshotai/Kimi-K3")
+    assert not fixed_sampling_target(SimpleNamespace(base_url="https://api.deepseek.com"), "deepseek-flash")
+    assert json_mode_by_prompt(SimpleNamespace(base_url="https://api.minimax.io/v1"), "MiniMax-M3")
+    assert not json_mode_by_prompt(SimpleNamespace(base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile")
+
+
+def test_config_fills_an_api_provider_from_its_own_variables(monkeypatch):
+    from app.config import Config
+    for name in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_NAME"):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_NAME"):
+        monkeypatch.setattr(Config, name, getattr(Config, name))
+    monkeypatch.setenv("MOONSHOT_API_KEY", "k-moon")
+    monkeypatch.setattr(Config, "LLM_PROVIDER", "moonshot")
+    Config.apply_api_provider_defaults()
+    assert (Config.LLM_API_KEY, Config.LLM_BASE_URL, Config.LLM_MODEL_NAME) == \
+        ("k-moon", "https://api.moonshot.ai/v1", "kimi-k2.6")
+    monkeypatch.setenv("LLM_MODEL_NAME", "kimi-k3")
+    monkeypatch.setattr(Config, "LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "k-q")
+    Config.apply_api_provider_defaults()
+    assert Config.LLM_MODEL_NAME == "kimi-k3" and Config.LLM_BASE_URL == ""
+    assert any("LLM_BASE_URL" in e for e in Config.validate())
+    assert PROVIDER_DEFAULTS["deepseek"] is API_PROVIDERS["deepseek"]

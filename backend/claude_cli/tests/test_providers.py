@@ -4,6 +4,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import HTTPError
 
 import pytest
@@ -74,6 +75,31 @@ def test_cached_plugin_finds_registered_checkout_with_environment_override(tmp_p
         return subprocess.check_output(["bash",str(helper),"home"],env=settings,text=True).strip()
     assert home(env) == str(root)
     assert home({**env,"MARKET_MIRROR_HOME":"/tmp/explicit-engine"}) == "/tmp/explicit-engine"
+
+
+def test_other_api_providers_in_catalog_config_and_pool(tmp_path, monkeypatch):
+    from dotenv import dotenv_values
+    for prov in ("deepseek", "kimi", "mistral", "xai", "groq", "together", "fireworks", "openrouter", "qwen", "zhipu",
+                 "cerebras", "minimax"):
+        spec = providers.CATALOG[prov]
+        assert spec["key_required"] and spec["key_env"].endswith("_API_KEY") and spec["default_model"]
+    providers.write_config(tmp_path, "kimi", "kimi-k3", key="moon-secret")
+    env = dotenv_values(tmp_path / ".env")
+    assert (env["LLM_PROVIDER"], env["LLM_BASE_URL"], env["LLM_MODEL_NAME"]) == ("kimi", "https://api.moonshot.ai/v1", "kimi-k3")
+    assert providers.status(tmp_path)["provider"] == "kimi"
+    with pytest.raises(ValueError, match="base URL"):
+        providers.write_config(tmp_path, "qwen", "qwen3.8-flash", key="q-secret")
+    # noninteractive configure: key from the provider's variable, its default model
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-secret-value")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    args = SimpleNamespace(provider="deepseek", model=None, base_url=None, key_env=None, open_guide=False)
+    providers.configure(tmp_path, args)
+    env = dotenv_values(tmp_path / ".env")
+    assert (env["LLM_PROVIDER"], env["LLM_MODEL_NAME"], env["LLM_API_KEY"]) == ("deepseek", "deepseek-flash", "ds-secret-value")
+    # a pool led by a hosted API provider keeps it as the single provider
+    res = providers.primary_from_pool("deepseek,kimi,claude")
+    assert res == {"LLM_PROVIDER": "deepseek", "LLM_BASE_URL": "https://api.deepseek.com", "LLM_MODEL_NAME": "deepseek-flash"}
+    assert providers.primary_from_pool("grok:grok-4.7")["LLM_MODEL_NAME"] == "grok-4.7"
 
 
 def test_gemini_chatgpt_codex_and_multi_provider_catalog(tmp_path):

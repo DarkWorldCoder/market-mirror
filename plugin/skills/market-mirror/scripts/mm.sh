@@ -47,8 +47,15 @@ die() { say "error: $*"; exit 1; }
 key_status() {
   # Reports whether a key is configured without ever reading it into a variable or printing it.
   local env="$HOME_DIR/.env"
+  # hosted OpenAI-compatible providers (API_PROVIDERS in backend/app/utils/model_pool.py)
+  local hosted="DEEPSEEK MOONSHOT KIMI MISTRAL XAI GROK GROQ TOGETHER FIREWORKS OPENROUTER DASHSCOPE QWEN ZAI ZHIPU CEREBRAS MINIMAX"
   if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${GOOGLE_API_KEY:-}" ] || [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${LLM_API_KEY:-}" ]; then echo "set (environment)"; return; fi
+  local name; for name in $hosted; do
+    name="${name}_API_KEY"
+    if [ -n "${!name:-}" ]; then echo "set (environment)"; return; fi
+  done
   [ -f "$env" ] || { echo "missing (.env not created)"; return; }
+  if grep -Eq "^(${hosted// /|})_API_KEY=[[:space:]]*[\"']?[^\"'[:space:]]" "$env"; then echo "set (.env)"; return; fi
   if grep -Eq '^LLM_API_KEY=[[:space:]]*("|'"'"')?(your_api_key_here)?("|'"'"')?[[:space:]]*$' "$env" \
      || ! grep -Eq '^LLM_API_KEY=' "$env"; then
     echo "missing (edit LLM_API_KEY in $env)"

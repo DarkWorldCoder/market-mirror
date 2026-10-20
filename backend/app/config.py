@@ -48,6 +48,8 @@ class Config:
     # LLM_PROVIDER=claude (default) uses Anthropic's OpenAI-compatible endpoint.
     # LLM_PROVIDER=gemini uses Google Gemini's OpenAI-compatible endpoint.
     # Set LLM_PROVIDER=openai to use OpenAI or any other OpenAI-format provider.
+    # LLM_PROVIDER=deepseek, kimi, mistral, xai, groq, together, fireworks, openrouter, qwen, zhipu, cerebras, minimax
+    # or custom takes its base URL, model and key (DEEPSEEK_API_KEY, ...) from API_PROVIDERS in utils/model_pool.py.
     # Set LLM_POOL=claude,openai,gemini (or LLM_POOL=auto) to pool multiple providers concurrently.
     LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
     LLM_POOL = os.environ.get('LLM_POOL', '').strip()
@@ -168,10 +170,14 @@ class Config:
 
         One pool per process and configuration: rate-limit pauses, failover state and per-provider usage persist
         across requests instead of starting over with every API call."""
-        from .utils.model_pool import MultiProviderPool
+        from .utils.model_pool import API_PROVIDERS, MultiProviderPool
+        # <NAME>_API_KEY / _BASE_URL / _MODEL_NAME of every hosted provider, plus their documented key names
+        api_prefixes = tuple({f"{p.upper()}_" for p in API_PROVIDERS} |
+                             {n for s in API_PROVIDERS.values() for n in (s.get("key_env"), *s.get("alt_key_envs", ())) if n})
         pool_env = tuple(sorted((k, v) for k, v in os.environ.items()
                                 if k.startswith(('LLM_', 'ANTHROPIC_', 'OPENAI_', 'GEMINI_', 'GOOGLE_API', 'CHATGPT_',
-                                                 'CODEX_', 'ANTIGRAVITY_', 'CLAUDE_CODE_', 'GEMINI_CLI_', 'OLLAMA_'))))
+                                                 'CODEX_', 'ANTIGRAVITY_', 'CLAUDE_CODE_', 'GEMINI_CLI_', 'OLLAMA_')
+                                                + api_prefixes)))
         key = (api_key or cls.LLM_API_KEY, base_url or cls.LLM_BASE_URL, model_name or cls.LLM_MODEL_NAME,
                cls.LLM_PROVIDER, cls.LLM_POOL, pool_env)
         with _POOL_LOCK:
@@ -188,11 +194,30 @@ class Config:
             return pool
 
     @classmethod
+    def apply_api_provider_defaults(cls) -> None:
+        """LLM_PROVIDER names a hosted API provider (deepseek, kimi, groq, ...): take the key, base URL and model that
+        are not set as LLM_* from that provider's own variables (DEEPSEEK_API_KEY, QWEN_BASE_URL, ...) or its
+        API_PROVIDERS entry."""
+        from .utils.model_pool import API_PROVIDERS, PROVIDER_ALIASES, provider_api_key
+        prov = PROVIDER_ALIASES.get(cls.LLM_PROVIDER)
+        if prov not in API_PROVIDERS:
+            return
+        spec, env, upper = API_PROVIDERS[prov], os.environ, prov.upper()
+        cls.LLM_API_KEY = env.get('LLM_API_KEY') or provider_api_key(prov) or None
+        cls.LLM_BASE_URL = env.get('LLM_BASE_URL') or env.get(f'{upper}_BASE_URL') or spec['base_url']
+        cls.LLM_MODEL_NAME = env.get('LLM_MODEL_NAME') or env.get(f'{upper}_MODEL_NAME') or spec['model']
+
+    @classmethod
     def validate(cls) -> list[str]:
         """验证必要配置"""
         errors: list[str] = []
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY 未配置")
+        if not cls.LLM_BASE_URL:
+            errors.append(f"LLM_BASE_URL is not set (LLM_PROVIDER={cls.LLM_PROVIDER} needs its endpoint, "
+                          f"for example {cls.LLM_PROVIDER.upper()}_BASE_URL)")
+        if not cls.LLM_MODEL_NAME:
+            errors.append("LLM_MODEL_NAME is not set")
         if cls.MEMORY_BACKEND not in cls.MEMORY_BACKENDS:
             errors.append(
                 f"MEMORY_BACKEND must be 'local', 'cognee' or 'zep' (got {cls.MEMORY_BACKEND!r})"
@@ -296,3 +321,8 @@ class Config:
                     elif cls._looks_like_placeholder(origin):
                         errors.append(f'CORS_ORIGINS entry is a placeholder: {origin!r}')
         return errors
+
+
+# Hosted API providers other than Claude, Gemini and OpenAI (after the class: model_pool's package imports Config)
+if Config.LLM_PROVIDER not in ('claude', 'anthropic', 'gemini', 'openai', 'chatgpt'):
+    Config.apply_api_provider_defaults()

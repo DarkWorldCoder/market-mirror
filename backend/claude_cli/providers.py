@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import importlib.util
 import ipaddress
 import json
 import os
@@ -39,6 +40,53 @@ CATALOG = {
     "multi": {"label": "Multi-Provider Agent Pool (Claude + ChatGPT/Codex + Gemini together)", "gateway": True, "gateway_name": "multi", "guide": "mm.sh gateway start multi"},
 }
 KEYS = {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "LLM_POOL", "MARKET_MIRROR_PROVIDER"}
+
+
+def _model_pool():
+    """backend/app/utils/model_pool.py, loaded by path (stdlib only at import), for its provider tables."""
+    name = "_mm_model_pool_tables"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().parents[1] / "app/utils/model_pool.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+# Hosted OpenAI-compatible APIs: base URL, default model and key variable come from model_pool.API_PROVIDERS
+API_GUIDES = {
+    "deepseek": "https://api-docs.deepseek.com/",
+    "kimi": "https://platform.kimi.ai/docs/guide/start-using-kimi-api",
+    "mistral": "https://docs.mistral.ai/api",
+    "xai": "https://docs.x.ai/docs/overview",
+    "groq": "https://console.groq.com/docs/openai",
+    "together": "https://docs.together.ai/docs/openai-api-compatibility",
+    "fireworks": "https://docs.fireworks.ai/tools-sdks/openai-compatibility",
+    "openrouter": "https://openrouter.ai/docs/quickstart",
+    "qwen": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
+    "zhipu": "https://docs.z.ai/guides/develop/openai/python",
+    "cerebras": "https://inference-docs.cerebras.ai/resources/openai",
+    "minimax": "https://platform.minimax.io/docs/api-reference/text-openai-api",
+}
+_POOL = _model_pool()
+for _name, _guide in API_GUIDES.items():
+    _spec = _POOL.API_PROVIDERS[_name]
+    CATALOG[_name] = {"label": _spec["label"], "base_url": _spec["base_url"].rstrip("/"), "key_required": True,
+                      "guide": _guide, "key_env": _spec["key_env"], "alt_key_envs": list(_spec.get("alt_key_envs", ())),
+                      "default_model": _spec["model"]}
+for _name, _prov in (("anthropic", "claude"), ("openai", "openai"), ("gemini", "gemini"), ("ollama", "ollama")):
+    CATALOG[_name]["default_model"] = _POOL.PROVIDER_DEFAULTS[_prov]["model"]
+CATALOG["qwen"]["note"] = "Base URL: https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 (your workspace)"
+# the generic entry stays last in listings
+CATALOG["compatible"] = CATALOG.pop("compatible")
+# the LLM_PROVIDER value written for each catalog entry (anything else is a generic OpenAI-format server)
+LLM_PROVIDER_OF = {"anthropic": "claude", "gemini": "gemini", **{name: name for name in API_GUIDES}}
+
+
+def _api_key_of(llm_provider) -> str:
+    """The key of a hosted API provider named by LLM_PROVIDER from its own variables (DEEPSEEK_API_KEY, ...)."""
+    prov = _POOL.PROVIDER_ALIASES.get(str(llm_provider or "").strip().lower())
+    return _POOL.provider_api_key(prov) if prov in _POOL.API_PROVIDERS else ""
 
 
 def read_env(root: Path) -> dict:
@@ -81,6 +129,8 @@ POOL_PRIMARY = {
     "gemini": ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
     "google": ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
     "ollama": ("openai", "http://127.0.0.1:11434/v1", "llama3.2"),
+    **{alias: (prov, _POOL.API_PROVIDERS[prov]["base_url"], _POOL.API_PROVIDERS[prov]["model"])
+       for alias, prov in _POOL.PROVIDER_ALIASES.items() if prov in API_GUIDES},
 }
 GATEWAY_POOL_ENTRIES = ("codex", "antigravity", "claude_code", "gemini_cli")
 
@@ -111,7 +161,10 @@ def primary_from_pool(pool: str, base_url: str = "", key: str = "") -> dict:
     for prov, mod, url in entries:
         if prov in POOL_PRIMARY:
             llm_prov, default_url, default_model = POOL_PRIMARY[prov]
-            values = {"LLM_PROVIDER": llm_prov, "LLM_BASE_URL": validate_url(url or base_url or default_url),
+            endpoint = url or base_url or default_url or os.environ.get(f"{llm_prov.upper()}_BASE_URL", "")
+            if not endpoint:
+                raise ValueError(f"the pool's first entry {prov!r} needs its base URL (--base-url or {llm_prov.upper()}_BASE_URL)")
+            values = {"LLM_PROVIDER": llm_prov, "LLM_BASE_URL": validate_url(endpoint),
                       "LLM_MODEL_NAME": mod or default_model}
             if key.strip():
                 values["LLM_API_KEY"] = key.strip()
@@ -128,7 +181,8 @@ def primary_from_pool(pool: str, base_url: str = "", key: str = "") -> dict:
             gateway = {"claude_code": "claude", "gemini_cli": "gemini"}.get(prov, prov)
             return {"LLM_PROVIDER": "openai", "LLM_BASE_URL": validate_url(gw_url), "LLM_API_KEY": gw_key,
                     "LLM_GATEWAY": gateway, "LLM_MODEL_NAME": mod or gateway}
-    raise ValueError("LLM_POOL has no provider this setup knows (claude, openai, gemini, ollama, codex, antigravity)")
+    raise ValueError("LLM_POOL has no provider this setup knows (claude, openai, gemini, ollama, codex, antigravity, "
+                     + ", ".join(API_GUIDES) + ")")
 
 
 def write_config(root: Path, provider: str, model: str, base_url: str = "", key: str = "", pool: str = "") -> dict:
@@ -145,10 +199,12 @@ def write_config(root: Path, provider: str, model: str, base_url: str = "", key:
         values = {**primary_from_pool(pool.strip(), base_url, key),
                   "LLM_POOL": pool.strip(), "MARKET_MIRROR_PROVIDER": "multi"}
     else:
+        if not (base_url or spec["base_url"]):
+            raise ValueError(f"{spec['label']} needs its base URL" + (f" ({spec['note']})" if spec.get("note") else ""))
         endpoint = validate_url(base_url or spec["base_url"])
         if spec["key_required"] and not key.strip():
             raise ValueError("API key required; use a named environment variable or hidden interactive input")
-        llm_prov = "claude" if provider == "anthropic" else ("gemini" if provider == "gemini" else "openai")
+        llm_prov = LLM_PROVIDER_OF.get(provider, "openai")
         values = {"LLM_PROVIDER": llm_prov,
                   "LLM_BASE_URL": endpoint, "LLM_MODEL_NAME": model.strip(),
                   "LLM_API_KEY": key.strip() if spec["key_required"] else (key.strip() or "local"),
@@ -184,6 +240,7 @@ def status(root: Path) -> dict:
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
+        or _api_key_of(env.get("LLM_PROVIDER"))
     )
     url = urlparse(env.get("LLM_BASE_URL") or "")
     safe_url = f"{url.scheme}://{url.hostname or ''}{':' + str(url.port) if url.port else ''}{url.path}" if url.scheme else None
@@ -206,6 +263,7 @@ def check(root: Path, opener=None, settings=None) -> dict:
         env.get("LLM_API_KEY")
         or os.environ.get("LLM_API_KEY")
         or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") if env.get("LLM_PROVIDER") == "gemini" else "")
+        or _api_key_of(env.get("LLM_PROVIDER"))
         or ""
     )
     headers = {"Authorization": "Bearer " + key}
@@ -234,7 +292,8 @@ def configure(root: Path, args) -> dict:
     provider = args.provider
     if not provider:
         if not sys.stdin.isatty():
-            raise ValueError("noninteractive setup needs --provider and --model; secrets belong in --key-env")
+            raise ValueError("noninteractive setup needs --provider (and --model unless the provider has a default); "
+                             "secrets belong in --key-env")
         print("Choose a model provider (local models need no hosted API key):", file=sys.stderr)
         for name, spec in CATALOG.items():
             print(f"  {name}: {spec['label']}", file=sys.stderr)
@@ -250,7 +309,13 @@ def configure(root: Path, args) -> dict:
                 "command": ["bash", str(helper), "gateway", action, gw_target],
                 "next": "After login, run gateway start siwc." if gw_target == "siwc" else "Start the gateway using the command above."}
     model, endpoint = args.model or "", args.base_url or spec["base_url"]
+    if not model and provider in API_GUIDES and not sys.stdin.isatty():
+        model = spec["default_model"]
+    if not endpoint and provider in API_GUIDES:
+        endpoint = os.environ.get(f"{provider.upper()}_BASE_URL", "")
     if not endpoint and sys.stdin.isatty():
+        if spec.get("note"):
+            print(spec["note"], file=sys.stderr)
         endpoint = input("OpenAI-compatible base URL (HTTPS or local loopback): ").strip()
     key = ""
     if spec["key_required"]:
@@ -258,6 +323,8 @@ def configure(root: Path, args) -> dict:
         key = os.environ.get(variable, "")
         if not key and provider == "gemini" and not args.key_env:
             key = os.environ.get("GOOGLE_API_KEY", "")
+        for alt in ([] if args.key_env else spec.get("alt_key_envs", [])):
+            key = key or os.environ.get(alt, "")
         if not key and sys.stdin.isatty():
             print("Create a key in your provider's account: " + spec.get("key_url", spec["guide"]), file=sys.stderr)
             if getattr(args, "open_guide", False) and spec.get("key_url"):
@@ -271,7 +338,8 @@ def configure(root: Path, args) -> dict:
             print("Available models: " + ", ".join(models[:20]), file=sys.stderr)
         else:
             print("Model discovery: " + discovery["status"] + ". Enter a model identifier from your provider.", file=sys.stderr)
-        model = input("Model identifier: ").strip()
+        default = spec.get("default_model", "") if provider in API_GUIDES else ""
+        model = input(f"Model identifier [{default}]: " if default else "Model identifier: ").strip() or default
     return write_config(root, provider, model, endpoint, key)
 
 

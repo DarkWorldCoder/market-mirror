@@ -68,6 +68,39 @@ def test_api_provider_is_applied_to_the_running_backend(client, tmp_path):
     assert bad.status_code == 400
 
 
+def test_other_api_providers_keys_and_choice(client, tmp_path, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    for name in ("DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "TYPESAFE_API_KEY", "ZAI_API_KEY"):
+        value = "sk-" + name.lower().replace("_", "") + "x" * 20
+        r = client.post("/api/setup/key", json={"name": name, "value": value}, headers=H(), environ_base=LOCAL)
+        assert r.status_code == 200 and value not in r.get_data(as_text=True)
+    assert oct((tmp_path / ".env").stat().st_mode)[-3:] == "600"
+    state = client.get("/api/setup/state", headers=H(), environ_base=LOCAL).get_json()["data"]
+    assert state["keys"]["DEEPSEEK_API_KEY"].startswith("set") and state["keys"]["GROQ_API_KEY"] is None
+    assert "sk-typesafe" not in json.dumps(state)
+    by_id = {p["id"]: p for p in state["api_providers"]}
+    for prov in ("deepseek", "kimi", "mistral", "xai", "groq", "together", "fireworks", "openrouter", "qwen", "zhipu",
+                 "cerebras", "minimax", "compatible"):
+        assert prov in by_id
+    assert by_id["deepseek"]["default_model"] == "deepseek-flash" and by_id["kimi"]["key_env"] == "MOONSHOT_API_KEY"
+
+    r = client.post("/api/setup/provider", json={"kind": "api", "provider": "deepseek", "model": "deepseek-v4-pro"},
+                    headers=H(), environ_base=LOCAL)
+    assert r.status_code == 200, r.get_json()
+    assert (Config.LLM_PROVIDER, Config.LLM_MODEL_NAME, Config.LLM_BASE_URL) == \
+        ("deepseek", "deepseek-v4-pro", "https://api.deepseek.com")
+    assert Config.LLM_API_KEY.startswith("sk-deepseek")
+    # no model given: the provider's default model
+    r = client.post("/api/setup/provider", json={"kind": "api", "provider": "kimi"}, headers=H(), environ_base=LOCAL)
+    assert r.status_code == 200 and Config.LLM_PROVIDER == "kimi" and Config.LLM_MODEL_NAME == "kimi-k2.6"
+    assert Config.LLM_API_KEY.startswith("sk-moonshot")
+    # Qwen needs its workspace endpoint; a provider without a saved key is refused
+    r = client.post("/api/setup/provider", json={"kind": "api", "provider": "qwen"}, headers=H(), environ_base=LOCAL)
+    assert r.status_code == 400 and "base URL" in r.get_json()["error"]
+    r = client.post("/api/setup/provider", json={"kind": "api", "provider": "groq"}, headers=H(), environ_base=LOCAL)
+    assert r.status_code == 400 and "key" in r.get_json()["error"]
+
+
 def test_gateway_port_conflict_and_missing_cli(client, monkeypatch):
     monkeypatch.setattr(st, "_health", lambda port: {"backend": "claude"} if port == 5055 else None)
     r = client.post("/api/setup/gateway", json={"action": "start", "backend": "codex", "port": 5055}, headers=H(), environ_base=LOCAL)
