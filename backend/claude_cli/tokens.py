@@ -184,7 +184,7 @@ section .card,section .play:not(.p-high),section .ftc{background-image:none}
 .kpi.c{border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-1)}
 .kpi .bar{height:6px;border-radius:3px;background:var(--grid);margin-top:10px;overflow:hidden}
 .kpi .bar i{display:block;height:100%;border-radius:3px;background:var(--kc,var(--s1));min-width:2px}
-/* SaaS Bento grid & workspace cards */
+/* 12-column card grid */
 .bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;align-items:stretch}
 .bento>.span-12{grid-column:span 12}.bento>.span-8{grid-column:span 8}.bento>.span-7{grid-column:span 7}
 .bento>.span-6{grid-column:span 6}.bento>.span-5{grid-column:span 5}.bento>.span-4{grid-column:span 4}.bento>.span-3{grid-column:span 3}

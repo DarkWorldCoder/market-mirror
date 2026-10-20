@@ -178,7 +178,7 @@ class ExportTests(unittest.TestCase):
         for x, y in pos:
             self.assertTrue(0 <= x <= 1000 and 0 <= y <= 680)
 
-    def test_saas_dashboard_workspace_bento_crm_and_provider_badges(self):
+    def test_workspace_views_card_grid_and_provider_badges(self):
         h = self.html
         self.assertIn('class="ws-bar"', h)
         self.assertIn('data-ws-tab="buyers"', h)

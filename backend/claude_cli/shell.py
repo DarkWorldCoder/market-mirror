@@ -158,7 +158,7 @@ WORKSPACE_VIEWS: List[Tuple[str, str, Sequence[str]]] = [   # the sidebar groups
 
 
 def workspace_bar(nav: List[Tuple[str, str]], providers: Sequence[str] = ()) -> str:
-    """Sticky SaaS workspace view switcher tabs, active model provider badges, and live section/buyer search."""
+    """View tabs, the providers that answered, and a search over sections and buyers; sticks to the top."""
     present = {a for a, _ in nav}
     tabs = []
     for vid, label, anchors in WORKSPACE_VIEWS:
