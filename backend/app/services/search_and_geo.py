@@ -12,7 +12,8 @@ real vs simulated concerns (VoC), and a word-of-mouth cascade answered by the si
     not measure what any real assistant or search engine says about the brand.
   * run_voc_grounding: classifies real text (`raw_reviews`, a public `url`, or `research` quotes) and the simulated
     people's objections with the same classifier prompt, then compares the shares per concern (Wilson 95% ranges)
-    and their difference (Newcombe hybrid score interval).
+    and their difference (Newcombe hybrid score interval). classifier="jev" labels both sides with one Jev `choice`
+    question instead (services/jev.py); run_objection_check uses the same question shape on survey objections.
   * run_dark_social_cascade: wave 1 says whether and what they would forward; wave 2 (other people) answers the cold
     offer and a friend's forward in two separate calls, scored yes=1, maybe=0.5, no=0 and compared per person.
 """
@@ -29,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from claude_cli import run_search
 
+from . import jev
 from .cro_and_sparring import fetch_url_snapshot
 from .gtm_suite import (
     CONCERN_TYPES,
@@ -56,6 +58,62 @@ from .gtm_suite import (
 CLASSIFIER_SYSTEM = (
     "You label short texts for a market study. Read the text exactly as given and pick the one concern it mainly "
     "expresses, or none. Copy phrases word for word; never rewrite or add facts. Reply with JSON only.")
+
+# Concern types as Jev `choice` criteria (classifier="jev"): the same labels the model classifier returns
+CONCERN_CRITERIA = {
+    "price": "Cost or value for money, or doubt that it is really free",
+    "trust": "Doubt that it is legitimate, safe or honest; fear of a scam or a hidden catch",
+    "relevance": "It does not fit the person's needs or situation",
+    "effort": "Too much time, work or hassle to start or to use",
+    "timing": "Not the right time; maybe later",
+    "unclear": "Not clear what it is, what it does or what happens next",
+    "privacy": "Worry about personal data, tracking or being contacted",
+    "competitor": "Already uses or prefers another product or a free alternative",
+    "authority": "Needs someone else's approval or advice before deciding",
+    "habit": "Content with the current way of doing things and does not want to change",
+    "other": "A concern that fits none of the other types",
+    "none": "No concern: praise, a plain description or an unrelated remark",
+}
+JEV_CONCERN_INSTRUCTIONS = ("The state is a short text from a market study, quoted exactly. Pick the one concern it "
+                            "mainly expresses, or none when it expresses no concern.")
+CLASSIFIERS = ("model", "jev")
+
+
+def jev_label_texts(texts: List[str], criteria: Dict[str, str], instructions: str,
+                    usage: Optional[jev.JevUsage] = None, parallel: Optional[int] = None) -> List[Dict[str, Any]]:
+    """One Jev `choice` question per text -> [{ok, label, confidence, model, error}] in order. A failed request, or a
+    choice outside the criteria, stays unlabelled. Raises jev.JevUnavailable without a key."""
+    jobs = [(t, {"label": jev.choice_question(criteria, instructions)}) for t in texts]
+    out = []
+    for r in jev.ask_many(jobs, parallel=parallel, usage=usage) if jobs else []:
+        ans = (r.get("answers") or {}).get("label") if r.get("ok") else None
+        label = jev.choice_label(ans, list(criteria))
+        out.append({"ok": label is not None, "label": label, "model": r.get("model"),
+                    "confidence": ans.get("confidence") if isinstance(ans, dict) else None,
+                    "error": r.get("error") or (None if label else "Jev chose a label outside the criteria")})
+    return out
+
+
+def run_objection_check(items: List[Dict[str, Any]], criteria: Dict[str, str],
+                        parallel: Optional[int] = None) -> Dict[str, Any]:
+    """Survey check: Jev labels each person's main objection with the same types they tagged it with, and the
+    agreement with their own tag is reported as a share with a Wilson 95% range. items: [{id, text, self_tag}].
+    Answers Jev fails on are counted and left out of the agreement. Raises jev.JevUnavailable without a key."""
+    rows = [it for it in items if isinstance(it, dict) and str(it.get("text") or "").strip()]
+    usage = jev.JevUsage()
+    labs = jev_label_texts([_short(r["text"], 600) for r in rows], criteria,
+                           "The state is one person's biggest hesitation about an offer, in their own words. "
+                           "Pick the type of objection it expresses.", usage, parallel)
+    pairs = [(r, lab) for r, lab in zip(rows, labs) if lab["ok"]]
+    agree = sum(1 for r, lab in pairs if str(r.get("self_tag") or "").strip().lower() == lab["label"])
+    models = Counter(lab["model"] for _, lab in pairs if lab.get("model"))
+    model = models.most_common(1)[0][0] if models else None
+    disagree = [{"id": r.get("id"), "text": _short(r["text"], 200), "self_tag": r.get("self_tag"), "jev": lab["label"]}
+                for r, lab in pairs if str(r.get("self_tag") or "").strip().lower() != lab["label"]]
+    return {"engine": "jev", "method": jev.method_label(model), "model": model, "asked": len(rows),
+            "labelled": len(pairs), "failed": len(rows) - len(pairs), "agreement": wilson(agree, len(pairs)),
+            "pairs": dict(Counter(f'{r.get("self_tag")}->{lab["label"]}' for r, lab in pairs).most_common()),
+            "disagreements": disagree[:10], "usage": usage.snapshot()}
 
 
 # --------------------------------------------------------------------------
@@ -319,10 +377,19 @@ def _review_texts(raw: Any) -> List[str]:
 
 def run_voc_grounding(client: Any, model: str, url: Optional[str] = None, raw_reviews: Any = None,
                       run_data: Optional[Dict[str, Any]] = None, parallel: int = 8,
-                      progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
+                      progress: Optional[Callable[[int, int], None]] = None,
+                      classifier: Optional[str] = None) -> Dict[str, Any]:
     """Compare the concerns in real text (`raw_reviews`, a public `url`, or `research` quotes in run_data) with the
-    objections the simulated people raised. Both sides are classified by the same prompt."""
-    _need(client)
+    objections the simulated people raised. Both sides are classified by the same classifier: the model prompt
+    (default) or, with classifier="jev", one Jev `choice` question over CONCERN_CRITERIA per text."""
+    classifier = str(classifier or "model").strip().lower()
+    if classifier not in CLASSIFIERS:
+        raise ValueError(f"classifier must be one of {', '.join(CLASSIFIERS)}")
+    use_jev = classifier == "jev"
+    if use_jev and not jev.available():
+        raise jev.JevUnavailable(f"Jev is not configured: {jev.settings()['reason']}")
+    if not use_jev:
+        _need(client)
     meter = _meter(client)
     rd = run_data or {}
     real: List[str] = []
@@ -345,6 +412,30 @@ def run_voc_grounding(client: Any, model: str, url: Optional[str] = None, raw_re
 
     sim_all = [x["text"] for x in gather_objections(rd.get("survey"), rd.get("pitch"), rd.get("feed_test")) if x.get("text")]
     sim = sim_all[:60]
+    unit = "texts classified by the Jev decision model" if use_jev else "texts classified by the model"
+    if use_jev:
+        texts = [(side, txt) for side, items in (("real", real), ("simulated", sim)) for txt in items]
+        jusage = jev.JevUsage()
+        labs = jev_label_texts([t for _, t in texts], CONCERN_CRITERIA, JEV_CONCERN_INSTRUCTIONS, jusage, parallel)
+        asked = [{"person": {}, "side": side, "src": txt, "ok": lab["ok"], "data": {"concern_type": lab["label"] or ""},
+                  "provider": "jev" if lab["ok"] else None, "model": lab["model"], "error": lab["error"]}
+                 for (side, txt), lab in zip(texts, labs)]
+        if progress:
+            progress(len(asked), len(asked))
+    else:
+        asked = _voc_model_labels(meter, model, real, sim, parallel, progress)
+    return _voc_summary(asked, meter, sim, sim_all, kind, source, real_label, unit,
+                        {"classifier": "jev", "classifier_model": jev.method_label(_top_model(asked)),
+                         "classifier_usage": jusage.snapshot()} if use_jev else {"classifier": "model"})
+
+
+def _top_model(asked: List[Dict[str, Any]]) -> Optional[str]:
+    models = Counter(r.get("model") for r in asked if r.get("ok") and r.get("model"))
+    return models.most_common(1)[0][0] if models else None
+
+
+def _voc_model_labels(meter: Any, model: str, real: List[str], sim: List[str], parallel: int,
+                      progress: Optional[Callable[[int, int], None]]) -> List[Dict[str, Any]]:
     jobs = [{"person": {}, "side": side, "src": txt, "system": CLASSIFIER_SYSTEM, "prompt": (
         f"Text:\n\"{txt}\"\n\n"
         "Which one concern does this text mainly express? Use none when it expresses no concern (for example praise, "
@@ -353,7 +444,12 @@ def run_voc_grounding(client: Any, model: str, url: Optional[str] = None, raw_re
         '"key_phrase": "the few words of the text that show it, copied exactly, or empty", '
         '"plain_meaning": "one short sentence"}')}
         for side, texts in (("real", real), ("simulated", sim)) for txt in texts]
-    asked = ask_people(meter, model, jobs, parallel, progress, max_tokens=220, temperature=0.1)
+    return ask_people(meter, model, jobs, parallel, progress, max_tokens=220, temperature=0.1)
+
+
+def _voc_summary(asked: List[Dict[str, Any]], meter: Any, sim: List[str], sim_all: List[str],
+                 kind: str, source: str, real_label: str, unit: str, classifier: Dict[str, Any]) -> Dict[str, Any]:
+    use_jev = classifier.get("classifier") == "jev"
 
     def side_counts(side: str):
         rows = [r for r in asked if r["side"] == side]
@@ -374,7 +470,7 @@ def run_voc_grounding(client: Any, model: str, url: Optional[str] = None, raw_re
     comparison.sort(key=lambda c: -max(c["real"]["pct"] or 0, c["simulated"]["pct"] or 0))
 
     phrases = []
-    for r, t in real_lab:
+    for r, t in ([] if use_jev else real_lab):       # Jev returns a label, not a phrase
         if t == "none" or len(phrases) >= 12:
             continue
         ph = _short(r["data"].get("key_phrase"), 160)
@@ -389,12 +485,16 @@ def run_voc_grounding(client: Any, model: str, url: Optional[str] = None, raw_re
         "real_concerns": ranked([(t, r["src"]) for r, t in real_lab if t != "none"], nr, top=len(CONCERN_TYPES)),
         "simulated_concerns": ranked([(t, r["src"]) for r, t in sim_lab if t != "none"], ns, top=len(CONCERN_TYPES)),
         "phrases": phrases,
-        "method": ("Every text, real and simulated, was labelled by the same classifier prompt. Shares are Wilson 95% "
-                   "ranges; the difference (real minus simulated, in points) uses Newcombe's hybrid score interval."),
+        "method": (("Every text, real and simulated, was labelled by the same Jev decision model question "
+                    f"({classifier.get('classifier_model')}): one choice over the concern types, including none. "
+                    if use_jev else "Every text, real and simulated, was labelled by the same classifier prompt. ")
+                   + "Shares are Wilson 95% ranges; the difference (real minus simulated, in points) uses Newcombe's "
+                     "hybrid score interval."),
+        **classifier,
     }
     if not sim:
         summary["simulated_note"] = "This run has no survey, pitch or feed-test objections yet, so there is nothing simulated to compare."
-    return envelope("voc", asked, meter, cohort=nr, summary=summary, unit="texts classified by the model")
+    return envelope("voc", asked, meter, cohort=nr, summary=summary, unit=unit)
 
 
 # --------------------------------------------------------------------------

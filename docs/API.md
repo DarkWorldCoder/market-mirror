@@ -260,7 +260,7 @@ Returns: {results:[{agent_id, response}]}
 
 ### `POST /api/simulation/ssr`
 
-Free-text answers to 1-5 rating distributions (semantic similarity rating).
+Free-text answers to 1-5 rating distributions (semantic similarity rating; engine embeddings, jev or auto).
 
 Request body:
 
@@ -272,11 +272,32 @@ Request body:
       "scale": "purchase",
       "text": "Maybe: if it is really free"
     }
+  ],
+  "engine": "embeddings"
+}
+```
+
+Returns: {engine, method, model, counts, results:[{pmf, mean, sd}]}
+
+### `POST /api/simulation/objection-check`
+
+Jev labels survey objections; agreement with each person's own tag (Wilson 95% range). Needs a Jev key.
+
+Request body:
+
+```json
+{
+  "items": [
+    {
+      "id": "1",
+      "text": "Not sure it is really free",
+      "self_tag": "price"
+    }
   ]
 }
 ```
 
-Returns: {results:[{pmf, mean, sd}]}
+Returns: {agreement:{pct, lo, hi, k, n}, labelled, failed, model, usage}
 
 ## Inside the rounds
 
