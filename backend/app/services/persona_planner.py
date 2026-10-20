@@ -31,6 +31,7 @@ import json
 import random
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -44,6 +45,7 @@ logger = get_logger('mirofish.persona_planner')
 SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
+RETRY_PAUSE_S = float(os.environ.get("PERSONA_RETRY_PAUSE_S") or 3)
 MAX_PER_CALL = 5                 # shorter calls: a retry costs less and segments finish sooner
 # a guard against typos, not a model limit; raise it with MM_MAX_PERSONAS for larger markets
 MAX_TOTAL_PERSONAS = max(1, int(os.environ.get("MM_MAX_PERSONAS") or 5000))
@@ -451,9 +453,14 @@ def _llm_json(
     max_tokens: int = 8000,
     slot_index: Optional[int] = None,
     return_meta: bool = False,
+    gate: Optional[threading.Semaphore] = None,
 ) -> Any:
+    """One persona-planner call, retried twice with a short pause. `gate` caps how many calls run at once across
+    writing and interviews, so login gateways are not sent more than they can answer before timing out."""
     last: Optional[Exception] = None
     for attempt in range(3):
+        if attempt:
+            time.sleep(RETRY_PAUSE_S * attempt)
         try:
             call_kw: Dict[str, Any] = {
                 "model": model,
@@ -463,7 +470,11 @@ def _llm_json(
             }
             if slot_index is not None:
                 call_kw["slot_index"] = slot_index
-            resp = create_chat_completion(client, **call_kw)
+            if gate is not None:
+                with gate:
+                    resp = create_chat_completion(client, **call_kw)
+            else:
+                resp = create_chat_completion(client, **call_kw)
             parsed = parse_json_block(extract_chat_completion_text(resp))
             if return_meta:
                 prov, mod = _resolve_provider_meta(client, model, resp, slot_index)
@@ -889,7 +900,8 @@ def render_bde(bde: Optional[Dict[str, Any]], limit: int = 700) -> str:
 def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                    progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4,
                    product: Optional[Dict[str, Any]] = None, probes: bool = True,
-                   voices: Optional[List[Dict[str, Any]]] = None) -> int:
+                   voices: Optional[List[Dict[str, Any]]] = None,
+                   gate: Optional[threading.Semaphore] = None) -> int:
     """Interview every synthetic persona in batches; attach answers, phone/data plan and a first-person summary.
     With probes=True a second call per batch asks adaptive follow-ups and product questions and extracts the
     structured BDE card (background / decision procedure / evaluation). Returns the number of people interviewed."""
@@ -922,7 +934,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
         try:
             data, prov, mod = _llm_json(
                 client, model, _interview_prompt([card(e) for e in batch], context, voices),
-                temperature=0.9, max_tokens=6000, slot_index=batch_slot[b_idx], return_meta=True,
+                temperature=0.9, max_tokens=6000, slot_index=batch_slot[b_idx], return_meta=True, gate=gate,
             )
             rows = data.get("interviews") if isinstance(data, dict) else data
             return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
@@ -943,7 +955,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
         try:
             data, prov, mod = _llm_json(
                 client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
-                temperature=0.8, max_tokens=7000, slot_index=batch_slot[b_idx], return_meta=True,
+                temperature=0.8, max_tokens=7000, slot_index=batch_slot[b_idx], return_meta=True, gate=gate,
             )
             rows = data.get("people") if isinstance(data, dict) else data
             return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
@@ -1161,11 +1173,19 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
 
     taken: set = set()
     done = 0
+    # one cap on model calls for writing and all interviews together (each finished segment starts its own
+    # interview pool, so without it the calls in flight grow with the number of segments)
+    gate = threading.BoundedSemaphore(max(1, parallel))
+    failed_people = 0
 
     def run(job_idx: int):
         seg, slots, comms = jobs[job_idx]
         prompt = _persona_prompt(seg, slots, requirement, context, sorted(taken), comms)
-        data, prov, mod = _llm_json(client, model, prompt, slot_index=job_slot[job_idx], return_meta=True)
+        try:
+            data, prov, mod = _llm_json(client, model, prompt, slot_index=job_slot[job_idx], return_meta=True, gate=gate)
+        except Exception as e:  # noqa: BLE001 - this batch is reported as not written; no stand-in people
+            logger.warning(f"persona batch {job_idx} ({seg.label}, {len(slots)} people) not written: {str(e)[:160]}")
+            return job_idx, None, "", ""
         rows = data.get("personas") if isinstance(data, dict) else data
         return job_idx, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
 
@@ -1196,9 +1216,13 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         for fut in as_completed(futures):
             job_idx, rows, prov, mod = fut.result()
             seg, slots, _comms = jobs[job_idx]
-            ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k,
-                               model_provider=prov, model_name=mod)
-                    for k, slot in enumerate(slots)]
+            if rows is None:
+                failed_people += len(slots)
+                ents = []
+            else:
+                ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k,
+                                   model_provider=prov, model_name=mod)
+                        for k, slot in enumerate(slots)]
             by_job[job_idx] = ents
             done += len(slots)
             if progress:
@@ -1210,7 +1234,7 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
                 if spec.interview:
                     interview_futures.append(ipool.submit(
                         run_interviews, client, model, group, context, progress=interview_progress(seg.label),
-                        parallel=max(2, parallel // 2), product=product, probes=spec.probes, voices=voices))
+                        parallel=max(2, parallel // 2), product=product, probes=spec.probes, voices=voices, gate=gate))
         interviewed = sum(f.result() for f in interview_futures)
 
     entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]
@@ -1221,6 +1245,8 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     report = diversity_report(entities)
     if fixed_total or report["flagged"]:
         logger.info(f"persona planner: stereotype guard changed {fixed_total} people; low-variety segments: {report['flagged'] or 'none'}")
+    if failed_people:
+        logger.warning(f"persona planner: {failed_people} of {total} people were not written (their calls failed)")
     if spec.interview:
         logger.info(f"persona planner: interviewed {interviewed} people")
     if spec.population:

@@ -83,7 +83,7 @@ def test_interviews_go_to_the_writer(monkeypatch):
     p = pool()
     seen = []
 
-    def fake_llm(client, model, prompt, temperature=0.8, max_tokens=8000, slot_index=None, return_meta=False):
+    def fake_llm(client, model, prompt, temperature=0.8, max_tokens=8000, slot_index=None, return_meta=False, gate=None):
         seen.append((slot_index, prompt.count("\"name\"")))
         return ({"interviews": []}, "", "") if return_meta else {"interviews": []}
 

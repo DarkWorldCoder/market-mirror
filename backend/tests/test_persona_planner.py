@@ -487,3 +487,43 @@ def test_coupled_demographics_real_intake_and_discretionary_budget():
     assert sita_idx["bde"]["evaluation"]["discretionary_budget_num"] == 3500.0
     assert sita_idx["life_stage"] and sita_idx["payday_status"]
 
+
+
+def test_failed_persona_batch_is_left_out_not_invented(monkeypatch):
+    monkeypatch.setattr(pp, "RETRY_PAUSE_S", 0)
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=10), seg("Nepal parents", count=4, age_min=40, age_max=55,
+                                                                      entity_type="Parent")], "interview": False})
+    client = FakeClient()
+    real = client.create
+
+    def create(**kw):
+        if "Nepal parents" in kw["messages"][1]["content"]:
+            raise TimeoutError("Request timed out.")
+        return real(**kw)
+    client.chat.completions.create = create
+    ents = pp.generate_personas(client, "m", spec, "req", "ctx")
+    assert len(ents) == 10 and all(e.attributes.get("segment") != "Nepal parents" for e in ents)
+
+
+def test_persona_calls_in_flight_never_exceed_parallel(monkeypatch):
+    import time as _time
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=10), seg("Nepal parents", count=10, age_min=40, age_max=55,
+                                                                      entity_type="Parent")]})
+    client = FakeClient()
+    real = client.create
+    state = {"now": 0, "max": 0}
+    lock = threading.Lock()
+
+    def create(**kw):
+        with lock:
+            state["now"] += 1
+            state["max"] = max(state["max"], state["now"])
+        _time.sleep(0.02)
+        try:
+            return real(**kw)
+        finally:
+            with lock:
+                state["now"] -= 1
+    client.chat.completions.create = create
+    pp.generate_personas(client, "m", spec, "req", "ctx", parallel=3)
+    assert 1 <= state["max"] <= 3
