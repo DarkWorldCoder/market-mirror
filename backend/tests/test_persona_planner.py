@@ -88,7 +88,7 @@ def test_spec_validation():
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "graph_agents": "some"})
     with pytest.raises(ValueError):
-        pp.PersonaSpec.from_dict({"segments": [seg(count=500)] * 5})
+        pp.PersonaSpec.from_dict({"segments": [seg(count=pp.MAX_TOTAL_PERSONAS)] * 2})
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "communities": [{"kind": "x"}]})
     spec = pp.PersonaSpec.from_dict({"segments": [seg(age_min=60, age_max=40)]})

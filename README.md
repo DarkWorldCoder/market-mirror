@@ -40,7 +40,9 @@ If your agent already has authorized access to advertising, analytics, or CRM to
 | **Test acquisition** | Ad and landing-page reactions, offer and message comparisons, search and organic content concepts, creator posts, and channel mixes |
 | **Test the actual website** | Browser journeys on a real product URL: product exploration, cart actions, signup and checkout reachability, screenshots, outcome assertions, and reasons for leaving |
 | **Explore lifecycle and referrals** | Inbox simulations for email, nurture, and retention messages; referral concept tests |
-| **Rehearse sales** | Outreach, follow-ups, pitches, objections, rebuttals, and an audience playbook |
+| **Rehearse sales** | Outreach, follow-ups, pitches, objections, rebuttals, a battlecard built from real objections with tested answers, a sales roleplay, and an audience playbook |
+| **Run the marketing lab** | Buying committee (who blocks and who signs), a creative optimizer that rewrites an ad and re-tests it on the same people, a four-touch journey with memory, pricing choice between tiers, competitor choice with counter-moves, landing-page teardown, what-if choice experiments, per-audience ads, how buyers would search, real versus simulated concerns, and word-of-mouth forwards |
+| **Mix model providers** | One market played by several providers at once: Claude, Codex and Gemini each write, play and answer for their own share of the people, and the dashboard shows where they agree |
 | **Explore pricing** | Price sensitivity, offer comparisons, and conjoint choices |
 | **Compare scenarios** | Studies using the same prepared people and seed list, saved progress, and scenario deltas |
 | **Review evidence** | Normalized ads, email, website, CRM, and survey exports; calibration diagnostics and held-out backtests |
@@ -67,6 +69,15 @@ Each recipe starts from a prepared simulation (`./mm cli quickstart`, then `mark
 | **What results to expect** | "Forecast sign-ups for USD 500 of spend, calibrated on our past campaigns." | `./mm cli predict --run-dir mirofish_runs/x --brand Acme --spend 500` | Predictions |
 | **Whether the simulation matches reality** | "Compare the simulated survey with our real answers." | `./mm cli calibrate --run-dir mirofish_runs/x --real answers.csv` | Evidence, calibration verdict |
 | **Why someone said no** | "Ask person 12 why they would not start the trial." | `./mm cli interview --simulation $SIM --agent 12 --prompt "..."` | (answer printed) |
+| **Who blocks the deal and who signs** | "Run a buying committee on 12 households or companies." | `./mm cli gtm committee --simulation $SIM` | Marketing lab |
+| **How to make an ad better** | "Rewrite this ad three times and re-test each version on the same people." | `./mm cli gtm creative --simulation $SIM --creative @ad.json --generations 3` | Marketing lab |
+| **How to answer objections** | "Build a battlecard from their real objections and test the answers." | `./mm cli gtm battlecard --simulation $SIM` | Marketing lab |
+| **Which tier people pick** | "Basic, Plus or Family at these prices: what share picks each?" | `./mm cli gtm pricing --simulation $SIM --tiers @tiers.json` | Marketing lab |
+| **What happens if a competitor moves** | "Would they switch if X cuts its price by 30%?" | `./mm cli gtm competitors --simulation $SIM --competitors X Y --move "X cuts its price by 30%"` | Competitors |
+| **Whether the landing page holds attention** | "Tear down our landing page with 20 buyers." | `./mm cli gtm teardown --simulation $SIM --url https://...` | Landing and sales lab |
+| **Whether different models agree** | "Run the same market on Claude, Codex and Gemini people together." | `LLM_POOL` in the backend's settings (see [Several providers in one market](#several-providers-in-one-market)) | Do the models agree? |
+| **What someone thought but did not say** | "Show me what people thought while they scrolled." | `./mm cli gtm thoughts --simulation $SIM` | Agent thoughts |
+| **Where a theme shows up in the run** | "Find everything people said about price in Kenya." | `./mm cli search --run-dir mirofish_runs/x -q "price Kenya"` | (results printed) |
 | **What is happening right now** | "Show me the run live." | `./mm live --run-dir mirofish_runs/x`, then open `/live` | Live control room |
 
 Simulated people remember what happened to them across tests in the same run: someone who hid your ad or unsubscribed from the email carries that into the survey and the pitch. Each study cell keeps its own memory, so scenarios never leak into each other. Set `"memory_scope": "off"` in a config to test every step on fresh people.
@@ -129,6 +140,7 @@ Browser runs use compact model observations while retaining full local evidence.
 | **Local Codex** | `./mm gateway start codex` | Existing local Codex login |
 | **Local Claude Code** | `./mm gateway start claude` | Existing local Claude Code login |
 | **ChatGPT sign-in** | `./mm gateway login`, then `./mm gateway start siwc` | Eligible account; scope and model access checked during setup |
+| **Local Antigravity (Gemini models)** | `./mm gateway start antigravity --port 5057 --model gemini-3.8-flash-medium` | Existing local Antigravity login; `agy models` lists the models it offers |
 | **Ollama / LM Studio** | Choose the provider in `./mm configure` | A locally installed, tool-capable model |
 | **Claude / OpenAI API** | Choose the provider in `./mm configure` | Provider API key and available model access |
 | **Other compatible servers** | Configure the endpoint and model | Provider-dependent |
@@ -137,7 +149,41 @@ Browser runs use compact model observations while retaining full local evidence.
 
 **Pick the gateway's model.** Through the Claude Code gateway every simulated person is one Claude Code call, and the model decides how fast your subscription's limit runs out. The gateway uses Sonnet unless you set `LLM_GATEWAY_MODEL` (`haiku`, `sonnet`, `opus`, a full model id, or `default` for Claude Code's own default) or set `LLM_MODEL_NAME` to one of those names. A 1,000-person run makes several thousand calls; with an API key there is no session limit and calls run 30–50 at a time.
 
+**Choose a provider in the browser.** `./mm cli setup` opens a settings page on this computer only: pick a Claude Code, Codex or Antigravity login or an API key, start and stop gateways, test the connection, and apply the choice to the running backend. Keys are stored owner-only in `.env` and shown masked; the page needs the one-time token in its link.
+
 For a login gateway, start it **before** `./mm provider check` and `./mm start`. Use one gateway at a time. If changing providers while the backend is running, restart it with `./mm stop` followed by `./mm start`.
+
+### Several providers in one market
+
+One simulated market can be played by several model providers at once. Each provider writes an equal share of the people, interviews them, plays them in the social rounds and answers for them in every test, so one model speaks for a person from start to finish. The dashboard then splits the results by provider ("Do the models agree?") with 95% ranges.
+
+```bash
+./mm gateway start claude                                            # 5055
+./mm gateway start codex --port 5056
+./mm gateway start antigravity --port 5057 --model gemini-3.8-flash-medium
+```
+
+Then give a backend these settings (a copy of `.env`, for example `.env.mixed`, with each gateway's token from `backend/logs/gateway-<port>.token`):
+
+```bash
+LLM_POOL=claude_code:sonnet,codex,antigravity:gemini-3.8-flash-medium
+LLM_POOL_STRICT=true                       # never hand a person's call to another model
+CLAUDE_CODE_GATEWAY_URL=http://127.0.0.1:5055/v1
+CLAUDE_CODE_GATEWAY_KEY=...
+CODEX_GATEWAY_URL=http://127.0.0.1:5056/v1
+CODEX_GATEWAY_KEY=...
+ANTIGRAVITY_GATEWAY_URL=http://127.0.0.1:5057/v1
+ANTIGRAVITY_GATEWAY_KEY=...
+```
+
+```bash
+backend/claude_cli/start_server.sh --port 5004 --env-file .env.mixed
+MIROFISH_URL=http://localhost:5004 ./mm cli market-test scenarios/acme/market_test.json
+```
+
+With `LLM_POOL_STRICT=true` a failed call is retried on the same provider and then counted as failed; without it the pool fails over to the next provider, which is faster but mixes models. A difference between providers mixes the model and the people it wrote, so agreement is a robustness check, not evidence about real buyers. To compare separate runs instead (each provider with its own people in its own run), use `./mm cli compare --run Claude=mirofish_runs/a --run Codex=mirofish_runs/b --out mirofish_runs/compare`.
+
+Login subscriptions have their own limits. Antigravity's Gemini 4 Argon quota ran out after about 30 calls in our test and reset days later, while Gemini 3.8 Flash kept answering; the gateway reads the reset time and pauses that provider until then.
 
 API keys are entered privately in your terminal. `./mm configure --open-guide` can open the provider's key console; `./mm provider status` shows masked configuration. Agents can configure an existing secret with `--key-env` instead of placing it in tool arguments. See [provider setup and troubleshooting](docs/LOCAL_AGENTS.md).
 
@@ -294,6 +340,7 @@ Each run produces one self-contained HTML dashboard: no server, no external requ
 <td width="50%" valign="top"><img src="docs/images/pricing.png" alt="Van Westendorp price sensitivity with acceptable range and sweet spot" /><br /><b>What people would pay.</b> Acceptable price range, sweet spot and the price-sensitivity curves, by segment.</td>
 <td width="50%" valign="top"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience" /><br /><b>The playbook.</b> One card per audience: what to lead with, the objection to pre-empt, how to answer it, where to seed it, and a quote as proof.</td>
 </tr>
+<tr><td colspan="2" valign="top"><b>Marketing lab and model agreement.</b> The marketing lab (buying committee, creative optimizer, battlecard, journey, pricing choice, competitor choice, landing teardown, roleplay, what-if, per-audience ads, search behaviour, real versus simulated concerns, word of mouth) shows every result with how many people were asked, answered and failed, and a 95% range. In a market with several providers, "Do the models agree?" splits the survey by provider and checks whether the would-convert ranges overlap and whether the top objection and best message match.</td></tr>
 <tr><td colspan="2"><b>Evidence</b></td></tr>
 <tr>
 <td width="50%" valign="top"><img src="docs/images/analysts.png" alt="Independent analyst panel with consensus, themes and five analyst cards" /><br /><b>Analyst panel.</b> Five analysts read the run independently; their consensus, the themes they agree on, and each one's recommendation.</td>

@@ -26,6 +26,7 @@ any other agent without a second LLM call.
 
 from __future__ import annotations
 
+import os
 import json
 import random
 import re
@@ -44,7 +45,8 @@ SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
 MAX_PER_CALL = 5                 # shorter calls: a retry costs less and segments finish sooner
-MAX_TOTAL_PERSONAS = 2000
+# a guard against typos, not a model limit; raise it with MM_MAX_PERSONAS for larger markets
+MAX_TOTAL_PERSONAS = max(1, int(os.environ.get("MM_MAX_PERSONAS") or 5000))
 # Traits spread evenly across each segment (like ages and genders) so personas do not collapse
 # toward one "typical" respondent. Override per spec ("diversity") or per segment.
 DEFAULT_DIVERSITY: Dict[str, List[str]] = {
@@ -123,7 +125,7 @@ class PersonaSegment:
             age_min, age_max = age_max, age_min
         return cls(
             label=str(d["label"]).strip(),
-            count=max(1, min(_int(d.get("count"), 5), 500)),
+            count=max(1, min(_int(d.get("count"), 5), MAX_TOTAL_PERSONAS)),
             country=str(d.get("country") or "").strip(),
             cities=_str_list(d.get("cities")),
             age_min=max(10, age_min),
