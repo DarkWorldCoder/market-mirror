@@ -127,3 +127,38 @@ def test_interview_sample_covers_every_segment_and_provider():
     sample = fp.interview_sample(ents, 0.1, min_per_cell=2)
     cells = {(e.attributes["segment"], e.attributes["model_provider"]) for e in sample}
     assert len(sample) == 12 and len(cells) == 4
+
+
+class FakePool:
+    """Three provider slots; each answers like CardClient and records which provider answered."""
+
+    def __init__(self):
+        self.slots = [SimpleNamespace(provider=p, model=f"{p}-m") for p in ("claude_code", "codex", "antigravity")]
+        self.inner = CardClient()
+        self.used = []
+
+    def slot_for_provider(self, name):
+        return next((i for i, s in enumerate(self.slots) if s.provider == name), None)
+
+    def for_slot(self, i):
+        slot = self.slots[i % 3]
+
+        def create(**kw):
+            self.used.append(slot.provider)
+            resp = self.inner.create(**kw)
+            resp._mm_provider, resp._mm_model = slot.provider, slot.model
+            return resp
+        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+                               provider=slot.provider, model_name=slot.model, base_url="")
+
+
+def test_every_provider_writes_exactly_its_share():
+    spec = pp.PersonaSpec.from_dict({"segments": [seg(count=25), seg("India parents", count=25, age_min=35, age_max=50,
+                                                                     entity_type="Parent"),
+                                                  seg("India workers", count=25, age_min=25, age_max=40)],
+                                     "depth": "fast", "interview": False})
+    ents = pp.generate_personas(FakePool(), "m", spec, "req", "ctx")
+    by = {}
+    for e in ents:
+        by[e.attributes["model_provider"]] = by.get(e.attributes["model_provider"], 0) + 1
+    assert by == {"claude_code": 25, "codex": 25, "antigravity": 25}

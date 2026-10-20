@@ -921,12 +921,18 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
     by_writer: Dict[str, List[EntityNode]] = {}
     for e in people:
         by_writer.setdefault(str((e.attributes or {}).get("model_provider") or ""), []).append(e)
-    batches, batch_slot = [], []
+    per_writer = []
     for writer, group in by_writer.items():
         slot = client.slot_for_provider(writer) if writer and hasattr(client, "slot_for_provider") else None
-        for i in range(0, len(group), INTERVIEW_BATCH):
-            batch_slot.append(slot if slot is not None else len(batches))
-            batches.append(group[i:i + INTERVIEW_BATCH])
+        per_writer.append([(slot, group[i:i + INTERVIEW_BATCH]) for i in range(0, len(group), INTERVIEW_BATCH)])
+    # interleaved across writers, so every provider has a share of the calls in flight instead of one at a time
+    batches, batch_slot = [], []
+    for round_ in range(max((len(w) for w in per_writer), default=0)):
+        for w in per_writer:
+            if round_ < len(w):
+                slot, batch = w[round_]
+                batch_slot.append(slot if slot is not None else len(batches))
+                batches.append(batch)
     if not batches:
         return 0
     done = 0
@@ -1265,14 +1271,21 @@ def _write_fast(client, model: str, spec: PersonaSpec, requirement: str, context
                 ) -> Tuple[List[EntityNode], set, Dict[str, Any]]:
     """Cards for everyone in batches (fast_population), then the full life interview for a stratified sample."""
     from . import fast_population as fp
-    jobs = []
+    n_prov = len(getattr(client, "slots", None) or [None])
+    jobs, job_slot = [], []
+    offset = 0
     for seg in spec.segments:
         slots = demographic_slots(seg, rng, spec.diversity)
         seg_comms = [c for c in spec.communities if _matches(c, seg.label, seg.country)]
-        for start in range(0, len(slots), fp.CARD_BATCH):
-            jobs.append((seg, slots[start:start + fp.CARD_BATCH], seg_comms))
+        # person k of the segment goes to provider (k + offset) % n: equal shares within every segment, and the
+        # offset carries over so the totals stay equal across segments
+        for prov in range(n_prov):
+            mine = [sl for k, sl in enumerate(slots) if (k + offset) % n_prov == prov]
+            for start in range(0, len(mine), fp.CARD_BATCH):
+                jobs.append((seg, mine[start:start + fp.CARD_BATCH], seg_comms))
+                job_slot.append(prov)
+        offset = (offset + len(slots)) % n_prov
     total = sum(len(j[1]) for j in jobs)
-    job_slot = provider_shares([len(j[1]) for j in jobs], len(getattr(client, "slots", None) or [None]))
     res = fp.write_cards(client, model, jobs, job_slot, requirement, context, parallel=parallel,
                          progress=progress, pause_s=RETRY_PAUSE_S)
     taken: set = set()
