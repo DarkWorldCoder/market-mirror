@@ -46,6 +46,8 @@ SYNTHETIC_PROFILE_KEY = "_synthetic_profile"
 PERSONA_LABEL = "SyntheticPersona"
 COMMUNITY_LABEL = "SyntheticCommunity"
 RETRY_PAUSE_S = float(os.environ.get("PERSONA_RETRY_PAUSE_S") or 3)
+# depth "auto" switches to cards plus an interviewed sample above this many people (MM_FAST_ABOVE)
+FAST_ABOVE = max(0, int(os.environ.get("MM_FAST_ABOVE") or 300))
 MAX_PER_CALL = 5                 # shorter calls: a retry costs less and segments finish sooner
 # a guard against typos, not a model limit; raise it with MM_MAX_PERSONAS for larger markets
 MAX_TOTAL_PERSONAS = max(1, int(os.environ.get("MM_MAX_PERSONAS") or 5000))
@@ -196,6 +198,8 @@ class PersonaSpec:
     population: Dict[str, Any] = field(default_factory=dict)   # {country: {"age": {...}, "gender": {...}}} target shares
     real_profiles: List[Dict[str, Any]] = field(default_factory=list)  # grounded customer excerpts/records with provenance
     seed: int = 7
+    depth: str = "auto"                # full: every person interviewed | fast: cards + an interviewed sample | auto
+    interview_share: float = 0.1       # fast depth: share of each segment x provider given the full interview
 
     @classmethod
     def from_dict(cls, d: Optional[Dict[str, Any]]) -> Optional["PersonaSpec"]:
@@ -225,7 +229,11 @@ class PersonaSpec:
             population=dict(d.get("population") or {}) if isinstance(d.get("population"), dict) else {},
             real_profiles=real_raw,
             seed=_int(d.get("seed"), 7),
+            depth=str(d.get("depth") or "auto").lower(),
+            interview_share=max(0.0, min(1.0, _float(d.get("interview_share", 0.1), 0.1))),
         )
+        if spec.depth not in ("auto", "full", "fast"):
+            raise ValueError("persona_spec.depth must be auto, full or fast")
         total = sum(s.count for s in spec.segments)
         if total > MAX_TOTAL_PERSONAS:
             raise ValueError(f"persona_spec asks for {total} personas; the limit is {MAX_TOTAL_PERSONAS}")
@@ -1165,6 +1173,12 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         logger.info(f"persona planner: {len(segs)} segments, {sum(s.count for s in segs)} personas, "
                     f"{len(spec.communities)} communities")
 
+    requested = sum(s.count for s in spec.segments)
+    if spec.depth == "fast" or (spec.depth == "auto" and requested > FAST_ABOVE):
+        entities, taken, stats = _write_fast(client, model, spec, requirement, context, rng, progress, parallel,
+                                             product, voices)
+        return _finish_population(entities, spec, rng, taken, stats)
+
     jobs = []
     for seg in spec.segments:
         slots = demographic_slots(seg, rng, spec.diversity)
@@ -1241,17 +1255,82 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         interviewed = sum(f.result() for f in interview_futures)
 
     entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]
+    return _finish_population(entities, spec, rng, taken, {"fixed": fixed_total, "failed": failed_people,
+                                                          "total": total, "interviewed": interviewed})
+
+
+def _write_fast(client, model: str, spec: PersonaSpec, requirement: str, context: str, rng: random.Random,
+                progress: Optional[Callable[[int, int, str], None]], parallel: int,
+                product: Optional[Dict[str, Any]], voices: Optional[List[Dict[str, Any]]]
+                ) -> Tuple[List[EntityNode], set, Dict[str, Any]]:
+    """Cards for everyone in batches (fast_population), then the full life interview for a stratified sample."""
+    from . import fast_population as fp
+    jobs = []
+    for seg in spec.segments:
+        slots = demographic_slots(seg, rng, spec.diversity)
+        seg_comms = [c for c in spec.communities if _matches(c, seg.label, seg.country)]
+        for start in range(0, len(slots), fp.CARD_BATCH):
+            jobs.append((seg, slots[start:start + fp.CARD_BATCH], seg_comms))
+    total = sum(len(j[1]) for j in jobs)
+    job_slot = provider_shares([len(j[1]) for j in jobs], len(getattr(client, "slots", None) or [None]))
+    res = fp.write_cards(client, model, jobs, job_slot, requirement, context, parallel=parallel,
+                         progress=progress, pause_s=RETRY_PAUSE_S)
+    taken: set = set()
+    entities: List[EntityNode] = []
+    failed = fixed = 0
+    for j, (seg, slots, _comms) in enumerate(jobs):
+        got = res["rows"].get(j, {})
+        failed += len(res["missing"].get(j, []))
+        group = []
+        for k, slot in enumerate(slots):
+            if k not in got:
+                continue
+            row, prov, mod = got[k]
+            e = _to_entity(seg, slot, row, taken, len(entities) + len(group), model_provider=prov, model_name=mod)
+            attrs = e.attributes
+            attrs[SYNTHETIC_PROFILE_KEY]["persona"] = fp.card_persona(
+                e.name, slot["age"], attrs.get("occupation") or seg.label, attrs.get("city") or attrs.get("country") or "",
+                row, slot.get("traits") or {})
+            bde = clean_bde(row.get("bde_card"))
+            prov_tag = f" ({prov}/{mod})" if prov else ""
+            if bde:
+                attrs["bde"] = bde
+                attrs["provenance"]["bde"] = "synthetic: decision card written with the profile" + prov_tag
+            attrs["depth"] = "card"
+            attrs["provenance"]["interview"] = "not sampled: card only"
+            group.append(e)
+        fixed += fix_duplicates(group, rng)
+        entities.extend(group)
+    interviewed = 0
+    if spec.interview and entities:
+        sample = fp.interview_sample(entities, spec.interview_share, seed=spec.seed)
+        interviewed = run_interviews(client, model, sample, context,
+                                     progress=(lambda d, t, w: progress(d, t, f"interviews (sample of {t})")) if progress else None,
+                                     parallel=parallel, product=product, probes=spec.probes, voices=voices,
+                                     gate=threading.BoundedSemaphore(max(1, parallel)))
+        for e in sample:
+            if e.attributes.get("interview"):
+                e.attributes["depth"] = "interviewed"
+    logger.info(f"persona planner (fast): {len(entities)} cards, {failed} not written, {interviewed} interviewed; "
+                f"lanes {res['lanes']}; cache {res['cache']}")
+    return entities, taken, {"fixed": fixed, "failed": failed, "total": total, "interviewed": interviewed,
+                             "lanes": res["lanes"], "cache": res["cache"]}
+
+
+def _finish_population(entities: List[EntityNode], spec: PersonaSpec, rng: random.Random, taken: set,
+                       stats: Dict[str, Any]) -> List[EntityNode]:
+    """Shared by both depths: real profiles, agent ids, the variety check, population weights and communities."""
     if spec.real_profiles:
         entities.extend(_entities_from_real_profiles(spec.real_profiles, taken, len(entities)))
     for i, e in enumerate(entities):                               # agent id = position: renumber the uuids in order
         e.uuid = f"persona_{i:04d}"
     report = diversity_report(entities)
-    if fixed_total or report["flagged"]:
-        logger.info(f"persona planner: stereotype guard changed {fixed_total} people; low-variety segments: {report['flagged'] or 'none'}")
-    if failed_people:
-        logger.warning(f"persona planner: {failed_people} of {total} people were not written (their calls failed)")
+    if stats.get("fixed") or report["flagged"]:
+        logger.info(f"persona planner: stereotype guard changed {stats.get('fixed')} people; low-variety segments: {report['flagged'] or 'none'}")
+    if stats.get("failed"):
+        logger.warning(f"persona planner: {stats['failed']} of {stats.get('total')} people were not written (their calls failed)")
     if spec.interview:
-        logger.info(f"persona planner: interviewed {interviewed} people")
+        logger.info(f"persona planner: interviewed {stats.get('interviewed')} people")
     if spec.population:
         logger.info(f"persona planner: population weights for {population_weights(entities, spec.population)} people")
     if spec.communities:
@@ -1508,7 +1587,7 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "settlement": attrs.get("settlement"), "life_stage": attrs.get("life_stage"),
             "payday_status": attrs.get("payday_status"),
             "model_provider": attrs.get("model_provider"), "model_name": attrs.get("model_name"),
-            "habits": attrs.get("habits"), "provenance": attrs.get("provenance"),
+            "habits": attrs.get("habits"), "provenance": attrs.get("provenance"), "depth": attrs.get("depth"),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out
