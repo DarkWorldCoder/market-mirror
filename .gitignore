@@ -9,6 +9,14 @@ Thumbs.db
 .env.development
 .env.test
 .env.production
+# per-provider settings written by `mm.sh gateway start <backend> --port N` (they hold gateway tokens)
+.env.claude
+.env.codex
+.env.gemini
+.env.antigravity
+.env.chatgpt
+.env.siwc
+.env.multi
 
 # Python
 __pycache__/
@@ -56,6 +64,7 @@ backend/logs/
 
 # 上传文件
 backend/uploads/
+backend/uploads-*/
 
 # Docker 数据
 data/

@@ -63,8 +63,12 @@ GATEWAY_ACTION_TIMEOUT = 300
 
 
 def via_local_gateway() -> bool:
+    """True when the model is a local login gateway: the default port 5055, or any loopback URL when LLM_GATEWAY
+    names a gateway backend (side-by-side gateways run on other ports)."""
     url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_API_BASE_URL") or ""
-    return any(h in url for h in ("127.0.0.1:5055", "localhost:5055")) or os.environ.get("LLM_API_KEY") == "gateway"
+    if any(h in url for h in ("127.0.0.1:5055", "localhost:5055")) or os.environ.get("LLM_API_KEY") == "gateway":
+        return True
+    return bool(os.environ.get("LLM_GATEWAY")) and any(h in url for h in ("://127.0.0.1:", "://localhost:"))
 
 
 def _fresh(seed: int = 7) -> Dict[str, Any]:
@@ -204,8 +208,46 @@ def begin_round(round_num: int, hour: int, platform: Optional[str] = None) -> No
     st["round"], st["hour"] = round_num, hour
     if st.get("config_path"):
         st["context"] = context_updates(st["config_path"], round_num)
+        # tests run between rounds (feed, email, survey, pitch) update behavior_state.json: pick up fatigue/trust
+        st["behavior_states"] = behavior_states(os.path.dirname(os.path.abspath(st["config_path"])))
     for aid in list(st["cards"]):
-        st["budgets"][aid], st["moods"][aid] = round_flavour(aid, round_num, hour, rng, st["activity"])
+        st["budgets"][aid], st["moods"][aid] = round_flavour(
+            aid, round_num, hour, rng, st["activity"],
+            occupation=st["occupations"].get(aid, ""), bstate=st["behavior_states"].get(aid))
+
+
+def occupations(config: Dict[str, Any]) -> Dict[int, str]:
+    """agent_id -> occupation (or segment) from persona_index; shapes when in the day the person is online."""
+    out: Dict[int, str] = {}
+    for r in (config or {}).get("persona_index") or []:
+        if isinstance(r, dict) and r.get("agent_id") is not None:
+            occ = str(r.get("occupation") or r.get("segment") or "").strip()
+            if occ:
+                out[int(r["agent_id"])] = occ
+    return out
+
+
+def behavior_states(sim_dir: Optional[str], scope: str = "default") -> Dict[int, Dict[str, Any]]:
+    """agent_id -> {fatigue, trust, ...} from the simulation's behavior_state.json (written by
+    app/services/behavior_state.py when feed/email/survey/pitch tests run on this simulation). {} when absent."""
+    if not sim_dir:
+        return {}
+    try:
+        with open(os.path.join(sim_dir, "behavior_state.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    scopes = data.get("scopes") if isinstance(data, dict) else None
+    agents = (scopes or {}).get(scope) or {}
+    out: Dict[int, Dict[str, Any]] = {}
+    for aid, rec in agents.items():
+        try:
+            st = rec.get("state") if isinstance(rec, dict) else None
+            if isinstance(st, dict):
+                out[int(aid)] = st
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def session_line(agent_id: int, platform: Optional[str] = None) -> str:
@@ -301,6 +343,8 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
         for r in ((config or {}).get("persona_index") or [])
         if isinstance(r, dict) and r.get("agent_id") is not None
     }
+    st["occupations"] = occupations(config)
+    st["behavior_states"] = {}
     st["rng"] = random.Random(seed)
     st["config_path"] = config_path or (config or {}).get("_config_path")
     st["context"] = []

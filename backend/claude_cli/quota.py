@@ -25,7 +25,8 @@ def _env_value(key: str) -> str:
     if os.environ.get(key):
         return os.environ[key]
     try:
-        with open(_ENV, encoding="utf-8") as f:
+        # MIROFISH_ENV_FILE: the settings file of this backend instance (several can run side by side)
+        with open(os.environ.get("MIROFISH_ENV_FILE") or _ENV, encoding="utf-8") as f:
             for line in f:
                 if line.strip().startswith(key + "="):
                     return line.split("=", 1)[1].strip().strip('"').strip("'")
@@ -34,11 +35,23 @@ def _env_value(key: str) -> str:
     return ""
 
 
+def _is_local_gateway(base: str) -> bool:
+    """LLM_BASE_URL is a local login gateway: the default port, or any loopback URL when LLM_GATEWAY names one."""
+    from urllib.parse import urlparse
+    if any(p in base for p in GATEWAY_PORTS):
+        return True
+    try:
+        host = (urlparse(base).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in ("127.0.0.1", "localhost") and bool(_env_value("LLM_GATEWAY"))
+
+
 def gateway_url() -> Optional[str]:
     url = os.environ.get("MM_GATEWAY_URL") or ""
     if not url:
         base = _env_value("LLM_BASE_URL")
-        if any(p in base for p in GATEWAY_PORTS):
+        if _is_local_gateway(base):
             url = base.split("/v1")[0]
     return url.rstrip("/") or None
 

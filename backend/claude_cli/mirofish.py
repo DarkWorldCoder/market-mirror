@@ -1052,7 +1052,8 @@ def cmd_feedtest(c: Client, a) -> Any:
     out_dir = _run_dir_for(a)
     try:
         res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
-                                  a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate, a.seeds)
+                                  a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate, a.seeds,
+                                  competitor_arg=a.competitor, generic_baseline=True if a.generic_baseline else None)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     return _reexport(c, a, out_dir, res)
@@ -2077,6 +2078,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, help="only the first N personas (quick, cheap check)")
     s.add_argument("--seeds", type=int, default=1,
                    help="repeat with N different seeds and report each creative's range (N x the cost; default %(default)s)")
+    s.add_argument("--competitor", help="@competitor.json or JSON {name, offer|text|headline, price?}: a rival "
+                                         "counter-offer / price shock shown in the same feeds (summary.competitor_shock)")
+    s.add_argument("--generic-baseline", action="store_true",
+                   help="also rank the ads with one zero-persona generic reader (summary.generic_baseline; one extra call)")
     s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
     s.add_argument("--run-dir", help="default mirofish_runs/<simulation>")
     s.add_argument("--no-export", action="store_true")

@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -39,10 +40,31 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, str]] = {
         "model": "gpt-4o-mini",
         "key_env": "OPENAI_API_KEY",
     },
+    # Login-based CLIs are reached only through a local MarketMirror gateway (backend/gateway/local_gateway.py):
+    # base URL and bearer token come from <NAME>_GATEWAY_URL / <NAME>_GATEWAY_KEY, never from an API key.
     "codex": {
-        "base_url": "http://127.0.0.1:5055/v1",
+        "base_url": "",
         "model": "codex",
-        "key_env": "LLM_API_KEY",
+        "key_env": "CODEX_GATEWAY_KEY",
+        "gateway": "codex",
+    },
+    "antigravity": {
+        "base_url": "",
+        "model": "gemini-4-argon-medium",
+        "key_env": "ANTIGRAVITY_GATEWAY_KEY",
+        "gateway": "antigravity",
+    },
+    "claude_code": {
+        "base_url": "",
+        "model": "sonnet",
+        "key_env": "CLAUDE_CODE_GATEWAY_KEY",
+        "gateway": "claude",
+    },
+    "gemini_cli": {
+        "base_url": "",
+        "model": "gemini-2.5-flash",
+        "key_env": "GEMINI_CLI_GATEWAY_KEY",
+        "gateway": "gemini",
     },
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -67,53 +89,165 @@ PROVIDER_ALIASES = {
     "google": "gemini",
     "ollama": "ollama",
     "local": "ollama",
+    "antigravity": "antigravity",
+    "agy": "antigravity",
+    "claude_code": "claude_code",
+    "gemini_cli": "gemini_cli",
 }
+GATEWAY_PROVIDERS = ("codex", "antigravity", "claude_code", "gemini_cli")
+# what a gateway's /health "backend" field means as a pool provider label
+GATEWAY_BACKEND_LABELS = {"claude": "claude", "codex": "codex", "chatgpt": "codex", "siwc": "codex",
+                          "gemini": "gemini", "antigravity": "antigravity", "multi": "multi"}
+_GENERIC_NAMES = ("", "openai", "custom", "compatible", "multi", "gateway")
+_LOCAL_MODEL_PORTS = {11434: "ollama", 1234: "ollama"}          # Ollama, LM Studio
+_GATEWAY_LABEL_CACHE: Dict[str, Any] = {}
+_GATEWAY_LABEL_LOCK = threading.Lock()
 
 
-def canonical_provider(name: Optional[str], base_url: Optional[str] = None, model: Optional[str] = None) -> str:
-    """Resolve a canonical provider name ('claude', 'openai', 'gemini', 'ollama', 'custom')."""
+def _loopback_port(base_url: Optional[str]) -> Optional[int]:
+    """The port of a loopback http(s) URL, else None."""
+    from urllib.parse import urlparse
+    try:
+        u = urlparse((base_url or "").strip())
+        host = (u.hostname or "").lower()
+        if host in ("127.0.0.1", "localhost", "::1") or host.endswith(".localhost"):
+            return u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return None
+    return None
+
+
+def gateway_label(base_url: str, env: Optional[Dict[str, str]] = None, ttl: float = 60.0) -> Optional[str]:
+    """Provider label of a local MarketMirror gateway at `base_url`: its /health "backend" (claude, codex, gemini,
+    antigravity, multi), else LLM_GATEWAY when base_url is the configured LLM_BASE_URL. Cached for `ttl` seconds."""
+    env_map = os.environ if env is None else env
+    key = (base_url or "").rstrip("/")
+    now = time.time()
+    with _GATEWAY_LABEL_LOCK:
+        hit = _GATEWAY_LABEL_CACHE.get(key)
+        if hit and now - hit[1] < ttl:
+            return hit[0]
+    label = None
+    try:
+        import urllib.request
+        root = key[:-3] if key.endswith("/v1") else key
+        with urllib.request.urlopen(root + "/health", timeout=1.0) as r:
+            data = json.loads(r.read(200_000) or b"{}")
+        backend = str(data.get("backend") or "").lower()
+        label = GATEWAY_BACKEND_LABELS.get(backend, backend or None)
+    except Exception:  # noqa: BLE001 - not a gateway, or not running
+        label = None
+    if not label and key and key == (env_map.get("LLM_BASE_URL") or "").rstrip("/"):
+        gw = (env_map.get("LLM_GATEWAY") or "").strip().lower()
+        label = GATEWAY_BACKEND_LABELS.get(gw, gw or None)
+    with _GATEWAY_LABEL_LOCK:
+        _GATEWAY_LABEL_CACHE[key] = (label, now)
+    return label
+
+
+def canonical_provider(name: Optional[str], base_url: Optional[str] = None, model: Optional[str] = None,
+                       env: Optional[Dict[str, str]] = None) -> str:
+    """Resolve a canonical provider name ('claude', 'openai', 'gemini', 'ollama', 'codex', 'antigravity', ...).
+
+    A loopback URL that is a MarketMirror gateway is labelled by what the gateway runs (its /health backend, or
+    LLM_GATEWAY), never as "openai", even when LLM_PROVIDER=openai (the gateway speaks the OpenAI format)."""
     raw = (name or "").strip().lower()
-    if raw in PROVIDER_ALIASES:
+    if raw not in _GENERIC_NAMES and raw in PROVIDER_ALIASES:
         return PROVIDER_ALIASES[raw]
     url = (base_url or "").strip().lower()
     mod = (model or "").strip().lower()
+    port = _loopback_port(url)
+    if port is not None:
+        if port in _LOCAL_MODEL_PORTS:
+            return _LOCAL_MODEL_PORTS[port]
+        label = gateway_label(base_url or "", env)
+        if label:
+            return label
+    if raw in PROVIDER_ALIASES:
+        return PROVIDER_ALIASES[raw]
     if "anthropic.com" in url or mod.startswith("claude"):
         return "claude"
     if "generativelanguage.googleapis.com" in url or mod.startswith("gemini") or mod.startswith("models/gemini"):
         return "gemini"
-    if "11434" in url or "1234" in url:
-        return "ollama"
     if "openai.com" in url or mod.startswith(("gpt-", "o1", "o3", "o4")):
         return "openai"
+    if port is not None:
+        return "gateway"
     return raw or "openai"
 
 
-def _is_rate_limit_or_transient(err: Exception) -> bool:
+_STATUS_429 = re.compile(r"(?:error code|status(?: code)?|http(?:/[\d.]+)?|code)\s*[:=]?\s*429\b")
+_TIMEOUT_TYPES = {"APITimeoutError", "APIConnectionError", "Timeout", "TimeoutError", "ReadTimeout", "ConnectTimeout",
+                  "ConnectError", "RemoteProtocolError"}
+TRANSIENT_PAUSE_S = float(os.environ.get("LLM_POOL_TRANSIENT_PAUSE_S") or 15)
+MAX_WAIT_S = float(os.environ.get("LLM_POOL_MAX_WAIT_S") or 20)
+
+
+def _status_of(err: Exception) -> Optional[int]:
     status = getattr(err, "status_code", None) or getattr(err, "status", None)
-    if status in (429, 500, 502, 503, 504, 529):
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_timeout(err: Exception) -> bool:
+    if isinstance(err, TimeoutError):
         return True
-    text = str(err).lower()
-    return any(
-        token in text
-        for token in (
-            "429",
-            "rate limit",
-            "rate_limit",
-            "quota",
-            "too many requests",
-            "overloaded",
-            "resource_exhausted",
-            "temporarily unavailable",
-        )
-    )
+    names = {c.__name__ for c in type(err).__mro__}
+    return bool(names & _TIMEOUT_TYPES) or _status_of(err) in (408, 504)
 
 
 def _is_rate_limit(err: Exception) -> bool:
-    status = getattr(err, "status_code", None) or getattr(err, "status", None)
-    if status == 429:
+    """A provider rate limit / quota: HTTP 429, or the provider's own wording. A bare "429" inside unrelated text
+    (a token count, an id, a price) does not count."""
+    if _status_of(err) == 429 or type(err).__name__ == "RateLimitError":
         return True
     text = str(err).lower()
-    return any(token in text for token in ("429", "rate limit", "rate_limit", "quota", "too many requests", "resource_exhausted"))
+    if _STATUS_429.search(text):
+        return True
+    return any(token in text for token in ("rate limit", "rate_limit", "quota exceeded", "exceeded your current quota",
+                                           "insufficient_quota", "too many requests", "resource_exhausted",
+                                           "usage limit", "usage is limited"))
+
+
+def _is_rate_limit_or_transient(err: Exception) -> bool:
+    if _status_of(err) in (408, 429, 500, 502, 503, 504, 529) or _is_rate_limit(err) or _is_timeout(err):
+        return True
+    text = str(err).lower()
+    return any(token in text for token in ("overloaded", "temporarily unavailable", "timed out", "connection error",
+                                           "connection refused", "bad gateway", "service unavailable"))
+
+
+def _retry_after(err: Exception) -> Optional[float]:
+    """Seconds from a Retry-After header on an SDK error, if any."""
+    resp = getattr(err, "response", None)
+    try:
+        value = resp.headers.get("retry-after") if resp is not None else None
+        return float(value) if value else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def answered_provider(resp: Any) -> Optional[str]:
+    """The backend a MarketMirror gateway reports as having produced `resp` (its "provider" field), if any."""
+    value = getattr(resp, "provider", None)
+    if not isinstance(value, str):
+        extra = getattr(resp, "model_extra", None)
+        value = extra.get("provider") if isinstance(extra, dict) else None
+    if isinstance(value, str) and value.strip():
+        return GATEWAY_BACKEND_LABELS.get(value.strip().lower(), value.strip().lower())
+    return None
+
+
+class PoolPausedError(RuntimeError):
+    """Every provider in the pool is paused (rate limited or failing); raised without calling any of them."""
+    status_code = 429
+
+    def __init__(self, retry_at: float):
+        self.retry_at = retry_at
+        super().__init__(f"Error code: 429 - all providers in the pool are paused for another "
+                         f"{max(0, int(retry_at - time.time()))}s (rate limits or failures)")
 
 
 @dataclass
@@ -130,6 +264,9 @@ class ProviderSlot:
     output_tokens: int = 0
     failures: int = 0
     rate_limits: int = 0
+    timeouts: int = 0
+    last_error: str = ""
+    answered_by: Dict[str, int] = field(default_factory=dict)    # gateway backend that answered -> calls
 
     def is_healthy(self, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now
@@ -146,6 +283,9 @@ class ProviderSlot:
             "output_tokens": self.output_tokens,
             "failures": self.failures,
             "rate_limits": self.rate_limits,
+            "timeouts": self.timeouts,
+            "last_error": self.last_error or None,
+            "answered_by": dict(self.answered_by),
         }
 
 
@@ -192,15 +332,22 @@ class MultiProviderPool:
     """
     Thread-safe pool of OpenAI-compatible LLM clients across Claude, OpenAI/ChatGPT,
     Google Gemini, and local gateways/models.
+
+    With more than one slot the SDK clients are built with max_retries=0: a rate limit, timeout or 5xx fails over
+    to the next healthy slot at once instead of being retried (with backoff) against the same provider.
     """
 
-    def __init__(self, slots: List[ProviderSlot], pause_seconds: float = 60.0):
+    def __init__(self, slots: List[ProviderSlot], pause_seconds: float = 60.0,
+                 client_options: Optional[Dict[str, Any]] = None, _parent: Optional["MultiProviderPool"] = None):
         if not slots:
             raise ValueError("MultiProviderPool requires at least one ProviderSlot")
         self.slots = slots
         self.pause_seconds = pause_seconds
-        self._lock = threading.Lock()
+        # a with_options() view shares the parent's slots, lock and counters (pauses and usage stay pool-wide)
+        self._lock = _parent._lock if _parent is not None else threading.Lock()
         self._rr = 0
+        self._client_options = dict(client_options or {})
+        self._option_clients: Dict[int, Any] = {}
         self.chat = _BoundChat(self, preferred_index=None)
 
     @property
@@ -228,22 +375,22 @@ class MultiProviderPool:
         return BoundProviderClient(self, index % len(self.slots))
 
     def with_options(self, **options: Any) -> "MultiProviderPool":
-        """Return a shallow pool clone where each underlying OpenAI client has `.with_options(**options)` applied."""
-        new_slots: List[ProviderSlot] = []
-        for s in self.slots:
-            cl = s.client.with_options(**options) if hasattr(s.client, "with_options") else s.client
-            new_slots.append(
-                ProviderSlot(
-                    provider=s.provider,
-                    model=s.model,
-                    base_url=s.base_url,
-                    api_key=s.api_key,
-                    client=cl,
-                    paused_until=s.paused_until,
-                    pause_seconds=s.pause_seconds,
-                )
-            )
-        return MultiProviderPool(new_slots, pause_seconds=self.pause_seconds)
+        """A view of this pool whose SDK calls use `client.with_options(**options)`. Pauses and usage counters stay
+        shared with this pool. In a multi-provider pool retries stay at 0 so failover happens at the pool level."""
+        merged = {**self._client_options, **options}
+        if self.is_multi:
+            merged["max_retries"] = 0
+        return MultiProviderPool(self.slots, pause_seconds=self.pause_seconds, client_options=merged, _parent=self)
+
+    def _client_for(self, slot: ProviderSlot) -> Any:
+        if not self._client_options or not hasattr(slot.client, "with_options"):
+            return slot.client
+        key = id(slot)
+        client = self._option_clients.get(key)
+        if client is None:
+            client = slot.client.with_options(**self._client_options)
+            self._option_clients[key] = client
+        return client
 
     def for_agent(self, agent_id: Any) -> BoundProviderClient:
         """Deterministically assign an agent ID to a provider slot in the pool."""
@@ -307,38 +454,71 @@ class MultiProviderPool:
 
         return adapted
 
+    def _wait_or_raise_if_all_paused(self) -> None:
+        """Multi pool with every slot paused: wait for the first one to come back when that is soon, else fail fast
+        instead of sending one more request to each paused provider."""
+        if not self.is_multi:
+            return
+        now = time.time()
+        with self._lock:
+            if any(s.is_healthy(now) for s in self.slots):
+                return
+            resume = min(s.paused_until for s in self.slots)
+        wait = resume - now
+        if wait > MAX_WAIT_S:
+            raise PoolPausedError(resume)
+        time.sleep(max(0.0, wait))
+
     def _create_completion(self, preferred_index: Optional[int] = None, **kwargs: Any) -> Any:
+        self._wait_or_raise_if_all_paused()
         indices = self._ordered_indices(preferred_index)
+        now = time.time()
+        if self.is_multi:
+            healthy = [i for i in indices if self.slots[i].is_healthy(now)]
+            indices = healthy or indices[:1]           # paused slots are not tried again until their pause ends
         last_error: Optional[Exception] = None
         for attempt, idx in enumerate(indices):
             slot = self.slots[idx]
             call_kwargs = self._adapt_kwargs_for_slot(slot, kwargs, is_failover=(attempt > 0 or (preferred_index is not None and idx != preferred_index)))
             try:
-                resp = slot.client.chat.completions.create(**call_kwargs)
-                usage = getattr(resp, "usage", None)
-                in_tok = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
-                out_tok = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
-                with self._lock:
-                    slot.calls += 1
-                    slot.input_tokens += in_tok
-                    slot.output_tokens += out_tok
-                try:
-                    setattr(resp, "_mm_provider", slot.provider)
-                    setattr(resp, "_mm_model", call_kwargs.get("model") or slot.model)
-                except Exception:
-                    pass
-                return resp
+                resp = self._client_for(slot).chat.completions.create(**call_kwargs)
             except Exception as err:
                 last_error = err
                 is_rl = _is_rate_limit(err)
+                transient = _is_rate_limit_or_transient(err)
                 with self._lock:
                     slot.failures += 1
+                    slot.last_error = type(err).__name__
                     if is_rl:
                         slot.rate_limits += 1
-                        slot.paused_until = time.time() + (slot.pause_seconds or self.pause_seconds)
-                if len(indices) > 1 and _is_rate_limit_or_transient(err):
+                        wait = _retry_after(err) or getattr(err, "retry_at", 0) and max(0.0, err.retry_at - time.time())
+                        slot.paused_until = time.time() + max(float(wait or 0), slot.pause_seconds or self.pause_seconds)
+                    elif transient:
+                        if _is_timeout(err):
+                            slot.timeouts += 1
+                        if self.is_multi:
+                            slot.paused_until = max(slot.paused_until, time.time() + TRANSIENT_PAUSE_S)
+                if len(indices) > 1 and transient:
                     continue
                 raise
+            usage = getattr(resp, "usage", None)
+            in_tok = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+            out_tok = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+            answered = answered_provider(resp) or slot.provider
+            with self._lock:
+                slot.calls += 1
+                slot.input_tokens += in_tok
+                slot.output_tokens += out_tok
+                slot.answered_by[answered] = slot.answered_by.get(answered, 0) + 1
+            try:
+                # the provider that actually produced the answer: a multi gateway reports its backend per call
+                setattr(resp, "_mm_provider", answered)
+                setattr(resp, "_mm_slot_provider", slot.provider)
+                setattr(resp, "_mm_model", getattr(resp, "model", None) if answered != slot.provider and getattr(resp, "model", None)
+                        else (call_kwargs.get("model") or slot.model))
+            except Exception:
+                pass
+            return resp
         if last_error is not None:
             raise last_error
         raise RuntimeError("No provider slots available in MultiProviderPool")
@@ -346,10 +526,17 @@ class MultiProviderPool:
     def summary(self) -> Dict[str, Any]:
         with self._lock:
             slots_info = [s.to_dict() for s in self.slots]
+        by_provider: Dict[str, Dict[str, int]] = {}
+        for s in slots_info:
+            row = by_provider.setdefault(s["provider"], {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                                                         "failures": 0, "rate_limits": 0})
+            for k in row:
+                row[k] += int(s.get(k) or 0)
         return {
             "is_multi": self.is_multi,
             "providers": [s["provider"] for s in slots_info],
             "slots": slots_info,
+            "by_provider": by_provider,
             "total_calls": sum(s["calls"] for s in slots_info),
             "total_input_tokens": sum(s["input_tokens"] for s in slots_info),
             "total_output_tokens": sum(s["output_tokens"] for s in slots_info),
@@ -368,11 +555,27 @@ class MultiProviderPool:
     ) -> "MultiProviderPool":
         """
         Build a `MultiProviderPool` from environment variables (`LLM_POOL` or auto-discovered keys).
+
+        Gateway providers (codex, antigravity, claude_code, gemini_cli) need `<NAME>_GATEWAY_URL` and
+        `<NAME>_GATEWAY_KEY` (the token file of that gateway); `LLM_BASE_URL`/`LLM_API_KEY` are used for them only
+        when `LLM_GATEWAY` names that same backend. They never use OPENAI_API_KEY.
         """
         env_map = dict(os.environ if env is None else env)
+        retries: Dict[str, int] = {}
         if client_factory is None:
             from openai import OpenAI
-            client_factory = lambda api_key, base_url: OpenAI(api_key=api_key, base_url=base_url)
+
+            def client_factory(api_key, base_url, **kw):
+                return OpenAI(api_key=api_key, base_url=base_url, **kw)
+        factory = client_factory
+
+        def build(key: str, base_url: str) -> Any:
+            if retries:
+                try:
+                    return factory(api_key=key, base_url=base_url, **retries)
+                except TypeError:                 # test factories that take only api_key/base_url
+                    pass
+            return factory(api_key=key, base_url=base_url)
 
         pool_spec = (env_map.get("LLM_POOL") or "").strip()
         specs: List[Dict[str, str]] = []
@@ -386,7 +589,7 @@ class MultiProviderPool:
                 except ValueError:
                     specs = []
             elif pool_spec.lower() in ("auto", "all", "*"):
-                for prov in ("claude", "openai", "gemini"):
+                for prov in ("claude", "openai", "gemini", *GATEWAY_PROVIDERS):
                     specs.append({"provider": prov})
             else:
                 for item in pool_spec.split(","):
@@ -395,51 +598,61 @@ class MultiProviderPool:
                         continue
                     if ":" in part:
                         prov, mod = part.split(":", 1)
-                        specs.append({"provider": canonical_provider(prov), "model": mod.strip()})
+                        specs.append({"provider": PROVIDER_ALIASES.get(prov.strip().lower(), prov.strip().lower()), "model": mod.strip()})
                     else:
-                        specs.append({"provider": canonical_provider(part)})
+                        specs.append({"provider": PROVIDER_ALIASES.get(part.lower(), part.lower())})
 
-        slots: List[ProviderSlot] = []
-        seen = set()
-
+        llm_gateway = (env_map.get("LLM_GATEWAY") or "").strip().lower()
+        llm_provider = (env_map.get("LLM_PROVIDER") or "").strip().lower()
+        resolved: List[Dict[str, str]] = []
         for spec in specs:
-            prov = canonical_provider(spec.get("provider"), spec.get("base_url"), spec.get("model"))
+            prov = PROVIDER_ALIASES.get(str(spec.get("provider") or "").strip().lower()) or \
+                canonical_provider(spec.get("provider"), spec.get("base_url"), spec.get("model"), env=env_map)
             defaults = PROVIDER_DEFAULTS.get(prov, PROVIDER_DEFAULTS["openai"])
             key = spec.get("api_key") or ""
-            if not key:
+            base_url = spec.get("base_url") or ""
+            if prov in GATEWAY_PROVIDERS:
+                upper = prov.upper()
+                same_gateway = llm_gateway in (defaults.get("gateway"), prov) or (prov == "codex" and llm_gateway in ("chatgpt", "siwc"))
+                base_url = base_url or env_map.get(f"{upper}_GATEWAY_URL") or (env_map.get("LLM_BASE_URL", "") if same_gateway else "")
+                key = key or env_map.get(f"{upper}_GATEWAY_KEY") or (env_map.get("LLM_API_KEY", "") if same_gateway else "")
+                if not (key and base_url):
+                    continue
+            elif not key:
                 if prov == "claude":
-                    key = env_map.get("ANTHROPIC_API_KEY") or (env_map.get("LLM_API_KEY") if canonical_provider(env_map.get("LLM_PROVIDER")) == "claude" else "") or ""
+                    key = env_map.get("ANTHROPIC_API_KEY") or (env_map.get("LLM_API_KEY") if llm_provider in ("claude", "anthropic") else "") or ""
                 elif prov in ("openai", "chatgpt"):
-                    key = env_map.get("OPENAI_API_KEY") or env_map.get("CHATGPT_API_KEY") or (env_map.get("LLM_API_KEY") if canonical_provider(env_map.get("LLM_PROVIDER")) in ("openai", "chatgpt") else "") or ""
-                elif prov == "codex":
-                    key = env_map.get("CODEX_API_KEY") or env_map.get("OPENAI_API_KEY") or (env_map.get("LLM_API_KEY") if canonical_provider(env_map.get("LLM_PROVIDER")) == "codex" or env_map.get("LLM_GATEWAY") in ("codex", "chatgpt", "multi") else "") or ""
+                    key = env_map.get("OPENAI_API_KEY") or env_map.get("CHATGPT_API_KEY") or (env_map.get("LLM_API_KEY") if llm_provider in ("openai", "chatgpt") and not llm_gateway else "") or ""
                 elif prov == "gemini":
-                    key = env_map.get("GEMINI_API_KEY") or env_map.get("GOOGLE_API_KEY") or (env_map.get("LLM_API_KEY") if canonical_provider(env_map.get("LLM_PROVIDER")) == "gemini" else "") or ""
+                    key = env_map.get("GEMINI_API_KEY") or env_map.get("GOOGLE_API_KEY") or (env_map.get("LLM_API_KEY") if llm_provider == "gemini" else "") or ""
                 elif prov == "ollama":
                     key = "local"
             if not key and prov != "ollama":
                 continue
-            base_url = spec.get("base_url") or env_map.get(f"{prov.upper()}_BASE_URL") or defaults["base_url"]
+            base_url = base_url or env_map.get(f"{prov.upper()}_BASE_URL") or defaults["base_url"]
             model = spec.get("model") or env_map.get(f"{prov.upper()}_MODEL_NAME") or defaults["model"]
-            sig = (prov, base_url, model)
+            resolved.append({"provider": prov, "model": model, "base_url": base_url, "api_key": key})
+
+        slots: List[ProviderSlot] = []
+        seen = set()
+        if len(resolved) > 1:
+            retries["max_retries"] = 0           # the pool fails over; SDK retries would hammer the failing provider
+        for r in resolved:
+            sig = (r["provider"], r["base_url"], r["model"])
             if sig in seen:
                 continue
             seen.add(sig)
-            slots.append(
-                ProviderSlot(
-                    provider=prov,
-                    model=model,
-                    base_url=base_url,
-                    api_key=key,
-                    client=client_factory(api_key=key, base_url=base_url),
-                )
-            )
+            slots.append(ProviderSlot(provider=r["provider"], model=r["model"], base_url=r["base_url"],
+                                      api_key=r["api_key"], client=build(r["api_key"], r["base_url"])))
 
         if not slots:
+            retries.clear()
+            base_url = primary_base_url or env_map.get("LLM_BASE_URL")
             prov = canonical_provider(
                 primary_provider or env_map.get("LLM_PROVIDER", "claude"),
-                primary_base_url or env_map.get("LLM_BASE_URL"),
+                base_url,
                 primary_model or env_map.get("LLM_MODEL_NAME"),
+                env=env_map,
             )
             defaults = PROVIDER_DEFAULTS.get(prov, PROVIDER_DEFAULTS["claude"])
             key = (
@@ -450,16 +663,9 @@ class MultiProviderPool:
                 or (env_map.get("OPENAI_API_KEY") if prov == "openai" else None)
                 or "local"
             )
-            base_url = primary_base_url or env_map.get("LLM_BASE_URL") or defaults["base_url"]
+            base_url = base_url or defaults["base_url"] or PROVIDER_DEFAULTS["claude"]["base_url"]
             model = primary_model or env_map.get("LLM_MODEL_NAME") or defaults["model"]
-            slots.append(
-                ProviderSlot(
-                    provider=prov,
-                    model=model,
-                    base_url=base_url,
-                    api_key=key,
-                    client=client_factory(api_key=key, base_url=base_url),
-                )
-            )
+            slots.append(ProviderSlot(provider=prov, model=model, base_url=base_url, api_key=key,
+                                      client=build(key, base_url)))
 
         return cls(slots)

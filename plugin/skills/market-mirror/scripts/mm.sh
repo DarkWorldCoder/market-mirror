@@ -6,11 +6,14 @@
 #   mm.sh configure             choose local models, hosted API, or a login gateway (hidden key input)
 #   mm.sh provider ACTION       list/status/check/configure provider settings; use --key-env for agent setup
 #   mm.sh agent-config          print portable MCP config (--client codex|claude|cursor|gemini|generic)
-#   mm.sh start | stop          start or stop the backend (port 5001)
+#   mm.sh start | stop [--port N] [--env-file F]   start or stop a backend (default port 5001; other ports keep
+#                               their data in backend/uploads-<port>, so several backends run side by side)
 #   mm.sh scenario NAME FILE... copy documents into <home>/scenarios/NAME/ and print that folder
 #   mm.sh cli ARGS...           run the MiroFish CLI from the engine folder (see its --help)
 #   mm.sh live [ARGS...]        serve the live dashboard on http://127.0.0.1:5050/ (foreground)
-#   mm.sh gateway login|start|stop|status [siwc|claude|codex]   eligible ChatGPT sign-in or local CLI gateway
+#   mm.sh gateway login|start|stop|status [claude|codex|gemini|antigravity|chatgpt|siwc|multi] [--port N] [--model M]
+#                               local login gateway (default port 5055, writes .env); --port N runs another one
+#                               side by side and writes .env.<backend> for a backend started with --env-file
 #   mm.sh home                  print the engine folder
 #   mm.sh mcp                   run the MCP server (stdio) exposing all of this as agent tools
 #
@@ -66,10 +69,12 @@ doctor() {
       say "gateway: configured (LLM_GATEWAY=$(grep -E '^LLM_GATEWAY=' "$HOME_DIR/.env" | cut -d= -f2-)); $(curl -fsS -m 2 http://127.0.0.1:5055/health >/dev/null 2>&1 && echo running || echo 'stopped (run: mm.sh gateway start)')"
     else
       ok=0
-      command -v claude >/dev/null && say "no key, but 'claude' is installed: 'mm.sh gateway start claude' runs on your Claude Code login (personal use)"
-      command -v codex  >/dev/null && say "no key, but 'codex' is installed: 'mm.sh gateway start codex' runs on your ChatGPT login (personal use)"
-      command -v gemini >/dev/null && say "no key, but 'gemini' is installed: 'mm.sh gateway start gemini' runs on your Gemini CLI login (personal use)"
-      (command -v claude >/dev/null || command -v codex >/dev/null || command -v gemini >/dev/null) && say "multi-agent pool: 'mm.sh gateway start multi' pools all installed local CLIs together"
+      for cli in claude codex antigravity gemini; do
+        if [ -x "$PY" ] && "$PY" "$HOME_DIR/backend/gateway/local_gateway.py" --backend "$cli" --check >/dev/null 2>&1; then
+          say "no key, but the $cli CLI is installed: 'mm.sh gateway start $cli' runs on its login (personal use; add --port N to run several side by side)"
+        fi
+      done
+      say "multi-agent pool: 'mm.sh gateway start multi' pools all installed local CLIs together"
     fi ;;
   esac
   if [ -f "$HOME_DIR/.env" ]; then
@@ -108,10 +113,13 @@ case "$cmd" in
     ;;
   start)
     [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
-    case $(key_status) in set*) ;; *) die "provider not configured; run mm.sh configure (local models and login gateways are available)" ;; esac
-    cd "$HOME_DIR" && bash backend/claude_cli/start_server.sh
+    case " $* " in
+      *" --env-file"*) ;;           # a per-instance settings file (written by: mm.sh gateway start BACKEND --port N)
+      *) case $(key_status) in set*) ;; *) die "provider not configured; run mm.sh configure (local models and login gateways are available)" ;; esac ;;
+    esac
+    cd "$HOME_DIR" && bash backend/claude_cli/start_server.sh "$@"
     ;;
-  stop) cd "$HOME_DIR" && bash backend/claude_cli/stop_server.sh ;;
+  stop) cd "$HOME_DIR" && bash backend/claude_cli/stop_server.sh "$@" ;;
   scenario)
     name="${1:-}"; [ -n "$name" ] || die "usage: mm.sh scenario NAME FILE..."; shift
     case "$name" in .*|*[!A-Za-z0-9._-]*) die "scenario name must start with a letter or digit and use only letters, digits, . _ -" ;; esac
@@ -129,41 +137,81 @@ case "$cmd" in
     ;;
   gateway)
     [ -x "$PY" ] || die "not set up yet (run: mm.sh setup)"
-    sub="${1:-status}"; be="${2:-$(grep -E '^LLM_GATEWAY=' "$HOME_DIR/.env" 2>/dev/null | cut -d= -f2-)}"; be="${be:-claude}"
-    pidf="$HOME_DIR/backend/logs/gateway.pid"; mkdir -p "$HOME_DIR/backend/logs"
-    tokenf="$HOME_DIR/backend/logs/gateway.token"
+    gw_usage="usage: mm.sh gateway login|start|stop|status [claude|codex|gemini|antigravity|chatgpt|siwc|multi] [--port N] [--model M] [--env-file F]"
+    sub="${1:-status}"; [ $# -eq 0 ] || shift
+    be=""; port="5055"; gw_model=""; envf=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --port) port="${2:-}"; shift ;;
+        --port=*) port="${1#*=}" ;;
+        --model) gw_model="${2:-}"; shift ;;
+        --model=*) gw_model="${1#*=}" ;;
+        --env-file) envf="${2:-}"; shift ;;
+        --env-file=*) envf="${1#*=}" ;;
+        -*) die "$gw_usage" ;;
+        *) [ -z "$be" ] || die "$gw_usage"; be="$1" ;;
+      esac
+      shift
+    done
+    case "$port" in ''|*[!0-9]*) die "--port must be a number" ;; esac
+    if [ -z "$be" ] && [ "$sub" = start ]; then
+      be="$(grep -E '^LLM_GATEWAY=' "$HOME_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"')"; be="${be:-claude}"
+    fi
+    case "${be:-claude}" in claude|codex|gemini|antigravity|chatgpt|siwc|multi) ;; *) die "unknown gateway backend '$be'; $gw_usage" ;; esac
+    # one pid/token/log file per port, so several gateways (one per provider) run side by side
+    if [ "$port" = 5055 ]; then sfx=""; else sfx="-$port"; fi
+    mkdir -p "$HOME_DIR/backend/logs"
+    pidf="$HOME_DIR/backend/logs/gateway$sfx.pid"
+    tokenf="$HOME_DIR/backend/logs/gateway$sfx.token"
+    logf="$HOME_DIR/backend/logs/gateway$sfx.out"
+    url="http://127.0.0.1:$port"
     case "$sub" in
       login) cd "$HOME_DIR" && exec "$PY" backend/gateway/siwc_auth.py login ;;
       start)
         if [ "$be" = siwc ]; then
           "$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("eligible_scope") and not s.get("needs_login") else 1)' || die "Continue with ChatGPT is not ready (run: mm.sh gateway login)"
-        elif [ "$be" = chatgpt ]; then
-          command -v codex >/dev/null || "$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("eligible_scope") and not s.get("needs_login") else 1)' || die "ChatGPT gateway needs either 'codex' CLI installed or 'mm.sh gateway login'"
-        elif [ "$be" = multi ]; then
-          (command -v claude >/dev/null || command -v codex >/dev/null || command -v gemini >/dev/null) || die "no local CLI (claude, codex, or gemini) found on PATH for multi gateway"
         else
-          command -v "$be" >/dev/null || die "'$be' CLI not found on PATH (install it and log in first)"
+          # the gateway finds each CLI on PATH or in its known install locations (codex in the ChatGPT app, agy in ~/.local/bin)
+          "$PY" "$HOME_DIR/backend/gateway/local_gateway.py" --backend "$be" --check >/dev/null 2>&1 \
+            || die "'$be' is not available (install its CLI and log in first; for multi, at least one of claude, codex, antigravity, gemini)"
         fi
-        if [ ! -s "$tokenf" ]; then umask 077; "$PY" -c 'import secrets,sys; open(sys.argv[1],"w").write(secrets.token_urlsafe(48))' "$tokenf"; fi
-        if curl -fsS -m 2 http://127.0.0.1:5055/health >/dev/null 2>&1; then
-          curl -fsS -m 2 http://127.0.0.1:5055/health | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("auth_required") and s.get("backend")==sys.argv[1] else 1)' "$be" || die "a different or unauthenticated gateway is on port 5055; stop it before starting this provider"
-          say "gateway already running"
+        if [ ! -s "$tokenf" ]; then (umask 077; "$PY" -c 'import secrets,sys; open(sys.argv[1],"w").write(secrets.token_urlsafe(48))' "$tokenf"); fi
+        if curl -fsS -m 2 "$url/health" >/dev/null 2>&1; then
+          curl -fsS -m 2 "$url/health" | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("auth_required") and s.get("backend")==sys.argv[1] else 1)' "$be" || die "a different or unauthenticated gateway is on port $port; stop it or pick another --port"
+          say "gateway already running ($be on $url)"
         else
-          (cd "$HOME_DIR" && nohup "$PY" backend/gateway/local_gateway.py --backend "$be" --auth-token-file "$tokenf" > backend/logs/gateway.out 2>&1 & echo $! > "$pidf")
-          for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS -m 1 http://127.0.0.1:5055/health >/dev/null 2>&1 && break; sleep 0.5; done
-          say "gateway started ($be) on http://127.0.0.1:5055/v1"
+          margs=(); [ -n "$gw_model" ] && margs=(--model "$gw_model")
+          (cd "$HOME_DIR" && nohup "$PY" backend/gateway/local_gateway.py --backend "$be" --port "$port" --auth-token-file "$tokenf" ${margs[@]+"${margs[@]}"} > "$logf" 2>&1 & echo $! > "$pidf")
+          for _ in $(seq 1 20); do curl -fsS -m 1 "$url/health" >/dev/null 2>&1 && break; sleep 0.5; done
+          curl -fsS -m 1 "$url/health" >/dev/null 2>&1 || { tail -n 20 "$logf" >&2; die "gateway did not start; see $logf"; }
+          say "gateway started ($be) on $url/v1 (log $logf)"
         fi
-        umask 077
-        model="$be"
-        if [ "$be" = siwc ]; then model=$("$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("model") or "")'); fi
-        { grep -Ev '^(LLM_PROVIDER|LLM_BASE_URL|LLM_API_KEY|LLM_GATEWAY|LLM_MODEL_NAME|MARKET_MIRROR_PROVIDER)=' "$HOME_DIR/.env" 2>/dev/null || true
-          printf 'LLM_PROVIDER=openai\nLLM_BASE_URL=http://127.0.0.1:5055/v1\nLLM_API_KEY=%s\nLLM_GATEWAY=%s\nLLM_MODEL_NAME=%s\n' "$(cat "$tokenf")" "$be" "$model"; } > "$HOME_DIR/.env.tmp"
-        mv "$HOME_DIR/.env.tmp" "$HOME_DIR/.env"; say "wrote gateway settings to $HOME_DIR/.env (restart the backend: mm.sh stop && mm.sh start)" ;;
-      stop) [ -f "$pidf" ] && kill "$(cat "$pidf")" 2>/dev/null && rm -f "$pidf" && say "gateway stopped" || say "gateway not running" ;;
-      status) curl -fsS -m 2 http://127.0.0.1:5055/health 2>/dev/null || say "gateway stopped" ;;
-      *) die "usage: mm.sh gateway login|start|stop|status [siwc|claude|codex]" ;;
+        model="${gw_model:-$be}"
+        if [ "$be" = siwc ] && [ -z "$gw_model" ]; then model=$("$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("model") or "")'); fi
+        # settings: the default port writes .env (as before); other ports write a settings file for that provider,
+        # used by a backend instance started with: mm.sh start --port P --env-file F
+        if [ -z "$envf" ]; then
+          if [ "$port" = 5055 ]; then envf="$HOME_DIR/.env"; else envf="$HOME_DIR/.env.$be"; fi
+        fi
+        case "$envf" in /*) ;; *) envf="$PWD/$envf" ;; esac
+        base_env="$envf"; [ -f "$base_env" ] || base_env="$HOME_DIR/.env"
+        (umask 077
+         { grep -Ev '^(LLM_PROVIDER|LLM_BASE_URL|LLM_API_KEY|LLM_GATEWAY|LLM_MODEL_NAME|LLM_POOL|MARKET_MIRROR_PROVIDER)=' "$base_env" 2>/dev/null || true
+           printf 'LLM_PROVIDER=openai\nLLM_BASE_URL=%s/v1\nLLM_API_KEY=%s\nLLM_GATEWAY=%s\nLLM_MODEL_NAME=%s\n' "$url" "$(cat "$tokenf")" "$be" "$model"; } > "$envf.tmp")
+        mv "$envf.tmp" "$envf"
+        if [ "$envf" = "$HOME_DIR/.env" ]; then
+          say "wrote gateway settings to $envf (restart the backend: mm.sh stop && mm.sh start)"
+        else
+          say "wrote gateway settings to $envf; start a backend on it with:"
+          say "  mm.sh start --port <backend port, e.g. 5011> --env-file $envf"
+          say "  (its data goes to backend/uploads-<port>; point the CLI at it with MIROFISH_URL=http://localhost:<port>)"
+        fi ;;
+      stop)
+        if [ -f "$pidf" ] && kill "$(cat "$pidf")" 2>/dev/null; then rm -f "$pidf"; say "gateway on port $port stopped"; else rm -f "$pidf"; say "no gateway running on port $port"; fi ;;
+      status) curl -fsS -m 2 "$url/health" 2>/dev/null || say "no gateway on port $port" ;;
+      *) die "$gw_usage" ;;
     esac ;;
   mcp) exec python3 "$(dirname "$0")/mcp_server.py" "$@" ;;
-  help|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$cmd' (try: mm.sh help)" ;;
 esac

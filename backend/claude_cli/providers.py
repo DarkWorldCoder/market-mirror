@@ -34,6 +34,8 @@ CATALOG = {
     "codex": {"label": "Existing local Codex CLI login", "gateway": True, "guide": "codex login"},
     "claude": {"label": "Existing local Claude Code login", "gateway": True, "guide": "claude auth login"},
     "gemini_cli": {"label": "Existing local Gemini CLI login", "gateway": True, "gateway_name": "gemini", "guide": "gemini"},
+    "antigravity": {"label": "Existing local Antigravity CLI login (agy; Gemini models by default)", "gateway": True,
+                    "gateway_name": "antigravity", "guide": "agy"},
     "multi": {"label": "Multi-Provider Agent Pool (Claude + ChatGPT/Codex + Gemini together)", "gateway": True, "gateway_name": "multi", "guide": "mm.sh gateway start multi"},
 }
 KEYS = {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "LLM_POOL", "MARKET_MIRROR_PROVIDER"}
@@ -69,6 +71,66 @@ def validate_url(url: str) -> str:
     return url.rstrip("/")
 
 
+# LLM_POOL entry -> (LLM_PROVIDER, default base URL, default model) of the single provider written next to the pool
+POOL_PRIMARY = {
+    "claude": ("claude", "https://api.anthropic.com/v1/", "claude-haiku-4-5"),
+    "anthropic": ("claude", "https://api.anthropic.com/v1/", "claude-haiku-4-5"),
+    "openai": ("openai", "https://api.openai.com/v1", "gpt-4o-mini"),
+    "chatgpt": ("openai", "https://api.openai.com/v1", "gpt-4o-mini"),
+    "gpt": ("openai", "https://api.openai.com/v1", "gpt-4o-mini"),
+    "gemini": ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
+    "google": ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
+    "ollama": ("openai", "http://127.0.0.1:11434/v1", "llama3.2"),
+}
+GATEWAY_POOL_ENTRIES = ("codex", "antigravity", "claude_code", "gemini_cli")
+
+
+def _pool_entries(pool: str) -> list:
+    if pool.startswith("["):
+        try:
+            rows = json.loads(pool)
+        except ValueError:
+            raise ValueError("LLM_POOL JSON must be a list of {provider, model?, base_url?}")
+        return [(str(r.get("provider") or "").lower(), str(r.get("model") or ""), str(r.get("base_url") or ""))
+                for r in rows if isinstance(r, dict)]
+    out = []
+    for part in pool.split(","):
+        prov, _, mod = part.strip().partition(":")
+        if prov:
+            out.append((prov.strip().lower(), mod.strip(), ""))
+    return out
+
+
+def primary_from_pool(pool: str, base_url: str = "", key: str = "") -> dict:
+    """The single LLM_* provider that single-provider stages use when LLM_POOL is set: the first hosted entry
+    (its key comes from ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY, or --key-env), else the first gateway
+    entry, which needs its gateway URL (base_url or <NAME>_GATEWAY_URL) and token (key or <NAME>_GATEWAY_KEY)."""
+    entries = _pool_entries(pool)
+    if not entries:
+        raise ValueError("LLM_POOL is empty")
+    for prov, mod, url in entries:
+        if prov in POOL_PRIMARY:
+            llm_prov, default_url, default_model = POOL_PRIMARY[prov]
+            values = {"LLM_PROVIDER": llm_prov, "LLM_BASE_URL": validate_url(url or base_url or default_url),
+                      "LLM_MODEL_NAME": mod or default_model}
+            if key.strip():
+                values["LLM_API_KEY"] = key.strip()
+            elif prov == "ollama":
+                values["LLM_API_KEY"] = "local"
+            return values
+    for prov, mod, url in entries:
+        if prov in GATEWAY_POOL_ENTRIES:
+            gw_url = url or base_url or os.environ.get(f"{prov.upper()}_GATEWAY_URL", "")
+            gw_key = key.strip() or os.environ.get(f"{prov.upper()}_GATEWAY_KEY", "")
+            if not (gw_url and gw_key):
+                raise ValueError(f"the pool's first entry {prov!r} is a login gateway: start it (mm.sh gateway start "
+                                 f"{prov} --port N) and set {prov.upper()}_GATEWAY_URL / {prov.upper()}_GATEWAY_KEY")
+            gateway = {"claude_code": "claude", "gemini_cli": "gemini"}.get(prov, prov)
+            return {"LLM_PROVIDER": "openai", "LLM_BASE_URL": validate_url(gw_url), "LLM_API_KEY": gw_key,
+                    "LLM_GATEWAY": gateway, "LLM_MODEL_NAME": mod or gateway}
+    raise ValueError("LLM_POOL has no provider this setup knows (claude, openai, gemini, ollama, codex, antigravity)")
+
+
 def write_config(root: Path, provider: str, model: str, base_url: str = "", key: str = "", pool: str = "") -> dict:
     spec = CATALOG[provider]
     if spec.get("gateway") and not (provider == "multi" and pool.strip()):
@@ -78,12 +140,10 @@ def write_config(root: Path, provider: str, model: str, base_url: str = "", key:
     if any(c in value for value in (model, base_url, key, pool) for c in ("\r", "\n", "\x00", "${")):
         raise ValueError("configuration values must be single-line strings")
     if provider == "multi" and pool.strip():
-        values = {
-            "LLM_PROVIDER": "multi",
-            "LLM_MODEL_NAME": model.strip(),
-            "LLM_POOL": pool.strip(),
-            "MARKET_MIRROR_PROVIDER": "multi",
-        }
+        # Pool-aware stages spread calls over LLM_POOL; every other stage (graph build, ontology, OASIS rounds,
+        # reports) still uses the single LLM_* provider, so keep a valid one: the pool's first entry.
+        values = {**primary_from_pool(pool.strip(), base_url, key),
+                  "LLM_POOL": pool.strip(), "MARKET_MIRROR_PROVIDER": "multi"}
     else:
         endpoint = validate_url(base_url or spec["base_url"])
         if spec["key_required"] and not key.strip():
