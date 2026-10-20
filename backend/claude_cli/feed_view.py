@@ -180,7 +180,7 @@ def _seeds_html(ft: Dict[str, Any], ranked: List[str], labels: List[str]) -> str
                              for k in ("expected_ctr", "thumb_stop", "engagement_rate"))
                    + f'<td class="num">{wins.get(cid, 0)} of {n}</td></tr>' for cid, lbl in zip(ranked, labels))
     u = ms.get("usage") or {}
-    cost = (f' Cost of all {n} runs: {u.get("calls", 0):,} Claude calls, {u.get("input_tokens", 0):,} input and '
+    cost = (f' Cost of all {n} runs: {u.get("calls", 0):,} model calls, {u.get("input_tokens", 0):,} input and '
             f'{u.get("output_tokens", 0):,} output tokens.') if u.get("calls") else ""
     agree = ms.get("winner_agreement")
     verdict = ("The winner is stable across seeds." if agree is not None and agree >= 80 else

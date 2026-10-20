@@ -291,7 +291,7 @@ class MultiSeedViewTest(unittest.TestCase):
         self.assertIn("Across 3 seeds", html)
         self.assertIn("3.2% (2.0–4.5)", html)
         self.assertIn("2.0–4.5% across 3 seeds", html)
-        self.assertIn("300 Claude calls", html)
+        self.assertIn("300 model calls", html)
         self.assertIn("2 of 3", html)
         self.assertIn("winner changes between seeds", html)
         self.assertIn("Shown to 20 simulated people", html)          # per seed, not pooled impressions
@@ -334,8 +334,8 @@ class MultiSeedViewTest(unittest.TestCase):
         self.assertEqual(out["ranges"]["a"]["expected_ctr"], [2.0, 4.5])
         log = "\n".join(lines)
         self.assertIn("3 seeds", log)
-        self.assertEqual(log.count("100 Claude calls"), 3)
-        self.assertIn("total cost 300 Claude calls, 450,000 input / 60,000 output tokens", log)
+        self.assertEqual(log.count("100 model calls"), 3)
+        self.assertIn("total cost 300 model calls, 450,000 input / 60,000 output tokens", log)
         self.assertIn("a ranked first in 67% of 3 seeds", log)
 
 

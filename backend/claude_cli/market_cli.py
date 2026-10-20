@@ -170,8 +170,10 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     return out
 
 
-def _usage_txt(u: Dict[str, Any]) -> str:
-    return (f"{u.get('calls', 0)} Claude calls, {u.get('input_tokens', 0):,} input / "
+def _usage_txt(u: Dict[str, Any], by_provider: Optional[Dict[str, Any]] = None) -> str:
+    split = ", ".join(f"{k} {int((v or {}).get('calls') or 0)}" for k, v in (by_provider or {}).items()
+                      if isinstance(v, dict))
+    return (f"{u.get('calls', 0)} model calls{f' ({split})' if split else ''}, {u.get('input_tokens', 0):,} input / "
             f"{u.get('output_tokens', 0):,} output tokens")
 
 
@@ -181,7 +183,7 @@ def log_cost(result: Dict[str, Any], log) -> None:
     for i, ps in enumerate(ms.get("per_seed") or []):
         log(f"feedtest: seed {ps.get('seed')} ({i + 1}/{ms.get('n')}): {_usage_txt(ps.get('usage') or {})}")
     if result.get("usage"):
-        log(f"feedtest: total cost {_usage_txt(result['usage'])}")
+        log(f"feedtest: total cost {_usage_txt(result['usage'], result.get('usage_by_provider'))}")
     if ms.get("winner_agreement") is not None:
         top = ((result.get("summary") or {}).get("ranked") or ["?"])[0]
         log(f"feedtest: {top} ranked first in {ms['winner_agreement']}% of {ms.get('n')} seeds")

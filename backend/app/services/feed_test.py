@@ -1293,7 +1293,7 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
     """Run the feed test once per seed (assignment, placements, attention and traits all change) and combine.
 
     One seed returns the plain single-run result. The organic pools are generated once and shared by every
-    seed, and the seeds run concurrently (FEED_TEST_SEED_WORKERS, default 4). Every run logs its Claude calls
+    seed, and the seeds run concurrently (FEED_TEST_SEED_WORKERS, default 4). Every run logs its model calls
     and tokens; the shared pool calls are counted in the first seed's usage."""
     seeds = list(seeds or [5])
     # seeds run concurrently, so each gets its own meter on the raw client: per-seed counts stay exact
@@ -1332,7 +1332,7 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
         r = run_feed_test(UsageMeter(base), model, creatives, people, seed=sd, progress=prog,
                           benchmarks=benchmarks, pools=pools, **kw)
         u = r["usage"]
-        logger.info(f"feed test seed {sd} ({i + 1}/{len(seeds)}): {u['calls']} Claude calls, "
+        logger.info(f"feed test seed {sd} ({i + 1}/{len(seeds)}): {u['calls']} model calls, "
                     f"{u['input_tokens']} input / {u['output_tokens']} output tokens")
         return r
 
