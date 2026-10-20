@@ -1,4 +1,4 @@
-"""Tests for Agent Thoughts, Production Readiness, GTM Suite, CRO Lab, and Search & GEO Intelligence."""
+"""Tests for Agent Thoughts, Production Readiness, GTM Suite, CRO Lab, search and the search / VoC / cascade tests."""
 
 import json
 from types import SimpleNamespace
@@ -22,9 +22,13 @@ class FakeSmartLLM:
 
     def create(self, **kw):
         user = kw["messages"][1]["content"]
+        assert isinstance(user, str), f"prompt must be a string, got {type(user).__name__}"
+        assert isinstance(kw["messages"][0]["content"], str)
         self.calls.append(user)
 
-        if "private_verdict" in user and "conviction_0_10" in user:
+        if user.startswith("Question: "):
+            body = {"answer": "Buyers cite card friction [#1] and budget [#2] [#9].", "key_points": ["[#1] Card trust", "[#2] Price"]}
+        elif "private_verdict" in user and "conviction_0_10" in user:
             body = {
                 "thought": "7 days free sounds nice, but if they ask for my debit card upfront I'm closing the tab.",
                 "gut": "skeptical",
@@ -195,14 +199,18 @@ class FakeSmartLLM:
                 "cta": "Try 7 days free",
                 "angle": "Directly answers card and schedule objections",
             }
-        elif '"search_query"' in user and '"known_alternatives"' in user:
+        elif '"known_options"' in user and '"would_look_for_help"' in user:
             body = {
+                "would_look_for_help": "yes",
                 "search_query": "best 15 minute home workout app without credit card",
-                "known_alternatives": ["Free YouTube", "Local Gym"],
-                "would_ask_ai_about_brand": "Does FitLoop charge my card automatically after 7 days?",
+                "known_options": ["Free workout videos", "Local Gym"],
+            }
+        elif '"verify_question"' in user and '"would_shortlist"' in user:
+            body = {
                 "understood_category": "Home fitness habit app",
                 "would_shortlist": "yes",
-                "missing_fact": "Whether eSewa or Khalti is accepted",
+                "verify_question": "Does FitLoop charge my card automatically after 7 days?",
+                "missing_fact": "Which local payment methods are accepted",
                 "missing_type": "price",
             }
         elif '"llms_txt"' in user and '"faqs"' in user:
@@ -212,32 +220,28 @@ class FakeSmartLLM:
                     {
                         "question": "What is FitLoop?",
                         "answer": "FitLoop is a 15-min home routine starting with a 7-day free trial.",
-                        "in_facts": True,
                     }
                 ],
-                "unanswered_gaps": ["Local wallet options"],
+                "unanswered_gaps": ["Local payment options"],
             }
-        elif '"exact_phrase"' in user and '"plain_meaning"' in user:
+        elif '"key_phrase"' in user and '"plain_meaning"' in user:
             body = {
                 "concern_type": "trust",
-                "exact_phrase": "asks for a card before I see one workout",
+                "key_phrase": "asks for a card before I see one workout",
                 "plain_meaning": "Upfront credit card requirement blocks trial signup",
             }
         elif '"would_share"' in user and '"message_you_would_send"' in user:
             body = {
                 "would_share": "yes",
-                "channel": "whatsapp_dm",
+                "channel": "direct_message",
                 "who": "my sister",
                 "message_you_would_send": "Check out this 15-min home workout, looks easy to do at home.",
                 "why": "We work out together at home.",
             }
-        elif '"reaction_to_friend_forward"' in user:
-            body = {
-                "reaction_to_friend_forward": "Since my sister sent it, I trust it much more than an ad.",
-                "would_try_from_friend": "yes",
-                "would_try_if_seen_as_cold_ad": "maybe",
-                "would_forward_again": "yes",
-            }
+        elif '"would_try"' in user and '"would_forward_again"' in user:
+            body = {"would_try": "yes", "reaction": "A friend sent it, so I would give it a go.", "would_forward_again": "maybe"}
+        elif '"would_try"' in user:
+            body = {"would_try": "maybe", "reaction": "Looks fine, but it is just another ad."}
         else:
             body = {"answer": "Buyers cite card friction [#1] and budget [#2].", "key_points": ["[#1] Card trust", "[#2] Price"]}
 
@@ -400,19 +404,20 @@ def test_full_gtm_cro_and_search_geo_engines_and_views(tmp_path):
     assert wi["engine"] == "whatif" and wi["answered"] == 2
     assert sp["engine"] == "personalize" and len(sp["summary"]["segments"]) == 2
 
-    # 3. Search, GEO, VoC Grounding & Dark-Social Cascade engines
+    # 3. How buyers would search, real vs simulated concerns, word-of-mouth cascade
     geo = sg.run_geo_visibility_audit(llm, "gemini-2.5-flash", offer=offer, people=people)
     voc = sg.run_voc_grounding(
-        llm, "gemini-2.5-flash", offer=offer, people=people,
-        raw_reviews=["Every app asks for a card before I see one workout.", "Why pay when YouTube workouts are free?"],
+        llm, "gemini-2.5-flash",
+        raw_reviews=["Every app asks for a card before I see one workout.", "Why pay when free workout videos exist?"],
         run_data=run_data,
     )
     casc = sg.run_dark_social_cascade(llm, "gemini-2.5-flash", people=people, offer=offer)
     assert geo["engine"] == "geo" and geo["summary"]["would_shortlist"]["yes"]["k"] == 2
+    assert geo["asked"] == 4 and geo["summary"]["would_look_for_help"]["yes"]["k"] == 2
     assert geo["summary"]["llms_txt"].startswith("# FitLoop")
     assert voc["engine"] == "voc" and voc["summary"]["available"] is True
     assert casc["engine"] == "cascade" and casc["summary"]["would_share"]["yes"]["k"] >= 1
-    assert casc["summary"]["wave2_peer_pickup"] is not None
+    assert casc["summary"]["wave2_peer_pickup"]["available"] is False   # 2 people: 1 in wave 1 leaves 1 for wave 2
 
     # 4. Hybrid BM25 + Concept Search & Cited Copilot
     bundle = {
@@ -434,8 +439,8 @@ def test_full_gtm_cro_and_search_geo_engines_and_views(tmp_path):
     assert "trust" in hits["expansion"]["matched_concepts"]
 
     copilot = sg.ask_market_copilot("Why do people hesitate at signup?", idx, client=llm, model="gemini-2.5-flash")
-    assert copilot["citations"]
-    assert "[#1]" in copilot["cited_answer"]
+    assert copilot["citations"] and copilot["answer_ok"] is True, copilot.get("error")
+    assert "[#1]" in copilot["cited_answer"] and "[#9]" not in copilot["cited_answer"]
 
     # 5. Dashboard sections render cleanly via gtm_view
     lab_sec = gtm_view.lab_section(bundle)
@@ -447,6 +452,222 @@ def test_full_gtm_cro_and_search_geo_engines_and_views(tmp_path):
     assert cro_sec is not None and cro_sec[0] == "cro-lab"
     assert sgeo_sec is not None and sgeo_sec[0] == "search-geo"
     assert "Search everything people said, thought or posted in this run" in sgeo_sec[2]
-    assert "AI search visibility (GEO)" in sgeo_sec[2]
-    assert "Real vs simulated voices (VoC)" in sgeo_sec[2]
-    assert "Private sharing &amp; word-of-mouth cascade" in sgeo_sec[2]
+    assert "How buyers would search (simulated)" in sgeo_sec[2]
+    assert "Real vs simulated concerns" in sgeo_sec[2]
+    assert "Private sharing and word-of-mouth cascade" in sgeo_sec[2]
+    assert "In facts" not in sgeo_sec[2] and "metaKey" not in sgeo_sec[2] and "ctrlKey" not in sgeo_sec[2]
+
+
+# --------------------------------------------------------------------------
+# Search, how buyers would search, real vs simulated concerns, cascade
+# --------------------------------------------------------------------------
+
+def _crowd(n):
+    base = _sample_people()
+    out = []
+    for i in range(n):
+        p = dict(base[i % 2])
+        p["agent_id"] = i + 1
+        p["name"] = f"{p['name']} {i + 1}"
+        out.append(p)
+    return out
+
+
+class _Reply:
+    """Fake client: `answer(system, user)` returns the JSON body; every call is recorded and must be a string."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **kw):
+        system, user = kw["messages"][0]["content"], kw["messages"][1]["content"]
+        assert isinstance(system, str) and isinstance(user, str)
+        self.calls.append((system, user))
+        body = self.answer(system, user)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(body)), finish_reason="stop")],
+                               usage=SimpleNamespace(prompt_tokens=10, completion_tokens=10))
+
+
+class _Down:
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **kw):
+        raise RuntimeError("provider unavailable")
+
+
+OFFER = {"name": "FitLoop", "headline": "FitLoop 15-min home routine", "text": "Start your 7-day free trial today", "price": "NPR 999/mo"}
+
+
+def test_voc_reads_research_quotes_labels_none_and_drops_phrases_not_in_text():
+    def answer(system, user):
+        assert system == sg.CLASSIFIER_SYSTEM
+        if "love" in user:
+            return {"concern_type": "none", "key_phrase": "love it", "plain_meaning": "Praise."}
+        if "card" in user.lower():
+            return {"concern_type": "trust", "key_phrase": "wants my card first", "plain_meaning": "Card required."}
+        return {"concern_type": "price", "key_phrase": "far too costly for students", "plain_meaning": "Too expensive."}
+
+    llm = _Reply(answer)
+    run_data = {
+        "research": {"summary": {"query": "home workouts"}, "quotes": [
+            {"text": "I love it, the routines are short.", "source": "appstore", "kind": "review"},
+            {"text": "It wants my card first, which I hate.", "source": "reddit"},
+            {"text": "Too expensive for what it is.", "source": "reddit"},
+        ]},
+        "survey": {"responses": [
+            {"agent_id": 1, "answer": {"main_objection": "Card upfront scares me.", "objection_type": "trust"}},
+            {"agent_id": 2, "answer": {"main_objection": "The price is steep.", "objection_type": "price"}},
+        ]},
+    }
+    res = sg.run_voc_grounding(llm, "m", run_data=run_data)
+    s = res["summary"]
+    assert s["available"] and s["source_kind"] == "research"
+    assert s["real"]["texts"] == 3 and s["real"]["classified"] == 3 and s["simulated"]["classified"] == 2
+    assert len(llm.calls) == 5                                   # real and simulated text, same classifier
+    rows = {c["concern"]: c for c in s["comparison"]}
+    assert rows["none"]["real"]["k"] == 1 and rows["none"]["simulated"]["k"] == 0
+    assert "other" not in rows
+    assert rows["trust"]["real"]["k"] == 1 and rows["trust"]["simulated"]["k"] == 1
+    d = rows["trust"]["difference"]
+    assert d["method"].startswith("Newcombe") and d["lo"] < d["points"] < d["hi"]
+    assert "none" not in {r["key"] for r in s["real_concerns"]}
+    phrases = {p["concern"]: p for p in s["phrases"]}
+    assert phrases["trust"]["copied_from_text"] is True and phrases["trust"]["phrase"] == "wants my card first"
+    assert phrases["price"]["copied_from_text"] is False and phrases["price"]["phrase"] == "Too expensive for what it is."
+    assert res["unit"] == "texts classified by the model"
+    assert "texts classified by the model" in gtm_view.voc_card(res)
+
+
+def test_voc_page_text_is_labelled_as_page_text(monkeypatch):
+    monkeypatch.setattr(sg, "fetch_url_snapshot",
+                        lambda url: {"url": url, "text": "Start your free trial today with no card. Plans cost less than a coffee each week."})
+    llm = _Reply(lambda system, user: {"concern_type": "price", "key_phrase": "cost less", "plain_meaning": "Cheap."})
+    res = sg.run_voc_grounding(llm, "m", url="https://example.com/")
+    assert res["summary"]["real_label"] == "page text" and res["summary"]["source_kind"] == "page"
+    html = gtm_view.voc_card(res)
+    assert "Phrases from the page text" in html and "customer" not in html.lower()
+
+
+def test_geo_asks_before_and_after_in_separate_calls():
+    def answer(system, user):
+        if '"known_options"' in user:
+            return {"would_look_for_help": "yes", "search_query": "short home workout plan", "known_options": ["FitLoop", "Gym Co"]}
+        if '"verify_question"' in user:
+            return {"understood_category": "fitness app", "would_shortlist": "maybe", "verify_question": "Is the trial free?",
+                    "missing_fact": "", "missing_type": "none"}
+        return {"llms_txt": "# FitLoop", "faqs": [{"question": "Is the trial free?", "answer": "Yes, 7 days.", "in_facts": True}],
+                "unanswered_gaps": []}
+
+    llm = _Reply(answer)
+    people = _crowd(3)
+    res = sg.run_geo_visibility_audit(llm, "m", offer=OFFER, people=people, competitors=["Gym Co"])
+    before = [u for _, u in llm.calls if '"known_options"' in u]
+    after = [u for _, u in llm.calls if '"verify_question"' in u]
+    assert len(before) == 3 and len(after) == 3 and res["asked"] == 6
+    assert all("FitLoop" not in u and "NPR 999" not in u for u in before)      # no exposure before the offer
+    assert all("NPR 999" in u for u in after)
+    assert not any(w in u for _, u in llm.calls for w in ("ChatGPT", "Perplexity", "Gemini"))
+    s = res["summary"]
+    assert s["named_the_brand_before"]["k"] == 3 and s["named_competitors_before"][0]["share"]["k"] == 3
+    assert s["would_shortlist"]["maybe"]["k"] == 3 and s["missing_facts"] == []
+    assert s["faqs"] == [{"question": "Is the trial free?", "answer": "Yes, 7 days."}]
+    html = gtm_view.geo_card(res)
+    assert "How buyers would search (simulated)" in html and "In facts" not in html
+
+    with pytest.raises(RuntimeError, match="no simulated person answered"):
+        sg.run_geo_visibility_audit(_Down(), "m", offer=OFFER, people=people)
+
+
+def test_cascade_compares_friend_forward_with_cold_offer_on_the_same_people():
+    def answer(system, user):
+        if '"message_you_would_send"' in user:
+            return {"would_share": "yes", "channel": "family_chat", "who": "my sister",
+                    "message_you_would_send": "Try this, looks easy.", "why": "We train together."}
+        if '"would_forward_again"' in user:
+            return {"would_try": "yes", "reaction": "A friend sent it.", "would_forward_again": "no"}
+        return {"would_try": "no", "reaction": "Just an ad."}
+
+    ticks = []
+    llm = _Reply(answer)
+    res = sg.run_dark_social_cascade(llm, "m", people=_crowd(5), offer=OFFER, progress=lambda d, t: ticks.append((d, t)))
+    w2 = res["summary"]["wave2_peer_pickup"]
+    assert w2["available"] and w2["people"] == 3 and w2["paired"] == 3
+    assert w2["friend_minus_cold"]["mean"] == 1.0 and w2["friend_minus_cold"]["verdict"] == "better"
+    assert w2["would_try_cold"]["no"]["k"] == 3 and w2["would_try_from_friend"]["yes"]["k"] == 3
+    wave2 = [u for _, u in llm.calls if '"would_try"' in u]
+    assert len(wave2) == 6 and sum('"would_forward_again"' in u for u in wave2) == 3
+    assert all("my sister" not in u for u in wave2) and any("A friend posts in your family group chat" in u for u in wave2)
+    assert ticks and ticks[-1][0] == ticks[-1][1] == 8
+    assert "Friend minus cold" in gtm_view.cascade_card(res)
+
+    one = sg.run_dark_social_cascade(_Reply(answer), "m", people=_crowd(1), offer=OFFER)
+    assert one["summary"]["wave2_peer_pickup"]["available"] is False
+    assert "at least 2 people" in one["summary"]["wave2_peer_pickup"]["reason"]
+
+
+def test_copilot_failure_is_reported_and_citations_kept():
+    idx = sg.build_search_index(people=_sample_people(), bundle={"survey": {"responses": [
+        {"agent_id": 1, "answer": {"main_objection": "The card at signup worries me.", "objection_type": "trust"}}]}})
+    res = sg.ask_market_copilot("card signup", idx, client=_Down(), model="m")
+    assert res["answer_ok"] is False and "provider unavailable" in res["error"]
+    assert res["citations"] and res["cited_answer"] == ""
+    res = sg.ask_market_copilot("card signup", idx)
+    assert res["answer_ok"] is False and res["citations"]
+
+
+def test_run_search_whole_tokens_and_odd_shapes():
+    from claude_cli import run_search
+    assert run_search.detect_concepts("an industrial cardigan") == []
+    assert run_search.detect_concepts("the card fee") == ["price", "trust"]
+    bundle = {"survey": {"responses": "oops"}, "actions": {"actions": "x"}, "feed_test": {"sessions": [1, None]},
+              "gtm_suite": {"engines": []}, "config": {"persona_index": {"bad": 1}},
+              "research": {"summary": {}, "quotes": [{"text": "It costs too much for a student budget.", "source": "reddit"}, "junk"]}}
+    idx = sg.build_search_index(bundle=bundle)
+    assert [d["type"] for d in idx["docs"]] == ["research"]
+    hit = sg.search_market_evidence("price", idx)["results"][0]
+    assert hit["type_label"] == "Public post or review (research)"
+    view = gtm_view.search_geo_section({"research": bundle["research"]})
+    assert view is not None and "Public post or review (research)" in view[2]
+
+
+def test_cli_gtm_body_sends_research_quotes(tmp_path):
+    from claude_cli import mirofish
+    (tmp_path / "research.json").write_text(json.dumps({"summary": {}, "quotes": [{"text": "Too pricey", "source": "web", "extra": 1}]}))
+    body = mirofish._gtm_body(SimpleNamespace(simulation="sim_x", parallel=4), str(tmp_path))
+    assert body["research"] == {"quotes": [{"text": "Too pricey", "source": "web", "url": None, "kind": None}]}
+
+
+def test_search_and_gtm_routes_reject_bad_input(tmp_path, monkeypatch):
+    from app.api import market as market_api
+    monkeypatch.setenv("MM_TASK_DB_PATH", str(tmp_path / "tasks.sqlite"))
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    monkeypatch.setattr(market_api, "_sim_dir", lambda sid: str(tmp_path))
+    monkeypatch.setattr(market_api, "_people", lambda sid: (_sample_people(), {}))
+    monkeypatch.setattr(market_api, "_profile", lambda sid: None)
+    monkeypatch.setattr(market_api, "_voices", lambda sid: None)
+    monkeypatch.setattr(market_api, "_start", lambda kind, sid, work: "task_x")
+
+    def no_key():
+        raise ValueError("LLM_API_KEY is not configured")
+    monkeypatch.setattr(market_api, "_client", no_key)
+
+    base = {"simulation_id": "sim_x", "query": "price"}
+    assert client.post("/api/simulation/search", json=base).status_code == 200
+    for bad in ({"top_k": 0}, {"top_k": 500}, {"top_k": "many"}, {"bundle": "x"}, {"type": 5}, {"segment": ["a"]}, {"ask": True}):
+        assert client.post("/api/simulation/search", json={**base, **bad}).status_code == 400, bad
+    assert "LLM_API_KEY" in client.post("/api/simulation/search", json={**base, "ask": True}).get_json()["error"]
+    assert client.get("/api/simulation/sim_x/search?q=price&top_k=abc").status_code == 400
+    assert client.get("/api/simulation/sim_x/search?q=price&top_k=5").status_code == 200
+
+    voc = {"simulation_id": "sim_x"}
+    assert client.post("/api/simulation/gtm/voc", json={**voc, "reviews": "too short\nalso short"}).status_code == 400
+    assert client.post("/api/simulation/gtm/voc", json={**voc, "reviews": 42}).status_code == 400
+    assert client.post("/api/simulation/gtm/voc", json={**voc, "url": "ftp://example.com/x"}).status_code == 400
+    ok = client.post("/api/simulation/gtm/voc", json={**voc, "reviews": "The card requirement put me off completely.\nshort"})
+    assert ok.status_code == 200 and ok.get_json()["data"]["task_id"] == "task_x"
+    assert client.post("/api/simulation/gtm/geo", json={**voc, "need": ["x"], "offer": "A home workout plan"}).status_code == 400

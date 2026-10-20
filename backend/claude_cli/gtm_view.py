@@ -7,15 +7,14 @@ with its count and 95% range; a section is left out when its test has not run. S
 from __future__ import annotations
 
 import json
-import math
-import re
-from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 try:  # stdlib only
     import ui  # type: ignore
+    import run_search  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import ui  # type: ignore
+    from . import run_search  # type: ignore
 
 _e = ui.esc
 Section = Optional[Tuple[str, str, str]]
@@ -71,7 +70,7 @@ def _m(ci: Optional[Dict[str, Any]], scale: float = 1, unit: str = "") -> str:
 
 
 def _meta(res: Dict[str, Any]) -> str:
-    bits = [f"{res.get('answered', 0)} of {res.get('asked', 0)} simulated people answered"]
+    bits = [f"{res.get('answered', 0)} of {res.get('asked', 0)} {res.get('unit') or 'simulated people answered'}"]
     if res.get("failed"):
         bits.append(f"{res['failed']} calls failed")
     if res.get("providers"):
@@ -391,369 +390,192 @@ def thoughts_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> S
 
 
 # --------------------------------------------------------------------------
-# Search, AI visibility (GEO), real vs simulated voices (VoC) & cascades
+# Search, how buyers would search, real vs simulated concerns, word-of-mouth cascade
 # --------------------------------------------------------------------------
-
-CONCEPT_TERMS: Dict[str, Tuple[str, List[str]]] = {
-    "price": ("Price & budget", ["price", "pricing", "cost", "expensive", "cheap", "affordable", "budget", "wallet", "money", "weekly", "monthly", "annual", "subscription", "tier", "plan", "discount", "value", "worth", "fee", "pay", "free", "trial"]),
-    "trust": ("Trust & card risk", ["trust", "trustworthy", "credible", "scam", "skeptical", "proof", "review", "reviews", "guarantee", "refund", "cancel", "cancellation", "card", "credit", "debit", "auto-renew", "trap", "charge", "billing", "privacy", "risk", "signup", "sign-up", "hesitate", "checkout", "abandon"]),
-    "authority": ("Partner / boss approval", ["spouse", "husband", "wife", "partner", "parents", "family", "household", "shared", "couple", "committee", "boss", "manager", "cfo", "finance", "blocker", "champion", "approval", "ask", "team"]),
-    "habit": ("Routine & time", ["habit", "routine", "streak", "quit", "drop", "churn", "retention", "consistent", "busy", "tired", "fatigue", "schedule", "shift", "time", "effort", "easy", "daily"]),
-    "competitor": ("Competitors & alternatives", ["competitor", "competitors", "alternative", "alternatives", "already", "switch", "switching", "compare", "comparison", "versus", "vs", "better", "different", "youtube", "free"]),
-    "unclear": ("Clarity & missing info", ["unclear", "confusing", "confused", "understand", "what", "how", "explain", "headline", "copy", "landing", "page", "missing", "detail", "vague"]),
-}
-
-
-def _short_txt(x: Any, n: int = 240) -> str:
-    s = " ".join(str(x or "").split())
-    return s if len(s) <= n else s[: n - 1] + "…"
-
-
-def _detect_doc_concepts(text: str) -> List[str]:
-    low = text.lower()
-    words = set(re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", low))
-    out: List[str] = []
-    for cid, (_lbl, kws) in CONCEPT_TERMS.items():
-        if any(k in words or (len(k) >= 5 and k in low) for k in kws):
-            out.append(cid)
-    return out
-
-
-def build_bundle_search_docs(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Build a compact, stdlib-only searchable list of real quotes, thoughts, posts and people in `bundle`."""
-    if not isinstance(bundle, dict):
-        return []
-    docs: List[Dict[str, Any]] = []
-    cfg = bundle.get("config") if isinstance(bundle.get("config"), dict) else {}
-    people = [p for p in (cfg.get("persona_index") or []) if isinstance(p, dict)]
-    by_id = {p.get("agent_id"): p for p in people if p.get("agent_id") is not None}
-
-    def add(doc_type: str, label: str, title: str, snippet: str, segment: str = "", anchor: str = "#top") -> None:
-        s = _short_txt(snippet, 240)
-        if not s:
-            return
-        t = _short_txt(title, 110)
-        blob = f"{t} {segment} {s}"
-        docs.append({
-            "type": doc_type,
-            "label": label,
-            "title": t,
-            "segment": str(segment or ""),
-            "snippet": s,
-            "anchor": anchor,
-            "concepts": _detect_doc_concepts(blob),
-        })
-
-    for p in people[:180]:
-        aid = p.get("agent_id")
-        txt = str(p.get("persona") or p.get("bio") or "").strip()
-        bde = p.get("bde") if isinstance(p.get("bde"), dict) else {}
-        if bde:
-            txt = f"{txt} {json.dumps(bde, ensure_ascii=False)}".strip()
-        if txt:
-            add("persona", "Person", ", ".join(str(x) for x in (p.get("name") or f"Person {aid}", p.get("occupation"), p.get("country")) if x),
-                txt, str(p.get("segment") or ""), "#agents")
-
-    for r in ((bundle.get("survey") or {}).get("responses") or [])[:200]:
-        if not isinstance(r, dict):
-            continue
-        a = r.get("answer") if isinstance(r.get("answer"), dict) else {}
-        obj = str(a.get("main_objection") or a.get("reasoning") or "").strip()
-        if obj:
-            p = by_id.get(r.get("agent_id"), {})
-            name = r.get("name") or p.get("name") or f"Person {r.get('agent_id')}"
-            seg = r.get("segment") or p.get("segment") or ""
-            add("survey", "Survey answer", f"{name} · would convert: {a.get('would_convert', '?')}", obj, seg, "#voices")
-
-    for t_key in ("thought_stream", "thought_harvest"):
-        ts = bundle.get(t_key)
-        if isinstance(ts, dict):
-            for e in (ts.get("entries") or [])[:200]:
-                if isinstance(e, dict) and str(e.get("text") or "").strip():
-                    did = e.get("would_do") or e.get("did") or ""
-                    add("thought", f"Thought ({e.get('source') or 'run'})",
-                        str(e.get("name") or f"Person {e.get('agent_id')}"),
-                        f"{e['text']}" + (f" → {did}" if did else ""),
-                        str(e.get("segment") or ""), "#thoughts")
-
-    ft = bundle.get("feed_test")
-    if isinstance(ft, dict):
-        first = ft.get("seed")
-        for s in (ft.get("sessions") or [])[:150]:
-            if not isinstance(s, dict) or (first is not None and s.get("seed") not in (None, first)):
-                continue
-            ad, land = s.get("ad") or {}, s.get("landing") or {}
-            th = str(land.get("thought") or ad.get("thought") or "").strip()
-            if th:
-                add("feed", "Feed & landing", f"{s.get('name') or 'Person'} on {s.get('creative_id') or 'ad'}",
-                    th + (f" (Drop: {land['drop_reason']})" if land.get("drop_reason") else ""),
-                    str(s.get("segment") or ""), "#feedtest")
-
-    pitch = bundle.get("pitch")
-    if isinstance(pitch, dict):
-        for r in (pitch.get("people") or [])[:120]:
-            if isinstance(r, dict):
-                rep = str((r.get("turn1") or {}).get("reply") or "").strip()
-                if rep:
-                    add("pitch", "Pitch reply", f"{r.get('name') or 'Buyer'} · {r.get('final_verdict') or '?'}",
-                        rep, str(r.get("segment") or ""), "#pitch")
-
-    acts = bundle.get("actions")
-    if isinstance(acts, dict):
-        acts = acts.get("actions")
-    for a in (acts or [])[:120]:
-        if isinstance(a, dict):
-            args = a.get("action_args") or {}
-            txt = str(args.get("content") or args.get("quote_content") or a.get("content") or "").strip()
-            if txt:
-                p = by_id.get(a.get("agent_id"), {})
-                add("post", "Social post", str(a.get("agent_name") or p.get("name") or f"Person {a.get('agent_id')}"),
-                    txt, str(p.get("segment") or ""), "#posts")
-
-    return docs[:450]
-
-
-def search_bundle_docs(
-    query: str,
-    docs: List[Dict[str, Any]],
-    doc_type: Optional[str] = None,
-    concept: Optional[str] = None,
-    top_k: int = 15,
-) -> List[Dict[str, Any]]:
-    """Stdlib BM25 + concept-synonym search over `docs`."""
-    pool = list(docs)
-    if doc_type and doc_type not in ("", "all"):
-        pool = [d for d in pool if d.get("type") == doc_type]
-    if concept and concept not in ("", "all"):
-        pool = [d for d in pool if concept in (d.get("concepts") or [])]
-    q = (query or "").strip().lower()
-    if not q:
-        return pool[:top_k]
-
-    q_toks = [t for t in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", q) if len(t) > 1]
-    q_concepts = _detect_doc_concepts(q)
-    syn_toks: List[str] = []
-    for cid in q_concepts:
-        for kw in CONCEPT_TERMS[cid][1][:10]:
-            if kw not in q_toks and kw not in syn_toks:
-                syn_toks.append(kw)
-
-    n = len(pool)
-    if not n:
-        return []
-    tok_lists = [re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", f"{d.get('title', '')} {d.get('snippet', '')} {d.get('segment', '')}".lower()) for d in pool]
-    df: Counter = Counter()
-    for tl in tok_lists:
-        for t in set(tl):
-            df[t] += 1
-    avgdl = sum(len(tl) for tl in tok_lists) / max(1, n)
-
-    scored: List[Tuple[float, Dict[str, Any]]] = []
-    for idx, d in enumerate(pool):
-        tl = tok_lists[idx]
-        tf = Counter(tl)
-        dl = len(tl)
-        sc = 0.0
-        for qt in q_toks:
-            f = tf.get(qt, 0)
-            if f > 0:
-                idf = math.log(1.0 + (n - df[qt] + 0.5) / (df[qt] + 0.5))
-                sc += 2.5 * idf * ((f * 2.5) / (f + 1.5 * (0.25 + 0.75 * (dl / max(1.0, avgdl)))))
-            elif any(qt in tok for tok in tf if len(qt) >= 4):
-                sc += 0.9
-        for st in syn_toks:
-            if tf.get(st, 0) > 0:
-                sc += 0.45 * math.log(1.0 + (n - df[st] + 0.5) / (df[st] + 0.5))
-        overlap = set(q_concepts) & set(d.get("concepts") or [])
-        if overlap:
-            sc += 1.8 * len(overlap)
-        if len(q) >= 3 and (q in d.get("title", "").lower() or q in d.get("snippet", "").lower()):
-            sc += 3.0
-        if sc > 0:
-            scored.append((sc, {**d, "score": round(sc, 2)}))
-    scored.sort(key=lambda x: -x[0])
-    return [d for _, d in scored[:top_k]]
-
 
 def geo_card(res: Dict[str, Any]) -> str:
     s = res.get("summary") or {}
+    body = ('<p class="lab-meta">Simulated answers only: this does not measure what any real AI assistant or search '
+            'engine says about you.</p>')
+    if s.get("need_shown"):
+        body += f'<p class="lab-meta">Need shown before the offer ({_e(s.get("need_source") or "")}): “{_e(s["need_shown"])}”</p>'
+    look = s.get("would_look_for_help") or {}
+    body += "<h4>Before the offer: would ask an AI assistant or a search engine for help</h4>" + _bars([
+        ("Yes", look.get("yes")), ("Maybe", look.get("maybe")), ("No", look.get("no"))])
+    if s.get("search_queries"):
+        body += "<h4>What they would type, in their own words</h4>" + _quotes(s["search_queries"][:6])
+    if s.get("known_options"):
+        body += "<h4>Options they already knew before seeing the offer</h4>" + _bars(
+            [(a.get("name", ""), a.get("share")) for a in s["known_options"][:6]])
+    named = [("Your product", s.get("named_the_brand_before"))] if s.get("named_the_brand_before") else []
+    named += [(c.get("name", ""), c.get("share")) for c in s.get("named_competitors_before") or []]
+    if named:
+        body += "<h4>Named before seeing the offer</h4>" + _bars(named)
     sl = s.get("would_shortlist") or {}
-    body = "<h4>Would shortlist after checking with AI / search</h4>" + _bars([
-        ("Yes", sl.get("yes")), ("Maybe", sl.get("maybe")), ("No", sl.get("no"))
-    ])
-    alts = s.get("known_alternatives") or []
-    if alts:
-        body += "<h4>Alternatives people already knew before seeing your offer</h4>" + _bars([
-            (a.get("name", ""), a.get("share")) for a in alts[:6]
-        ])
-    if s.get("buyer_search_queries"):
-        body += "<h4>Exact searches people said they would type into ChatGPT, Perplexity or Google</h4>" + _quotes(s["buyer_search_queries"][:6])
+    body += "<h4>After seeing the offer: would shortlist it</h4>" + _bars([
+        ("Yes", sl.get("yes")), ("Maybe", sl.get("maybe")), ("No", sl.get("no"))])
+    if s.get("understood_as"):
+        body += "<h4>What they think it is</h4>" + _quotes(s["understood_as"][:5])
     if s.get("verification_questions"):
-        body += "<h4>What they would ask an AI assistant to verify before trusting you</h4>" + _quotes(s["verification_questions"][:6])
-    body += _ranked(s.get("missing_facts_for_ai") or [], "Facts missing from the offer that AI answers & FAQs need")
+        body += "<h4>What they would check before trusting it</h4>" + _quotes(s["verification_questions"][:6])
+    body += _ranked(s.get("missing_facts") or [], "Facts they missed in the offer")
     if s.get("faqs"):
-        rows = [[x.get("question", ""), x.get("answer", ""), "yes" if x.get("in_facts") else "gap"] for x in s["faqs"]]
-        body += "<h4>Draft FAQ pairs (from your product facts only)</h4>" + ui.table(["Question buyers asked", "Answer from product facts", "In facts"], rows, sortable=False)
+        body += "<h4>Draft FAQ (written by the model from your product facts only)</h4>" + ui.table(
+            ["Question simulated buyers asked", "Draft answer"], [[x.get("question", ""), x.get("answer", "")] for x in s["faqs"]],
+            sortable=False)
+    if s.get("unanswered_gaps"):
+        body += "<h4>Asked for but not in your product facts</h4>" + _quotes(s["unanswered_gaps"][:6])
     if s.get("llms_txt"):
-        body += f'<details><summary>Draft <code>/llms.txt</code> for AI search crawlers</summary><pre class="lab-ad" style="font-family:var(--mono)">{_e(s["llms_txt"])}</pre></details>'
-    return _card("AI search visibility (GEO)", res, body)
+        body += (f'<details><summary>Draft <code>/llms.txt</code> (from your product facts only)</summary>'
+                 f'<pre class="lab-ad" style="font-family:var(--mono)">{_e(s["llms_txt"])}</pre></details>')
+    if s.get("drafts_error"):
+        body += f'<p class="muted">The drafts were not written: {_e(s["drafts_error"])}</p>'
+    return _card("How buyers would search (simulated)", res, body)
+
+
+def _diff(d: Optional[Dict[str, Any]]) -> str:
+    if not d or d.get("points") is None:
+        return "–"
+    return f"{d['points']:+g} pts ({d['lo']:+g} to {d['hi']:+g})"
 
 
 def voc_card(res: Dict[str, Any]) -> str:
     u = _unavailable(res)
     if u:
-        return _card("Real vs simulated voices (VoC)", res, u)
+        return _card("Real vs simulated concerns", res, u)
     s = res.get("summary") or {}
-    body = f'<p class="lab-meta">Source: {_e(s.get("source") or "real voices")} · {s.get("real_voices_count", 0)} real voices vs {s.get("simulated_objections_count", 0)} simulated objections</p>'
+    real, sim = s.get("real") or {}, s.get("simulated") or {}
+    label = s.get("real_label") or "real text"
+    body = (f'<p class="lab-meta">Source: {_e(s.get("source") or label)} · {_e(real.get("classified", 0))} of '
+            f'{_e(real.get("texts", 0))} texts of {_e(label)} labelled · {_e(sim.get("classified", 0))} of '
+            f'{_e(sim.get("texts", 0))} simulated objections labelled</p>')
+    if s.get("simulated_note"):
+        body += f'<p class="muted">{_e(s["simulated_note"])}</p>'
     comp = s.get("comparison") or []
     if comp:
-        rows = [[str(c.get("concern") or "").replace("_", " "), _w(c.get("real_share")), _w(c.get("simulated_share"))] for c in comp]
-        body += ui.table(["Concern", "In real voices", "In simulated people"], rows, sortable=False)
-    body += _ranked(s.get("real_concerns") or [], "Concerns in the real voices", 2)
-    phrases = s.get("verbatim_phrases") or []
+        rows = [[str(c.get("concern") or "").replace("_", " "), _w(c.get("real")), _w(c.get("simulated")), _diff(c.get("difference"))]
+                for c in comp]
+        body += ui.table(["Concern", f"In {label}", "In simulated people", "Difference (real minus simulated, 95% range)"],
+                         rows, sortable=False)
+    if s.get("method"):
+        body += f'<p class="lab-meta">{_e(s["method"])}</p>'
+    body += _ranked(s.get("real_concerns") or [], f"Concerns in the {label}", 2)
+    phrases = s.get("phrases") or []
     if phrases:
-        p_rows = [[str(p.get("concern") or "").replace("_", " "), p.get("exact_phrase") or "", p.get("meaning") or ""] for p in phrases[:8]]
-        body += "<h4>Exact phrases real people used</h4>" + ui.table(["Concern", "Exact phrase", "Plain meaning"], p_rows, sortable=False)
-    return _card("Real vs simulated voices (VoC)", res, body)
+        rows = [[str(p.get("concern") or "").replace("_", " "),
+                 (p.get("phrase") or "") + ("" if p.get("copied_from_text") else " (whole text: the label's phrase was not in it)"),
+                 p.get("meaning") or ""] for p in phrases[:8]]
+        title = "Phrases from the page text" if s.get("source_kind") == "page" else "Phrases from the real text"
+        body += f"<h4>{_e(title)}</h4>" + ui.table(["Concern", "Words copied from the text", "Plain meaning (model's summary)"],
+                                                     rows, sortable=False)
+    return _card("Real vs simulated concerns", res, body)
+
+
+VERDICT_TEXT = {"better": "the friend's forward did better than the cold ad",
+                "worse": "the cold ad did better than the friend's forward",
+                "no clear difference": "no clear difference between the forward and the cold ad",
+                "too few answers": "too few answers to compare"}
 
 
 def cascade_card(res: Dict[str, Any]) -> str:
     s = res.get("summary") or {}
     ws = s.get("would_share") or {}
     body = "<h4>Wave 1: would privately forward or mention this offer</h4>" + _bars([
-        ("Yes", ws.get("yes")), ("Maybe", ws.get("maybe")), ("No", ws.get("no"))
-    ])
-    chs = s.get("channels") or []
-    if chs:
-        body += "<h4>Where they would send it</h4>" + _bars([(str(c.get("channel") or "").replace("_", " "), c.get("share")) for c in chs])
+        ("Yes", ws.get("yes")), ("Maybe", ws.get("maybe")), ("No", ws.get("no"))])
+    if s.get("channels"):
+        body += "<h4>Where they would send it</h4>" + _bars([(str(c.get("channel") or "").replace("_", " "), c.get("share"))
+                                                             for c in s["channels"]])
     msgs = s.get("forwarded_messages") or []
     if msgs:
-        body += "<h4>Exact messages they wrote to forward</h4>" + "".join(
-            f'<div class="lab-quote"><b>{_e(m.get("from_name"))}</b> → {_e(m.get("who"))} ({_e(str(m.get("channel") or "").replace("_", " "))}): “{_e(m.get("message"))}”</div>'
-            for m in msgs[:6]
-        )
+        body += "<h4>Messages they wrote to forward</h4>" + "".join(
+            f'<div class="lab-quote"><b>{_e(m.get("from_name"))}</b> → {_e(m.get("who"))} '
+            f'({_e(str(m.get("channel") or "").replace("_", " "))}): “{_e(m.get("message"))}”</div>' for m in msgs[:6])
     w2 = s.get("wave2_peer_pickup")
-    if isinstance(w2, dict):
-        ft = w2.get("would_try_from_friend") or {}
-        ct = w2.get("would_try_if_cold_ad") or {}
-        fa = w2.get("would_forward_again") or {}
-        body += f"<h4>Wave 2 ({w2.get('people', 0)} people receiving a friend's forwarded message)</h4>" + _bars([
-            ("Would try from friend's forward (yes)", ft.get("yes")),
-            ("Would try if seen as cold ad (yes)", ct.get("yes")),
-            ("Would forward again to another person (yes)", fa.get("yes")),
-        ])
-        if w2.get("reactions"):
-            body += _quotes(w2["reactions"][:4], "Wave 2 reaction:")
-    return _card("Private sharing & word-of-mouth cascade", res, body)
+    if isinstance(w2, dict) and w2.get("available") is False:
+        body += f'<h4>Wave 2</h4><p class="muted">{_e(w2.get("reason") or "Not run.")}</p>'
+    elif isinstance(w2, dict) and w2.get("available"):
+        d = w2.get("friend_minus_cold") or {}
+        body += (f"<h4>Wave 2: {_e(w2.get('paired', 0))} of {_e(w2.get('people', 0))} other people answered both the cold ad "
+                 "and a friend's forward (two separate calls)</h4>")
+        body += f'<div class="lab-kpis">{_kpi(_m(d), "Friend minus cold (would try, 0 to 1)", VERDICT_TEXT.get(d.get("verdict"), ""))}</div>'
+        body += _bars([("Would try, cold ad (yes)", (w2.get("would_try_cold") or {}).get("yes")),
+                       ("Would try, friend's forward (yes)", (w2.get("would_try_from_friend") or {}).get("yes")),
+                       ("Would forward it again (yes)", (w2.get("would_forward_again") or {}).get("yes"))])
+        if w2.get("reactions_to_forward"):
+            body += _quotes(w2["reactions_to_forward"][:4], "Reaction to the forward:")
+    return _card("Private sharing and word-of-mouth cascade", res, body)
 
 
-def search_geo_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Section:
-    """'Search, AI visibility & voices': interactive BM25 + concept search across everything the simulated people
-    wrote in this run, plus AI search visibility (GEO), real-vs-simulated VoC, and word-of-mouth cascade cards."""
-    if not isinstance(bundle, dict):
-        return None
-    docs = build_bundle_search_docs(bundle)
-    cards: List[str] = []
-
-    if docs:
-        types = list(dict.fromkeys((d["type"], d["label"]) for d in docs))
-        type_opts = '<option value="">All sources (' + str(len(docs)) + ')</option>' + "".join(
-            f'<option value="{_e(t)}">{_e(lbl)}</option>' for t, lbl in types
-        )
-        concept_btns = '<button type="button" class="mm-c-pill" data-mm-concept="" aria-pressed="true">All topics</button>' + "".join(
-            f'<button type="button" class="mm-c-pill" data-mm-concept="{_e(cid)}" aria-pressed="false">{_e(lbl)}</button>'
-            for cid, (lbl, _kws) in CONCEPT_TERMS.items()
-        )
-        initial_items = "".join(
-            f'<div class="mm-s-item"><div class="mm-s-head"><span>{_e(d["label"])}'
-            + (f' · {_e(d["segment"])}' if d.get("segment") else "")
-            + f'</span><a href="{_e(d["anchor"])}">Jump to section ↗</a></div>'
-            f'<div class="mm-s-title">{_e(d["title"])}</div>'
-            f'<div>“{_e(d["snippet"])}”</div></div>'
-            for d in docs[:10]
-        )
-        docs_json = json.dumps(docs, ensure_ascii=False).replace("<", "\\u003c")
-        syns_json = json.dumps({cid: kws for cid, (_l, kws) in CONCEPT_TERMS.items()}, ensure_ascii=False).replace("<", "\\u003c")
-        search_js = """<script>(function(){
-var box=document.getElementById('mm-run-search');if(!box)return;
-var dataEl=document.getElementById('mm-search-docs'),synEl=document.getElementById('mm-search-syns');
-if(!dataEl||!synEl)return;
-var docs=[],syns={};try{docs=JSON.parse(dataEl.textContent||'[]');syns=JSON.parse(synEl.textContent||'{}');}catch(e){return;}
+SEARCH_JS = """<script>(function(){
+var box=document.getElementById('mm-run-search'),dataEl=document.getElementById('mm-search-docs');if(!box||!dataEl)return;
+var docs=[];try{docs=JSON.parse(dataEl.textContent||'[]');}catch(e){return;}
 var qIn=document.getElementById('mm-s-q'),tSel=document.getElementById('mm-s-type'),listEl=document.getElementById('mm-s-results'),cntEl=document.getElementById('mm-s-count');
-var curConcept='';
+var cur='';
 function esc(s){return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function runSearch(){
-  var q=(qIn&&qIn.value||'').trim().toLowerCase();
-  var tp=(tSel&&tSel.value||'');
-  var pool=docs.filter(function(d){
-    if(tp&&d.type!==tp)return false;
-    if(curConcept&&(d.concepts||[]).indexOf(curConcept)<0)return false;
-    return true;
-  });
-  if(!q){
-    if(cntEl)cntEl.textContent='Showing '+Math.min(12,pool.length)+' of '+pool.length+' records';
-    render(pool.slice(0,12));return;
-  }
-  var toks=q.split(/[^a-z0-9-]+/).filter(function(x){return x.length>1;});
-  var expanded=toks.slice();
-  Object.keys(syns).forEach(function(cid){
-    var kws=syns[cid]||[];
-    if(toks.some(function(t){return kws.indexOf(t)>=0;})){
-      kws.slice(0,10).forEach(function(k){if(expanded.indexOf(k)<0)expanded.push(k);});
-    }
-  });
-  var scored=[];
-  pool.forEach(function(d){
-    var hay=(d.title+' '+d.snippet+' '+d.segment).toLowerCase();
-    var sc=0;
-    if(hay.indexOf(q)>=0)sc+=4;
-    toks.forEach(function(t){if(hay.indexOf(t)>=0)sc+=2.5;});
-    expanded.forEach(function(t){if(toks.indexOf(t)<0&&hay.indexOf(t)>=0)sc+=0.6;});
-    if(sc>0)scored.push({d:d,sc:sc});
-  });
-  scored.sort(function(a,b){return b.sc-a.sc;});
-  if(cntEl)cntEl.textContent=scored.length+' matching records (ranked by relevance & synonym expansion)';
-  render(scored.slice(0,15).map(function(x){return x.d;}));
-}
+function words(s){return String(s||'').toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)?/g)||[];}
 function render(items){
   if(!listEl)return;
-  if(!items.length){listEl.innerHTML='<p class="muted small">No records matched that filter.</p>';return;}
+  if(!items.length){listEl.innerHTML='<p class="muted small">No records matched.</p>';return;}
   listEl.innerHTML=items.map(function(d){
-    return '<div class="mm-s-item"><div class="mm-s-head"><span>'+esc(d.label)+(d.segment?' · '+esc(d.segment):'')+'</span><a href="'+esc(d.anchor)+'">Jump to section ↗</a></div><div class="mm-s-title">'+esc(d.title)+'</div><div>“'+esc(d.snippet)+'”</div></div>';
+    return '<div class="mm-s-item"><div class="mm-s-head"><span>'+esc(d.type_label)+(d.segment?' · '+esc(d.segment):'')+'</span><a href="'+esc(d.anchor)+'">Jump to section ↗</a></div><div class="mm-s-title">'+esc(d.title)+'</div><div>“'+esc(d.snippet)+'”</div></div>';
   }).join('');
 }
-if(qIn)qIn.addEventListener('input',runSearch);
-if(tSel)tSel.addEventListener('change',runSearch);
+function run(){
+  var q=words(qIn&&qIn.value),tp=(tSel&&tSel.value)||'';
+  var pool=docs.filter(function(d){return (!tp||d.type===tp)&&(!cur||(d.concepts||[]).indexOf(cur)>=0);});
+  var hits=pool;
+  if(q.length){
+    hits=[];
+    pool.forEach(function(d){var w=words(d.title+' '+d.snippet+' '+d.segment);var n=q.filter(function(t){return w.indexOf(t)>=0;}).length;if(n)hits.push({d:d,n:n});});
+    hits.sort(function(a,b){return b.n-a.n;});hits=hits.map(function(x){return x.d;});
+    if(cntEl)cntEl.textContent=hits.length+' of '+pool.length+' records contain these words';
+  }else if(cntEl){cntEl.textContent='Showing '+Math.min(12,pool.length)+' of '+pool.length+' records';}
+  render(hits.slice(0,12));
+}
+if(qIn)qIn.addEventListener('input',run);
+if(tSel)tSel.addEventListener('change',run);
 box.querySelectorAll('[data-mm-concept]').forEach(function(btn){
   btn.addEventListener('click',function(){
     box.querySelectorAll('[data-mm-concept]').forEach(function(x){x.setAttribute('aria-pressed','false');});
-    btn.setAttribute('aria-pressed','true');
-    curConcept=btn.getAttribute('data-mm-concept')||'';
-    runSearch();
+    btn.setAttribute('aria-pressed','true');cur=btn.getAttribute('data-mm-concept')||'';run();
   });
 });
-document.addEventListener('keydown',function(ev){
-  if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){
-    ev.preventDefault();if(qIn){qIn.focus();qIn.scrollIntoView({behavior:'smooth',block:'center'});}
-  }
-});
 })();</script>"""
-        cards.append(
-            '<div class="lab-card" id="mm-run-search">'
-            '<h3>Search everything people said, thought or posted in this run</h3>'
-            f'<p class="lab-meta">{len(docs)} records indexed across this run · press <code>Ctrl+K</code> / <code>⌘K</code> to focus · expands buyer-concern synonyms automatically</p>'
-            '<div class="mm-search-bar">'
-            '<input type="search" id="mm-s-q" placeholder="Search quotes, thoughts, objections, people (e.g. price, card, spouse, routine, alternative)…" aria-label="Search run evidence">'
-            f'<select id="mm-s-type" aria-label="Filter by source">{type_opts}</select>'
-            '</div>'
-            f'<div class="mm-concept-pills" role="group" aria-label="Filter by topic">{concept_btns}</div>'
-            f'<p class="lab-meta" id="mm-s-count">Showing {min(10, len(docs))} of {len(docs)} records</p>'
-            f'<div id="mm-s-results">{initial_items}</div>'
-            f'<script type="application/json" id="mm-search-docs">{docs_json}</script>'
-            f'<script type="application/json" id="mm-search-syns">{syns_json}</script>'
-            f'{search_js}</div>'
-        )
 
+
+def _search_card(bundle: Dict[str, Any]) -> str:
+    docs = run_search.build_docs(bundle)[:600]
+    if not docs:
+        return ""
+    types = list(dict.fromkeys(d["type"] for d in docs))
+    type_opts = f'<option value="">All sources ({len(docs)})</option>' + "".join(
+        f'<option value="{_e(t)}">{_e(run_search.TYPE_LABELS.get(t, t))}</option>' for t in types)
+    pills = '<button type="button" class="mm-c-pill" data-mm-concept="" aria-pressed="true">All topics</button>' + "".join(
+        f'<button type="button" class="mm-c-pill" data-mm-concept="{_e(cid)}" aria-pressed="false">{_e(label)}</button>'
+        for cid, (label, _words) in run_search.CONCEPTS.items())
+    first = "".join(
+        f'<div class="mm-s-item"><div class="mm-s-head"><span>{_e(d["type_label"])}{" · " + _e(d["segment"]) if d.get("segment") else ""}'
+        f'</span><a href="{_e(d["anchor"])}">Jump to section ↗</a></div><div class="mm-s-title">{_e(d["title"])}</div>'
+        f'<div>“{_e(d["snippet"])}”</div></div>' for d in docs[:12])
+    keep = ("id", "type", "type_label", "title", "segment", "snippet", "anchor", "concepts")
+    docs_json = json.dumps([{k: d[k] for k in keep} for d in docs], ensure_ascii=False).replace("<", "\\u003c")
+    return ('<div class="lab-card" id="mm-run-search"><h3>Search everything people said, thought or posted in this run</h3>'
+            f'<p class="lab-meta">{len(docs)} records from this run · this page matches exact words; '
+            '<code>mirofish.py search</code> also ranks related buyer-concern words</p>'
+            '<div class="mm-search-bar"><input type="search" id="mm-s-q" placeholder="Words to find in quotes, thoughts, '
+            f'objections and people" aria-label="Search this run"><select id="mm-s-type" aria-label="Filter by source">{type_opts}</select></div>'
+            f'<div class="mm-concept-pills" role="group" aria-label="Filter by topic">{pills}</div>'
+            f'<p class="lab-meta" id="mm-s-count">Showing {min(12, len(docs))} of {len(docs)} records</p>'
+            f'<div id="mm-s-results">{first}</div>'
+            f'<script type="application/json" id="mm-search-docs">{docs_json}</script>{SEARCH_JS}</div>')
+
+
+def search_geo_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Section:
+    """'Search & discovery': a filter over every record the run produced, plus the cards for how buyers would search
+    (simulated), real vs simulated concerns and the word-of-mouth cascade when those tests ran."""
+    if not isinstance(bundle, dict):
+        return None
+    cards = [c for c in [_search_card(bundle)] if c]
     for key, fn in (("geo_visibility", geo_card), ("voc_grounding", voc_card), ("dark_social", cascade_card)):
         res = bundle.get(key)
         if isinstance(res, dict) and res.get("engine"):
@@ -761,14 +583,12 @@ document.addEventListener('keydown',function(ev){
                 cards.append(fn(res))
             except Exception as e:  # noqa: BLE001
                 cards.append(f'<div class="lab-card"><p class="muted">Could not show this result: {_e(str(e)[:120])}</p></div>')
-
     if not cards:
         return None
     head = ui.section_head(
         "Search & discovery",
-        "Search across every person, quote, thought and post in this run, plus AI search visibility (GEO), "
-        "real-vs-simulated voice comparisons and word-of-mouth cascades when run.",
+        "Find any person, quote, thought or post in this run, plus how buyers would search (simulated), real vs "
+        "simulated concerns and the word-of-mouth cascade when those tests ran.",
         insight,
     )
     return ("search-geo", "Search & discovery", head + f'<div class="lab-grid">{"".join(cards)}</div>')
-

@@ -2354,7 +2354,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mode", choices=["auto", "b2b", "household"], default="auto", help="committee: kind of purchase")
     s.add_argument("--url", help="teardown / voc: public page URL")
     s.add_argument("--page", help="teardown: page text or @page.txt instead of a URL")
-    s.add_argument("--reviews", help="voc: @reviews.json list of customer quotes")
+    s.add_argument("--reviews", help="voc: @reviews.json list of customer quotes, or @reviews.txt with one per line")
+    s.add_argument("--need", help="geo: the need people have, without the product's name (default: the product profile)")
     s.add_argument("--message", action="append", dest="messages", help="roleplay: rep message (repeat for follow-ups)")
     s.add_argument("--attributes", help="whatif: @attributes.json {name: [levels]} (default: proposed from the offer)")
     s.add_argument("--rounds", type=int, help="whatif: choices per person (2-6)")
@@ -2374,16 +2375,17 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--move", action="append", dest="moves")
         s.add_argument("--url")
         s.add_argument("--reviews")
+        s.add_argument("--need")
         s.add_argument("--message", action="append", dest="messages")
         s.set_defaults(gtm_alias=test)
 
-    s = sub.add_parser("search", help="hybrid BM25 + buyer-concern synonym search across a run's people, survey answers, thoughts, posts and tests")
+    s = sub.add_parser("search", help="BM25 + buyer-concern synonym search across a run's people, survey answers, thoughts, posts, tests and research quotes")
     s.add_argument("--run-dir", help="run folder to search offline (e.g. mirofish_runs/fitloop)")
     s.add_argument("--simulation", help="simulation id (when searching or asking via the backend)")
     s.add_argument("--query", "-q", default="", help="search query in plain language")
-    s.add_argument("--type", dest="doc_type", help="filter by source type (persona, survey, thought, feed, pitch, post)")
-    s.add_argument("--concept", help="filter by topic (price, trust, authority, habit, competitor, unclear)")
-    s.add_argument("--top-k", type=int, default=12)
+    s.add_argument("--type", dest="doc_type", help="filter by source type (persona, survey, thought, feed, pitch, post, test, research)")
+    s.add_argument("--concept", help="filter by topic (price, trust, authority, habit, competitor, unclear, relevance)")
+    s.add_argument("--top-k", type=int, default=12, help="how many records to return (1-100)")
     s.add_argument("--ask", action="store_true", help="ask the backend to write a cited answer over the top matches")
     return p
 
@@ -2444,7 +2446,7 @@ def _json_or_text(v: Optional[str]) -> Any:
 
 def _gtm_body(a, out_dir: str) -> Dict[str, Any]:
     body: Dict[str, Any] = {"simulation_id": a.simulation, "parallel": a.parallel}
-    for key in ("cohort", "seed", "generations", "spend", "audience", "price", "currency", "rounds", "segments", "url"):
+    for key in ("cohort", "seed", "generations", "spend", "audience", "price", "currency", "rounds", "segments", "url", "need"):
         if getattr(a, key, None) is not None:
             body[key] = getattr(a, key)
     for key in ("offer", "creative", "tiers", "touches", "attributes", "stimulus", "page", "reviews"):
@@ -2467,6 +2469,14 @@ def _gtm_body(a, out_dir: str) -> Dict[str, Any]:
                           for k in ("main_objection", "objection_type", "would_convert")}}
                           for r in sv.get("responses") or [] if r.get("answer")]}
     except (OSError, ValueError):
+        pass
+    try:  # research quotes (from `research`, copied into the run folder) for voc
+        with open(os.path.join(out_dir, "research.json"), encoding="utf-8") as f:
+            quotes = json.load(f).get("quotes")
+        if isinstance(quotes, list) and quotes:
+            body["research"] = {"quotes": [{k: q.get(k) for k in ("text", "source", "url", "kind")}
+                                           for q in quotes[:300] if isinstance(q, dict) and q.get("text")]}
+    except (OSError, ValueError, AttributeError):
         pass
     return body
 
@@ -2509,28 +2519,24 @@ def cmd_gtm(c: Client, a) -> Any:
 def cmd_search(c: Optional[Client], a) -> Any:
     """Search a run folder offline with BM25 + buyer-concern synonyms, or query the backend when --simulation is passed."""
     try:
-        import gtm_view  # type: ignore
+        import run_search  # type: ignore
     except ImportError:
-        from . import gtm_view  # type: ignore
+        from . import run_search  # type: ignore
+    if not 1 <= a.top_k <= 100:
+        raise CLIError("--top-k must be between 1 and 100")
     if a.simulation and c is not None and (a.ask or not a.run_dir):
         bundle = exporter.load_run_dir(a.run_dir) if a.run_dir and os.path.isdir(a.run_dir) else None
         return c.data("POST", "/api/simulation/search", json={
-            "simulation_id": a.simulation, "query": a.query, "type": a.doc_type,
+            "simulation_id": a.simulation, "query": a.query, "type": a.doc_type, "concept": a.concept,
             "top_k": a.top_k, "ask": bool(a.ask), "bundle": bundle,
         })
     run_dir = a.run_dir or (os.path.join("mirofish_runs", a.simulation) if a.simulation else "")
     if not run_dir or not os.path.isdir(run_dir):
         raise CLIError("pass --run-dir <folder> (or --simulation <id>)")
     bundle = exporter.load_run_dir(run_dir)
-    docs = gtm_view.build_bundle_search_docs(bundle)
-    hits = gtm_view.search_bundle_docs(a.query, docs, doc_type=a.doc_type, concept=a.concept, top_k=a.top_k)
-    return {
-        "run_dir": os.path.abspath(run_dir),
-        "query": a.query,
-        "indexed_records": len(docs),
-        "matches_returned": len(hits),
-        "results": hits,
-    }
+    docs = run_search.build_docs(bundle)
+    res = run_search.search(a.query, docs, top_k=a.top_k, doc_type=a.doc_type, concept=a.concept)
+    return {"run_dir": os.path.abspath(run_dir), "indexed_records": len(docs), **res}
 
 
 COMMANDS = {
