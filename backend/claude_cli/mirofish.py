@@ -2320,12 +2320,17 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--title")
         s.add_argument("--wait-s", type=int, default=7200)
 
+    s = sub.add_parser("compare", help="the same market test run by different providers, side by side (comparison.html)")
+    s.add_argument("--run", action="append", required=True, metavar="LABEL=RUN_DIR", help="a run folder and its label, e.g. Claude=mirofish_runs/x (repeat)")
+    s.add_argument("--out", required=True, help="folder for comparison.json and comparison.html")
+    s.add_argument("--title", default="Provider comparison")
+
     s = sub.add_parser("setup", help="open the provider settings page in your browser (choose a login or an API key, start gateways)")
     s.add_argument("--no-open", action="store_true", help="only print the link")
 
     s = sub.add_parser("gtm", help="marketing and sales tests answered by the simulated people: committee, creative, battlecard, "
-                                    "journey, pricing, competitors, teardown, roleplay, whatif, personalize, thoughts")
-    s.add_argument("tests", nargs="+", help="one or more of: committee creative battlecard journey pricing competitors teardown roleplay whatif personalize thoughts")
+                                    "journey, pricing, competitors, teardown, roleplay, whatif, personalize, thoughts, geo, voc, cascade")
+    s.add_argument("tests", nargs="+", help="one or more of: committee creative battlecard journey pricing competitors teardown roleplay whatif personalize thoughts geo voc cascade")
     gtm_args(s)
     s.add_argument("--creative", help="ad text or @creative.json for creative/personalize (default: the offer)")
     s.add_argument("--generations", type=int, help="creative: rewrite rounds (1-5)")
@@ -2338,8 +2343,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--audience", type=int, help="journey: people the spend reaches")
     s.add_argument("--price", type=float, help="journey: monthly price for the revenue projection")
     s.add_argument("--mode", choices=["auto", "b2b", "household"], default="auto", help="committee: kind of purchase")
-    s.add_argument("--url", help="teardown: public page URL")
+    s.add_argument("--url", help="teardown / voc: public page URL")
     s.add_argument("--page", help="teardown: page text or @page.txt instead of a URL")
+    s.add_argument("--reviews", help="voc: @reviews.json list of customer quotes")
     s.add_argument("--message", action="append", dest="messages", help="roleplay: rep message (repeat for follow-ups)")
     s.add_argument("--attributes", help="whatif: @attributes.json {name: [levels]} (default: proposed from the offer)")
     s.add_argument("--rounds", type=int, help="whatif: choices per person (2-6)")
@@ -2351,15 +2357,39 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--stimulus", help="text or @stimulus.json; omit to collect what the run already produced")
     s.add_argument("--limit", type=int, dest="cohort", help=argparse.SUPPRESS)
     for name, test in (("gtm-suite", "all"), ("competitor-analysis", "competitors"), ("teardown", "teardown"),
-                       ("roleplay", "roleplay"), ("personalize", "personalize")):
+                       ("roleplay", "roleplay"), ("personalize", "personalize"), ("geo-audit", "geo"),
+                       ("voc-grounding", "voc"), ("dark-social", "cascade")):
         s = sub.add_parser(name, help=f"same as `gtm {test if test != 'all' else 'committee creative battlecard journey pricing competitors'}`")
         gtm_args(s)
         s.add_argument("--competitors", nargs="*")
         s.add_argument("--move", action="append", dest="moves")
         s.add_argument("--url")
+        s.add_argument("--reviews")
         s.add_argument("--message", action="append", dest="messages")
         s.set_defaults(gtm_alias=test)
+
+    s = sub.add_parser("search", help="hybrid BM25 + buyer-concern synonym search across a run's people, survey answers, thoughts, posts and tests")
+    s.add_argument("--run-dir", help="run folder to search offline (e.g. mirofish_runs/fitloop)")
+    s.add_argument("--simulation", help="simulation id (when searching or asking via the backend)")
+    s.add_argument("--query", "-q", default="", help="search query in plain language")
+    s.add_argument("--type", dest="doc_type", help="filter by source type (persona, survey, thought, feed, pitch, post)")
+    s.add_argument("--concept", help="filter by topic (price, trust, authority, habit, competitor, unclear)")
+    s.add_argument("--top-k", type=int, default=12)
+    s.add_argument("--ask", action="store_true", help="ask the backend to write a cited answer over the top matches")
     return p
+
+
+def cmd_compare(c: Optional[Client], a) -> Any:
+    import compare
+    runs = []
+    for item in a.run:
+        label, sep, path = item.partition("=")
+        if not sep or not os.path.isdir(path):
+            raise CLIError(f"--run must be LABEL=RUN_DIR with an existing folder: {item}")
+        runs.append((label.strip(), path.strip()))
+    if len(runs) < 2:
+        raise CLIError("compare needs at least two runs")
+    return compare.write(runs, a.out, a.title)
 
 
 def cmd_setup(c: Client, a) -> Any:
@@ -2380,11 +2410,12 @@ def cmd_setup(c: Client, a) -> Any:
 
 
 GTM_TESTS = ("committee", "creative", "battlecard", "journey", "pricing", "competitors", "teardown", "roleplay",
-             "whatif", "personalize", "thoughts")
+             "whatif", "personalize", "thoughts", "geo", "voc", "cascade")
 GTM_FILES = {"committee": "buying_committee.json", "creative": "creative_optimizer.json", "battlecard": "sales_battlecard.json",
              "journey": "journey_sim.json", "pricing": "pricing_conjoint.json", "competitors": "competitor_intel.json",
              "teardown": "landing_teardown.json", "roleplay": "sales_roleplay.json", "whatif": "causal_whatif.json",
-             "personalize": "segment_personalization.json", "thoughts": "thought_stream.json"}
+             "personalize": "segment_personalization.json", "thoughts": "thought_stream.json",
+             "geo": "geo_visibility.json", "voc": "voc_grounding.json", "cascade": "dark_social.json"}
 
 
 def _json_or_text(v: Optional[str]) -> Any:
@@ -2407,7 +2438,7 @@ def _gtm_body(a, out_dir: str) -> Dict[str, Any]:
     for key in ("cohort", "seed", "generations", "spend", "audience", "price", "currency", "rounds", "segments", "url"):
         if getattr(a, key, None) is not None:
             body[key] = getattr(a, key)
-    for key in ("offer", "creative", "tiers", "touches", "attributes", "stimulus", "page"):
+    for key in ("offer", "creative", "tiers", "touches", "attributes", "stimulus", "page", "reviews"):
         v = _json_or_text(getattr(a, key, None))
         if v is not None:
             body[key] = v
@@ -2466,6 +2497,33 @@ def cmd_gtm(c: Client, a) -> Any:
     return results
 
 
+def cmd_search(c: Optional[Client], a) -> Any:
+    """Search a run folder offline with BM25 + buyer-concern synonyms, or query the backend when --simulation is passed."""
+    try:
+        import gtm_view  # type: ignore
+    except ImportError:
+        from . import gtm_view  # type: ignore
+    if a.simulation and c is not None and (a.ask or not a.run_dir):
+        bundle = exporter.load_run_dir(a.run_dir) if a.run_dir and os.path.isdir(a.run_dir) else None
+        return c.data("POST", "/api/simulation/search", json={
+            "simulation_id": a.simulation, "query": a.query, "type": a.doc_type,
+            "top_k": a.top_k, "ask": bool(a.ask), "bundle": bundle,
+        })
+    run_dir = a.run_dir or (os.path.join("mirofish_runs", a.simulation) if a.simulation else "")
+    if not run_dir or not os.path.isdir(run_dir):
+        raise CLIError("pass --run-dir <folder> (or --simulation <id>)")
+    bundle = exporter.load_run_dir(run_dir)
+    docs = gtm_view.build_bundle_search_docs(bundle)
+    hits = gtm_view.search_bundle_docs(a.query, docs, doc_type=a.doc_type, concept=a.concept, top_k=a.top_k)
+    return {
+        "run_dir": os.path.abspath(run_dir),
+        "query": a.query,
+        "indexed_records": len(docs),
+        "matches_returned": len(hits),
+        "results": hits,
+    }
+
+
 COMMANDS = {
     "health": cmd_health, "run": cmd_run, "upload": cmd_upload, "build-graph": cmd_build_graph,
     "create-sim": cmd_create_sim, "prepare": cmd_prepare, "start": cmd_start, "wait": cmd_wait,
@@ -2477,8 +2535,9 @@ COMMANDS = {
     "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
-    "setup": cmd_setup, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
+    "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
+    "geo-audit": cmd_gtm, "voc-grounding": cmd_gtm, "dark-social": cmd_gtm, "search": cmd_search,
 }
 
 
@@ -2487,7 +2546,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
-        offline = offline_export or offline_live or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research") or \
+        offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
+        offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run)
         if a.cmd == "backtest":
             try:
