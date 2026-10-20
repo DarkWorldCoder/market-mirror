@@ -4,17 +4,32 @@ import ipaddress
 import os
 import re
 import secrets
+import threading
 from dotenv import load_dotenv
 
 # 加载项目根目录的 .env 文件
 # 路径: MiroFish/.env (相对于 backend/app/config.py)
-project_root_env = os.path.join(os.path.dirname(__file__), '../../.env')
+# MIROFISH_ENV_FILE points a second or third backend instance at its own settings file (for example .env.codex
+# with LLM_BASE_URL on the codex gateway), so several backends with different providers run side by side.
+project_root_env = os.environ.get('MIROFISH_ENV_FILE') or os.path.join(os.path.dirname(__file__), '../../.env')
 
 if os.path.exists(project_root_env):
     load_dotenv(project_root_env, override=True)
+elif os.environ.get('MIROFISH_ENV_FILE'):
+    raise RuntimeError(f"MIROFISH_ENV_FILE not found: {project_root_env}")
 else:
     # 如果根目录没有 .env，尝试加载环境变量（用于生产环境）
     load_dotenv(override=True)
+
+# Everything a backend instance writes (projects, simulations, reports, local_graph.db, tasks, calibration store)
+# lives under one directory. MIROFISH_UPLOAD_DIR gives each instance its own, so instances never share SQLite files.
+UPLOAD_ROOT = os.path.abspath(os.environ.get('MIROFISH_UPLOAD_DIR') or os.path.join(os.path.dirname(__file__), '../uploads'))
+if os.environ.get('MIROFISH_UPLOAD_DIR'):
+    os.makedirs(UPLOAD_ROOT, exist_ok=True)
+    # the task store (app/models/task.py) honours MM_TASK_DB_PATH; keep it inside this instance's directory
+    os.environ.setdefault('MM_TASK_DB_PATH', os.path.join(UPLOAD_ROOT, 'tasks.sqlite'))
+_POOL_CACHE: dict = {}
+_POOL_LOCK = threading.Lock()
 
 
 class Config:
@@ -77,7 +92,7 @@ class Config:
     ).strip()
     MEMORY_EMBED_CACHE_DIR = os.environ.get('MEMORY_EMBED_CACHE_DIR') or os.environ.get(
         'FASTEMBED_CACHE_PATH'
-    ) or os.path.abspath(os.path.join(os.path.dirname(__file__), '../uploads/models'))
+    ) or os.path.abspath(os.path.join(os.path.dirname(__file__), '../uploads/models'))   # shared: read-only model files
     # Same-type entities whose names embed at least this similar are merged.
     MEMORY_ENTITY_SIMILARITY = float(os.environ.get('MEMORY_ENTITY_SIMILARITY', '0.9'))
     # Minimum query/document cosine for a semantic (embedding) search hit.
@@ -88,14 +103,10 @@ class Config:
     COGNEE_SIDECAR_URL = (os.environ.get('COGNEE_SIDECAR_URL') or 'http://127.0.0.1:8765').rstrip('/')
     COGNEE_SIDECAR_TIMEOUT = float(os.environ.get('COGNEE_SIDECAR_TIMEOUT', '900'))
     # Bookkeeping DB (graphs, episodes, batches, mirrored nodes/edges) for cognee.
-    COGNEE_GRAPH_DB = os.environ.get('COGNEE_GRAPH_DB') or os.path.abspath(
-        os.path.join(os.path.dirname(__file__), '../uploads/cognee_graph.db')
-    )
+    COGNEE_GRAPH_DB = os.environ.get('COGNEE_GRAPH_DB') or os.path.join(UPLOAD_ROOT, 'cognee_graph.db')
     # Episodes sent to one cognee add+cognify run.
     COGNEE_INGEST_BATCH = int(os.environ.get('COGNEE_INGEST_BATCH', '20'))
-    LOCAL_GRAPH_DB = os.environ.get('LOCAL_GRAPH_DB') or os.path.abspath(
-        os.path.join(os.path.dirname(__file__), '../uploads/local_graph.db')
-    )
+    LOCAL_GRAPH_DB = os.environ.get('LOCAL_GRAPH_DB') or os.path.join(UPLOAD_ROOT, 'local_graph.db')
     # Run LLM entity extraction on simulation activity episodes (costly; off by default).
     MEMORY_EXTRACT_ACTIVITY = os.environ.get('MEMORY_EXTRACT_ACTIVITY', 'false').strip().lower() in {
         '1', 'true', 'yes', 'on'
@@ -107,7 +118,7 @@ class Config:
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
-    UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')
+    UPLOAD_FOLDER = UPLOAD_ROOT
     ALLOWED_EXTENSIONS = {'pdf', 'md', 'txt', 'markdown'}
     
     # 文本处理配置
@@ -116,7 +127,7 @@ class Config:
     
     # OASIS模拟配置
     OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
-    OASIS_SIMULATION_DATA_DIR = os.path.join(os.path.dirname(__file__), '../uploads/simulations')
+    OASIS_SIMULATION_DATA_DIR = os.path.join(UPLOAD_ROOT, 'simulations')
     
     # OASIS平台可用动作配置
     OASIS_TWITTER_ACTIONS = [
@@ -153,14 +164,28 @@ class Config:
 
     @classmethod
     def get_model_pool(cls, api_key: str | None = None, base_url: str | None = None, model_name: str | None = None):
-        """Return a configured `MultiProviderPool` (single or multi-provider)."""
+        """Return the configured `MultiProviderPool` (single or multi-provider).
+
+        One pool per process and configuration: rate-limit pauses, failover state and per-provider usage persist
+        across requests instead of starting over with every API call."""
         from .utils.model_pool import MultiProviderPool
-        return MultiProviderPool.from_env(
-            primary_api_key=api_key or cls.LLM_API_KEY,
-            primary_base_url=base_url or cls.LLM_BASE_URL,
-            primary_model=model_name or cls.LLM_MODEL_NAME,
-            primary_provider=cls.LLM_PROVIDER,
-        )
+        pool_env = tuple(sorted((k, v) for k, v in os.environ.items()
+                                if k.startswith(('LLM_', 'ANTHROPIC_', 'OPENAI_', 'GEMINI_', 'GOOGLE_API', 'CHATGPT_',
+                                                 'CODEX_', 'ANTIGRAVITY_', 'CLAUDE_CODE_', 'GEMINI_CLI_', 'OLLAMA_'))))
+        key = (api_key or cls.LLM_API_KEY, base_url or cls.LLM_BASE_URL, model_name or cls.LLM_MODEL_NAME,
+               cls.LLM_PROVIDER, cls.LLM_POOL, pool_env)
+        with _POOL_LOCK:
+            pool = _POOL_CACHE.get(key)
+            if pool is None:
+                pool = MultiProviderPool.from_env(
+                    primary_api_key=api_key or cls.LLM_API_KEY,
+                    primary_base_url=base_url or cls.LLM_BASE_URL,
+                    primary_model=model_name or cls.LLM_MODEL_NAME,
+                    primary_provider=cls.LLM_PROVIDER,
+                )
+                _POOL_CACHE.clear()          # configuration changed: drop the old pool
+                _POOL_CACHE[key] = pool
+            return pool
 
     @classmethod
     def validate(cls) -> list[str]:

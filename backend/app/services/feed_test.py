@@ -381,6 +381,7 @@ class UsageMeter:
         self._lock = threading.Lock()
         self.calls = self.input_tokens = self.output_tokens = 0
         self.usage_sources = set()
+        self.by_provider: Dict[str, Dict[str, int]] = {}      # provider that answered -> calls / tokens
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def __getattr__(self, name):            # base_url etc. for is_claude_target
@@ -399,11 +400,18 @@ class UsageMeter:
     def _create_on(self, target, **kw):
         resp = target.chat.completions.create(**kw)
         usage = getattr(resp, "usage", None)
+        in_tok = int(getattr(usage, "prompt_tokens", 0) or 0)
+        out_tok = int(getattr(usage, "completion_tokens", 0) or 0)
+        prov = response_provider(resp, target, kw.get("model"))
         with self._lock:
             self.calls += 1
-            self.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
-            self.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
+            self.input_tokens += in_tok
+            self.output_tokens += out_tok
             self.usage_sources.add(getattr(resp, "usage_source", None) or ("provider" if usage else "unavailable"))
+            row = self.by_provider.setdefault(prov, {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+            row["calls"] += 1
+            row["input_tokens"] += in_tok
+            row["output_tokens"] += out_tok
         return resp
 
     def _create(self, **kw):
@@ -412,6 +420,59 @@ class UsageMeter:
     def snapshot(self) -> Dict[str, int]:
         with self._lock:
             return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+
+    def provider_snapshot(self) -> Dict[str, Dict[str, int]]:
+        with self._lock:
+            return {k: dict(v) for k, v in self.by_provider.items()}
+
+
+def provider_diff(end: Dict[str, Dict[str, int]], start: Dict[str, Dict[str, int]]) -> Dict[str, Dict[str, int]]:
+    out = {}
+    for prov, row in end.items():
+        base = start.get(prov) or {}
+        d = {k: int(v) - int(base.get(k, 0)) for k, v in row.items()}
+        if d.get("calls"):
+            out[prov] = d
+    return out
+
+
+def add_provider_usage(*parts: Optional[Dict[str, Dict[str, int]]]) -> Dict[str, Dict[str, int]]:
+    out: Dict[str, Dict[str, int]] = {}
+    for part in parts:
+        for prov, row in (part or {}).items():
+            acc = out.setdefault(prov, {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+            for k, v in row.items():
+                acc[k] = acc.get(k, 0) + int(v or 0)
+    return out
+
+
+def client_provider(client: Any, model: Optional[str] = None) -> str:
+    """Provider label of a client (pool slot view, gateway or hosted API) when no response says otherwise."""
+    from ..utils.model_pool import canonical_provider
+    prov = getattr(client, "provider", None)
+    if isinstance(prov, str) and prov:
+        return prov
+    return canonical_provider(None, str(getattr(client, "base_url", "") or ""), model)
+
+
+def assigned_provider(client: Any, agent_id: Any, model: Optional[str] = None) -> str:
+    """The provider a person is routed to (pool slot via for_agent), for sessions that made no model call."""
+    if hasattr(client, "for_agent"):
+        try:
+            return client_provider(client.for_agent(agent_id), model)
+        except Exception:  # noqa: BLE001 - fall back to the client's own label
+            pass
+    return client_provider(client, model)
+
+
+def response_provider(resp: Any, client: Any = None, model: Optional[str] = None) -> str:
+    """The provider that produced `resp`: the pool's record (after any failover), else the backend a gateway
+    reports in the response, else the client's own label."""
+    from ..utils.model_pool import answered_provider
+    prov = getattr(resp, "_mm_provider", None)
+    if isinstance(prov, str) and prov:
+        return prov
+    return answered_provider(resp) or client_provider(client, model)
 
 
 def _llm_json(
@@ -438,9 +499,9 @@ def _llm_json(
             resp = create_chat_completion(client, **call_kw)
             parsed = parse_json_block(extract_chat_completion_text(resp))
             if return_meta:
-                from ..utils.model_pool import canonical_provider
-                prov = getattr(resp, "_mm_provider", None) or canonical_provider(None, str(getattr(client, "base_url", "") or ""), model)
-                mod = getattr(resp, "_mm_model", None) or model
+                prov = response_provider(resp, client, model)
+                mod = getattr(resp, "_mm_model", None) or getattr(resp, "model", None) or model
+                mod = mod if isinstance(mod, str) else model
                 return parsed, str(prov), str(mod)
             return parsed
         except Exception as e:  # noqa: BLE001 - retried then raised
@@ -644,6 +705,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
     client = meter
     start_usage = meter.snapshot()
+    start_by_provider = meter.provider_snapshot()
     rng = random.Random(seed)
     comp = normalize_competitor(competitor) if competitor else None
     creatives, plan = _plan(creatives, people, seed)
@@ -697,7 +759,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             if isinstance(res_tuple, tuple) and len(res_tuple) == 3:
                 data, prov, mod = res_tuple
             else:
-                data, prov, mod = res_tuple, person.get("model_provider") or "claude", person.get("model_name") or model
+                data, prov, mod = res_tuple, assigned_provider(client, person["agent_id"], model), model
             rows = data.get("items") if isinstance(data, dict) else data
             acts = {str(r.get("id")): normalize_action(r, platform) for r in rows or [] if isinstance(r, dict)}
         except Exception as e:  # noqa: BLE001 - a failed persona is recorded, not fatal
@@ -741,8 +803,9 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 if comp:
                     comp_act = normalize_action({"stopped": False, "dwell_seconds": 0.4, "p_click": 0}, platform)
                 organic = []
-                prov = person.get("model_provider") or getattr(client, "provider", None) or "claude"
-                mod = person.get("model_name") or model
+                # no model call: label the session with the provider this person is routed to
+                prov = assigned_provider(client, person["agent_id"], model)
+                mod = model
             ad_act["noticed"] = job["noticed"]
             sess_row = {
                 "agent_id": person["agent_id"], "name": person["name"], "segment": person["segment"],
@@ -750,9 +813,14 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 "wave": w + 1, "exposure": job["k"], "saw_proof": bool(proof[creative["id"]]["reactions"]),
                 "opened_comments": job["opens_comments"], "ad": ad_act, "organic": organic,
                 "traits": traits[person["agent_id"]],
-                "model_provider": person.get("model_provider") or prov or "claude",
-                "model_name": person.get("model_name") or mod or model,
+                # the provider that answered this session's call (after any pool failover), not the one that wrote
+                # the persona; the persona's generator is kept separately
+                "model_provider": prov or assigned_provider(client, person["agent_id"], model),
+                "model_name": mod or model,
+                "provider_answered": bool(job["noticed"]),
             }
+            if person.get("model_provider"):
+                sess_row["persona_provider"] = person.get("model_provider")
             if comp_act is not None:
                 sess_row["competitor_ad"] = comp_act
             sessions.append(sess_row)
@@ -776,6 +844,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     usage = {k: end_usage[k] - start_usage[k] for k in end_usage}
     return {"creatives": creatives, "sessions": sessions, "landing": landing, "competitor": comp, "waves": waves,
             "exposures": exposures, "seed": seed, "usage": usage,
+            "usage_by_provider": provider_diff(meter.provider_snapshot(), start_by_provider),
             "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
                         "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
@@ -1211,6 +1280,7 @@ def combine_runs(runs: List[Dict[str, Any]], benchmarks: Optional[Dict[str, Any]
              "winner_counts": dict(winners.most_common()),
              "winner_agreement": round(100.0 * winners.get(top, 0) / len(runs)) if top else None, "usage": usage}
     return {**first, "sessions": sessions, "summary": summary, "seed": first.get("seed"), "usage": usage,
+            "usage_by_provider": add_provider_usage(*[r.get("usage_by_provider") for r in runs]),
             "multi_seed": multi, "feeds": sum(r.get("feeds", 0) for r in runs),
             "failed": sum(r.get("failed", 0) for r in runs),
             "realism": {**first.get("realism", {}),
@@ -1230,6 +1300,12 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
     base = client._client if isinstance(client, UsageMeter) else client
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     shared = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    shared_by_provider: Dict[str, Dict[str, int]] = {}
+    # the generic-reader baseline compares against the pooled ranking, so with several seeds it runs once on the
+    # combined result instead of once per seed (combine_runs re-summarises and would drop the per-seed ones)
+    want_baseline = bool(kw.pop("include_generic_baseline", False))
+    if len(seeds) == 1:
+        kw["include_generic_baseline"] = want_baseline
     if len(seeds) > 1:
         by_id = {p["agent_id"]: p for p in people}
         keys = set()
@@ -1239,6 +1315,7 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
         pool_meter = UsageMeter(base)
         organic_pools(pool_meter, model, sorted(keys), kw.get("context", ""), int(kw.get("parallel") or 8), pools, kw.get("voices"))
         shared = pool_meter.snapshot()
+        shared_by_provider = pool_meter.provider_snapshot()
     lock = threading.Lock()
     done_by_seed: Dict[int, int] = {}
     total_by_seed: Dict[int, int] = {}
@@ -1265,4 +1342,17 @@ def run_multi_seed(client, model: str, creatives: List[Dict[str, Any]], people: 
         runs = list(ex.map(lambda args: run_one(*args), list(enumerate(seeds))))
     for k, v in shared.items():
         runs[0]["usage"][k] = int(runs[0]["usage"].get(k, 0)) + int(v)
-    return combine_runs(runs, benchmarks)
+    runs[0]["usage_by_provider"] = add_provider_usage(runs[0].get("usage_by_provider"), shared_by_provider)
+    combined = combine_runs(runs, benchmarks)
+    if want_baseline:
+        meter = UsageMeter(base)
+        try:
+            combined["summary"]["generic_baseline"] = generic_reader_baseline(
+                meter, model, combined["creatives"], kw.get("context", ""), combined["summary"].get("ranked"))
+        except Exception as e:  # noqa: BLE001 - the comparator is optional
+            logger.warning(f"generic_reader_baseline failed: {e}")
+        extra = meter.snapshot()
+        for k, v in extra.items():
+            combined["usage"][k] = int(combined["usage"].get(k, 0)) + int(v)
+        combined["usage_by_provider"] = add_provider_usage(combined.get("usage_by_provider"), meter.provider_snapshot())
+    return combined

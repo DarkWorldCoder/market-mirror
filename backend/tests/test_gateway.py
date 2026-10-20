@@ -67,11 +67,80 @@ def test_claude_gateway_preserves_login_and_reports_provider_usage(monkeypatch):
 
 
 
+FAKE_CODEX = r'''
+if [ "$1" = features ]; then printf 'apps                stable  true\nplugins             stable  true\nmemories            stable  true\n'; exit 0; fi
+if [ "$2" = "--help" ]; then echo "--ignore-user-config --ignore-rules --ephemeral --skip-git-repo-check"; exit 0; fi
+args="$*"; out=""; instr=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then out="$2"; shift; fi
+  case "$1" in model_instructions_file=*) instr="${1#model_instructions_file=}"; instr="${instr%\"}"; instr="${instr#\"}";; esac
+  shift
+done
+p=$(cat)
+printf 'codex says: %s\nARGS %s\nCWD %s\nINSTR %s' "$p" "$args" "$PWD" "$(cat "$instr")" > "$out"
+echo '{"type":"thread.started"}'
+echo '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":5}}'
+'''
+
+
+def test_claude_output_cap_leaves_room_for_thinking(monkeypatch):
+    seen = {}
+
+    def invoke(cmd, **kwargs):
+        seen["cap"] = json.loads(cmd[cmd.index("--settings") + 1])["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]
+        seen["cwd"] = kwargs.get("cwd")
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"result": "ok"}), stderr="")
+    monkeypatch.setattr(gw.subprocess, "run", invoke)
+    gw.Gateway(gw.ClaudeBackend(model="haiku")).complete({"max_tokens": 200, "messages": [{"role": "user", "content": "hi"}]})
+    assert seen["cap"] == str(gw.CLAUDE_MIN_OUTPUT_TOKENS) and "mm-claude-" in seen["cwd"]
+
+
 def test_codex_backend_with_fake_cli(tmp_path):
-    # codex exec --json -o <file> --skip-git-repo-check <prompt>: write the last message to the file
-    b = _fake_bin(tmp_path, "codex", 'out=""; while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; shift; fi; last="$1"; shift; done; printf "codex says: %s" "$last" > "$out"\n')
-    out = gw.CodexBackend(binary=b, timeout=10).complete("", "ping")
-    assert out.startswith("codex says:") and "ping" in out
+    # codex exec --json -o <file> ... -: the prompt arrives on stdin, the last message is written to the file
+    b = _fake_bin(tmp_path, "codex", FAKE_CODEX)
+    backend = gw.CodexBackend(binary=b, timeout=10)
+    out = backend.complete("be a buyer", "ping")
+    assert out.startswith("codex says: ping")
+    args = out.split("ARGS ", 1)[1].split("\n", 1)[0]
+    # no MCP servers, no user config / rules, the probed features off, prompt from stdin, an empty temp cwd
+    assert "mcp_servers={}" in args and "--ignore-user-config" in args and "--ignore-rules" in args
+    assert "--disable apps" in args and "--disable plugins" in args and "--disable memories" in args
+    assert "--disable shell_tool" not in args                     # unknown to this codex build: not passed
+    assert args.rstrip().endswith(" -") and "ping" not in args
+    cwd = out.split("CWD ", 1)[1].split("\n", 1)[0]
+    assert "mm-codex-" in cwd and not os.path.exists(cwd)         # removed after the call
+    assert "be a buyer" in out.split("INSTR ", 1)[1] and "API relay" in out.split("INSTR ", 1)[1]
+    assert backend.usage.value["input_tokens"] == 100 and backend.usage.value["cache_read_input_tokens"] == 40
+    backend.request.model = "gpt-5.5"                             # the request's model is honoured
+    assert "-m gpt-5.5" in backend.complete("", "x")
+
+
+def test_codex_huge_prompt_rides_stdin(tmp_path):
+    b = _fake_bin(tmp_path, "codex", FAKE_CODEX)
+    out = gw.CodexBackend(binary=b, timeout=10).complete("", "y" * 200_000)
+    assert out.count("y") >= 200_000
+
+
+def test_codex_binary_found_outside_path(tmp_path, monkeypatch):
+    app = tmp_path / "chatgpt" / "resources"
+    app.mkdir(parents=True)
+    real = _fake_bin(app, "codex", FAKE_CODEX)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(gw.CodexBackend, "known_paths", (str(tmp_path / "missing" / "codex"), str(tmp_path / "chat*" / "resources" / "codex")))
+    backend = gw.CodexBackend(timeout=10)
+    assert backend.binary == real and backend.available()
+    assert gw.main(["--backend", "codex", "--check"]) == 0
+
+
+def test_cli_missing_binary_and_timeout_become_gateway_errors(tmp_path):
+    backend = gw.ClaudeBackend(binary=str(tmp_path / "nope"), timeout=5)
+    with pytest.raises(gw.GatewayError) as e:
+        backend.complete("", "hi")
+    assert e.value.status == 503
+    slow = _fake_bin(tmp_path, "claude", "sleep 5\n")
+    with pytest.raises(gw.GatewayError) as e:
+        gw.ClaudeBackend(binary=slow, timeout=0.5).complete("", "hi")
+    assert e.value.status == 504 and e.value.kind == "timeout"
 
 
 def test_http_contract_and_cache(tmp_path):
@@ -286,3 +355,211 @@ def test_gemini_chatgpt_and_multi_backends(tmp_path):
     assert "gemini echo:" in out
     assert mb.paused_until["claude"] > 0
 
+
+
+# ---------------------------------------------------------------- gemini, antigravity, multi, side-by-side gateways
+
+FAKE_GEMINI = r'''
+p=$(cat)
+case "$p" in
+  *NOTLOGGEDIN*) echo "Please set an Auth method in your settings.json or specify GEMINI_API_KEY" >&2; exit 41 ;;
+  *QUOTA*) echo '{"error":{"code":429,"message":"RESOURCE_EXHAUSTED: Quota exceeded. Please retry in 25.5s."}}'; exit 1 ;;
+esac
+printf '{"response":"gemini: %s | %s | %s","stats":{"models":{"m":{"tokens":{"prompt":7,"candidates":3}}}}}' "$(echo "$p" | tail -n1)" "$*" "$PWD"
+'''
+
+
+def test_gemini_runs_without_tools_in_an_empty_dir_with_the_prompt_on_stdin(tmp_path):
+    b = gw.GeminiBackend(binary=_fake_bin(tmp_path, "gemini", FAKE_GEMINI), timeout=10)
+    out = b.complete("sys", "hello there")
+    assert out.startswith("gemini: hello there")
+    assert "--approval-mode plan" in out and "-e none" in out and "-m gemini" not in out
+    assert "mm-gemini-" in out and b.usage.value["total_tokens"] == 10
+    b.request.model = "gemini-2.5-pro"
+    assert "-m gemini-2.5-pro" in b.complete("", "x")
+    with pytest.raises(gw.GatewayError) as e:
+        b.complete("", "NOTLOGGEDIN")
+    assert e.value.status == 401 and e.value.kind == "authentication_error"
+    with pytest.raises(gw.GatewayError) as e:
+        b.complete("", "QUOTA")
+    assert e.value.status == 429 and e.value.retry_at and 20 < e.value.retry_at - __import__("time").time() < 30
+
+
+FAKE_AGY = r'''
+args="$*"; model=""
+while [ $# -gt 0 ]; do [ "$1" = "--model" ] && model="$2"; shift; done
+line=$(cat)
+case "$line" in
+  *QUOTA*) echo '{"event":"result","result":{"status":"ERROR","response":"","error":"RESOURCE_EXHAUSTED: quota exceeded, retry in 30s","usage":{"input_tokens":0,"output_tokens":0}}}'; exit 1 ;;
+esac
+case "$model" in
+  bad-*) echo '{"event":"result","result":{"status":"ERROR","response":"Unknown model. Available models: gemini-4-argon-medium, gpt-oss-120b-medium","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}'; exit 1 ;;
+esac
+echo '{"event":"init","init":{"model":"'"$model"'"}}'
+printf '{"event":"result","result":{"status":"SUCCESS","response":"agy[%s] %s %s","usage":{"input_tokens":20,"output_tokens":4,"thinking_tokens":1,"cache_read_tokens":100}}}\n' "$model" "$(printf %s "$line" | head -c 3000 | tr -d '"\\')" "$args $PWD"
+'''
+
+
+def test_antigravity_backend_streams_the_prompt_on_stdin(tmp_path):
+    b = gw.AntigravityBackend(model=gw.DEFAULT_MODELS["antigravity"], binary=_fake_bin(tmp_path, "agy", FAKE_AGY), timeout=20)
+    out = b.complete("be terse", "hello agy")
+    assert out.startswith("agy[gemini-4-argon-medium]") and "event: user" in out and "hello agy" in out
+    assert "--sandbox" in out and "--input-format stream-json" in out and "--print-timeout 20s" in out and "mm-agy-" in out
+    assert b.usage.value["input_tokens"] == 120 and b.usage.value["output_tokens"] == 5
+    b.request.model = gw.request_model("antigravity", "gemini-3.8-flash-low")
+    assert b.complete("", "x").startswith("agy[gemini-3.8-flash-low]")
+    big = b.complete("", "z" * 300_000)                             # far above one argument's limit: fine on stdin
+    assert big.startswith("agy[")
+    b.request.model = "bad-model"
+    with pytest.raises(gw.GatewayError) as e:
+        b.complete("", "x")
+    assert e.value.status == 400 and e.value.kind == "invalid_request_error"
+    b.request.model = None
+    with pytest.raises(gw.GatewayError) as e:
+        b.complete("", "QUOTA")
+    assert e.value.status == 429 and e.value.retry_at
+
+
+def test_request_model_routing_per_backend():
+    assert gw.request_model("antigravity", "gemini-4-argon-medium") == "gemini-4-argon-medium"
+    assert gw.request_model("antigravity", "gpt-oss-120b-medium") == "gpt-oss-120b-medium"
+    assert gw.request_model("antigravity", "claude-sonnet-5-5-medium") == "claude-sonnet-5-5-medium"
+    assert gw.request_model("antigravity", "gemini-2.5-flash") is None
+    assert gw.request_model("gemini", "gemini-4-argon-medium") is None        # an Antigravity id, not a Gemini CLI one
+    assert gw.request_model("claude", "claude-sonnet-5-5-medium") is None
+    assert gw.request_model("codex", "codex") is None                          # generic name: the gateway's model
+    assert gw.request_model("codex", "gpt-oss-120b-medium") is None
+    assert gw.request_model("multi", "gemini-4-argon-medium") == "gemini-4-argon-medium"
+
+
+def test_limit_classification_needs_a_real_429():
+    assert gw.cli_failure("x", "HTTP 429 Too Many Requests").status == 429
+    assert gw.cli_failure("x", "status 429").status == 429
+    assert gw.cli_failure("x", "processed 14290 tokens then crashed").status == 502
+    assert gw.cli_failure("x", "RESOURCE_EXHAUSTED").status == 429
+    assert gw.parse_reset('"retryDelay": "41s"', 1000.0) == 1041.0
+
+
+class _Fake(gw.Backend):
+    def __init__(self, name, reply=None, error=None):
+        super().__init__(model=name + "-model", binary="true")
+        self.name, self.reply, self.error, self.calls = name, reply, error, 0
+
+    def available(self):
+        return True
+
+    def complete(self, system, prompt):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        self.usage.value = {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+        return self.reply or f"{self.name} answer"
+
+
+def test_multi_fails_over_on_timeouts_missing_cli_and_errors_and_marks_unhealthy():
+    import subprocess as sp
+    slow = _Fake("claude", error=sp.TimeoutExpired("claude", 1))
+    gone = _Fake("codex", error=FileNotFoundError("codex"))
+    broken = _Fake("gemini", error=gw.GatewayError("boom", 502))
+    ok = _Fake("antigravity")
+    mb = gw.MultiBackend(backends=[slow, gone, broken, ok])
+    assert mb.complete("", "q") == "antigravity answer"
+    assert mb.request.answered_by == "antigravity" and mb.request.answered_model == "antigravity-model"
+    health = {h["backend"]: h for h in mb.health()}
+    assert not health["claude"]["healthy"] and health["claude"]["last_error"] == "timeout"
+    assert not health["codex"]["healthy"] and not health["gemini"]["healthy"] and health["antigravity"]["healthy"]
+    mb.complete("", "again")                                    # unhealthy backends are skipped, not retried
+    assert slow.calls == gone.calls == broken.calls == 1 and ok.calls == 2
+
+
+def test_multi_all_rate_limited_answers_429_until_the_first_reset():
+    import time as _t
+    a = _Fake("claude", error=gw.GatewayError("lim", 429, "rate_limit", retry_at=_t.time() + 600))
+    b = _Fake("codex", error=gw.GatewayError("lim", 429, "rate_limit", retry_at=_t.time() + 300))
+    mb = gw.MultiBackend(backends=[a, b])
+    with pytest.raises(gw.GatewayError) as e:
+        mb.complete("", "q")
+    assert e.value.status == 429 and 300 < e.value.retry_at - _t.time() < 400
+
+
+def test_multi_gateway_reports_the_answering_backend_and_caches_per_backend(tmp_path):
+    first = _Fake("claude", error=gw.GatewayError("boom", 502))
+    second = _Fake("antigravity")
+    g = gw.Gateway(gw.MultiBackend(backends=[first, second]), workers=2, cache=gw.Cache(str(tmp_path / "c.sqlite")))
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), gw.make_handler(g))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"
+        body = json.dumps({"messages": [{"role": "user", "content": "hi"}], "temperature": 0}).encode()
+        with urllib.request.urlopen(urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}), timeout=10) as r:
+            resp, header = json.loads(r.read()), r.headers.get("X-MarketMirror-Backend")
+        assert resp["provider"] == "antigravity" and header == "antigravity" and resp["model"] == "antigravity-model"
+        first.error = None                                        # claude is back, but still paused as unhealthy
+        with urllib.request.urlopen(urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}), timeout=10) as r:
+            resp2 = json.loads(r.read())
+        # the cached answer is found under the backend that produced it and is reported as that backend's
+        assert resp2["usage_source"] == "local_cache" and resp2["provider"] == "antigravity" and second.calls == 1
+        health = json.loads(urllib.request.urlopen(url.replace("/v1/chat/completions", "/health"), timeout=5).read())
+        assert {p["backend"] for p in health["pool"]} == {"claude", "antigravity"} and health["port"] == srv.server_address[1]
+    finally:
+        srv.shutdown()
+    # a single backend's cache key is its own name + model: another backend never reads it
+    k_claude = gw.Gateway._key("claude", "sonnet", "", "hi", 0, None)
+    assert k_claude != gw.Gateway._key("antigravity", "sonnet", "", "hi", 0, None)
+
+
+def test_side_by_side_gateways_get_their_own_cache_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIROFISH_UPLOAD_DIR", str(tmp_path / "inst"))
+    assert gw.default_cache_path(5055) == str(tmp_path / "inst" / "gateway_cache.sqlite")
+    assert gw.default_cache_path(5092) == str(tmp_path / "inst" / "gateway_cache_5092.sqlite")
+    assert gw.default_cache_path(5092) != gw.default_cache_path(5093)
+
+
+def _free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_two_gateways_run_at_once_with_their_own_tokens(tmp_path):
+    import subprocess as sp
+    import time as _t
+    claude = _fake_bin(tmp_path, "claude", 'cat >/dev/null; printf \'{"type":"result","result":"from claude"}\'\n')
+    agy = _fake_bin(tmp_path, "agy", FAKE_AGY)
+    procs, ports = [], []
+    try:
+        for name, binary in (("claude", claude), ("antigravity", agy)):
+            port = _free_port()
+            tok = tmp_path / f"tok-{name}"
+            tok.write_text(f"token-for-{name}-" + "x" * 30)
+            env = {**os.environ, "MIROFISH_UPLOAD_DIR": str(tmp_path / "uploads")}
+            procs.append(sp.Popen([sys.executable, gw.__file__, "--backend", name, "--binary", binary, "--port", str(port),
+                                   "--auth-token-file", str(tok)], env=env, stderr=sp.DEVNULL, stdout=sp.DEVNULL))
+            ports.append((name, port, tok.read_text()))
+        for name, port, token in ports:
+            h = None
+            for _ in range(100):
+                try:
+                    h = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1).read())
+                    break
+                except OSError:
+                    _t.sleep(0.1)
+            assert h and h["backend"] == name and h["cache"].endswith(f"gateway_cache_{port}.sqlite")
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/chat/completions",
+                                         data=json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode(),
+                                         headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            out = json.loads(urllib.request.urlopen(req, timeout=20).read())
+            assert out["provider"] == name
+        other = urllib.request.Request(f"http://127.0.0.1:{ports[0][1]}/v1/chat/completions",
+                                       data=b'{"messages":[{"role":"user","content":"hi"}]}',
+                                       headers={"Authorization": "Bearer " + ports[1][2]})
+        with pytest.raises(urllib.error.HTTPError) as e:              # one gateway's token does not open another
+            urllib.request.urlopen(other, timeout=5)
+        assert e.value.code == 401
+    finally:
+        for p in procs:
+            p.terminate()
+            p.wait(timeout=10)

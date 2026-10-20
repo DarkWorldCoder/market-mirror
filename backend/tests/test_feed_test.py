@@ -326,14 +326,14 @@ def test_say_do_friction_competitor_shock_and_generic_baseline():
     f_deal = ft.check_say_do_friction(person, {"price": "NPR 200", "shows": "7-day trial with auto-renew"}, random.Random(1))
     assert f_deal is not None and f_deal[0] == "dealbreaker"
 
-    # Full feed test with competitor counter-offer and generic reader baseline
-    llm = FakeLLM()
+    # Full feed test with competitor counter-offer and generic reader baseline, on a two-provider pool
+    pool, _ = _two_provider_pool()
     cs = ft.normalize_creatives(CREATIVES[:1])
     ps = people(4)
-    for idx, p in enumerate(ps):
-        p["model_provider"] = "claude" if idx % 2 == 0 else "gemini"
+    for p in ps:
+        p["model_provider"] = "openai"            # who wrote the persona must not decide the answering provider
     res = ft.run_feed_test(
-        llm, "m", cs, ps, waves=1, exposures=1, attention_gate=False,
+        pool, "m", cs, ps, waves=1, exposures=1, attention_gate=False,
         competitor={"name": "RivalFit", "offer": "50% cheaper, no card"},
         include_generic_baseline=True,
     )
@@ -342,4 +342,79 @@ def test_say_do_friction_competitor_shock_and_generic_baseline():
     assert "generic_baseline" in res["summary"]
     assert "by_provider" in res["summary"]
     assert set(res["summary"]["by_provider"].keys()) == {"claude", "gemini"}
+    assert all(s["persona_provider"] == "openai" for s in res["sessions"])
+    assert set(res["usage_by_provider"]) == {"claude", "gemini"}
+
+
+class _ProviderLLM(FakeLLM):
+    """FakeLLM whose calls can be made to fail (rate limit) so the pool fails over."""
+
+    def __init__(self, fail=False):
+        super().__init__()
+        self.fail = fail
+        self.calls = 0
+
+    def create(self, **kw):
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("Error code: 429 - rate limit exceeded")
+        return super().create(**kw)
+
+
+def _two_provider_pool(fail_first=False):
+    from app.utils.model_pool import MultiProviderPool, ProviderSlot
+    a, b = _ProviderLLM(fail=fail_first), _ProviderLLM()
+    pool = MultiProviderPool([ProviderSlot("claude", "claude-sonnet-4-5", "https://api.anthropic.com/v1/", "k", a),
+                              ProviderSlot("gemini", "gemini-2.5-flash", "https://generativelanguage.googleapis.com/v1beta/openai/", "k", b)])
+    return pool, (a, b)
+
+
+def test_by_provider_counts_the_provider_that_answered_after_failover():
+    pool, (claude, gemini) = _two_provider_pool(fail_first=True)
+    ps = people(4)
+    for p in ps:
+        p["model_provider"] = "claude"
+    res = ft.run_feed_test(pool, "m", ft.normalize_creatives(CREATIVES[:1]), ps, waves=1, exposures=1,
+                           attention_gate=False, parallel=1)
+    # every claude-routed call hit a rate limit and failed over: gemini answered all of them
+    assert claude.calls >= 1 and set(res["summary"]["by_provider"]) == {"gemini"}
+    assert {s["model_provider"] for s in res["sessions"]} == {"gemini"}
+    assert set(res["usage_by_provider"]) == {"gemini"}
+
+
+def test_unnoticed_sessions_are_labelled_with_the_routed_provider():
+    pool, _ = _two_provider_pool()
+    ps = people(4)
+    res = ft.run_feed_test(pool, "m", ft.normalize_creatives(CREATIVES[:1]), ps, waves=1, exposures=3,
+                           attention_gate=True, seed=3)
+    unnoticed = [s for s in res["sessions"] if not s["ad"].get("noticed")]
+    assert unnoticed, "the attention gate should skip some exposures"
+    for s in unnoticed:
+        assert s["model_provider"] == ("claude" if s["agent_id"] % 2 == 0 else "gemini")
+        assert s["provider_answered"] is False
+
+
+def test_gateway_reported_provider_is_used_for_plain_clients():
+    class GatewayLLM(FakeLLM):
+        def create(self, **kw):
+            r = super().create(**kw)
+            r.provider = "antigravity"                     # what a multi gateway reports per answer
+            return r
+    llm = GatewayLLM()
+    llm.base_url = "http://127.0.0.1:59999/v1"
+    res = ft.run_feed_test(llm, "m", ft.normalize_creatives(CREATIVES[:1]), people(2), waves=1, exposures=1,
+                           attention_gate=False)
+    assert set(res["summary"]["by_provider"]) == {"antigravity"}
+
+
+def test_generic_baseline_survives_multiple_seeds():
+    llm = FakeLLM()
+    res = ft.run_multi_seed(llm, "m", ft.normalize_creatives(CREATIVES[:1]), people(4), seeds=[5, 6],
+                            waves=1, exposures=1, attention_gate=False, include_generic_baseline=True,
+                            competitor={"name": "RivalFit", "offer": "50% cheaper"})
+    assert res["multi_seed"]["n"] == 2
+    assert res["summary"]["generic_baseline"]["ranked"]
+    assert res["summary"]["competitor_shock"]["name"] == "RivalFit"
+    baseline_calls = [1 for s, _ in llm.prompts if s == ft.GENERIC_READER_SYSTEM]
+    assert len(baseline_calls) == 1                                    # once on the pooled ranking, not per seed
 

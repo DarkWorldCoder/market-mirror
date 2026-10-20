@@ -38,7 +38,7 @@ sys.path.insert(0, _backend_dir)
 
 # 加载项目根目录的 .env 文件（包含 LLM_API_KEY 等配置）
 from dotenv import load_dotenv
-_env_file = os.path.join(_project_root, '.env')
+_env_file = os.environ.get('MIROFISH_ENV_FILE') or os.path.join(_project_root, '.env')   # per backend instance
 if os.path.exists(_env_file):
     load_dotenv(_env_file)
 else:

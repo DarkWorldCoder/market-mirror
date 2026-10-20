@@ -103,8 +103,12 @@ def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval:
 
 def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_arg: Optional[str] = None,
              bench_arg: Optional[str] = None, waves: int = 3, organic: int = 5, limit: Optional[int] = None,
-             parallel: int = 8, exposures: int = 2, attention_gate: bool = True, seeds: int = 1, seed: int = 5) -> Dict[str, Any]:
-    """seeds > 1 repeats the test with different seeds and reports each creative's mean and min-max range; seed = the base seed."""
+             parallel: int = 8, exposures: int = 2, attention_gate: bool = True, seeds: int = 1, seed: int = 5,
+             competitor_arg: Optional[str] = None, generic_baseline: Optional[bool] = None) -> Dict[str, Any]:
+    """seeds > 1 repeats the test with different seeds and reports each creative's mean and min-max range; seed = the base seed.
+    competitor_arg: @competitor.json or inline JSON {name, offer|text|headline, price?} shown in the same feeds (price
+    shock); generic_baseline: also score the ads with one zero-persona generic reader. Both can also come from the
+    creatives spec ({creatives, competitor, generic_baseline})."""
     spec = _load_json_arg(spec_arg)
     base_dir = os.path.dirname(os.path.abspath(spec_arg[1:])) if spec_arg.startswith("@") else os.getcwd()
     if isinstance(spec, list):
@@ -128,10 +132,17 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     bench = _load_json_arg(bench_arg) if bench_arg else spec.get("benchmarks")
     if isinstance(bench, dict) and "benchmarks" in bench:
         bench = bench["benchmarks"]
+    competitor = _load_json_arg(competitor_arg) if competitor_arg else spec.get("competitor")
+    if competitor is not None and not isinstance(competitor, dict):
+        raise ValueError("--competitor must be a JSON object {name, offer|text|headline, price?}")
+    if generic_baseline is None:
+        generic_baseline = bool(spec.get("generic_baseline") or spec.get("include_generic_baseline"))
     payload = {"simulation_id": simulation_id, "creatives": creatives, "waves": waves, "organic_per_feed": organic,
                "exposures": exposures, "attention_gate": attention_gate, "seeds": max(1, int(seeds or 1)), "seed": int(seed or 5),
                "parallel": parallel, **({"landing": landing} if landing else {}),
-               **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {})}
+               **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {}),
+               **({"competitor": competitor} if competitor else {}),
+               **({"include_generic_baseline": True} if generic_baseline else {})}
     started = c.data("POST", "/api/simulation/feed-test", json={**payload, **_scope(c)}, timeout=120)
     log(f"feedtest: {started.get('feeds')} person-platform pairs x {exposures} exposures, {started.get('personas')} personas, "
         f"{started.get('creatives')} creatives, {waves} waves. Only exposures that catch the eye call Claude"
