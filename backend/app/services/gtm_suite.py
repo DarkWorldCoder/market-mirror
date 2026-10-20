@@ -40,7 +40,7 @@ ENGINE_LABELS = {
     "committee": "Buying committee", "creative": "Creative optimizer", "battlecard": "Sales battlecard",
     "journey": "Customer journey", "pricing": "Pricing and packaging", "competitors": "Competitor choice",
     "teardown": "Landing page teardown", "roleplay": "Sales roleplay", "whatif": "What-if choice",
-    "personalize": "Tailored ads", "geo": "AI search visibility (GEO)", "voc": "Real vs simulated voices",
+    "personalize": "Tailored ads", "geo": "How buyers would search (simulated)", "voc": "Real vs simulated concerns",
     "cascade": "Word-of-mouth cascade",
 }
 

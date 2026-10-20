@@ -854,9 +854,10 @@ def _num_arg(data: Dict[str, Any], key: str, kind=int, lo=None, hi=None):
     return v
 
 
-def _run_data(sim_dir: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """What the run already produced: feed test and pitch from the simulation folder, survey answers from the
-    request (the CLI keeps them in the run folder) or the simulation folder."""
+def _run_data(sim_dir: str, data: Dict[str, Any], sid: str = "") -> Dict[str, Any]:
+    """What the run already produced: feed test and pitch from the simulation folder, survey answers and research
+    quotes from the request (the CLI keeps them in the run folder) or the simulation folder, else the project's
+    voices.json from `research`."""
     out = {}
     for key, name in (("feed_test", "feed_test.json"), ("pitch", "pitch.json"), ("survey", "survey.json"), ("research", "research.json")):
         try:
@@ -866,16 +867,38 @@ def _run_data(sim_dir: str, data: Dict[str, Any]) -> Dict[str, Any]:
             pass
     if isinstance(data.get("survey"), dict):
         out["survey"] = data["survey"]
-    if isinstance(data.get("research"), dict):
+    if isinstance(data.get("research"), (dict, list)):
         out["research"] = data["research"]
+    if "research" not in out and sid:
+        voices = _voices(sid)
+        if isinstance(voices, list) and voices:
+            out["research"] = {"quotes": voices}
     return out
+
+
+def _voc_reviews(data: Dict[str, Any]):
+    """reviews / raw_reviews as a list of texts: a list as given, or a plain string split into lines of 20+ characters."""
+    raw = data.get("raw_reviews") or data.get("reviews")
+    if raw in (None, "", []):
+        return None
+    if isinstance(raw, str):
+        texts = [s.strip() for s in raw.splitlines() if len(s.strip()) >= 20]
+    elif isinstance(raw, list):
+        texts = [x.strip() if isinstance(x, str) else str(x.get("text") or x.get("body") or "").strip()
+                 for x in raw if isinstance(x, (str, dict))]
+        texts = [t for t in texts if t]
+    else:
+        raise ValueError("reviews must be a list of texts or one text with a review per line")
+    if not texts:
+        raise ValueError("reviews has no usable text (one review per line, at least 20 characters each)")
+    return texts
 
 
 def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people: List[Dict[str, Any]]):
     """Validate the request and return work(progress) for the background task."""
     from ..services import gtm_suite, cro_and_sparring, agent_thoughts
     profile = _profile(sid)
-    rd = _run_data(sim_dir, data)
+    rd = _run_data(sim_dir, data, sid)
     cohort = _num_arg(data, "cohort", int, 2, 1000)
     par = _num_arg(data, "parallel", int, 1, 32) or 8
     seed = _num_arg(data, "seed", int) or 19
@@ -917,15 +940,24 @@ def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people:
     if engine in ("geo", "voc", "cascade"):
         from ..services import search_and_geo
         if engine == "geo":
+            need = data.get("need") or ""
+            if not isinstance(need, str):
+                raise ValueError("need must be text: the need people have, without the product's name")
+            gtm_suite.offer_dict(data.get("offer") or "", profile)
             return lambda progress: search_and_geo.run_geo_visibility_audit(
-                _client_for(people), model, offer=data.get("offer") or "", people=people, queries=data.get("queries"),
+                _client_for(people), model, offer=data.get("offer") or "", people=people, need=need,
                 competitors=data.get("competitors"), seed=seed, cohort_size=cohort or 30, profile=profile,
                 parallel=par, progress=progress)
         if engine == "voc":
+            from ..services.website_test import validate_url
+            reviews = _voc_reviews(data)
+            url = data.get("url")
+            if url:
+                if not isinstance(url, str):
+                    raise ValueError("url must be text")
+                validate_url(url, allow_loopback=False, resolve=False)
             return lambda progress: search_and_geo.run_voc_grounding(
-                _client_for(people), model, offer=data.get("offer") or "", people=people, url=data.get("url"),
-                raw_reviews=data.get("raw_reviews") or data.get("reviews"), run_data=rd, seed=seed,
-                profile=profile, parallel=par, progress=progress)
+                _client_for(people), model, url=url, raw_reviews=reviews, run_data=rd, parallel=par, progress=progress)
         return lambda progress: search_and_geo.run_dark_social_cascade(
             _client_for(people), model, people=people, offer=data.get("offer") or "", seed=seed, cohort_size=cohort or 36,
             profile=profile, parallel=par, progress=progress)
@@ -990,7 +1022,7 @@ def start_gtm_suite():
         people, _ = _people(sid)
         if not people:
             raise ValueError("no simulated people yet: prepare the simulation first")
-        rd = _run_data(sim_dir, data)
+        rd = _run_data(sim_dir, data, sid)
         opts = {**data, "cohort": _num_arg(data, "cohort", int, 2, 1000), "parallel": _num_arg(data, "parallel", int, 1, 32) or 8,
                 "spend": _num_arg(data, "spend", float, 0), "audience": _num_arg(data, "audience", int, 1),
                 "price": _num_arg(data, "price", float, 0), "generations": _num_arg(data, "generations", int, 1, 5)}
@@ -1049,43 +1081,72 @@ def get_competitor_analysis(simulation_id: str):
     return get_gtm_test(simulation_id, "competitors")
 
 
+def _search_index(sid: str, sim_dir: str, people, bundle=None):
+    """The run's records; research quotes come from the bundle, the simulation folder or the project's voices.json."""
+    from ..services import search_and_geo
+    b = dict(bundle or {})
+    if b.get("research") is None and not os.path.exists(os.path.join(sim_dir, "research.json")):
+        voices = _voices(sid)
+        if isinstance(voices, list) and voices:
+            b["research"] = {"quotes": voices}
+    return search_and_geo.build_search_index(people=people, sim_dir=sim_dir, bundle=b)
+
+
+def _text_arg(data, key: str) -> str:
+    v = data.get(key)
+    if v in (None, ""):
+        return ""
+    if not isinstance(v, str):
+        raise ValueError(f"{key} must be text")
+    return v.strip()
+
+
 @simulation_bp.route('/search', methods=['POST'])
 def search_simulation():
-    """POST {simulation_id, query, top_k?, type?, segment?, ask?: bool} -> ranked evidence + optional cited answer."""
+    """POST {simulation_id, query, top_k?, type?, segment?, concept?, ask?: bool, bundle?} -> ranked records, or with
+    ask a cited answer (answer_ok false and the error when the model call fails)."""
     from ..services import search_and_geo
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"success": False, "error": "request body must be an object"}), 400
     sid = str(data.get("simulation_id") or "").strip()
-    query = str(data.get("query") or data.get("q") or "").strip()
     try:
         sim_dir = _sim_dir(sid)
-        people, _ = _people(sid)
+        query = _text_arg(data, "query") or _text_arg(data, "q")
         top_k = _num_arg(data, "top_k", int, 1, 100) or 12
+        doc_type, segment, concept = _text_arg(data, "type"), _text_arg(data, "segment"), _text_arg(data, "concept")
+        bundle = data.get("bundle")
+        if bundle is not None and not isinstance(bundle, dict):
+            raise ValueError("bundle must be an object (the run's files by name)")
+        client = _client() if data.get("ask") else None
+        people, _ = _people(sid)
     except LookupError as e:
         return jsonify({"success": False, "error": str(e)}), 404
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
-    idx = search_and_geo.build_search_index(people=people, sim_dir=sim_dir, bundle=data.get("bundle"))
-    if data.get("ask"):
-        res = search_and_geo.ask_market_copilot(query, idx, client=_client(), model=Config.LLM_MODEL_NAME, top_k=top_k)
+    idx = _search_index(sid, sim_dir, people, bundle)
+    if client is not None:
+        res = search_and_geo.ask_market_copilot(query, idx, client=client, model=Config.LLM_MODEL_NAME, top_k=top_k)
     else:
-        res = search_and_geo.search_market_evidence(query, idx, top_k=top_k, doc_type=data.get("type"), segment=data.get("segment"))
+        res = search_and_geo.search_market_evidence(query, idx, top_k=top_k, doc_type=doc_type or None, segment=segment or None,
+                                                    concept=concept or None)
     return jsonify({"success": True, "data": res})
 
 
 @simulation_bp.route('/<simulation_id>/search', methods=['GET'])
 def get_simulation_search(simulation_id: str):
     from ..services import search_and_geo
-    query = str(request.args.get("q") or request.args.get("query") or "").strip()
+    args = request.args
     try:
         sim_dir = _sim_dir(simulation_id)
+        top_k = _num_arg(args, "top_k", int, 1, 100) or 12
         people, _ = _people(simulation_id)
     except LookupError as e:
         return jsonify({"success": False, "error": str(e)}), 404
-    idx = search_and_geo.build_search_index(people=people, sim_dir=sim_dir)
-    res = search_and_geo.search_market_evidence(
-        query, idx, top_k=int(request.args.get("top_k") or 12),
-        doc_type=request.args.get("type"), segment=request.args.get("segment"),
-    )
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    idx = _search_index(simulation_id, sim_dir, people)
+    res = search_and_geo.search_market_evidence(str(args.get("q") or args.get("query") or "").strip(), idx, top_k=top_k,
+                                                doc_type=args.get("type") or None, segment=args.get("segment") or None,
+                                                concept=args.get("concept") or None)
     return jsonify({"success": True, "data": res})
