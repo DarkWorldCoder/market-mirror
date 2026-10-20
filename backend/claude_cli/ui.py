@@ -56,10 +56,80 @@ def pct_ci(p: Optional[float], n: int, *, calibration_basis: Optional[str] = Non
     Synthetic responses are correlated model outputs, so a binomial sample
     margin alone does not quantify real-world predictive uncertainty.
     """
+    p = num(p)
     if p is None:
         return "–"
     m = ci(p, n) if calibration_basis else None
     return f"{p:.0f}%" + (f" ±{m:.0f}" if m is not None else "")
+
+
+MISSING = "–"
+
+
+def num(v: Any) -> Optional[float]:
+    """A finite float from a number or a numeric string ("12", "4.5%", "1,008"); None for anything else
+    (missing keys, None, prose, NaN, booleans). Every formatted figure goes through this, so a key that exists
+    but holds None or text never crashes a section and never turns into a made-up 0."""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        f = float(v)
+    elif isinstance(v, str):
+        m = re.match(r"^\s*([+\-−]?\d[\d,]*(?:\.\d+)?|[+\-−]?\.\d+)\s*%?\s*$", v)
+        if not m:
+            return None
+        f = float(m.group(1).replace(",", "").replace("−", "-"))
+    else:
+        return None
+    return f if math.isfinite(f) else None
+
+
+def fnum(v: Any, spec: str = "g", suffix: str = "", prefix: str = "", missing: str = MISSING) -> str:
+    """Format a figure null-safely: ``fnum(x, ".0f", "%")`` -> "12%", or ``missing`` ("–") when x is not a number."""
+    f = num(v)
+    if f is None:
+        return missing
+    return f"{prefix}{f:{spec}}{suffix}"
+
+
+def rawnum(v: Any, suffix: str = "", missing: str = MISSING) -> str:
+    """A figure exactly as the result file wrote it (66.7 -> "66.7%", 100.0 -> "100.0%"), or ``missing`` when it
+    is not a number."""
+    return missing if num(v) is None else f"{str(v).strip()}{suffix}"
+
+
+_NOT_A_MODEL ={"", "none", "null", "grounded", "real_intake", "unknown"}
+
+
+def persona_provider(r: Dict[str, Any]) -> str:
+    """The LLM provider recorded for a simulated person, lower case; '' when none was recorded (grounded
+    people carry model_provider "grounded", which names their source, not a model)."""
+    p = str((r or {}).get("model_provider") or "").strip().lower()
+    return "" if p in _NOT_A_MODEL else p
+
+
+def persona_provenance(r: Dict[str, Any]) -> str:
+    """'grounded' (built from real intake), 'synthetic' (model-written) or '' when no provenance was recorded.
+    persona_planner writes a dict, e.g. {"profile": "real_intake: customer_excerpts", "bde": ...}; older or
+    hand-made rows may carry a plain string."""
+    r = r or {}
+    prov = r.get("provenance")
+    if isinstance(prov, dict):
+        values = [str(v).strip().lower() for v in prov.values() if v]
+        profile = str(prov.get("profile") or "").strip().lower()
+        if profile.startswith("real_intake") or (not profile and any(v.startswith("real_intake") for v in values)):
+            return "grounded"
+        if profile.startswith("synthetic") or (not profile and any(v.startswith("synthetic") for v in values)):
+            return "synthetic"
+    elif isinstance(prov, str) and prov.strip():
+        p = prov.strip().lower()
+        if p.startswith(("real_intake", "grounded")):
+            return "grounded"
+        if p.startswith(("synthetic", "llm")):
+            return "synthetic"
+    if str(r.get("model_provider") or "").strip().lower() == "grounded":
+        return "grounded"
+    return ""
 
 
 def low_n_pill(n: int, threshold: int = 10) -> str:
@@ -193,7 +263,11 @@ if(nav){var links=[],secs=[];nav.querySelectorAll('a[href^="#"]').forEach(functi
   if(s){links.push(a);secs.push(s);}});
  var cur=null,ticking=false;
  function vertical(){return nav.offsetHeight>innerHeight*0.45;}
- function spy(){ticking=false;var line=vertical()?110:nav.getBoundingClientRect().bottom+24,best=0;
+ /* the reading line sits under whatever is stuck to the top: the phone nav strip and the sticky workspace bar */
+ var wsb=document.querySelector('.ws-bar');
+ function readLine(){var b=vertical()?86:nav.getBoundingClientRect().bottom;
+  if(wsb&&!wsb.hidden){var r=wsb.getBoundingClientRect();if(r.height&&r.top<innerHeight/3)b=Math.max(b,r.bottom);}return b+24;}
+ function spy(){ticking=false;var line=readLine(),best=0;
   for(var i=0;i<secs.length;i++){if(secs[i].getBoundingClientRect().top<=line)best=i;}
   if(innerHeight+scrollY>=doc.scrollHeight-2)best=secs.length-1;
   var a=links[best];if(!a||a===cur)return;links.forEach(function(x){x.removeAttribute('aria-current');});a.setAttribute('aria-current','true');cur=a;
@@ -236,8 +310,9 @@ function applyFilters(root){var ctrls=Array.prototype.slice.call(root.querySelec
    if(r.op==='min')return parseFloat(a)>=parseFloat(r.v);if(r.op==='max')return parseFloat(a)<=parseFloat(r.v);
    if(r.op==='has')return (' '+a+' ').indexOf(' '+r.v+' ')>=0;return true;});
   it.hidden=!ok;if(ok)shown++;});
+ /* re-order only for a sort control: plain filtering must keep the order the reader chose (a column sort) */
  var sortC=root.querySelector('[data-filter-sort]');var key=sortC&&(sortC.type!=='checkbox'||sortC.checked)?sortC.getAttribute('data-filter-sort'):null;
- var parents=[];items.forEach(function(it){if(parents.indexOf(it.parentNode)<0)parents.push(it.parentNode);});
+ var parents=[];if(sortC)items.forEach(function(it){if(parents.indexOf(it.parentNode)<0)parents.push(it.parentNode);});
  parents.forEach(function(p){var kids=items.filter(function(it){return it.parentNode===p;});
   kids.sort(function(a,b){if(key){var d=parseFloat(b.getAttribute('data-'+key)||'0')-parseFloat(a.getAttribute('data-'+key)||'0');if(d)return d;}
    return parseFloat(a.getAttribute('data-order')||'0')-parseFloat(b.getAttribute('data-order')||'0');});kids.forEach(function(k){p.appendChild(k);});});

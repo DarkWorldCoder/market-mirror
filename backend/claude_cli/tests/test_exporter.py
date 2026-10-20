@@ -203,7 +203,7 @@ class ExportTests(unittest.TestCase):
         html2, _, _ = exporter.render_dashboard(bundle)
         self.assertIn('data-ws-tab="overview"', html2)
         self.assertIn('class="funnel-wf"', html2)
-        self.assertIn("Model ensemble &amp; provenance", html2)
+        self.assertIn("Models and sources", html2)
         self.assertIn('data-view-tab="crm"', html2)
         self.assertIn('class="sortable crm-table"', html2)
         self.assertIn('class="bde-drawer"', html2)

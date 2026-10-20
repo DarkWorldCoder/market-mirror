@@ -569,6 +569,10 @@ def collect(c: Client, out_dir: str, project_id: Optional[str] = None, simulatio
             # the feed story grows with every round, so it is always refetched; the others are written once
             if name == "feed_story" or not os.path.exists(os.path.join(out_dir, f"{name}.json")):
                 put(name, _try(name, lambda kind=kind: c.data("GET", f"/api/simulation/{simulation_id}/{kind}")))
+        # each person's state and memories live in the simulation folder; every test adds to them, so refetch
+        state = _try("behavior_state", lambda: c.data("GET", f"/api/simulation/{simulation_id}/memory", params={"raw": 1}))
+        if isinstance(state, dict) and state.get("scopes"):
+            put("behavior_state", state)
     if report_id:
         put("report", _try("report", lambda: c.data("GET", f"/api/report/{report_id}")))
     return saved

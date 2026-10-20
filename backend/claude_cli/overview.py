@@ -22,7 +22,7 @@ _LEAD_NUM = re.compile(r"^\s*\d+[.)]\s*")   # "1. Fix ..." inside an <ol> would 
 
 
 def _pct(v: Any) -> str:
-    return "–" if v is None else f"{float(v):.0f}%"
+    return ui.fnum(v, ".0f", "%")
 
 
 def _num(v: Any) -> str:
@@ -69,21 +69,25 @@ def active_providers(bundle: Dict[str, Any]) -> List[str]:
         if s and s not in seen:
             seen.append(s)
 
-    for r in ((bundle.get("config") or {}).get("persona_index") or []):
-        if isinstance(r, dict) and r.get("kind") == "persona":
-            _add(r.get("model_provider"))
-    ft_prov = ((bundle.get("feed_test") or {}).get("summary") or {}).get("by_provider") or {}
-    if isinstance(ft_prov, dict):
-        for k in ft_prov:
-            _add(k)
-    ap_prov = (((bundle.get("analyst_panel") or {}).get("consensus") or {}).get("by_provider") or {})
-    if isinstance(ap_prov, dict):
-        for k in ap_prov:
-            _add(k)
-    for a in ((bundle.get("analyst_panel") or {}).get("analysts") or []):
+    def _d(v: Any) -> Dict[str, Any]:
+        return v if isinstance(v, dict) else {}
+
+    for r in _personas(bundle):
+        _add(ui.persona_provider(r))
+    for k in _d(_d(_d(bundle.get("feed_test")).get("summary")).get("by_provider")):
+        _add(k)
+    panel = _d(bundle.get("analyst_panel"))
+    for k in _d(_d(panel.get("consensus")).get("by_provider")):
+        _add(k)
+    for a in panel.get("analysts") or [] if isinstance(panel.get("analysts"), list) else []:
         if isinstance(a, dict):
             _add(a.get("provider"))
-    return seen
+    return [p for p in seen if p not in ("grounded", "real_intake")]
+
+
+def _personas(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [r for r in ((bundle.get("config") or {}).get("persona_index") or [])
+            if isinstance(r, dict) and r.get("kind") == "persona"]
 
 
 def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
@@ -96,11 +100,7 @@ def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
     has = bool(mk.get("has_survey"))
     answered = int(mk.get("answered") or 0)
     engaged = int(mk.get("engaged") or 0)
-    index = [r for r in ((bundle.get("config") or {}).get("persona_index") or []) if isinstance(r, dict) and r.get("kind") == "persona"]
-    grounded = sum(
-        1 for r in index
-        if "real_intake" in str((r.get("provenance") or {}).get("profile") if isinstance(r.get("provenance"), dict) else r.get("provenance") or "")
-    )
+    grounded = sum(1 for r in _personas(bundle) if ui.persona_provenance(r) == "grounded")
     if people:
         hint = (f"{answered} surveyed · {engaged} joined the conversation" if has else f"{engaged} joined the conversation")
         if grounded:
@@ -116,23 +116,28 @@ def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
             exp = fn[3][1]
             tiles.append(ui.kpi(_num(exp), "Simulated likely converts", f"of {answered} surveyed: would click, then {goal}",
                                 color=6, bar=(100 * float(exp) / answered) if answered else None))
-        if ssr.get("trust"):
-            tr = ssr["trust"]
-            tiles.append(ui.kpi(f'{tr["mean"]:.1f}/5', "Trust", f'±{tr["sd"]:.1f} spread, from free text', color=7,
-                                bar=(float(tr["mean"]) - 1) / 4 * 100))
-        elif o.get("trust") is not None:
-            tiles.append(ui.kpi(f'{o["trust"]}/10', "Trust", "stated, average", color=7, bar=float(o["trust"]) * 10))
+        tr = ssr.get("trust") if isinstance(ssr.get("trust"), dict) else {}
+        if ui.num(tr.get("mean")) is not None:
+            tiles.append(ui.kpi(ui.fnum(tr["mean"], ".1f", "/5"), "Trust",
+                                f'±{ui.fnum(tr.get("sd"), ".1f")} spread, from free text' if ui.num(tr.get("sd")) is not None
+                                else "from free text", color=7, bar=(ui.num(tr["mean"]) - 1) / 4 * 100))
+        elif ui.num(o.get("trust")) is not None:
+            tiles.append(ui.kpi(f'{ui.fnum(o["trust"])}/10', "Trust", "stated, average", color=7, bar=ui.num(o["trust"]) * 10))
     fb = feed_best(bundle)
-    if fb and fb["m"].get("expected_ctr") is not None:
-        v = fb["spread"]["mean"] if fb["spread"] else fb["m"]["expected_ctr"]
+    v = None
+    if fb:
+        v = ui.num((fb["spread"] or {}).get("mean")) if isinstance(fb["spread"], dict) else None
+        v = v if v is not None else ui.num(fb["m"].get("expected_ctr"))
+    if fb and v is not None:
         hint = f'{fb["id"]} · {ui.PLATFORM_LABEL.get(fb["platform"], fb["platform"] or "")}'.rstrip(" ·")
         delta, bar = None, None
-        if fb["spread"]:
-            delta = f'range {fb["spread"]["min"]}–{fb["spread"]["max"]}% over {fb["seeds"]} seeds'
-        elif fb["base"].get("ctr") is not None:
-            delta = f'{float(v) - float(fb["base"]["ctr"]):+.1f} pt vs organic posts'
+        base_ctr = ui.num((fb["base"] or {}).get("ctr"))
+        if isinstance(fb["spread"], dict) and ui.num(fb["spread"].get("min")) is not None:
+            delta = f'range {fb["spread"]["min"]}–{fb["spread"].get("max")}% over {fb["seeds"]} seeds'
+        elif base_ctr is not None:
+            delta = f'{v - base_ctr:+.1f} pt vs organic posts'
         else:
-            bar = min(100.0, float(v) / 5 * 100)
+            bar = min(100.0, v / 5 * 100)
         tiles.append(ui.kpi(f"{v:g}%", "Best ad, simulated CTR", hint, delta, color=2, bar=bar))
     pitch = bundle.get("pitch") or {}
     if pitch.get("pitch_score") is not None:
@@ -275,117 +280,111 @@ def decision_row(decision_html: str, brief_html: str) -> str:
 
 def funnel_waterfall_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
     """Conversion waterfall card: survey funnel and/or winning ad post-click funnel."""
-    steps: List[Tuple[str, float, str]] = []
-    fn = mk.get("funnel") or []
+    """Every step's bar and percentage are a share of the first step, so the numbers read one way only."""
+    raw: List[Tuple[str, float]] = []
+    fn = [x for x in (mk.get("funnel") or []) if isinstance(x, (list, tuple)) and len(x) >= 2]
     if len(fn) >= 2:
-        top_v = max(float(fn[0][1] or 1), 1.0)
-        prev_v = top_v
-        for label, val in fn:
-            v = float(val or 0)
-            pct = 100.0 * v / top_v
-            step_rate = f"{100.0 * v / prev_v:.0f}%" if prev_v > 0 and v < prev_v else "100%"
-            steps.append((str(label), pct, f"{_num(v)} ({step_rate})"))
-            prev_v = max(v, 1.0)
+        raw = [(str(label), v) for label, v in ((x[0], ui.num(x[1])) for x in fn) if v is not None]
     else:
         fb = feed_best(bundle)
-        if fb:
-            m = fb["m"]
-            imp = float(m.get("impressions") or 0)
-            if imp > 0:
-                stopped = round(imp * float(m.get("thumb_stop") or 0) / 100.0)
-                clicks = float(m.get("clicks") or 0)
-                lf = m.get("landing") or {}
-                raw_steps = [("Impressions", imp), ("Thumb-stopped", stopped), ("Clicked ad", clicks)]
-                if lf.get("clicks"):
-                    raw_steps.extend([
-                        ("Page loaded", float(lf.get("page_loaded") or 0)),
-                        ("Started form", float(lf.get("form_started") or 0)),
-                        ("Converted", float(lf.get("converted") or 0)),
-                    ])
-                for label, v in raw_steps:
-                    pct = 100.0 * v / imp
-                    steps.append((label, pct, f"{_num(v)} ({pct:.0f}%)"))
-    if not steps:
+        m = fb["m"] if fb else {}
+        imp = ui.num(m.get("impressions"))
+        if imp:
+            raw = [("Impressions", imp)]
+            ts = ui.num(m.get("thumb_stop"))
+            if ts is not None:
+                raw.append(("Thumb-stopped", float(round(imp * ts / 100.0))))
+            if ui.num(m.get("clicks")) is not None:
+                raw.append(("Clicked ad", ui.num(m.get("clicks"))))
+            lf = m.get("landing") if isinstance(m.get("landing"), dict) else {}
+            if ui.num(lf.get("clicks")):
+                raw += [(label, ui.num(lf.get(key))) for label, key in (("Page loaded", "page_loaded"),
+                        ("Started form", "form_started"), ("Converted", "converted")) if ui.num(lf.get(key)) is not None]
+    if len(raw) < 2 or not raw[0][1]:
         return ""
+    top_label, top_v = raw[0]
     rows = "".join(
         f'<div class="wf-step"><span class="wf-label" title="{_e(lbl)}">{_e(lbl)}</span>'
-        f'<span class="wf-track"><span class="wf-fill" style="width:{max(2.0, min(100.0, pct)):.1f}%"></span></span>'
-        f'<span class="wf-meta">{_e(meta)}</span></div>'
-        for lbl, pct, meta in steps
-    )
+        f'<span class="wf-meta">{_e(_num(v))} <span class="wf-drop">{100.0 * v / top_v:.0f}%</span></span>'
+        f'<span class="wf-track"><span class="wf-fill" style="width:{max(1.0, min(100.0, 100.0 * v / top_v)):.1f}%"></span></span></div>'
+        for lbl, v in raw)
     fb = feed_best(bundle)
     lf = (fb["m"].get("landing") or {}) if fb else {}
-    friction_note = ""
-    if lf.get("say_do_gap") or lf.get("price_blocked") or lf.get("dealbreaker_blocked"):
-        bits = []
-        if lf.get("price_blocked"):
-            bits.append(f'{lf["price_blocked"]} blocked by wallet/budget cap')
-        if lf.get("dealbreaker_blocked"):
-            bits.append(f'{lf["dealbreaker_blocked"]} blocked by dealbreakers')
-        if lf.get("say_do_gap"):
-            bits.append(f'{lf["say_do_gap"]} say-vs-do gap drops')
-        friction_note = f'<p class="muted small" style="margin:8px 0 0"><strong>Say-vs-Do friction:</strong> {_e(" · ".join(bits))}.</p>'
+    lf = lf if isinstance(lf, dict) else {}
+    bits = [f'{_num(lf[k])} {label}' for k, label in (("price_blocked", "blocked by their wallet cap"),
+                                                       ("dealbreaker_blocked", "blocked by a dealbreaker"),
+                                                       ("say_do_gap", "said yes but dropped (say-vs-do gap)"))
+            if ui.num(lf.get(k))]
+    friction_note = (f'<p class="muted small wf-note"><strong>After the click:</strong> {_e(" · ".join(bits))}.</p>' if bits else "")
     return (
-        '<div class="card"><div class="card-hd"><h3>Conversion waterfall</h3>'
-        '<span class="card-eyebrow">End-to-end drop-off</span></div>'
+        '<div class="card wf-card"><div class="card-hd"><h3>Conversion waterfall</h3>'
+        f'<span class="card-eyebrow">% of {_e(top_label.lower())}</span></div>'
         f'<div class="funnel-wf">{rows}</div>{friction_note}</div>'
     )
 
 
 def ensemble_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
-    """Multi-model provider ensemble & cohort provenance card for the executive cockpit."""
-    index = [r for r in ((bundle.get("config") or {}).get("persona_index") or []) if isinstance(r, dict) and r.get("kind") == "persona"]
+    """Which LLM providers played the people and analysts, and where the people came from. Only what the run recorded:
+    without a recorded provider (older runs, single-model runs that do not tag people) there is no card."""
+    index = _personas(bundle)
     prov_counts: Dict[str, int] = {}
     for r in index:
-        p = str(r.get("model_provider") or "claude").strip().lower()
-        prov_counts[p] = prov_counts.get(p, 0) + 1
+        p = ui.persona_provider(r)
+        if p:
+            prov_counts[p] = prov_counts.get(p, 0) + 1
     ft_prov = ((bundle.get("feed_test") or {}).get("summary") or {}).get("by_provider") or {}
     ap_prov = (((bundle.get("analyst_panel") or {}).get("consensus") or {}).get("by_provider") or {})
-    all_provs = list(dict.fromkeys(list(prov_counts) + list(ft_prov) + list(ap_prov)))
+    ft_prov = ft_prov if isinstance(ft_prov, dict) else {}
+    ap_prov = ap_prov if isinstance(ap_prov, dict) else {}
+    all_provs = [p for p in dict.fromkeys(list(prov_counts) + [str(k).lower() for k in ft_prov] + [str(k).lower() for k in ap_prov])
+                 if p and p not in ("grounded", "real_intake")]
     if not all_provs:
         return ""
-    grounded = sum(
-        1 for r in index
-        if "real_intake" in str((r.get("provenance") or {}).get("profile") if isinstance(r.get("provenance"), dict) else r.get("provenance") or "")
-    )
-    synthetic = max(0, len(index) - grounded)
+    sources = {"grounded": 0, "synthetic": 0}
+    for r in index:
+        kind = ui.persona_provenance(r)
+        if kind:
+            sources[kind] += 1
     rows = []
     for p in all_provs:
+        ft = ft_prov.get(p) if isinstance(ft_prov.get(p), dict) else {}
+        ap = ap_prov.get(p) if isinstance(ap_prov.get(p), dict) else {}
         badge = ui.Raw(f'<span class="mm-provider-badge" data-prov="{_e(p)}">{_e(p)}</span>')
-        n_pers = prov_counts.get(p, (ft_prov.get(p) or {}).get("personas") or 0)
-        ctr = (ft_prov.get(p) or {}).get("expected_ctr") or (ft_prov.get(p) or {}).get("ctr")
-        ap_v = (ap_prov.get(p) or {}).get("winner")
-        sig = f"CTR {ctr:g}%" if ctr is not None else (f"Verdict: {ap_v}" if ap_v else "Active")
-        rows.append([badge, n_pers or "–", sig])
-    prov_pills = (
-        f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
-        + (f'<span class="pill prov-pill-real">{grounded} grounded intake</span>' if grounded else "")
-        + (f'<span class="pill prov-pill-synth">{synthetic} synthetic seeded</span>' if synthetic else "")
-        + "</div>"
-    )
+        n_pers = prov_counts.get(p) or ui.num(ft.get("personas"))
+        ctr = ui.num(ft.get("expected_ctr")) if ui.num(ft.get("expected_ctr")) is not None else ui.num(ft.get("ctr"))
+        sig = (f"CTR {ctr:g}%" if ctr is not None else f"Analysts: {ap['winner']}" if ap.get("winner") else "–")
+        rows.append([badge, _num(n_pers) if n_pers else "–", sig])
+    known = sources["grounded"] + sources["synthetic"]
+    prov_pills = "".join(
+        f'<span class="pill {cls}">{n:,} {label}</span>'
+        for n, label, cls in ((sources["grounded"], "grounded in real intake", "prov-pill-real"),
+                              (sources["synthetic"], "model-written", "prov-pill-synth")) if n)
+    if prov_pills and known < len(index):
+        prov_pills += f'<span class="pill prov-pill-synth">{len(index) - known:,} not recorded</span>'
     return (
-        '<div class="card"><div class="card-hd"><h3>Model ensemble &amp; provenance</h3>'
+        '<div class="card ens-card"><div class="card-hd"><h3>Models and sources</h3>'
         f'<span class="card-eyebrow">{len(all_provs)} provider{"s" if len(all_provs) != 1 else ""}</span></div>'
-        + ui.table(["Provider", "Agents", "Signal"], rows, sortable=False)
-        + prov_pills + "</div>"
+        + ui.table(["Provider", "People", "Signal"], rows, sortable=False)
+        + (f'<div class="ens-pills">{prov_pills}</div>' if prov_pills else "") + "</div>"
     )
 
 
 def cockpit_bento(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optional[Dict[str, Any]], decision_html: str) -> str:
-    """12-column SaaS Executive Cockpit combining Decision, Brief, Conversion Waterfall, and Model Ensemble."""
+    """The decision, the brief and the side cards (conversion waterfall, models and sources). On wide screens the
+    side cards are a third column; below 1400px they drop into a full-width row under the two (tokens.py .bento-side)."""
     brief = brief_card(bundle, mk, decision)
     wf = funnel_waterfall_card(bundle, mk)
     ens = ensemble_card(bundle, mk)
-    right_cards = "".join(x for x in (wf, ens) if x)
-    if right_cards and brief:
+    side = [x for x in (wf, ens) if x]
+    if side and brief:
         return (
-            f'<div class="bento">'
-            f'<div class="span-5">{decision_html}</div>'
-            f'<div class="span-4">{brief}</div>'
-            f'<div class="span-3" style="display:flex;flex-direction:column;gap:14px">{right_cards}</div>'
-            f'</div>'
+            '<div class="bento cockpit">'
+            f'<div class="span-5 bento-dec">{decision_html}</div>'
+            f'<div class="span-4 bento-brief">{brief}</div>'
+            f'<div class="span-3 bento-side">{"".join(side)}</div>'
+            '</div>'
         )
-    return decision_row(decision_html, brief + right_cards)
+    return decision_row(decision_html, brief + "".join(side))
 
 
 def evidence_section(research: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
