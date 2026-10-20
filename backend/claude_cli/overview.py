@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import marketing  # type: ignore
 
 _e, _t = ui.esc, ui.trunc
+_LEAD_NUM = re.compile(r"^\s*\d+[.)]\s*")   # "1. Fix ..." inside an <ol> would read "1. 1. Fix ..."
 
 
 def _pct(v: Any) -> str:
@@ -221,7 +222,7 @@ def brief_card(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optional[Di
     if numbers:
         html.append('<h4>Three numbers</h4><div class="kpis three">' + "".join(ui.kpi(v, k, cls="sm") for v, k in numbers) + "</div>")
     if actions:
-        html.append("<h4>Three actions</h4><ol>" + "".join(f"<li>{_e(a)}</li>" for a in actions) + "</ol>")
+        html.append("<h4>Three actions</h4><ol>" + "".join(f"<li>{_e(_LEAD_NUM.sub('', str(a)))}</li>" for a in actions) + "</ol>")
     if next_test:
         what, success, when = next_test
         html.append(f"<h4>Next test</h4><p>{_e(what)}</p>"

@@ -29,6 +29,13 @@ def is_claude_target(client: Any, model: Optional[str]) -> bool:
     return "anthropic.com" in base_url or (model or "").strip().lower().startswith("claude")
 
 
+def is_gemini_target(client: Any, model: Optional[str]) -> bool:
+    """Return True when the request goes to Google Gemini's OpenAI-compatible endpoint or a Gemini model."""
+    base_url = str(getattr(client, "base_url", "") or "").lower()
+    m = (model or "").strip().lower()
+    return "generativelanguage.googleapis.com" in base_url or m.startswith("gemini-") or m.startswith("models/gemini-")
+
+
 def create_chat_completion(
     client: Any,
     *,
@@ -37,6 +44,8 @@ def create_chat_completion(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     response_format: Optional[Dict[str, Any]] = None,
+    agent_id: Optional[Any] = None,
+    slot_index: Optional[int] = None,
 ) -> Any:
     """
     Create a chat completion with model-specific request parameters.
@@ -44,9 +53,30 @@ def create_chat_completion(
     Compatibility strategy:
     - For GPT-5 family, avoid sending temperature by default.
     - For token limit, use `max_completion_tokens` on GPT-5, `max_tokens` otherwise.
+    - For Gemini targets, strip any leading `models/` prefix from model identifiers.
+    - When `client` is a `MultiProviderPool`, route by `agent_id` or `slot_index` when provided.
     - Preserve the legacy request shape for every non-GPT-5 model/provider.
     - Propagate provider errors unchanged instead of guessing from message text.
     """
+    if agent_id is not None and hasattr(client, "for_agent"):
+        client = client.for_agent(agent_id)
+    elif slot_index is not None and hasattr(client, "for_slot"):
+        client = client.for_slot(slot_index)
+
+    # If the bound client is pinned to a specific provider slot whose family differs from `model`,
+    # let the bound slot's model take precedence so multi-provider pools work transparently.
+    slot_model = getattr(client, "model_name", None)
+    slot_provider = getattr(client, "provider", None)
+    if slot_model and slot_provider:
+        from .model_pool import canonical_provider
+        req_provider = canonical_provider(None, None, model) if model else slot_provider
+        if not model or req_provider != slot_provider:
+            model = slot_model
+
+    gemini = is_gemini_target(client, model)
+    if gemini and model and model.strip().lower().startswith("models/"):
+        model = model.strip().split("/", 1)[1]
+
     kwargs: Dict[str, Any] = {
         "model": model,
         "messages": messages,

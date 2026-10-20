@@ -26,18 +26,32 @@ class Config:
     
     # LLM配置（统一使用OpenAI格式）
     # LLM_PROVIDER=claude (default) uses Anthropic's OpenAI-compatible endpoint.
-    # Set LLM_PROVIDER=openai to use any other OpenAI-format provider.
+    # LLM_PROVIDER=gemini uses Google Gemini's OpenAI-compatible endpoint.
+    # Set LLM_PROVIDER=openai to use OpenAI or any other OpenAI-format provider.
+    # Set LLM_POOL=claude,openai,gemini (or LLM_POOL=auto) to pool multiple providers concurrently.
     LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
-    LLM_API_KEY = os.environ.get('LLM_API_KEY') or (
-        os.environ.get('ANTHROPIC_API_KEY') if LLM_PROVIDER == 'claude' else None
+    LLM_POOL = os.environ.get('LLM_POOL', '').strip()
+    LLM_API_KEY = (
+        os.environ.get('LLM_API_KEY')
+        or (os.environ.get('ANTHROPIC_API_KEY') if LLM_PROVIDER == 'claude' else None)
+        or ((os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')) if LLM_PROVIDER == 'gemini' else None)
+        or (os.environ.get('OPENAI_API_KEY') if LLM_PROVIDER == 'openai' else None)
     )
     LLM_BASE_URL = os.environ.get(
         'LLM_BASE_URL',
-        'https://api.anthropic.com/v1/' if LLM_PROVIDER == 'claude' else 'https://api.openai.com/v1',
+        'https://api.anthropic.com/v1/'
+        if LLM_PROVIDER == 'claude'
+        else (
+            'https://generativelanguage.googleapis.com/v1beta/openai/'
+            if LLM_PROVIDER == 'gemini'
+            else 'https://api.openai.com/v1'
+        ),
     )
     LLM_MODEL_NAME = os.environ.get(
         'LLM_MODEL_NAME',
-        'claude-haiku-4-5' if LLM_PROVIDER == 'claude' else 'gpt-4o-mini',
+        'claude-haiku-4-5'
+        if LLM_PROVIDER == 'claude'
+        else ('gemini-2.5-flash' if LLM_PROVIDER == 'gemini' else 'gpt-4o-mini'),
     )
     
     # Memory / knowledge-graph backend
@@ -131,6 +145,17 @@ class Config:
     def memory_backend_configured(cls) -> bool:
         """True when the selected memory backend has everything it needs."""
         return cls.is_local_memory() or bool(cls.ZEP_API_KEY)
+
+    @classmethod
+    def get_model_pool(cls, api_key: str | None = None, base_url: str | None = None, model_name: str | None = None):
+        """Return a configured `MultiProviderPool` (single or multi-provider)."""
+        from .utils.model_pool import MultiProviderPool
+        return MultiProviderPool.from_env(
+            primary_api_key=api_key or cls.LLM_API_KEY,
+            primary_base_url=base_url or cls.LLM_BASE_URL,
+            primary_model=model_name or cls.LLM_MODEL_NAME,
+            primary_provider=cls.LLM_PROVIDER,
+        )
 
     @classmethod
     def validate(cls) -> list[str]:

@@ -368,14 +368,135 @@ def render_markdown(summary: Dict[str, Any], brand: str = "") -> str:
     return "\n".join(out)
 
 
+LOWER_IS_BETTER = {"top_objection_share"}
+CARD_METRICS = ["convert_yes", "intent", "trust", "click_yes", "top_objection_share"]
+_TONE = {"go": "mint", "iterate": "accent", "no-go": "orchid"}
+
+STUDY_CSS = """
+:root{color-scheme:light;--bg:#eeeeea;--card:#fff;--sunk:#f6f6f3;--ink:#111;--ink2:#3d3d3a;--mut:#6b6b66;--line:#e8e7e2;
+--panel:#121212;--panel-ink:#f2f2ee;--panel-mut:#9a9a93;--acc:#f3d64b;--accink:#2b2005;--mint:#cfefd9;--mintink:#0f3d22;
+--orchid:#f1c6ee;--orchidink:#4a1a46;--pos:#184f95;--posbg:#e3effd;--neg:#9e2b2a;--negbg:#fde6e6}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0d0d0c;--card:#171716;--sunk:#1f1f1d;--ink:#f2f2ee;--ink2:#c9c9c2;
+--mut:#8f8f88;--line:#2a2a28;--panel:#000;--posbg:#1d3350;--pos:#a9cdf7;--negbg:#3f1d1d;--neg:#f2a5a5}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
+.eyebrow{color:var(--mut);font-size:13px;margin:0 0 8px}
+h1{font-size:clamp(2rem,4.4vw,3.4rem);line-height:.95;font-weight:500;letter-spacing:-.045em;text-transform:uppercase;margin:0 0 22px}
+h2{font-size:1.35rem;font-weight:500;letter-spacing:-.025em;margin:34px 0 12px}
+.hero{background:var(--panel);color:var(--panel-ink);border-radius:28px;padding:24px 26px}
+.hero .k{color:var(--panel-mut);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.hero .big{font-size:clamp(1.3rem,2.4vw,1.8rem);font-weight:500;letter-spacing:-.02em;line-height:1.25;margin:10px 0 8px}
+.hero p{margin:0;color:#d6d6d0;max-width:90ch}
+.pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:600;background:var(--sunk);color:var(--ink2)}
+.pill.accent{background:var(--acc);color:var(--accink)}.pill.mint{background:var(--mint);color:var(--mintink)}.pill.orchid{background:var(--orchid);color:var(--orchidink)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px}
+.sc{background:var(--card);border-radius:24px;padding:18px 20px;position:relative}
+.sc.best{box-shadow:inset 0 0 0 2px var(--acc)}
+.sc .best-tag{position:absolute;top:16px;right:16px;font-size:11px;font-weight:700;background:var(--acc);color:var(--accink);border-radius:999px;padding:2px 9px}
+.sc h3{margin:0 0 8px;font-size:1.05rem;font-weight:600}
+.sc dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:14px 0 0;font-size:13px}
+.sc dt{color:var(--ink2)}.sc dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.sc dd small{color:var(--mut)}
+.sc dd.top{font-weight:700}
+.card{background:var(--card);border-radius:24px;padding:18px 20px}
+.study-table{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+table{width:100%;min-width:560px;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:500;color:var(--mut);font-size:12px;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}tr:last-child td{border-bottom:0}
+td.top{font-weight:700}td small{color:var(--mut)}
+.deltas{display:grid;gap:12px}
+.delta h3{margin:0 0 10px;font-size:1rem;font-weight:600}.delta h3 span{color:var(--mut);font-weight:400}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--sunk);color:var(--ink2)}
+.chip.good{background:var(--posbg);color:var(--pos)}.chip.bad{background:var(--negbg);color:var(--neg)}
+.chip b{font-weight:650}
+.legend{color:var(--mut);font-size:12px;margin-top:10px}
+.cells{display:flex;flex-wrap:wrap;gap:8px}
+.cells a{padding:7px 14px;border-radius:999px;background:var(--card);color:var(--ink);text-decoration:none;font-size:13px}
+.cells a:hover{background:var(--ink);color:var(--card)}
+.note{color:var(--mut);font-size:12.5px;margin-top:28px;max-width:90ch}
+@media (max-width:640px){.wrap{padding:16px 14px 40px}.hero{padding:18px}}
+"""
+
+
+def _pretty(name: Any) -> str:
+    return str(name or "").replace("_", " ")
+
+
+def _fmt_metric(m: Optional[Dict[str, Any]]) -> str:
+    if not m or m.get("mean") is None:
+        return "–"
+    rng = f' <small>{m["min"]:g}–{m["max"]:g}</small>' if m.get("n", 0) > 1 and m.get("min") is not None else ""
+    return f'{m["mean"]:g}{rng}'
+
+
 def render_html(summary: Dict[str, Any], markdown_to_html: Callable[[str], str], css: str, brand: str = "", links: Optional[Dict[str, str]] = None) -> str:
-    body = markdown_to_html(render_markdown(summary, brand)).replace("<table>", '<div class="study-table"><table>').replace("</table>", "</table></div>")
-    cells = "".join(f'<li><a href="{html.escape(str(v), quote=True)}">{html.escape(str(k))}</a></li>'
-                    for k, v in (links or {}).items() if not str(v).lower().startswith(("javascript:", "data:")))
-    title = html.escape(str(brand or summary.get("name") or "MarketMirror"))
+    """The study page in the dashboard's look: conclusion, a card per scenario, the side-by-side table, differences
+    against the first scenario, agreement across seeds, and links to every cell's dashboard. Self-contained."""
+    e = lambda v: html.escape(str(v), quote=True)  # noqa: E731
+    scenarios = summary.get("scenarios") or []
+    labels = summary.get("metric_labels") or {}
+    conc = summary.get("conclusion") or {}
+    best = conc.get("best_scenario")
+    seeds = sorted({c.get("seed") for c in summary.get("cells") or [] if c.get("seed") is not None})
+    title = brand or summary.get("name") or "MarketMirror"
+    metrics = [k for k in labels if any(((sc.get("metrics") or {}).get(k) or {}).get("mean") is not None for sc in scenarios)]
+
+    def top_of(k: str) -> Optional[float]:
+        vals = [((sc.get("metrics") or {}).get(k) or {}).get("mean") for sc in scenarios]
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        if len(vals) < 2 or len(set(vals)) == 1:      # nothing to pick when every scenario has the same value
+            return None
+        return min(vals) if k in LOWER_IS_BETTER else max(vals)
+
+    tops = {k: top_of(k) for k in metrics}
+    hero = (f'<div class="hero"><div class="k">Conclusion · {e(conc.get("confidence") or "")} agreement across simulated seeds</div>'
+            f'<div class="big">{e(_pretty(best) or "No clear winner")}'
+            + (f' <span class="pill {_TONE.get(str(conc.get("decision")), "")}">{e(str(conc.get("decision") or "").upper())}</span>' if conc.get("decision") else "")
+            + f'</div><p>{e(conc.get("text") or "")}</p></div>')
+    cards = []
+    for sc in scenarios:
+        m = sc.get("metrics") or {}
+        rows = "".join(f'<dt>{e(labels.get(k, k))}</dt><dd class="{"top" if tops.get(k) is not None and (m.get(k) or {}).get("mean") == tops[k] else ""}">'
+                       f'{_fmt_metric(m.get(k))}</dd>' for k in CARD_METRICS if k in metrics)
+        dec = str(sc.get("decision") or "")
+        cards.append(f'<div class="sc{" best" if sc.get("name") == best else ""}">'
+                     + ('<span class="best-tag">Best</span>' if sc.get("name") == best else "")
+                     + f'<h3>{e(_pretty(sc.get("name")))}</h3><span class="pill {_TONE.get(dec, "")}">{e(dec or "–")}</span>'
+                     f' <small style="color:var(--mut)">in {sc.get("decision_agreement_pct", "–")}% of seeds</small><dl>{rows}</dl></div>')
+    head = "".join(f"<th>{e(_pretty(sc.get('name')))}</th>" for sc in scenarios)
+    body = "".join("<tr><td>" + e(labels.get(k, k)) + "</td>" + "".join(
+        f'<td class="{"top" if tops.get(k) is not None and ((sc.get("metrics") or {}).get(k) or {}).get("mean") == tops[k] else ""}">'
+        f'{_fmt_metric((sc.get("metrics") or {}).get(k))}</td>' for sc in scenarios) + "</tr>" for k in metrics)
+    table = f'<div class="card"><div class="study-table"><table><thead><tr><th>Metric</th>{head}</tr></thead><tbody>{body}</tbody></table></div></div>'
+    deltas = []
+    for d in summary.get("deltas") or []:
+        chips = []
+        for k, v in (d.get("metrics") or {}).items():
+            if v.get("delta") is None:
+                continue
+            cls = ("good" if v.get("better") else "bad") if v.get("clear") and v.get("better") is not None else ""
+            chips.append(f'<span class="chip {cls}">{e(labels.get(k, k))} <b>{v["delta"]:+g}</b>'
+                         + ("" if v.get("clear") else " · within spread") + "</span>")
+        deltas.append(f'<div class="card delta"><h3>{e(_pretty(d.get("scenario")))} <span>vs {e(_pretty(d.get("vs")))}</span></h3>'
+                      f'<div class="chips">{"".join(chips)}</div></div>')
+    agree_rows = "".join("<tr><td>Seed " + e(r.get("seed")) + "</td>" + "".join(
+        f'<td><span class="pill {_TONE.get(str(r.get(sc.get("name"))), "")}">{e(r.get(sc.get("name")) or "–")}</span></td>' for sc in scenarios) + "</tr>"
+        for r in summary.get("agreement") or [])
+    agree = f'<div class="card"><div class="study-table"><table><thead><tr><th>Seed</th>{head}</tr></thead><tbody>{agree_rows}</tbody></table></div></div>'
+    cells = "".join(f'<a href="{e(v)}">{e(_pretty(k))}</a>' for k, v in (links or {}).items()
+                    if not str(v).lower().startswith(("javascript:", "data:")))
+    page = (f'<p class="eyebrow">Study · {len(scenarios)} scenarios × {len(seeds)} seeds on the same simulated people</p>'
+            f'<h1>{e(title)}: study</h1>{hero}<h2>The scenarios</h2><div class="cards">{"".join(cards)}</div>'
+            f'<h2>Side by side</h2>{table}'
+            + (f'<h2>What changed against {e(_pretty(scenarios[0].get("name")))}</h2><div class="deltas">{"".join(deltas)}</div>'
+               '<p class="legend">Blue: a clear gain, red: a clear loss (outside the seed-to-seed spread). Grey: within the spread.</p>' if deltas and scenarios else "")
+            + f'<h2>Decision in each seed</h2>{agree}'
+            + (f'<h2>Every cell</h2><div class="cells">{cells}</div>' if cells else "")
+            + '<p class="note"><b>Exploratory simulation.</b> Every cell is a separate simulation draw on the same simulated people. '
+              'Means are across seeds with the lowest–highest seed shown small; spreads describe simulation variation, not real-world '
+              'uncertainty. Validate the preferred option in a controlled live test.</p>')
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{title}: study</title><style>{css}.study-table{{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}}.study-table table{{min-width:560px}}</style></head><body><div class="wrap"><section id="study">{body}'
-            + (f'<h2>Cells</h2><ul>{cells}</ul>' if cells else "") + '</section></div></body></html>')
+            f'<title>{e(title)}: study</title><style>{STUDY_CSS}</style></head><body><div class="wrap"><section id="study">{page}</section></div></body></html>')
 
 
 # --------------------------------------------------------------------------

@@ -204,17 +204,29 @@ class Backend:
 
 
 CLAUDE_ALIASES = ("haiku", "sonnet", "opus")
+GEMINI_ALIASES = ("flash", "pro")
 ARG_SAFE_CHARS = 100_000                 # Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN)
-DEFAULT_MODELS = {"claude": "sonnet"}    # never fall back to the CLI's own default (often the largest model)
+DEFAULT_MODELS = {"claude": "sonnet", "gemini": "gemini-2.5-flash"}    # never fall back to the CLI's own default (often the largest model)
 
 
 def request_model(backend_name: str, model: Any) -> Optional[str]:
-    """The request's model when this backend can run it ("haiku", "sonnet", "claude-sonnet-5-5"), else None."""
+    """The request's model when this backend can run it ("haiku", "sonnet", "claude-sonnet-5-5", "gemini-2.5-flash"), else None."""
     m = str(model or "").strip()
-    if backend_name == "claude" and (m.lower() in CLAUDE_ALIASES or (m.lower().startswith("claude-") and len(m) > 7)):
+    low = m.lower()
+    if backend_name == "claude" and (low in CLAUDE_ALIASES or (low.startswith("claude-") and len(m) > 7)):
         return m
-    if backend_name == "codex" and m.lower().startswith(("gpt-", "o3", "o4", "codex")):
+    if backend_name in ("codex", "chatgpt") and low.startswith(("gpt-", "o1", "o3", "o4", "codex", "chatgpt-")):
         return m
+    if backend_name == "gemini":
+        if low.startswith("models/gemini-"):
+            return m.split("/", 1)[1]
+        if low in GEMINI_ALIASES or (low.startswith("gemini-") and len(m) > 7):
+            return m
+    if backend_name == "multi":
+        for sub in ("claude", "codex", "chatgpt", "gemini"):
+            resolved = request_model(sub, m)
+            if resolved:
+                return resolved
     return None
 
 
@@ -402,6 +414,85 @@ def parse_codex_events(out: str) -> str:
     return last or out.strip()
 
 
+def parse_gemini_output(out: str) -> str:
+    """Parse JSON or plain text output from the `gemini` CLI."""
+    out = out.strip()
+    if not out:
+        return ""
+    try:
+        data = json.loads(out)
+    except ValueError:
+        data = None
+        for line in reversed(out.splitlines()):
+            try:
+                cand = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(cand, dict) and any(k in cand for k in ("response", "result", "text", "content", "error")):
+                data = cand
+                break
+        if data is None:
+            return out
+    if isinstance(data, dict):
+        if data.get("error"):
+            err = data["error"]
+            msg = err.get("message") if isinstance(err, dict) else str(err)
+            code = err.get("code") if isinstance(err, dict) else None
+            raise cli_failure("gemini", str(msg or "gemini error"), code if isinstance(code, int) else None)
+        for key in ("response", "result", "text", "output"):
+            if isinstance(data.get(key), str):
+                return data[key]
+        if isinstance(data.get("content"), list):
+            return "\n".join(str(c.get("text") or "") for c in data["content"] if isinstance(c, dict))
+    return out
+
+
+class GeminiBackend(Backend):
+    name = "gemini"
+
+    def complete(self, system: str, prompt: str) -> str:
+        full = (GUARD + ("\n\n" + system if system else "") + "\n\n" + prompt).strip()
+        model = getattr(self.request, "model", None) or self.model
+        cmd = [self.binary, "--output-format", "json"]
+        if model:
+            cmd += ["-m", model]
+        if len(full) > ARG_SAFE_CHARS:
+            cmd += ["-p", ""]
+            p = subprocess.run(cmd, input=full, capture_output=True, text=True, timeout=self.timeout)
+        else:
+            cmd += ["-p", full]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
+        if p.returncode != 0:
+            raise cli_failure("gemini", p.stderr + p.stdout)
+        try:
+            record = json.loads(p.stdout)
+            stats = record.get("stats") or record.get("usage") or {}
+            models_stats = stats.get("models") if isinstance(stats, dict) else None
+            in_tok = 0
+            out_tok = 0
+            if isinstance(models_stats, dict):
+                for mstat in models_stats.values():
+                    tokens = (mstat or {}).get("tokens") or {}
+                    in_tok += int(tokens.get("prompt") or tokens.get("input") or 0)
+                    out_tok += int(tokens.get("candidates") or tokens.get("output") or 0)
+            elif isinstance(stats, dict):
+                in_tok = int(stats.get("input_tokens") or stats.get("prompt_tokens") or 0)
+                out_tok = int(stats.get("output_tokens") or stats.get("completion_tokens") or 0)
+            self.usage.value = {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "uncached_input_tokens": in_tok,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "total_tokens": in_tok + out_tok,
+                "cost_usd": None,
+                "cost_basis": "cli_reported_tokens",
+            } if (in_tok or out_tok) else None
+        except (ValueError, AttributeError, TypeError):
+            self.usage.value = None
+        return parse_gemini_output(p.stdout)
+
+
 class SignInBackend(Backend):
     name = "siwc"
 
@@ -467,7 +558,127 @@ class SignInBackend(Backend):
         return "".join(chunks)
 
 
-BACKENDS = {"claude": ClaudeBackend, "codex": CodexBackend, "siwc": SignInBackend}
+class ChatGPTBackend(Backend):
+    """ChatGPT backend: uses Sign in with ChatGPT (Responses API) when eligible/logged-in, else local Codex CLI."""
+    name = "chatgpt"
+
+    def __init__(self, model: Optional[str] = None, timeout: float = 180, binary: Optional[str] = None):
+        super().__init__(model=model, timeout=timeout, binary=binary or "codex")
+        self._siwc = SignInBackend(model=model, timeout=timeout)
+        self._codex = CodexBackend(model=model, timeout=timeout, binary=binary or "codex")
+
+    def available(self) -> bool:
+        return self._siwc.available() or self._codex.available()
+
+    def complete(self, system: str, prompt: str) -> str:
+        req_model = getattr(self.request, "model", None)
+        max_tokens = getattr(self.request, "max_tokens", None)
+        if self._siwc.available():
+            self._siwc.request.model = req_model
+            self._siwc.request.max_tokens = max_tokens
+            out = self._siwc.complete(system, prompt)
+            self.usage.value = getattr(self._siwc.usage, "value", None)
+            return out
+        self._codex.request.model = req_model
+        self._codex.request.max_tokens = max_tokens
+        out = self._codex.complete(system, prompt)
+        self.usage.value = getattr(self._codex.usage, "value", None)
+        return out
+
+
+class MultiBackend(Backend):
+    """Pools multiple local CLI/SIWC backends (claude, codex, gemini, siwc) with round-robin routing and per-backend 429 failover."""
+    name = "multi"
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        timeout: float = 180,
+        binary: Optional[str] = None,
+        backends: Optional[List[Backend]] = None,
+        names: Optional[List[str]] = None,
+    ):
+        super().__init__(model=model, timeout=timeout, binary=binary)
+        self._lock = threading.Lock()
+        self._rr = 0
+        if backends is not None:
+            self.backends = list(backends)
+        else:
+            wanted = names or [
+                b.strip()
+                for b in (os.environ.get("LLM_GATEWAY_POOL") or "claude,codex,gemini,siwc").split(",")
+                if b.strip()
+            ]
+            self.backends = []
+            for bname in wanted:
+                cls_b = SINGLE_BACKENDS.get(bname)
+                if not cls_b:
+                    continue
+                inst = cls_b(model=DEFAULT_MODELS.get(bname), timeout=timeout)
+                if inst.available():
+                    self.backends.append(inst)
+        self.paused_until: Dict[str, float] = {b.name: 0.0 for b in self.backends}
+
+    def available(self) -> bool:
+        return any(b.available() for b in self.backends)
+
+    def _ordered_backends(self, req_model: Optional[str]) -> List[Backend]:
+        if not self.backends:
+            return []
+        now = time.time()
+        with self._lock:
+            n = len(self.backends)
+            start = self._rr % n
+            self._rr += 1
+            order = [self.backends[(start + i) % n] for i in range(n)]
+        if req_model:
+            preferred = [b for b in order if request_model(b.name, req_model) is not None]
+            others = [b for b in order if b not in preferred]
+            order = preferred + others
+        healthy = [b for b in order if now >= self.paused_until.get(b.name, 0.0)]
+        paused = [b for b in order if b not in healthy]
+        return healthy + paused
+
+    def complete(self, system: str, prompt: str) -> str:
+        req_model = getattr(self.request, "model", None)
+        max_tokens = getattr(self.request, "max_tokens", None)
+        candidates = self._ordered_backends(req_model)
+        if not candidates:
+            raise GatewayError("No local CLI backends available in MultiBackend pool.", 503, "upstream_unavailable")
+        last_err: Optional[GatewayError] = None
+        for b in candidates:
+            now = time.time()
+            if now < self.paused_until.get(b.name, 0.0):
+                last_err = GatewayError(f"{b.name} usage is limited.", 429, "rate_limit", retry_at=self.paused_until[b.name])
+                continue
+            b.request.max_tokens = max_tokens
+            b.request.model = request_model(b.name, req_model)
+            try:
+                out = b.complete(system, prompt)
+                self.usage.value = getattr(b.usage, "value", None)
+                self.request.model = b.request.model or b.model or b.name
+                return out
+            except GatewayError as e:
+                last_err = e
+                if e.status == 429:
+                    until = (e.retry_at if e.retry_at and e.retry_at > now else now + DEFAULT_PAUSE_S) + RESET_GRACE_S
+                    with self._lock:
+                        self.paused_until[b.name] = max(self.paused_until.get(b.name, 0.0), until)
+                    continue
+                continue
+        if last_err is not None:
+            raise last_err
+        raise GatewayError("All backends in MultiBackend pool failed.", 502, "backend_error")
+
+
+SINGLE_BACKENDS = {
+    "claude": ClaudeBackend,
+    "codex": CodexBackend,
+    "chatgpt": ChatGPTBackend,
+    "gemini": GeminiBackend,
+    "siwc": SignInBackend,
+}
+BACKENDS = {**SINGLE_BACKENDS, "multi": MultiBackend}
 
 
 # --------------------------------------------------------------------------

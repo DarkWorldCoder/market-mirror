@@ -21,16 +21,22 @@ CATALOG = {
                  "guide": "https://lmstudio.ai/docs/developer/openai-compat", "key_env": ""},
     "anthropic": {"label": "Claude API", "base_url": "https://api.anthropic.com/v1", "key_required": True,
                   "guide": "https://platform.claude.com/docs/en/get-api-key", "key_url": "https://platform.claude.com/settings/keys", "key_env": "ANTHROPIC_API_KEY"},
-    "openai": {"label": "OpenAI API", "base_url": "https://api.openai.com/v1", "key_required": True,
+    "openai": {"label": "OpenAI / ChatGPT API", "base_url": "https://api.openai.com/v1", "key_required": True,
                "guide": "https://developers.openai.com/api/docs/quickstart", "key_url": "https://platform.openai.com/api-keys", "key_env": "OPENAI_API_KEY"},
+    "gemini": {"label": "Google Gemini API", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "key_required": True,
+               "guide": "https://ai.google.dev/gemini-api/docs/openai", "key_url": "https://aistudio.google.com/apikey", "key_env": "GEMINI_API_KEY"},
     "compatible": {"label": "Another OpenAI-compatible server", "base_url": "", "key_required": True,
                    "guide": "Use your provider's API console and model identifier.", "key_env": "LLM_API_KEY"},
+    "chatgpt": {"label": "ChatGPT (Sign in with ChatGPT or Codex CLI login)", "gateway": True, "gateway_name": "chatgpt",
+                "guide": "codex login"},
     "siwc": {"label": "Sign in with ChatGPT (eligibility checked at login)", "gateway": True,
              "guide": "https://developers.openai.com/siwc/quickstart"},
     "codex": {"label": "Existing local Codex CLI login", "gateway": True, "guide": "codex login"},
     "claude": {"label": "Existing local Claude Code login", "gateway": True, "guide": "claude auth login"},
+    "gemini_cli": {"label": "Existing local Gemini CLI login", "gateway": True, "gateway_name": "gemini", "guide": "gemini"},
+    "multi": {"label": "Multi-Provider Agent Pool (Claude + ChatGPT/Codex + Gemini together)", "gateway": True, "gateway_name": "multi", "guide": "mm.sh gateway start multi"},
 }
-KEYS = {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "MARKET_MIRROR_PROVIDER"}
+KEYS = {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "LLM_POOL", "MARKET_MIRROR_PROVIDER"}
 
 
 def read_env(root: Path) -> dict:
@@ -74,7 +80,8 @@ def write_config(root: Path, provider: str, model: str, base_url: str = "", key:
     endpoint = validate_url(base_url or spec["base_url"])
     if spec["key_required"] and not key.strip():
         raise ValueError("API key required; use a named environment variable or hidden interactive input")
-    values = {"LLM_PROVIDER": "claude" if provider == "anthropic" else "openai",
+    llm_prov = "claude" if provider == "anthropic" else ("gemini" if provider == "gemini" else "openai")
+    values = {"LLM_PROVIDER": llm_prov,
               "LLM_BASE_URL": endpoint, "LLM_MODEL_NAME": model.strip(),
               "LLM_API_KEY": key.strip() if spec["key_required"] else (key.strip() or "local"),
               "MARKET_MIRROR_PROVIDER": provider}
@@ -100,11 +107,19 @@ def write_config(root: Path, provider: str, model: str, base_url: str = "", key:
 
 def status(root: Path) -> dict:
     env = read_env(root)
-    key = env.get("LLM_API_KEY") or os.environ.get("LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    key = (
+        env.get("LLM_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
     url = urlparse(env.get("LLM_BASE_URL") or "")
     safe_url = f"{url.scheme}://{url.hostname or ''}{':' + str(url.port) if url.port else ''}{url.path}" if url.scheme else None
     return {"provider": env.get("MARKET_MIRROR_PROVIDER") or env.get("LLM_GATEWAY") or env.get("LLM_PROVIDER"),
             "model": env.get("LLM_MODEL_NAME"), "base_url": safe_url,
+            "pool": env.get("LLM_POOL") or os.environ.get("LLM_POOL") or None,
             "credential_configured": bool(key and key != "your_api_key_here"), "env_file": str(root / ".env"),
             "restart_required_after_changes": True}
 
@@ -117,7 +132,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def check(root: Path, opener=None, settings=None) -> dict:
     env = settings if settings is not None else read_env(root)
     endpoint = validate_url(env.get("LLM_BASE_URL") or "")
-    key = env.get("LLM_API_KEY") or os.environ.get("LLM_API_KEY") or ""
+    key = (
+        env.get("LLM_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+        or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") if env.get("LLM_PROVIDER") == "gemini" else "")
+        or ""
+    )
     headers = {"Authorization": "Bearer " + key}
     if env.get("LLM_PROVIDER") == "claude":
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
@@ -126,10 +146,12 @@ def check(root: Path, opener=None, settings=None) -> dict:
     try:
         with opener(request, timeout=15) as response:
             data = json.loads(response.read(2_000_000))
-        models = [str(row["id"]) for row in data.get("data", []) if isinstance(row, dict) and row.get("id")]
+        raw_models = [str(row["id"]) for row in data.get("data", []) if isinstance(row, dict) and row.get("id")]
+        models = [m.split("/", 1)[1] if m.startswith("models/") else m for m in raw_models]
         selected = env.get("LLM_MODEL_NAME")
+        norm_selected = selected.split("/", 1)[1] if isinstance(selected, str) and selected.startswith("models/") else selected
         return {"status": "reachable", "models": models, "selected_model": selected,
-                "model_listed": selected in models, "inference_tested": False,
+                "model_listed": bool(norm_selected and (norm_selected in models or selected in raw_models)), "inference_tested": False,
                 "note": "Model discovery does not prove tool-calling support; run a small fixture before a large simulation."}
     except urllib.error.HTTPError as error:
         reason = {401: "authentication_failed", 403: "access_denied", 429: "rate_limited"}.get(error.code, "provider_error")
@@ -152,10 +174,11 @@ def configure(root: Path, args) -> dict:
     spec = CATALOG[provider]
     if spec.get("gateway"):
         helper = root / "plugin/skills/market-mirror/scripts/mm.sh"
-        action = "login" if provider == "siwc" else "start"
+        gw_target = spec.get("gateway_name", provider)
+        action = "login" if gw_target == "siwc" else "start"
         return {"provider": provider, "status": "login_required", "guide": spec["guide"],
-                "command": ["bash", str(helper), "gateway", action, provider],
-                "next": "After login, run gateway start siwc." if provider == "siwc" else "Start the gateway using the command above."}
+                "command": ["bash", str(helper), "gateway", action, gw_target],
+                "next": "After login, run gateway start siwc." if gw_target == "siwc" else "Start the gateway using the command above."}
     model, endpoint = args.model or "", args.base_url or spec["base_url"]
     if not endpoint and sys.stdin.isatty():
         endpoint = input("OpenAI-compatible base URL (HTTPS or local loopback): ").strip()
@@ -163,6 +186,8 @@ def configure(root: Path, args) -> dict:
     if spec["key_required"]:
         variable = args.key_env or spec["key_env"]
         key = os.environ.get(variable, "")
+        if not key and provider == "gemini" and not args.key_env:
+            key = os.environ.get("GOOGLE_API_KEY", "")
         if not key and sys.stdin.isatty():
             print("Create a key in your provider's account: " + spec.get("key_url", spec["guide"]), file=sys.stderr)
             if getattr(args, "open_guide", False) and spec.get("key_url"):

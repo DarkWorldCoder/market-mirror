@@ -99,7 +99,10 @@ def enhance_report(html: str) -> Tuple[str, List[Tuple[str, str]]]:
 
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
                  leads: Dict[Any, int], limit: int = 150) -> str:
-    people = [r for r in index if r.get("kind") == "persona"][:limit]
+    everyone = [r for r in index if r.get("kind") == "persona"]
+    if len(everyone) > limit:            # big runs: the strongest leads first, the rest are in leads.csv
+        everyone = sorted(everyone, key=lambda r: -(leads.get(r.get("agent_id")) if leads.get(r.get("agent_id")) is not None else -1))
+    people = everyone[:limit]
     if not people:
         return ""
     cards = []
@@ -133,7 +136,11 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             + (f'<dt>In the run</dt><dd>{activity.get(aid, 0)} actions</dd>' if activity else "")
             + (f'<dt>Objection</dt><dd>{_e(_t(sv.get("main_objection"), 140))}</dd>' if sv.get("main_objection") else "")
             + '</dl></div>')
-    return people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values())) + f'<div class="people">{"".join(cards)}</div></div>'
+    total = len([r for r in index if r.get("kind") == "persona"])
+    note = (f'<p class="muted small">Showing the {len(people)} people with the highest lead scores of {total:,}. '
+            'Everyone is in the leads.csv download.</p>' if total > len(people) else "")
+    return (people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values())) + note
+            + f'<div class="people">{"".join(cards)}</div></div>')
 
 
 def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_leads: bool, has_survey: bool) -> str:

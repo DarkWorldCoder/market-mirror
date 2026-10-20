@@ -32,7 +32,7 @@ def configuration(root: Path, client: str = "generic") -> dict:
     entry = {"command": "python3", "args": [str(server)], "env": {"MARKET_MIRROR_HOME": str(root)}}
     result = {"client": client, "mcpServers": {"market-mirror": entry},
               "next": "Restart your agent, call doctor, choose a provider, then run a small simulation fixture."}
-    if client in ("codex", "claude"):
+    if client in ("codex", "claude", "gemini"):
         command = [client, "mcp", "add", "market-mirror", "--env", f"MARKET_MIRROR_HOME={root}", "--", "python3", str(server)]
         result["registration_args"] = command
         result["registration_command"] = shlex.join(command)

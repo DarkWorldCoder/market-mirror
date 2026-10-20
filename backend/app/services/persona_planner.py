@@ -190,6 +190,7 @@ class PersonaSpec:
     interview: bool = True             # life interview per person (research: interview-grounded personas predict better)
     probes: bool = True                # second interview call: adaptive follow-ups, product questions, BDE card
     population: Dict[str, Any] = field(default_factory=dict)   # {country: {"age": {...}, "gender": {...}}} target shares
+    real_profiles: List[Dict[str, Any]] = field(default_factory=list)  # grounded customer excerpts/records with provenance
     seed: int = 7
 
     @classmethod
@@ -202,10 +203,11 @@ class PersonaSpec:
         if mode not in ("all", "none", "auto"):
             raise ValueError("persona_spec.graph_agents must be all, none or auto")
         segs = [PersonaSegment.from_dict(s) for s in (d.get("segments") or [])]
+        real_raw = [r for r in (d.get("real_profiles") or []) if isinstance(r, dict)]
         spec = cls(
             segments=segs,
             communities=[CommunitySpec.from_dict(c) for c in (d.get("communities") or [])],
-            auto=bool(d.get("auto", not segs)),
+            auto=bool(d.get("auto", not segs and not real_raw)),
             auto_total=max(4, min(_int(d.get("auto_total"), 24), MAX_TOTAL_PERSONAS)),
             auto_communities=bool(d.get("auto_communities", True)),
             max_communities_per_person=max(1, min(_int(d.get("max_communities_per_person"), 2), 5)),
@@ -217,6 +219,7 @@ class PersonaSpec:
             interview=bool(d.get("interview", True)) and not bool(d.get("personas_lite", False)),
             probes=bool(d.get("probes", True)) and not bool(d.get("personas_lite", False)),
             population=dict(d.get("population") or {}) if isinstance(d.get("population"), dict) else {},
+            real_profiles=real_raw,
             seed=_int(d.get("seed"), 7),
         )
         total = sum(s.count for s in spec.segments)
@@ -242,10 +245,71 @@ def _female_share(mix: str) -> float:
     return max(0.0, min(1.0, _float(mix, 0.5)))
 
 
+def _life_stage(age: int) -> str:
+    if age <= 21:
+        return "student / early youth"
+    if age <= 28:
+        return "young adult / early career"
+    if age <= 42:
+        return "established adult / family builder"
+    if age <= 57:
+        return "mid-life household head"
+    return "older adult / senior"
+
+
+def _couple_slot_traits(
+    age: int,
+    settlement: str,
+    raw_traits: Dict[str, str],
+    allowed_traits: Dict[str, List[str]],
+    rng: random.Random,
+) -> Dict[str, str]:
+    """Enforce realistic conditional coupling between age, settlement tier, education, income, and tech comfort."""
+    out = dict(raw_traits)
+    edu = out.get("education", "")
+    allowed_edu = allowed_traits.get("education") or DEFAULT_DIVERSITY["education"]
+    if age < 20 and edu in ("postgraduate degree", "bachelor's degree"):
+        candidates = [e for e in allowed_edu if e in ("secondary school or less", "some university", "vocational or diploma")]
+        if candidates:
+            out["education"] = rng.choice(candidates)
+    elif 20 <= age < 22 and edu == "postgraduate degree":
+        candidates = [e for e in allowed_edu if e != "postgraduate degree"]
+        if candidates:
+            out["education"] = rng.choice(candidates)
+
+    inc = out.get("income", "")
+    allowed_inc = allowed_traits.get("income") or DEFAULT_DIVERSITY["income"]
+    if age <= 21 and inc in ("high", "upper-middle"):
+        candidates = [x for x in allowed_inc if x in ("low", "lower-middle", "middle")]
+        if candidates:
+            out["income"] = rng.choice(candidates)
+    elif settlement == "rural" and inc == "high" and rng.random() < 0.75:
+        candidates = [x for x in allowed_inc if x in ("low", "lower-middle", "middle")]
+        if candidates:
+            out["income"] = rng.choice(candidates)
+
+    if settlement == "rural" and out.get("upbringing") == "big-city":
+        allowed_up = allowed_traits.get("upbringing") or DEFAULT_DIVERSITY["upbringing"]
+        candidates = [x for x in allowed_up if x in ("rural village", "small town")]
+        if candidates:
+            out["upbringing"] = rng.choice(candidates)
+
+    if age >= 58 and out.get("tech_comfort") == "high" and rng.random() < 0.65:
+        allowed_tc = allowed_traits.get("tech_comfort") or DEFAULT_DIVERSITY["tech_comfort"]
+        candidates = [x for x in allowed_tc if x in ("low", "medium")]
+        if candidates:
+            out["tech_comfort"] = rng.choice(candidates)
+
+    return out
+
+
+PAYDAY_STATES = ("just_paid", "mid_month", "end_of_month_tight")
+
+
 def demographic_slots(seg: PersonaSegment, rng: random.Random,
                       diversity: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
     """Ages spread evenly over [age_min, age_max], genders by gender_mix, cities round-robin,
-    and every diversity trait spread evenly (balanced, shuffled) across the segment."""
+    and diversity traits spread across the segment with realistic life-stage/demographic coupling."""
     n = seg.count
     span = seg.age_max - seg.age_min
     ages = [seg.age_min + round(span * (i + 0.5) / n) for i in range(n)]
@@ -265,9 +329,26 @@ def demographic_slots(seg: PersonaSegment, rng: random.Random,
     # distinct starting letters for given names: parallel batches otherwise all pick the most common names
     letters = list("ABCDEFGHIJKLMNOPRSTVY")
     rng.shuffle(letters)
-    return [{"age": ages[i], "gender": genders[i], "city": places[i][0], "settlement": places[i][1],
-             "mbti": rng.choice(MBTI), "initial": letters[i % len(letters)],
-             "traits": {k: v[i] for k, v in spread.items() if v}} for i in range(n)]
+    paydays = [PAYDAY_STATES[i % len(PAYDAY_STATES)] for i in range(n)]
+    rng.shuffle(paydays)
+    slots: List[Dict[str, Any]] = []
+    for i in range(n):
+        age = ages[i]
+        city, settlement = places[i][0], places[i][1]
+        raw_t = {k: v[i] for k, v in spread.items() if v}
+        coupled_t = _couple_slot_traits(age, settlement, raw_t, traits, rng)
+        slots.append({
+            "age": age,
+            "gender": genders[i],
+            "city": city,
+            "settlement": settlement,
+            "life_stage": _life_stage(age),
+            "payday_status": paydays[i],
+            "mbti": rng.choice(MBTI),
+            "initial": letters[i % len(letters)],
+            "traits": coupled_t,
+        })
+    return slots
 
 
 # --------------------------------------------------------------------------
@@ -347,16 +428,45 @@ SYSTEM_PROMPT = (
 )
 
 
-def _llm_json(client, model: str, prompt: str, temperature: float = 0.8, max_tokens: int = 8000) -> Any:
+def _resolve_provider_meta(client: Any, model: str, resp: Any = None, slot_index: Optional[int] = None) -> Tuple[str, str]:
+    from ..utils.model_pool import canonical_provider
+    prov = getattr(resp, "_mm_provider", None) if resp is not None else None
+    mod = getattr(resp, "_mm_model", None) if resp is not None else None
+    if not prov and slot_index is not None and hasattr(client, "for_slot"):
+        bound = client.for_slot(slot_index)
+        prov = getattr(bound, "provider", None)
+        mod = mod or getattr(bound, "model_name", None)
+    if not prov:
+        prov = getattr(client, "provider", None) or canonical_provider(None, str(getattr(client, "base_url", "") or ""), model)
+    return str(prov or "claude"), str(mod or model or "default")
+
+
+def _llm_json(
+    client,
+    model: str,
+    prompt: str,
+    temperature: float = 0.8,
+    max_tokens: int = 8000,
+    slot_index: Optional[int] = None,
+    return_meta: bool = False,
+) -> Any:
     last: Optional[Exception] = None
     for attempt in range(3):
         try:
-            resp = create_chat_completion(
-                client, model=model,
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-                temperature=max(0.2, temperature - 0.2 * attempt), max_tokens=max_tokens,
-            )
-            return parse_json_block(extract_chat_completion_text(resp))
+            call_kw: Dict[str, Any] = {
+                "model": model,
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+                "temperature": max(0.2, temperature - 0.2 * attempt),
+                "max_tokens": max_tokens,
+            }
+            if slot_index is not None:
+                call_kw["slot_index"] = slot_index
+            resp = create_chat_completion(client, **call_kw)
+            parsed = parse_json_block(extract_chat_completion_text(resp))
+            if return_meta:
+                prov, mod = _resolve_provider_meta(client, model, resp, slot_index)
+                return parsed, prov, mod
+            return parsed
         except Exception as e:  # noqa: BLE001 - retried, then surfaced
             last = e
             logger.warning(f"persona LLM call failed (attempt {attempt + 1}): {str(e)[:120]}")
@@ -650,6 +760,25 @@ def _norm_key(k: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(k).strip().lower()).strip("_")
 
 
+def parse_discretionary_amount(text: Any) -> Optional[float]:
+    """Extract numeric monthly discretionary amount from a currency string like 'NPR 2,000' or '$120/mo'."""
+    if isinstance(text, (int, float)) and not isinstance(text, bool):
+        return float(text) if text >= 0 else None
+    s = str(text or "").strip()
+    if not s:
+        return None
+    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*([kK])?", s)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1).replace(",", ""))
+        if m.group(2):
+            val *= 1000.0
+        return val
+    except ValueError:
+        return None
+
+
 def clean_bde(raw: Any) -> Optional[Dict[str, Any]]:
     """Accept the BDE card in the shapes models actually return: the schema, capitalised or aliased section and
     field names, a flat object, sections written as prose, or the whole card as prose."""
@@ -690,7 +819,12 @@ def clean_bde(raw: Any) -> Optional[Dict[str, Any]]:
             else:
                 sec[k] = str(v or "").strip()[:240]
         out[section] = sec
-    return out if any(any(v for v in sec.values()) for sec in out.values()) else None
+    if not any(any(v for v in sec.values()) for sec in out.values()):
+        return None
+    disc_num = parse_discretionary_amount((out.get("evaluation") or {}).get("monthly_discretionary"))
+    if disc_num is not None:
+        out["evaluation"]["discretionary_budget_num"] = disc_num
+    return out
 
 
 def identity_seed(name: str, salt: int = 0) -> int:
@@ -772,37 +906,43 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                 "income_level": a.get("income_level"), "income": a.get("income"), "thinking_style": a.get("thinking_style"),
                 "tech_comfort": a.get("tech_comfort"), "media_diet": a.get("media_diet"), "attitude": a.get("attitude")}
 
-    def run(batch: List[EntityNode]):
+    def run(idx_batch: Tuple[int, List[EntityNode]]):
+        b_idx, batch = idx_batch
         try:
-            data = _llm_json(client, model, _interview_prompt([card(e) for e in batch], context, voices),
-                             temperature=0.9, max_tokens=6000)
+            data, prov, mod = _llm_json(
+                client, model, _interview_prompt([card(e) for e in batch], context, voices),
+                temperature=0.9, max_tokens=6000, slot_index=b_idx, return_meta=True,
+            )
             rows = data.get("interviews") if isinstance(data, dict) else data
-            return batch, [r for r in (rows or []) if isinstance(r, dict)]
+            return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
         except Exception as e:  # noqa: BLE001 - an uninterviewed batch keeps its shorter persona
             logger.warning(f"interview batch failed: {e}")
-            return batch, []
+            return batch, [], "", ""
 
     product_qs = product_questions(product)
 
-    def run_probes(batch: List[EntityNode]):
+    def run_probes(idx_batch: Tuple[int, List[EntityNode]]):
         """Second call: adaptive follow-ups, product questions, BDE card."""
+        b_idx, batch = idx_batch
         cards = [card(e) for e in batch if e.attributes.get("interview")]
         if not cards:
-            return batch, []
+            return batch, [], "", ""
         answers_by_name = {e.name: e.attributes.get("interview") or [] for e in batch}
         probes_by_name = {e.name: choose_probes(e.attributes.get("interview") or []) for e in batch}
         try:
-            data = _llm_json(client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
-                             temperature=0.8, max_tokens=7000)
+            data, prov, mod = _llm_json(
+                client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
+                temperature=0.8, max_tokens=7000, slot_index=b_idx, return_meta=True,
+            )
             rows = data.get("people") if isinstance(data, dict) else data
-            return batch, [r for r in (rows or []) if isinstance(r, dict)]
+            return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
         except Exception as e:  # noqa: BLE001
             logger.warning(f"interview probes failed: {e}")
-            return batch, []
+            return batch, [], "", ""
 
     count = 0
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-        for batch, rows in pool.map(run, batches):
+        for batch, rows, prov, mod in pool.map(run, enumerate(batches)):
             by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
             for k, e in enumerate(batch):
                 r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
@@ -812,7 +952,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                            for i, x in enumerate(r.get("answers") or []) if isinstance(x, dict)]
                 summary = str(r.get("summary") or "").strip()
                 e.attributes["interview"] = answers
-                (e.attributes.setdefault("provenance", {}))["interview"] = "synthetic: model-written life interview"
+                (e.attributes.setdefault("provenance", {}))["interview"] = f"synthetic: model-written life interview ({prov}/{mod})" if prov else "synthetic: model-written life interview"
                 if summary:
                     e.attributes["interview_summary"] = summary[:1200]
                 if r.get("phone"):
@@ -828,7 +968,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                 progress(done, len(people), "interviews")
         if probes:
             done = 0
-            for batch, rows in pool.map(run_probes, batches):
+            for batch, rows, prov, mod in pool.map(run_probes, enumerate(batches)):
                 by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
                 for k, e in enumerate(batch):
                     r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
@@ -843,7 +983,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                         logger.info(f"BDE card not usable for {e.name}: keys {list((r.get('bde') or {}).keys()) if isinstance(r.get('bde'), dict) else type(r.get('bde')).__name__}")
                     if bde:
                         e.attributes["bde"] = bde
-                        (e.attributes.setdefault("provenance", {}))["bde"] = "synthetic: extracted from the interview"
+                        (e.attributes.setdefault("provenance", {}))["bde"] = f"synthetic: extracted from the interview ({prov}/{mod})" if prov else "synthetic: extracted from the interview"
                         prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
                         if prof:
                             prof["persona"] = f"{prof['persona']} How I decide: {render_bde(bde, 500)}"
@@ -1000,9 +1140,9 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     def run(job_idx: int):
         seg, slots, comms = jobs[job_idx]
         prompt = _persona_prompt(seg, slots, requirement, context, sorted(taken), comms)
-        data = _llm_json(client, model, prompt)
+        data, prov, mod = _llm_json(client, model, prompt, slot_index=job_idx, return_meta=True)
         rows = data.get("personas") if isinstance(data, dict) else data
-        return job_idx, [r for r in (rows or []) if isinstance(r, dict)]
+        return job_idx, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
 
     # Pipelined: as soon as every persona job of a segment has returned, that segment is checked for stereotypes
     # and its interviews start, while other segments are still being written (F-speed item 3).
@@ -1029,9 +1169,10 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
             ThreadPoolExecutor(max_workers=max(1, parallel)) as ipool:
         futures = [pool.submit(run, i) for i in range(len(jobs))]
         for fut in as_completed(futures):
-            job_idx, rows = fut.result()
+            job_idx, rows, prov, mod = fut.result()
             seg, slots, _comms = jobs[job_idx]
-            ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k)
+            ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k,
+                               model_provider=prov, model_name=mod)
                     for k, slot in enumerate(slots)]
             by_job[job_idx] = ents
             done += len(slots)
@@ -1048,6 +1189,8 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         interviewed = sum(f.result() for f in interview_futures)
 
     entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]
+    if spec.real_profiles:
+        entities.extend(_entities_from_real_profiles(spec.real_profiles, taken, len(entities)))
     for i, e in enumerate(entities):                               # agent id = position: renumber the uuids in order
         e.uuid = f"persona_{i:04d}"
     report = diversity_report(entities)
@@ -1063,25 +1206,100 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     return entities
 
 
-def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], taken: set, idx: int) -> EntityNode:
+def _entities_from_real_profiles(real_profiles: List[Dict[str, Any]], taken: set, start_idx: int) -> List[EntityNode]:
+    """Build grounded EntityNodes directly from real customer excerpts/records without inventing unobserved attributes."""
+    out: List[EntityNode] = []
+    for offset, r in enumerate(real_profiles):
+        if not isinstance(r, dict):
+            continue
+        idx = start_idx + offset
+        seg_label = str(r.get("segment") or "Grounded Customers").strip()
+        name = _dedupe_name(str(r.get("name") or r.get("name_alias") or f"Customer {idx + 1}"), taken)
+        country = str(r.get("country") or "").strip()
+        city = str(r.get("city") or "").strip()
+        age = _int(r.get("age"), 30)
+        gender = str(r.get("gender") or "unknown").strip().lower()
+        occupation = str(r.get("occupation") or r.get("role") or seg_label).strip()
+        excerpts = _str_list(r.get("excerpts"))
+        purchases = _str_list(r.get("past_purchases"))
+        verbatim = " ".join(f'"{x}"' for x in excerpts[:6])
+        persona_text = str(r.get("persona") or r.get("notes") or "").strip()
+        if verbatim:
+            persona_text = (persona_text + " " if persona_text else "") + f"In their own words (real intake): {verbatim}"
+        if not persona_text:
+            persona_text = f"{name}, {occupation} from {city or country or seg_label}."
+        interview_rows = [{"q": f"Excerpt {i + 1}", "a": ex} for i, ex in enumerate(excerpts)]
+        bde = clean_bde(r.get("bde")) if r.get("bde") else None
+        details: Dict[str, Any] = {
+            "segment": seg_label,
+            "city": city,
+            "country": country,
+            "occupation": occupation,
+            "life_stage": _life_stage(age),
+            "payday_status": str(r.get("payday_status") or "mid_month"),
+            "languages": _str_list(r.get("languages")),
+            "past_purchases": purchases,
+            "interview": interview_rows,
+            "interview_summary": verbatim[:1200] if verbatim else persona_text[:600],
+            "bde": bde,
+            "model_provider": "grounded",
+            "model_name": "real_intake",
+        }
+        details = {k: v for k, v in details.items() if v not in (None, "", [])}
+        details["habits"] = stable_habits(name, details)
+        details["provenance"] = {
+            "demographics": "real_intake: observed",
+            "profile": "real_intake: customer_excerpts",
+            "interview": "real_intake: verbatim_excerpts" if excerpts else "none",
+            "bde": "real_intake: structured" if bde else "unobserved",
+            "habits": "planner: seeded by identity",
+        }
+        profile = {
+            "bio": str(r.get("bio") or f"{occupation}, {city or country}")[:280],
+            "persona": persona_text,
+            "age": age,
+            "gender": gender,
+            "mbti": str(r.get("mbti") or "ISTJ"),
+            "country": country,
+            "profession": occupation,
+            "interested_topics": _str_list(r.get("interested_topics")),
+        }
+        out.append(
+            EntityNode(
+                uuid=f"persona_{idx:04d}",
+                name=name,
+                labels=["Entity", _type_name(r.get("entity_type") or "Person"), PERSONA_LABEL],
+                summary=f"Grounded persona ({seg_label}): {name}, {age}, {gender}, {occupation}.",
+                attributes={**details, SYNTHETIC_PROFILE_KEY: profile},
+            )
+        )
+    return out
+
+
+def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], taken: set, idx: int,
+               model_provider: str = "", model_name: str = "") -> EntityNode:
     name = _dedupe_name(str(row.get("name") or f"{seg.label} {idx + 1}"), taken)
     country = str(row.get("country") or seg.country or "")
     city = str(row.get("city") or slot.get("city") or "")
     occupation = str(row.get("occupation") or seg.role or seg.label)
     persona = str(row.get("persona") or "").strip()
+    traits = slot.get("traits") or {}
     details = {
         "segment": seg.label, "role": seg.role, "city": city, "country": country, "settlement": slot.get("settlement"),
-        "occupation": occupation, "education": row.get("education"), "household": row.get("household"),
-        "income_level": row.get("income_level"), "languages": row.get("languages") or seg.languages,
+        "life_stage": slot.get("life_stage"), "payday_status": slot.get("payday_status"),
+        "occupation": occupation, "education": traits.get("education") or row.get("education"), "household": row.get("household"),
+        "income_level": traits.get("income") or row.get("income_level"), "languages": row.get("languages") or seg.languages,
         "platform_habits": row.get("platform_habits"), "decision_role": row.get("decision_role"),
         "attitude": row.get("attitude"), "concerns": row.get("concerns"),
         "what_persuades_them": row.get("what_persuades_them"), "voice": row.get("voice"),
         "example_post": row.get("example_post"), "contradiction": row.get("contradiction"),
-        **(slot.get("traits") or {}),
+        "model_provider": model_provider or "claude", "model_name": model_name or "default",
+        **traits,
     }
     details = {k: v for k, v in details.items() if v not in (None, "", [])}
     details["habits"] = stable_habits(name, details)
-    details["provenance"] = {"demographics": "planner: balanced slot", "profile": "synthetic: model-written",
+    synth_tag = f"synthetic: model-written ({model_provider}/{model_name})" if model_provider else "synthetic: model-written"
+    details["provenance"] = {"demographics": "planner: coupled life-stage slot", "profile": synth_tag,
                              "interview": "none yet", "habits": "planner: seeded by identity"}
     if not persona:
         persona = f"{name}, {slot['age']}, {occupation} from {city or country}. " + " ".join(
@@ -1233,7 +1451,10 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "phone": attrs.get("phone"), "data_plan": attrs.get("data_plan"),
             "interview_summary": attrs.get("interview_summary"),
             "bde": attrs.get("bde"), "weight": attrs.get("weight", 1.0),
-            "settlement": attrs.get("settlement"), "habits": attrs.get("habits"), "provenance": attrs.get("provenance"),
+            "settlement": attrs.get("settlement"), "life_stage": attrs.get("life_stage"),
+            "payday_status": attrs.get("payday_status"),
+            "model_provider": attrs.get("model_provider"), "model_name": attrs.get("model_name"),
+            "habits": attrs.get("habits"), "provenance": attrs.get("provenance"),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
     return out

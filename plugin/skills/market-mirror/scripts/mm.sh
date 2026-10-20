@@ -44,7 +44,7 @@ die() { say "error: $*"; exit 1; }
 key_status() {
   # Reports whether a key is configured without ever reading it into a variable or printing it.
   local env="$HOME_DIR/.env"
-  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -n "${LLM_API_KEY:-}" ]; then echo "set (environment)"; return; fi
+  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${GOOGLE_API_KEY:-}" ] || [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${LLM_API_KEY:-}" ]; then echo "set (environment)"; return; fi
   [ -f "$env" ] || { echo "missing (.env not created)"; return; }
   if grep -Eq '^LLM_API_KEY=[[:space:]]*("|'"'"')?(your_api_key_here)?("|'"'"')?[[:space:]]*$' "$env" \
      || ! grep -Eq '^LLM_API_KEY=' "$env"; then
@@ -68,6 +68,8 @@ doctor() {
       ok=0
       command -v claude >/dev/null && say "no key, but 'claude' is installed: 'mm.sh gateway start claude' runs on your Claude Code login (personal use)"
       command -v codex  >/dev/null && say "no key, but 'codex' is installed: 'mm.sh gateway start codex' runs on your ChatGPT login (personal use)"
+      command -v gemini >/dev/null && say "no key, but 'gemini' is installed: 'mm.sh gateway start gemini' runs on your Gemini CLI login (personal use)"
+      (command -v claude >/dev/null || command -v codex >/dev/null || command -v gemini >/dev/null) && say "multi-agent pool: 'mm.sh gateway start multi' pools all installed local CLIs together"
     fi ;;
   esac
   if [ -f "$HOME_DIR/.env" ]; then
@@ -135,6 +137,10 @@ case "$cmd" in
       start)
         if [ "$be" = siwc ]; then
           "$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("eligible_scope") and not s.get("needs_login") else 1)' || die "Continue with ChatGPT is not ready (run: mm.sh gateway login)"
+        elif [ "$be" = chatgpt ]; then
+          command -v codex >/dev/null || "$PY" "$HOME_DIR/backend/gateway/siwc_auth.py" status | "$PY" -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("eligible_scope") and not s.get("needs_login") else 1)' || die "ChatGPT gateway needs either 'codex' CLI installed or 'mm.sh gateway login'"
+        elif [ "$be" = multi ]; then
+          (command -v claude >/dev/null || command -v codex >/dev/null || command -v gemini >/dev/null) || die "no local CLI (claude, codex, or gemini) found on PATH for multi gateway"
         else
           command -v "$be" >/dev/null || die "'$be' CLI not found on PATH (install it and log in first)"
         fi

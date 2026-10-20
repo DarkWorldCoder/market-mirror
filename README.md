@@ -15,7 +15,10 @@ Self-hosted · Open source · Local agents and MCP · Offline HTML reports
 
 [Quick start](#quick-start) · [Connect your agent](#connect-your-agent) · [Example workflow](#example-workflow) · [Documentation](#documentation)
 
-<img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard showing simulated audience responses and campaign results" width="92%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png" />
+  <img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard for 1,008 simulated buyers: sidebar navigation, decision bar, headline figures and the at-a-glance cards" width="92%" />
+</picture>
 
 </div>
 
@@ -265,23 +268,48 @@ Keep inputs under `scenarios/` and outputs under `mirofish_runs/`; both are giti
 
 ## Reports and visualization
 
-Each run can produce a self-contained HTML dashboard with inline charts, audience breakdowns, message comparisons, funnel assumptions, pricing, objections, and a market map. The report uses a neutral editorial layout, a collapsible export menu, and report-only PDF printing. CSV and JSON exports preserve the underlying simulated results.
+Each run produces one self-contained HTML dashboard: no server, no external requests, light and dark themes, and phone layouts. A sidebar groups its sections into overview, buyers, tests, evidence and the simulation itself; every chart has a table behind it, and the report exports to Markdown, JSON, CSV and PDF. The screenshots below come from the 1,000-person Fitloop run and the offer study.
 
 <table>
+<tr><td colspan="2"><b>Overview</b></td></tr>
 <tr>
-<td width="50%"><img src="docs/images/feed-test.png" alt="Platform-style ad preview, simulated feed reactions, and creative metrics" /><br /><b>Feed tests.</b> Inspect reactions, compare creatives, and replay simulated scroll sessions.</td>
-<td width="50%"><img src="docs/images/map.png" alt="World map of the simulated people with a metric switcher and a per-country table" /><br /><b>Where they are.</b> A world map of the simulated people: switch between people, would-convert, ad CTR, pitch yes and lead score per country.</td>
+<td width="50%" valign="top"><img src="docs/images/glance.png" alt="At a glance KPI cards, the decision card and the one-page brief" /><br /><b>At a glance and the decision.</b> Headline numbers, the go / iterate / no-go call with the signals behind it, and a one-page brief with three actions, a budget plan and the next 30 days.</td>
+<td width="50%" valign="top"><img src="docs/images/map.png" alt="World map of the simulated people with a metric switcher and a per-country table" /><br /><b>Where they are.</b> A world map of the simulated people. Switch between people, would-convert, ad CTR, pitch yes and lead score per country; the table lists top cities and where people live.</td>
+</tr>
+<tr><td colspan="2"><b>Buyers</b></td></tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/results.png" alt="Survey results: what the simulation says, rating bars and purchase intent by audience" /><br /><b>What buyers said.</b> Purchase intent, interest, trust and word of mouth from free-text answers, mapped to 1–5 distributions and broken down by audience.</td>
+<td width="50%" valign="top"><img src="docs/images/audiences.png" alt="Audience comparison with intent bars and a sortable table" /><br /><b>Which audience to target.</b> Every segment, country, community, age band and gender side by side, with intent, trust, would-convert and the top objection.</td>
 </tr>
 <tr>
-<td><img src="docs/images/social-feed.png" alt="Posts and replies from the simulated social feed" /><br /><b>Social activity.</b> Follow posts, comments, and community responses across simulation rounds.</td>
-<td><img src="docs/images/report.png" alt="Example narrative report generated from simulation evidence" /><br /><b>Reports.</b> Review findings, objections, sales notes, proposed actions, and evidence limits.</td>
+<td width="50%" valign="top"><img src="docs/images/objections.png" alt="Objections chart and quotes grouped by objection" /><br /><b>What stops people.</b> Objections ranked by share, each with real-sounding quotes and what would change that person's mind.</td>
+<td width="50%" valign="top"><img src="docs/images/messages.png" alt="Split-test results and best message per audience" /><br /><b>Which message wins.</b> A randomized split test of your messages, plus the best message for each audience.</td>
+</tr>
+<tr><td colspan="2"><b>Tests</b></td></tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/feed-test.png" alt="Platform-style ad preview with feed reactions, click funnel and spend projection" /><br /><b>Ads in realistic feeds.</b> Each ad shown in its platform's feed among organic posts: thumb-stop, CTR, what happened after the click, comments, and a spend projection.</td>
+<td width="50%" valign="top"><img src="docs/images/social-feed.png" alt="Brand posts with replies and activity per round from the social simulation" /><br /><b>Social feed.</b> Every post of the simulated social rounds, with likes, replies and their sentiment, filters by round, audience and country, and activity per round.</td>
 </tr>
 <tr>
-<td colspan="2"><img src="docs/images/live.png" alt="Live control room: run stages, counters, every simulated person, activity per round and what people are saying" /><br /><b>Live control room.</b> Watch a run as it happens at <code>/live</code>: each stage, every simulated person lighting up as they act and taking their answer's colour, what they post and comment, and the progress log.</td>
+<td width="50%" valign="top"><img src="docs/images/pricing.png" alt="Van Westendorp price sensitivity with acceptable range and sweet spot" /><br /><b>What people would pay.</b> Acceptable price range, sweet spot and the price-sensitivity curves, by segment.</td>
+<td width="50%" valign="top"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience" /><br /><b>The playbook.</b> One card per audience: what to lead with, the objection to pre-empt, how to answer it, where to seed it, and a quote as proof.</td>
+</tr>
+<tr><td colspan="2"><b>Evidence</b></td></tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/analysts.png" alt="Independent analyst panel with consensus, themes and five analyst cards" /><br /><b>Analyst panel.</b> Five analysts read the run independently; their consensus, the themes they agree on, and each one's recommendation.</td>
+<td width="50%" valign="top"><img src="docs/images/people.png" alt="Cards for each simulated person with interview summary, phone, groups and lead score" /><br /><b>The simulated people.</b> Every person's life story from a short interview, phone and data plan, groups, what they did in the run, and a lead score. Filter by segment, country, verdict and lead score.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/report.png" alt="The plain-language report with contents, decision lead and tables" /><br /><b>The report.</b> A plain-language report with contents, the decision up front, who was simulated, results, objections, pricing, sales notes, an action plan and its limits. Exports to Markdown, JSON, CSV and PDF.</td>
+<td width="50%" valign="top"><img src="docs/images/study.png" alt="Study page comparing three offers across three seeds" /><br /><b>Studies.</b> Several scenarios on the same people, each with several seeds: the winner, the side-by-side table, what changed and whether it is outside the seed spread.</td>
+</tr>
+<tr><td colspan="2"><b>Live</b></td></tr>
+<tr>
+<td colspan="2" valign="top"><img src="docs/images/live.png" alt="Live control room with run stages, counters, every simulated person and the activity stream" /><br /><b>Live control room.</b> Watch a run as it happens at <code>/live</code>: each stage, every simulated person lighting up as they act and taking their answer's colour, what they post and comment, and the progress log.</td>
 </tr>
 </table>
 
-Screenshots come from the Fitloop demo runs (28 and 150 simulated buyers). Fitloop, its audiences, and its supplied pilot figures are invented; the numbers are simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy.
+Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy.
 
 ## Evidence and simulation limits
 
@@ -308,6 +336,8 @@ A study ran three offers on the same 150 simulated buyers, three seeds each (9 c
 
 **What the study concluded.** Requiring a card was a clear loss in every seed: intent fell by 0.5, "maybe" answers fell by 44.8 points, and scam worry rose by 33.6 points, all outside the seed spread. Dropping the price to USD 2.99 lifted would-click (+15.8 points) and trust (+0.47) beyond the spread, but its intent gain (+0.09) stayed inside it, so the price cut is not a clear winner even in simulation. The recommendation: keep the trial card-free, work on trust (proof, a named company, a clear "no card needed" line), and run a small randomized real test of USD 2.99 against USD 4.99. The full write-up is generated as `study_report.md` next to `study.html` in the study folder.
 
+<img src="docs/images/study.png" alt="The Fitloop offer study page: conclusion, a card per offer and the side-by-side table" width="100%" />
+
 ## Measured runs and costs
 
 These are local Fitloop measurements, not speed guarantees. Model, hardware, activity settings, concurrency, and provider limits affect runtime.
@@ -322,6 +352,8 @@ These are local Fitloop measurements, not speed guarantees. Model, hardware, act
 The 1,000-person run's active time breaks down as feed test 10m 17s, four social rounds 18m 28s (1,159 actions), survey and retest 20m 29s, analyst panel and report about 3m. Its wall-clock time was much longer: the Claude Code session limit paused it for about four hours mid-survey, and it resumed on its own after the reset. With an API key there is no session limit.
 
 ### The 1,000-person run: what 1,008 simulated buyers said
+
+<img src="docs/images/live.png" alt="Live control room at the end of the 1,000-person run: every person coloured by their answer" width="100%" />
 
 Offer: 7-day free trial without a card, then USD 4.99 a month, shown to young professionals, parents and students in India, the Philippines and Kenya.
 
