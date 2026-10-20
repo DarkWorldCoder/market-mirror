@@ -232,6 +232,68 @@ def _overloaded(err: Exception) -> bool:
     return _is_rate_limit_or_transient(err)
 
 
+class Caller:
+    """One model call for a provider slot through that provider's lane and the exact-prompt cache; returns the
+    parsed JSON with the provider and model that answered. A failed call raises (the caller decides what to ask
+    again). Works with a provider pool (one lane per slot) or a single client (one lane)."""
+
+    def __init__(self, client: Any, model: str, parallel: int, cache: Optional[PromptCache] = None):
+        self.client, self.model = client, model
+        self.slots = getattr(client, "slots", None) or [None]
+        self.n = len(self.slots)
+        per_lane = max(1, parallel // self.n)
+        self.lanes = [Lane(getattr(s, "provider", None) or "default",
+                           lane_limit(getattr(s, "provider", None) or "default", per_lane)) for s in self.slots]
+        self.cache = cache if cache is not None else PromptCache()
+
+    def lane_of(self, provider: Optional[str]) -> int:
+        """The slot index of a provider family (the writer of a person), else 0."""
+        if provider and hasattr(self.client, "slot_for_provider"):
+            idx = self.client.slot_for_provider(provider)
+            if idx is not None:
+                return idx % self.n
+        return 0
+
+    def text(self, lane_idx: int, system: str, prompt: str, max_tokens: int = 8000,
+             temperature: float = 0.8) -> Tuple[str, str, str]:
+        from .persona_planner import _resolve_provider_meta
+        lane_idx %= self.n
+        slot = self.slots[lane_idx]
+        key = PromptCache.key(getattr(slot, "provider", None) or "default", getattr(slot, "model", None) or self.model,
+                              system, prompt)
+        hit = self.cache.get(key)
+        if hit:
+            return hit
+        lane = self.lanes[lane_idx]
+        lane.acquire()
+        ok = overloaded = False
+        try:
+            kw: Dict[str, Any] = {"model": self.model, "temperature": temperature, "max_tokens": max_tokens,
+                                  "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+            if slot is not None:
+                kw["slot_index"] = lane_idx
+            resp = create_chat_completion(self.client, **kw)
+            text = extract_chat_completion_text(resp)
+            prov, mod = _resolve_provider_meta(self.client, self.model, resp, lane_idx if slot is not None else None)
+            ok = True
+        except Exception as e:  # noqa: BLE001 - classified for the lane, then re-raised
+            overloaded = _overloaded(e)
+            raise
+        finally:
+            lane.release(ok, overloaded)
+        return text, prov, mod
+
+    def remember(self, lane_idx: int, system: str, prompt: str, answer: Tuple[str, str, str]) -> None:
+        """Keep an answer that was usable, so a rerun reuses it."""
+        slot = self.slots[lane_idx % self.n]
+        self.cache.put(PromptCache.key(getattr(slot, "provider", None) or "default",
+                                       getattr(slot, "model", None) or self.model, system, prompt), *answer)
+
+    def stats(self) -> Dict[str, Any]:
+        return {"lanes": {ln.name: {"calls": ln.calls, "overloads": ln.overloads, "limit_now": ln.limit} for ln in self.lanes},
+                "cache": {"hits": self.cache.hits, "misses": self.cache.misses}}
+
+
 # --------------------------------------------------------------------------
 # Writing the cards
 # --------------------------------------------------------------------------

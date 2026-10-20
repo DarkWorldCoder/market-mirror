@@ -406,7 +406,7 @@ def test_antigravity_backend_streams_the_prompt_on_stdin(tmp_path):
     out = b.complete("be terse", "hello agy")
     assert out.startswith("agy[gemini-4-argon-medium]") and "event: user" in out and "hello agy" in out
     assert "--sandbox" in out and "--input-format stream-json" in out and "--print-timeout 20s" in out and "mm-agy-" in out
-    assert b.usage.value["input_tokens"] == 120 and b.usage.value["output_tokens"] == 5
+    assert b.usage.value["input_tokens"] == 120 and b.usage.value["output_tokens"] == 4      # output_tokens already includes thinking
     b.request.model = gw.request_model("antigravity", "gemini-3.8-flash-low")
     assert b.complete("", "x").startswith("agy[gemini-3.8-flash-low]")
     big = b.complete("", "z" * 300_000)                             # far above one argument's limit: fine on stdin

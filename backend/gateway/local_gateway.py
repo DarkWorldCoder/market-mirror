@@ -463,6 +463,8 @@ CODEX_DISABLE = ("apps", "plugins", "remote_plugin", "browser_use", "browser_use
                  "goals", "view_image", "in_app_browser", "sleep_tool", "skill_mcp_dependency_install", "shell_snapshot",
                  "workspace_dependencies", "web_search_request", "web_search_cached")
 CODEX_FLAGS = ("--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check")
+# reasoning efforts the Codex models accept ("minimal" is rejected); set with LLM_GATEWAY_EFFORT
+CODEX_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 class CodexBackend(Backend):
@@ -505,6 +507,9 @@ class CodexBackend(Backend):
                 cmd += ["--disable", feat]
         if model:
             cmd += ["-m", model]
+        effort = (os.environ.get("LLM_GATEWAY_EFFORT") or "").strip().lower()
+        if effort in CODEX_EFFORTS:          # e.g. low: the fast models write people without hidden reasoning
+            cmd += ["-c", f'model_reasoning_effort="{effort}"']
         cmd.append("-")                     # the prompt is read from stdin: no argument-size limit
         return cmd
 
@@ -726,7 +731,7 @@ def agy_usage(u: Any) -> Optional[Dict[str, Any]]:
         return None
     uncached = int(u.get("input_tokens") or 0)
     cache_read = int(u.get("cache_read_tokens") or 0)
-    out_tok = int(u.get("output_tokens") or 0) + int(u.get("thinking_tokens") or 0)
+    out_tok = int(u.get("output_tokens") or 0)       # agy's output_tokens already includes thinking_tokens
     total_in = uncached + cache_read
     if not (total_in or out_tok):
         return None

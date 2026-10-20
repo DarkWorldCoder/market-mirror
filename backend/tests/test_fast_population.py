@@ -61,13 +61,13 @@ def _no_cache(monkeypatch, tmp_path):
 
 def test_cards_for_everyone_and_missing_rows_are_asked_again_alone():
     spec = pp.PersonaSpec.from_dict({"segments": [seg(count=25)], "depth": "fast", "interview": False})
-    client = CardClient(drop_first={3, 17})
+    client = CardClient(drop_first={8, 17})          # only the first batch (20 people) has slots 8 and 17
     ents = pp.generate_personas(client, "m", spec, "req", "ctx")
     assert len(ents) == 25
     card_calls = [c for c in client.calls if c.startswith("Write")]
-    assert len(card_calls) == 3                 # 20 + 5, then only slots 3 and 17 of the first batch again
+    assert len(card_calls) == 3                 # 20 + 5, then only slots 8 and 17 of the first batch again
     retry = next(c for c in card_calls if c.startswith("Write 2 distinct"))
-    assert re.findall(r"^(\d+)\. age", retry, re.M) == ["3", "17"]
+    assert re.findall(r"^(\d+)\. age", retry, re.M) == ["8", "17"]
     e = ents[0]
     assert e.attributes["depth"] == "card"
     assert "How I decide: asks sister" in e.attributes[pp.SYNTHETIC_PROFILE_KEY]["persona"]
@@ -101,7 +101,7 @@ def test_auto_depth_switches_above_the_threshold(monkeypatch):
     full = CardClient()
     pp.generate_personas(full, "m", pp.PersonaSpec.from_dict({"segments": [seg(count=12)], "interview": False}),
                          "req", "ctx")
-    assert full.calls[0].startswith("Write 5 distinct synthetic people")      # the older method is the default
+    assert full.calls[0].startswith("Write 4 distinct synthetic people")      # the older method (full depth) is the default
     with pytest.raises(ValueError):
         pp.PersonaSpec.from_dict({"segments": [seg()], "depth": "deep"})
 

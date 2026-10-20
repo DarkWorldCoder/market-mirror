@@ -79,21 +79,17 @@ def test_default_pool_still_fails_over():
     assert resp._mm_provider in ("antigravity", "claude_code")
 
 
-def test_interviews_go_to_the_writer(monkeypatch):
-    p = pool()
-    seen = []
-
-    def fake_llm(client, model, prompt, temperature=0.8, max_tokens=8000, slot_index=None, return_meta=False, gate=None):
-        seen.append((slot_index, prompt.count("\"name\"")))
-        return ({"interviews": []}, "", "") if return_meta else {"interviews": []}
-
-    monkeypatch.setattr(persona_planner, "_llm_json", fake_llm)
+def test_interviews_go_to_the_writer():
+    from test_fast_population import FakePool
+    fp = FakePool()
     ents = []
-    for i, prov in enumerate(["codex"] * 3 + ["claude"] * 2 + ["antigravity"]):
+    for i, prov in enumerate(["codex"] * 3 + ["claude_code"] * 2 + ["antigravity"]):
         ents.append(SimpleNamespace(name=f"P{i}", labels=[persona_planner.PERSONA_LABEL],
-                                    attributes={"model_provider": prov, persona_planner.SYNTHETIC_PROFILE_KEY: {}}))
-    persona_planner.run_interviews(p, "m", ents, "ctx", probes=False)
-    assert sorted(s for s, _ in seen) == [0, 1, 2]
+                                    attributes={"model_provider": prov, persona_planner.SYNTHETIC_PROFILE_KEY: {"persona": "x"}}))
+    n = persona_planner.run_interviews(fp, "m", ents, "ctx", probes=False)
+    assert n == 6
+    assert sorted(fp.used) == ["antigravity", "claude_code", "codex"]      # one interview call per writer
+    assert all(e.attributes.get("interview") for e in ents)
 
 
 def test_simulation_agents_get_their_writers_model():

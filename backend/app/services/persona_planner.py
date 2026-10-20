@@ -564,17 +564,29 @@ def plan_segments(client, model: str, requirement: str, context: str, total: int
 
 
 def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requirement: str, context: str,
-                    avoid_names: Sequence[str], communities: Sequence[CommunitySpec] = ()) -> str:
+                    avoid_names: Sequence[str] = (), communities: Sequence[CommunitySpec] = (),
+                    numbers: Optional[Sequence[int]] = None) -> str:
+    """The full-depth persona request. Each row carries its slot number ("i") so a broken or short answer keeps its
+    good rows and only the missing people are asked again; the fixed demographics are not written back."""
+    numbers = list(numbers) if numbers else list(range(1, len(slots) + 1))
     people = "\n".join(
-        f"{i + 1}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
+        f"{n}. age {s['age']}, {s['gender']}" + (f", lives in {s['city']}" if s["city"] else "")
         + ({"metro": " (big metro)", "city": " (mid-sized city)", "town": " (small town)", "rural": " (rural, village life)"}.get(s.get("settlement") or "", ""))
         + f", MBTI {s['mbti']}" + (f", given name starts with '{s['initial']}'" if s.get("initial") else "")
         + "".join(f"; {k.replace('_', ' ')}: {v}" for k, v in (s.get("traits") or {}).items())
-        for i, s in enumerate(slots))
+        for n, s in zip(numbers, slots))
     groups = ""
     if communities:
         groups = "\nCommunities people in this segment may belong to:\n" + "\n".join(
             f"- {c.name} ({c.kind}): {c.description} Norms: {c.norms}" for c in communities) + "\n"
+    extra = []
+    if any(not s.get("city") for s in slots):
+        extra.append('"city": "... (only when no city is given)"')
+    if any("education" not in (s.get("traits") or {}) for s in slots):
+        extra.append('"education": "..."')
+    if any("income" not in (s.get("traits") or {}) for s in slots):
+        extra.append('"income_level": "low|lower-middle|middle|upper-middle|high"')
+    avoid = ", ".join(list(avoid_names)[-60:])
     return f"""Write {len(slots)} distinct synthetic people for this audience segment of a social media simulation.
 
 Segment: {seg.label}
@@ -590,12 +602,12 @@ Simulation requirement:
 Context from the seed documents:
 {context[:3500]}
 
-Use exactly these fixed demographics, in this order:
+Use exactly these fixed demographics; keep each person's number as "i":
 {people}
 
 Rules:
 - Invent a realistic full name for each person: given name and family name common for their country,
-  region, religion mix and generation. Do not reuse or resemble these names: {", ".join(list(avoid_names)[-60:]) or "none"}.
+  region, religion mix and generation; no two people share a name.{f" Do not reuse or resemble these names: {avoid}." if avoid else ""}
 - Never use a real, famous or public person's name or biography.
 - Let where they live shape the details: small-town and rural people have different jobs, incomes, prices, data
   plans, shops and distances than metro people; do not make everyone an office worker in a tower.
@@ -606,14 +618,12 @@ Rules:
   who trusts one particular source) so nobody reads like a stereotype.
 - Write their voice the way they actually post: language mix, slang or formality, typical length.
 
-Return JSON: {{"personas": [{{
-  "name": "...", "age": N, "gender": "male|female", "city": "...", "country": "...",
-  "occupation": "...", "education": "...", "household": "...", "income_level": "low|lower-middle|middle|upper-middle|high",
-  "languages": ["..."], "platform_habits": "...", "decision_role": "...",
+Return compact JSON on one line, no code fence: {{"personas": [{{"i": N, "name": "...", {", ".join(extra) + ", " if extra else ""}
+  "occupation": "...", "household": "...", "languages": ["..."], "platform_habits": "...", "decision_role": "...",
   "attitude": "...", "concerns": ["..."], "what_persuades_them": "...", "contradiction": "...", "voice": "...",
   "example_post": "...", "interested_topics": ["..."],
   "bio": "one-line social media bio",
-  "persona": "a 150-250 word description combining all of the above and how they relate to the topic"
+  "persona": "a description of at least 150 and at most 250 words combining all of the above and how they relate to the topic"
 }}]}}"""
 
 
@@ -647,8 +657,10 @@ def _voices_block(voices: Optional[List[Dict[str, Any]]], country: str = "", n: 
 
 
 def _interview_prompt(people: List[Dict[str, Any]], context: str, voices: Optional[List[Dict[str, Any]]] = None) -> str:
+    """The life interview. People are numbered; each row carries its number ("i") and the 12 answers in order,
+    so the questions are not written back for every person."""
     cards = "\n".join(
-        f"{i + 1}. {p['name']}: age {p.get('age')}, {p.get('gender')}, {p.get('occupation')}, "
+        f"{p.get('i', i + 1)}. {p['name']}: age {p.get('age')}, {p.get('gender')}, {p.get('occupation')}, "
         f"{p.get('city') or ''} {p.get('country') or ''}; segment {p.get('segment')}; "
         f"languages {', '.join(p.get('languages') or []) or 'local'}; upbringing {p.get('upbringing')}; "
         f"education {p.get('education')}; income {p.get('income_level') or p.get('income')}; "
@@ -671,11 +683,11 @@ People:
 Questions:
 {qs}
 
-Return JSON: {{"interviews": [{{"name": "<person name as given>",
-  "answers": [{{"q": "Q1", "a": "..."}}, ... 12 answers ...],
+Return compact JSON on one line, no code fence: {{"interviews": [{{"i": <person number>,
+  "a": ["answer to Q1", "answer to Q2", ... all {len(INTERVIEW_QUESTIONS)} answers in order],
   "phone": "phone model and age", "data_plan": "wifi at home / prepaid data / unlimited...",
-  "summary": "120 words in the first person, in their own voice, summarising who they are, their money situation,
-  how they decide on purchases and what they distrust"}}]}}"""
+  "summary": "at least 100 and about 120 words in the first person, in their own voice, summarising who they are,
+  their money situation, how they decide on purchases and what they distrust"}}]}}"""
 
 
 # --- research-backed second pass: adaptive probes, product questions and the structured BDE card ---
@@ -738,14 +750,30 @@ BDE_SCHEMA = {
 }
 
 
+# the decision card with short keys (clean_bde maps them back through _SECTION_ALIASES and _FIELD_ALIASES)
+BDE_SHORT_SCHEMA = {
+    "b": {"who": "one sentence: who they are and what fills their days", "knows": "what they know about this product category",
+          "believes": "2-3 beliefs that shape how they buy", "acq": "low|medium|high (agrees to be polite)",
+          "sd": "low|medium|high (says what sounds good)", "svd": "one sentence on where their words and actions differ"},
+    "d": {"ask": "who they ask", "spd": "impulsive|considered|slow", "style": "maximiser|satisficer",
+          "risk": "averse|neutral|seeking", "pat": "low|medium|high", "trig": ["what makes them act now"],
+          "stop": ["what makes them close the tab"]},
+    "e": {"spare": "monthly spare money in local currency", "prio": ["top 3 things they pay for"],
+          "pays": ["things they already pay for monthly"], "never": ["..."], "deal": ["deal-breakers"],
+          "trust": ["what makes them trust a brand"]},
+}
+
+
 def _probe_prompt(people: List[Dict[str, Any]], answers_by_name: Dict[str, List[Dict[str, Any]]],
                   probes_by_name: Dict[str, List[str]], product_qs: List[str], context: str) -> str:
+    """Follow-ups and the decision card. People are numbered ("i"); answers come back in question order."""
     blocks = []
-    for p in people:
+    for i, p in enumerate(people):
         qa = "\n".join(f"  {x['q']}: {x['a']}" for x in answers_by_name.get(p["name"], [])[:12])
         qs = probes_by_name.get(p["name"], []) + product_qs
-        blocks.append(f"{p['name']} ({p.get('age')}, {p.get('occupation')}, {p.get('city') or ''} {p.get('country') or ''}):\n"
-                      f"Earlier answers:\n{qa}\nNow answer:\n" + "\n".join(f"  P{i + 1}. {q}" for i, q in enumerate(qs)))
+        blocks.append(f"{p['name']} ({p.get('age')}, {p.get('occupation')}, {p.get('city') or ''} {p.get('country') or ''}) "
+                      f"[person {p.get('i', i + 1)}]:\n"
+                      f"Earlier answers:\n{qa}\nNow answer:\n" + "\n".join(f"  P{j + 1}. {q}" for j, q in enumerate(qs)))
     return f"""Second part of a life interview with {len(people)} fictional people (market simulation). First answer the
 follow-up questions as each person would, in their own voice and everyday language mix, 1-3 sentences, concrete
 (amounts in local currency, names of apps and places). People are not fully consistent or rational: let habits,
@@ -757,8 +785,9 @@ Context (what they will react to later):
 
 {chr(10).join(blocks)}
 
-Return JSON: {{"people": [{{"name": "<name as given>", "probe_answers": [{{"q": "P1", "a": "..."}}, ...],
-  "bde": {json.dumps(BDE_SCHEMA, ensure_ascii=False)}}}]}}"""
+Return compact JSON on one line, no code fence: {{"people": [{{"i": <person number>,
+  "p": ["answer to P1", "answer to P2", ... in order],
+  "bde": {json.dumps(BDE_SHORT_SCHEMA, ensure_ascii=False)}}}]}}"""
 
 
 _SECTION_ALIASES = {
@@ -768,15 +797,15 @@ _SECTION_ALIASES = {
 }
 _FIELD_ALIASES = {
     "who": ("who", "who_they_are", "summary", "identity", "about"), "knows": ("knows", "knowledge", "category_knowledge", "what_they_know"),
-    "believes": ("believes", "beliefs", "belief", "worldview"), "acquiescence": ("acquiescence", "agreeableness_to_please", "politeness"),
-    "social_desirability": ("social_desirability", "socially_desirable"), "says_vs_does": ("says_vs_does", "stated_vs_behaviour", "stated_vs_behavior", "say_do_gap", "says_vs_behaviour"),
-    "who_they_ask": ("who_they_ask", "asks", "influencers", "who_they_consult"), "speed": ("speed", "decision_speed"),
+    "believes": ("believes", "beliefs", "belief", "worldview"), "acquiescence": ("acquiescence", "agreeableness_to_please", "politeness", "acq"),
+    "social_desirability": ("social_desirability", "socially_desirable", "sd"), "says_vs_does": ("says_vs_does", "stated_vs_behaviour", "stated_vs_behavior", "say_do_gap", "says_vs_behaviour", "svd"),
+    "who_they_ask": ("who_they_ask", "asks", "influencers", "who_they_consult", "ask"), "speed": ("speed", "decision_speed", "spd"),
     "style": ("style", "maximiser_or_satisficer", "maximizer_or_satisficer"), "risk": ("risk", "risk_attitude", "risk_tolerance"),
-    "patience": ("patience",), "triggers": ("triggers", "acts_when", "buy_triggers"), "stoppers": ("stoppers", "stops_when", "blockers"),
-    "monthly_discretionary": ("monthly_discretionary", "spare_money", "discretionary_budget", "budget"),
-    "value_priorities": ("value_priorities", "priorities", "values"), "pays_for": ("pays_for", "subscriptions", "already_pays_for"),
-    "never_pays_for": ("never_pays_for", "won't_pay_for", "wont_pay_for"), "dealbreakers": ("dealbreakers", "deal_breakers"),
-    "trust_cues": ("trust_cues", "trusts_when", "trust_signals"),
+    "patience": ("patience", "pat",), "triggers": ("triggers", "acts_when", "buy_triggers", "trig"), "stoppers": ("stoppers", "stops_when", "blockers", "stop"),
+    "monthly_discretionary": ("monthly_discretionary", "spare_money", "discretionary_budget", "budget", "spare"),
+    "value_priorities": ("value_priorities", "priorities", "values", "prio"), "pays_for": ("pays_for", "subscriptions", "already_pays_for", "pays"),
+    "never_pays_for": ("never_pays_for", "won't_pay_for", "wont_pay_for", "never"), "dealbreakers": ("dealbreakers", "deal_breakers", "deal"),
+    "trust_cues": ("trust_cues", "trusts_when", "trust_signals", "trust"),
 }
 
 
@@ -908,129 +937,175 @@ def render_bde(bde: Optional[Dict[str, Any]], limit: int = 700) -> str:
     return " ".join(bits)[:limit]
 
 
+ATTEMPTS = 3                     # one ask plus up to two asks for whoever is still missing
+DEEP_BATCH = max(1, int(os.environ.get("MM_DEEP_BATCH") or 4))   # people per persona, interview and follow-up call
+
+
+def _interview_card(e: EntityNode) -> Dict[str, Any]:
+    a = e.attributes or {}
+    prof = a.get(SYNTHETIC_PROFILE_KEY) or {}
+    return {"name": e.name, "age": prof.get("age"), "gender": prof.get("gender"), "occupation": a.get("occupation"),
+            "city": a.get("city"), "country": a.get("country"), "segment": a.get("segment"),
+            "languages": a.get("languages"), "upbringing": a.get("upbringing"), "education": a.get("education"),
+            "income_level": a.get("income_level"), "income": a.get("income"), "thinking_style": a.get("thinking_style"),
+            "tech_comfort": a.get("tech_comfort"), "media_diet": a.get("media_diet"), "attitude": a.get("attitude")}
+
+
+def _match_rows(rows: List[Dict[str, Any]], batch: List[Any], name_of: Callable[[Any], str] = lambda e: getattr(e, "name", "") or ""
+                ) -> Dict[int, Dict[str, Any]]:
+    """Answer rows by position in `batch`: the row's number ("i", 1-based), else its name, else its order when
+    the counts match."""
+    names = {str(name_of(e)).strip().lower(): k for k, e in enumerate(batch)}
+    out: Dict[int, Dict[str, Any]] = {}
+    for pos, r in enumerate(rows):
+        k = None
+        try:
+            k = int(r.get("i")) - 1
+        except (TypeError, ValueError):
+            k = None
+        if k is None or not 0 <= k < len(batch):
+            k = names.get(str(r.get("name") or "").strip().lower())
+        if k is None and len(rows) == len(batch):
+            k = pos
+        if k is not None and 0 <= k < len(batch) and k not in out:
+            out[k] = r
+    return out
+
+
+def apply_interview(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = "") -> bool:
+    """Attach a life interview row (answers in order as "a", or the older [{q, a}] form). False when it has none."""
+    raw = r.get("a") if isinstance(r.get("a"), list) else r.get("answers")
+    answers = []
+    for i, x in enumerate(raw or []):
+        q, a = (str(x.get("q") or f"Q{i + 1}"), str(x.get("a") or "").strip()) if isinstance(x, dict) else (f"Q{i + 1}", str(x or "").strip())
+        if a:
+            answers.append({"q": q, "a": a})
+    if not answers:
+        return False
+    summary = str(r.get("summary") or "").strip()
+    e.attributes["interview"] = answers
+    (e.attributes.setdefault("provenance", {}))["interview"] = f"synthetic: model-written life interview ({prov}/{mod})" if prov else "synthetic: model-written life interview"
+    if summary:
+        e.attributes["interview_summary"] = summary[:1200]
+    if r.get("phone"):
+        e.attributes["phone"] = str(r["phone"])[:120]
+    if r.get("data_plan"):
+        e.attributes["data_plan"] = str(r["data_plan"])[:120]
+    prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
+    if prof and summary:
+        prof["persona"] = f"{prof['persona']} In their own words: {summary}"
+    return True
+
+
+def apply_probes(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = "") -> bool:
+    """Attach follow-up answers ("p" in order, or the older probe_answers) and the decision card."""
+    raw = r.get("p") if isinstance(r.get("p"), list) else r.get("probe_answers")
+    pa = []
+    for i, x in enumerate(raw or []):
+        q, a = (str(x.get("q") or f"P{i + 1}"), str(x.get("a") or "").strip()) if isinstance(x, dict) else (f"P{i + 1}", str(x or "").strip())
+        if a:
+            pa.append({"q": q, "a": a})
+    bde = clean_bde(r.get("bde") or r.get("BDE") or r.get("card"))
+    if not pa and not bde:
+        return False
+    if pa:
+        e.attributes["interview"] = (e.attributes.get("interview") or []) + pa
+    if bde:
+        e.attributes["bde"] = bde
+        (e.attributes.setdefault("provenance", {}))["bde"] = f"synthetic: extracted from the interview ({prov}/{mod})" if prov else "synthetic: extracted from the interview"
+        prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
+        if prof:
+            prof["persona"] = f"{prof['persona']} How I decide: {render_bde(bde, 500)}"
+    return True
+
+
+def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any]], str], batch: List[Any], key: str,
+              apply: Callable[[Any, Dict[str, Any], str, str], bool], what: str, max_tokens: int, temperature: float) -> List[Any]:
+    """Ask for `batch`, apply each usable row, then ask again only for whoever is still missing (ATTEMPTS in all).
+    Returns the people still missing. Nobody is filled in by code."""
+    pending = list(batch)
+    for attempt in range(ATTEMPTS):
+        if not pending:
+            break
+        if attempt:
+            time.sleep(RETRY_PAUSE_S * attempt)
+        prompt = build_prompt(pending)
+        try:
+            answer = caller.text(lane, SYSTEM_PROMPT, prompt, max_tokens=max_tokens,
+                                 temperature=max(0.4, temperature - 0.2 * attempt))
+            data = parse_json_block(answer[0])
+        except Exception as e:  # noqa: BLE001 - asked again below, then reported missing
+            logger.warning(f"{what}: {len(pending)} people, attempt {attempt + 1}: {str(e)[:160]}")
+            continue
+        rows = data.get(key) if isinstance(data, dict) else data
+        rows = [r for r in (rows or []) if isinstance(r, dict)]
+        done = {k for k, r in _match_rows(rows, pending).items() if apply(pending[k], r, answer[1], answer[2])}
+        if done:
+            caller.remember(lane, SYSTEM_PROMPT, prompt, answer)
+        pending = [e for k, e in enumerate(pending) if k not in done]
+    return pending
+
+
+def interview_batch(caller: Any, lane: int, batch: List[EntityNode], context: str,
+                    voices: Optional[List[Dict[str, Any]]], product_qs: List[str], probes: bool = True) -> Tuple[int, int]:
+    """The life interview for one batch, then its follow-ups and decision card straight away (no waiting for other
+    batches). Returns (interviewed, followed up)."""
+    def iv_prompt(people: List[EntityNode]) -> str:
+        return _interview_prompt([{**_interview_card(e), "i": k + 1} for k, e in enumerate(people)], context, voices)
+    _ask_rows(caller, lane, iv_prompt, batch, "interviews", apply_interview, "interview", 9000, 0.9)
+    interviewed = [e for e in batch if e.attributes.get("interview")]
+    if not probes or not interviewed:
+        return len(interviewed), 0
+
+    def pr_prompt(people: List[EntityNode]) -> str:
+        return _probe_prompt([{**_interview_card(e), "i": k + 1} for k, e in enumerate(people)],
+                             {e.name: e.attributes.get("interview") or [] for e in people},
+                             {e.name: choose_probes(e.attributes.get("interview") or []) for e in people}, product_qs, context)
+    missing = _ask_rows(caller, lane, pr_prompt, interviewed, "people", apply_probes, "follow-ups", 9000, 0.8)
+    return len(interviewed), len(interviewed) - len(missing)
+
+
 def run_interviews(client, model: str, entities: List[EntityNode], context: str,
                    progress: Optional[Callable[[int, int, str], None]] = None, parallel: int = 4,
                    product: Optional[Dict[str, Any]] = None, probes: bool = True,
                    voices: Optional[List[Dict[str, Any]]] = None,
-                   gate: Optional[threading.Semaphore] = None) -> int:
-    """Interview every synthetic persona in batches; attach answers, phone/data plan and a first-person summary.
-    With probes=True a second call per batch asks adaptive follow-ups and product questions and extracts the
-    structured BDE card (background / decision procedure / evaluation). Returns the number of people interviewed."""
+                   gate: Optional[threading.Semaphore] = None, caller: Any = None) -> int:
+    """Interview synthetic personas in batches; attach answers, phone/data plan and a first-person summary, then
+    (probes=True) adaptive follow-ups, product questions and the structured BDE card (background / decision
+    procedure / evaluation). Each person is interviewed by the provider that wrote them, through that provider's
+    lane. Returns the number of people interviewed. `gate` is accepted for older callers; the lanes bound the calls."""
+    from .fast_population import Caller
+    caller = caller or Caller(client, model, parallel)
     people = [e for e in entities if PERSONA_LABEL in e.labels]
-    # each person is interviewed by the provider that wrote them, so one model speaks for a person throughout
-    by_writer: Dict[str, List[EntityNode]] = {}
+    per_writer: Dict[int, List[List[EntityNode]]] = {}
     for e in people:
-        by_writer.setdefault(str((e.attributes or {}).get("model_provider") or ""), []).append(e)
-    per_writer = []
-    for writer, group in by_writer.items():
-        slot = client.slot_for_provider(writer) if writer and hasattr(client, "slot_for_provider") else None
-        per_writer.append([(slot, group[i:i + INTERVIEW_BATCH]) for i in range(0, len(group), INTERVIEW_BATCH)])
-    # interleaved across writers, so every provider has a share of the calls in flight instead of one at a time
-    batches, batch_slot = [], []
-    for round_ in range(max((len(w) for w in per_writer), default=0)):
-        for w in per_writer:
-            if round_ < len(w):
-                slot, batch = w[round_]
-                batch_slot.append(slot if slot is not None else len(batches))
-                batches.append(batch)
+        lane = caller.lane_of(str((e.attributes or {}).get("model_provider") or ""))
+        group = per_writer.setdefault(lane, [[]])
+        if len(group[-1]) >= INTERVIEW_BATCH:
+            group.append([])
+        group[-1].append(e)
+    # interleaved across providers, so each provider's lane has work from the start
+    batches = [(lane, v[i]) for i in range(max((len(v) for v in per_writer.values()), default=0))
+               for lane, v in sorted(per_writer.items()) if i < len(v) and v[i]]
     if not batches:
         return 0
-    done = 0
-
-    def card(e: EntityNode) -> Dict[str, Any]:
-        a = e.attributes or {}
-        prof = a.get(SYNTHETIC_PROFILE_KEY) or {}
-        return {"name": e.name, "age": prof.get("age"), "gender": prof.get("gender"), "occupation": a.get("occupation"),
-                "city": a.get("city"), "country": a.get("country"), "segment": a.get("segment"),
-                "languages": a.get("languages"), "upbringing": a.get("upbringing"), "education": a.get("education"),
-                "income_level": a.get("income_level"), "income": a.get("income"), "thinking_style": a.get("thinking_style"),
-                "tech_comfort": a.get("tech_comfort"), "media_diet": a.get("media_diet"), "attitude": a.get("attitude")}
-
-    def run(idx_batch: Tuple[int, List[EntityNode]]):
-        b_idx, batch = idx_batch
-        try:
-            data, prov, mod = _llm_json(
-                client, model, _interview_prompt([card(e) for e in batch], context, voices),
-                temperature=0.9, max_tokens=6000, slot_index=batch_slot[b_idx], return_meta=True, gate=gate,
-            )
-            rows = data.get("interviews") if isinstance(data, dict) else data
-            return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
-        except Exception as e:  # noqa: BLE001 - an uninterviewed batch keeps its shorter persona
-            logger.warning(f"interview batch failed: {e}")
-            return batch, [], "", ""
-
     product_qs = product_questions(product)
+    done = [0]
+    lock = threading.Lock()
 
-    def run_probes(idx_batch: Tuple[int, List[EntityNode]]):
-        """Second call: adaptive follow-ups, product questions, BDE card."""
-        b_idx, batch = idx_batch
-        cards = [card(e) for e in batch if e.attributes.get("interview")]
-        if not cards:
-            return batch, [], "", ""
-        answers_by_name = {e.name: e.attributes.get("interview") or [] for e in batch}
-        probes_by_name = {e.name: choose_probes(e.attributes.get("interview") or []) for e in batch}
-        try:
-            data, prov, mod = _llm_json(
-                client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
-                temperature=0.8, max_tokens=7000, slot_index=batch_slot[b_idx], return_meta=True, gate=gate,
-            )
-            rows = data.get("people") if isinstance(data, dict) else data
-            return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"interview probes failed: {e}")
-            return batch, [], "", ""
+    def one(item: Tuple[int, List[EntityNode]]) -> int:
+        lane, batch = item
+        n, _ = interview_batch(caller, lane, batch, context, voices, product_qs, probes)
+        with lock:
+            done[0] += len(batch)
+            d = done[0]
+        if progress:
+            progress(d, len(people), "interviews")
+        return n
 
-    count = 0
-    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-        for batch, rows, prov, mod in pool.map(run, enumerate(batches)):
-            by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
-            for k, e in enumerate(batch):
-                r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
-                if not r:
-                    continue
-                answers = [{"q": str(x.get("q") or f"Q{i + 1}"), "a": str(x.get("a") or "").strip()}
-                           for i, x in enumerate(r.get("answers") or []) if isinstance(x, dict)]
-                summary = str(r.get("summary") or "").strip()
-                e.attributes["interview"] = answers
-                (e.attributes.setdefault("provenance", {}))["interview"] = f"synthetic: model-written life interview ({prov}/{mod})" if prov else "synthetic: model-written life interview"
-                if summary:
-                    e.attributes["interview_summary"] = summary[:1200]
-                if r.get("phone"):
-                    e.attributes["phone"] = str(r["phone"])[:120]
-                if r.get("data_plan"):
-                    e.attributes["data_plan"] = str(r["data_plan"])[:120]
-                prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
-                if prof and summary:
-                    prof["persona"] = f"{prof['persona']} In their own words: {summary}"
-                count += 1
-            done += len(batch)
-            if progress:
-                progress(done, len(people), "interviews")
-        if probes:
-            done = 0
-            for batch, rows, prov, mod in pool.map(run_probes, enumerate(batches)):
-                by_name = {str(r.get("name") or "").strip().lower(): r for r in rows}
-                for k, e in enumerate(batch):
-                    r = by_name.get(e.name.strip().lower()) or (rows[k] if k < len(rows) else None)
-                    if not r:
-                        continue
-                    pa = [{"q": str(x.get("q") or f"P{i + 1}"), "a": str(x.get("a") or "").strip()}
-                          for i, x in enumerate(r.get("probe_answers") or []) if isinstance(x, dict)]
-                    if pa:
-                        e.attributes["interview"] = (e.attributes.get("interview") or []) + pa
-                    bde = clean_bde(r.get("bde") or r.get("BDE") or r.get("card"))
-                    if not bde and r:
-                        logger.info(f"BDE card not usable for {e.name}: keys {list((r.get('bde') or {}).keys()) if isinstance(r.get('bde'), dict) else type(r.get('bde')).__name__}")
-                    if bde:
-                        e.attributes["bde"] = bde
-                        (e.attributes.setdefault("provenance", {}))["bde"] = f"synthetic: extracted from the interview ({prov}/{mod})" if prov else "synthetic: extracted from the interview"
-                        prof = e.attributes.get(SYNTHETIC_PROFILE_KEY)
-                        if prof:
-                            prof["persona"] = f"{prof['persona']} How I decide: {render_bde(bde, 500)}"
-                done += len(batch)
-                if progress:
-                    progress(done, len(people), "follow-up probes")
-    return count
+    workers = max(1, sum(ln.max_limit for ln in caller.lanes) * 2)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return sum(pool.map(one, batches))
 
 
 def diversity_report(entities: List[EntityNode]) -> Dict[str, Any]:
@@ -1185,84 +1260,130 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
                                              product, voices)
         return _finish_population(entities, spec, rng, taken, stats)
 
-    jobs = []
+    entities, taken, stats = _write_full(client, model, spec, requirement, context, rng, progress, parallel,
+                                         product, voices)
+    return _finish_population(entities, spec, rng, taken, stats)
+
+
+class DuplicateGuard:
+    """fix_duplicates, applied batch by batch: a person whose (occupation, city) is already taken in their segment
+    gets another city of the segment (or a numbered variant of the role) before their interview is written."""
+
+    VARIANTS = ["(part-time)", "(night shift)", "(freelance)", "(family business)", "(junior)", "(senior)", "(contract)"]
+
+    def __init__(self, segments: Sequence[PersonaSegment]):
+        self.seen: Dict[str, Dict[tuple, int]] = {}
+        self.cities: Dict[str, List[str]] = {s.label: list(dict.fromkeys(c for c in (s.cities or []) if c)) for s in segments}
+        self.lock = threading.Lock()
+
+    def fix(self, people: List[EntityNode]) -> int:
+        changed = 0
+        with self.lock:
+            for e in people:
+                a = e.attributes or {}
+                seg = str(a.get("segment") or "?")
+                cities = self.cities.setdefault(seg, [])
+                if a.get("city") and a["city"] not in cities:
+                    cities.append(a["city"])
+                seen = self.seen.setdefault(seg, {})
+                key = (str(a.get("occupation") or "").lower(), str(a.get("city") or "").lower())
+                k = seen.get(key, 0)
+                seen[key] = k + 1
+                if k == 0 or not key[0]:
+                    continue
+                if len(cities) > 1:
+                    a["city"] = cities[(cities.index(a["city"]) + k) % len(cities)] if a.get("city") in cities else cities[k % len(cities)]
+                    seen[(key[0], str(a["city"]).lower())] = seen.get((key[0], str(a["city"]).lower()), 0) + 1
+                else:
+                    a["occupation"] = f"{a['occupation']} {self.VARIANTS[(k - 1) % len(self.VARIANTS)]}"
+                    prof = a.get(SYNTHETIC_PROFILE_KEY)
+                    if prof:
+                        prof["profession"] = a["occupation"]
+                changed += 1
+        return changed
+
+
+def _write_full(client, model: str, spec: PersonaSpec, requirement: str, context: str, rng: random.Random,
+                progress: Optional[Callable[[int, int, str], None]], parallel: int,
+                product: Optional[Dict[str, Any]], voices: Optional[List[Dict[str, Any]]]
+                ) -> Tuple[List[EntityNode], set, Dict[str, Any]]:
+    """The full-depth people: a persona with its paragraph, the 12-question life interview and the follow-ups with
+    the decision card, for everyone. Each batch of DEEP_BATCH people goes straight through the three calls on its
+    provider's lane (no waiting for the rest of the segment); every provider writes exactly its share, person by
+    person; rows carry their slot number so only missing people are asked again; answers are cached."""
+    from .fast_population import Caller
+    caller = Caller(client, model, parallel)
+    n = caller.n
+    jobs: List[Tuple[PersonaSegment, List[Dict[str, Any]], List[CommunitySpec], int]] = []
+    offset = 0
     for seg in spec.segments:
         slots = demographic_slots(seg, rng, spec.diversity)
         seg_comms = [c for c in spec.communities if _matches(c, seg.label, seg.country)]
-        for start in range(0, len(slots), MAX_PER_CALL):
-            jobs.append((seg, slots[start:start + MAX_PER_CALL], seg_comms))
+        for lane in range(n):
+            mine = [sl for k, sl in enumerate(slots) if (k + offset) % n == lane]
+            for start in range(0, len(mine), DEEP_BATCH):
+                jobs.append((seg, mine[start:start + DEEP_BATCH], seg_comms, lane))
+        offset = (offset + len(slots)) % n
     total = sum(len(j[1]) for j in jobs)
-    job_slot = provider_shares([len(j[1]) for j in jobs], len(getattr(client, "slots", None) or [None]))
-
     taken: set = set()
-    done = 0
-    # one cap on model calls for writing and all interviews together (each finished segment starts its own
-    # interview pool, so without it the calls in flight grow with the number of segments)
-    gate = threading.BoundedSemaphore(max(1, parallel))
-    failed_people = 0
-
-    def run(job_idx: int):
-        seg, slots, comms = jobs[job_idx]
-        prompt = _persona_prompt(seg, slots, requirement, context, sorted(taken), comms)
-        try:
-            data, prov, mod = _llm_json(client, model, prompt, slot_index=job_slot[job_idx], return_meta=True, gate=gate)
-        except Exception as e:  # noqa: BLE001 - this batch is reported as not written; no stand-in people
-            logger.warning(f"persona batch {job_idx} ({seg.label}, {len(slots)} people) not written: {str(e)[:160]}")
-            return job_idx, None, "", ""
-        rows = data.get("personas") if isinstance(data, dict) else data
-        return job_idx, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
-
-    # Pipelined: as soon as every persona job of a segment has returned, that segment is checked for stereotypes
-    # and its interviews start, while other segments are still being written (F-speed item 3).
-    seg_jobs: Dict[str, int] = {}
-    for seg, _, _ in jobs:
-        seg_jobs[seg.label] = seg_jobs.get(seg.label, 0) + 1
-    seg_entities: Dict[str, List[Tuple[int, List[EntityNode]]]] = {}
-    by_job: Dict[int, List[EntityNode]] = {}
-    interview_futures = []
-    interview_done: Dict[str, int] = {}
     lock = threading.Lock()
-    fixed_total = 0
+    guard = DuplicateGuard(spec.segments)
+    product_qs = product_questions(product)
+    results: Dict[int, List[EntityNode]] = {}
+    count = {"done": 0, "missing": 0, "fixed": 0, "interviewed": 0, "followed_up": 0}
 
-    def interview_progress(label: str):
-        def cb(d: int, t: int, what: str):
-            with lock:
-                interview_done[label] = d
-                total_done = sum(interview_done.values())
-            if progress:
-                progress(total_done, total, what)
-        return cb
+    def run_job(j: int) -> None:
+        seg, slots, comms, lane = jobs[j]
+        got: Dict[int, Tuple[Dict[str, Any], str, str]] = {}
 
-    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool, \
-            ThreadPoolExecutor(max_workers=max(1, parallel)) as ipool:
-        futures = [pool.submit(run, i) for i in range(len(jobs))]
-        for fut in as_completed(futures):
-            job_idx, rows, prov, mod = fut.result()
-            seg, slots, _comms = jobs[job_idx]
-            if rows is None:
-                failed_people += len(slots)
-                ents = []
-            else:
-                ents = [_to_entity(seg, slot, rows[k] if k < len(rows) else {}, taken, job_idx * MAX_PER_CALL + k,
-                                   model_provider=prov, model_name=mod)
-                        for k, slot in enumerate(slots)]
-            by_job[job_idx] = ents
-            done += len(slots)
-            if progress:
-                progress(done, total, seg.label)
-            seg_entities.setdefault(seg.label, []).append((job_idx, ents))
-            if len(seg_entities[seg.label]) == seg_jobs[seg.label]:
-                group = [e for _, es in sorted(seg_entities[seg.label], key=lambda x: x[0]) for e in es]
-                fixed_total += fix_duplicates(group, rng)
-                if spec.interview:
-                    interview_futures.append(ipool.submit(
-                        run_interviews, client, model, group, context, progress=interview_progress(seg.label),
-                        parallel=max(2, parallel // 2), product=product, probes=spec.probes, voices=voices, gate=gate))
-        interviewed = sum(f.result() for f in interview_futures)
+        def keep(k_slot: Dict[str, Any], r: Dict[str, Any], prov: str, mod: str) -> bool:
+            if not str(r.get("name") or "").strip():
+                return False
+            got[id(k_slot)] = (r, prov, mod)
+            return True
 
-    entities: List[EntityNode] = [e for job_idx in range(len(jobs)) for e in by_job.get(job_idx, [])]
-    return _finish_population(entities, spec, rng, taken, {"fixed": fixed_total, "failed": failed_people,
-                                                          "total": total, "interviewed": interviewed})
+        def prompt(pending: List[Dict[str, Any]]) -> str:
+            return _persona_prompt(seg, pending, requirement, context, (), comms,
+                                   numbers=list(range(1, len(pending) + 1)))
+        missing = _ask_rows(caller, lane, prompt, slots, "personas", keep, f"persona batch {j} ({seg.label})", 9000, 0.8)
+        with lock:
+            ents = [_to_entity(seg, sl, got[id(sl)][0], taken, j * DEEP_BATCH + k, model_provider=got[id(sl)][1],
+                               model_name=got[id(sl)][2]) for k, sl in enumerate(slots) if id(sl) in got]
+            count["missing"] += len(missing)
+        count["fixed"] += guard.fix(ents)
+        iv = fu = 0
+        if spec.interview and ents:
+            iv, fu = interview_batch(caller, lane, ents, context, voices, product_qs, spec.probes)
+        for e in ents:
+            e.attributes["depth"] = "interviewed" if e.attributes.get("interview") else "profile"
+        with lock:
+            results[j] = ents
+            count["done"] += len(slots)
+            count["interviewed"] += iv
+            count["followed_up"] += fu
+            d = count["done"]
+        if progress:
+            progress(d, total, seg.label)
+
+    by_lane: Dict[int, List[int]] = {}
+    for j, job in enumerate(jobs):
+        by_lane.setdefault(job[3], []).append(j)
+    executors = {lane: ThreadPoolExecutor(max_workers=max(1, caller.lanes[lane].max_limit * 2)) for lane in by_lane}
+    try:
+        futures = [executors[lane].submit(run_job, j) for lane, js in by_lane.items() for j in js]
+        for f in futures:
+            f.result()
+    finally:
+        for ex in executors.values():
+            ex.shutdown(wait=True)
+    entities = [e for j in range(len(jobs)) for e in results.get(j, [])]
+    st = caller.stats()
+    logger.info(f"persona planner (full): {len(entities)} people, {count['missing']} not written, "
+                f"{count['interviewed']} interviewed, {count['followed_up']} followed up; lanes {st['lanes']}; cache {st['cache']}")
+    return entities, taken, {"fixed": count["fixed"], "failed": count["missing"], "total": total,
+                             "interviewed": count["interviewed"], **st}
+
+
 
 
 def _write_fast(client, model: str, spec: PersonaSpec, requirement: str, context: str, rng: random.Random,
