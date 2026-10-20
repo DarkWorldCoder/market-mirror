@@ -323,7 +323,7 @@ def parse_reset(text: str, now: Optional[float] = None) -> Optional[float]:
     """When a usage limit lifts, as an epoch, from the wording the CLIs use:
     "resets 12:45pm (Asia/Kathmandu)", "try again at 3:05 PM", "try again in 2 hours 13 minutes",
     "usage limit reached|1760000000", "Retry after 120 seconds", Gemini's "Please retry in 25.3s" and
-    "retryDelay": "25s". None when no time is given."""
+    "retryDelay": "25s", Antigravity's "Resets in 160h0m44s". None when no time is given."""
     from datetime import datetime, timedelta
     now = time.time() if now is None else now
     low = text.lower()
@@ -336,10 +336,10 @@ def parse_reset(text: str, now: Optional[float] = None) -> Optional[float]:
     m = re.search(r"(?:try again|retry|resets?|wait)\s+(?:in|after|for)?\s*(\d+\.\d+)\s*s(?:ec(?:ond)?s?)?\b", low)
     if m:
         return now + float(m.group(1))
-    m = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+((?:\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b[\s,and]*)+)", low)
+    m = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+((?:\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?=\d|\b)[\s,and]*)+)", low)
     if m:
         secs = 0
-        for n, unit in re.findall(r"(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b", m.group(1)):
+        for n, unit in re.findall(r"(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?=\d|\b)", m.group(1)):
             secs += int(n) * (86400 if unit.startswith("d") else 3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
         return now + secs if secs else None
     m = re.search(r"(?:resets?|try again at|available at|reset at)\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([A-Za-z_]+/[A-Za-z_]+)\))?", text, re.I)

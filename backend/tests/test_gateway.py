@@ -253,6 +253,7 @@ def test_usage_limit_is_parsed_and_pauses_the_gateway(tmp_path):
     assert _t.localtime(gw.parse_reset("You've hit your session limit · resets 12:45pm", now))[3:5] == (12, 45)
     assert gw.parse_reset("try again in 2 hours 13 minutes", now) == now + 2 * 3600 + 13 * 60
     assert gw.parse_reset("usage limit reached|1760000000", now) == 1760000000
+    assert gw.parse_reset("RESOURCE_EXHAUSTED: Individual quota reached. Resets in 160h0m44s.", now) == now + 160 * 3600 + 44
     assert gw.parse_reset("rate limit", now) is None
     err = gw.cli_failure("claude", "You've hit your session limit · resets 12:45pm")
     assert err.status == 429 and err.retry_at
