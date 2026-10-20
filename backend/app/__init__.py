@@ -40,13 +40,19 @@ def create_app(config_class=Config):
         logger.info("=" * 50)
     
     # 启用CORS
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    cors_origins = os.environ.get("CORS_ORIGINS", "*").strip()
+    origins_val = [o.strip() for o in cors_origins.split(",") if o.strip()] if "," in cors_origins else cors_origins
+    CORS(app, resources={r"/api/*": {"origins": origins_val}})
     
     # 注册模拟进程清理函数（确保服务器关闭时终止所有模拟进程）
     from .services.simulation_runner import SimulationRunner
     SimulationRunner.register_cleanup()
     if should_log_startup:
         logger.info("已注册模拟进程清理函数")
+
+    # 注册生产级中间件（API 鉴权、限流、请求追踪ID、安全响应头、/ready 与 /metrics 探针）
+    from .utils.production import install_production_middleware
+    install_production_middleware(app)
     
     # 请求日志中间件
     @app.before_request

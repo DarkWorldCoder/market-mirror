@@ -1036,36 +1036,37 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
     
-    # Claude: Anthropic's OpenAI-compatible endpoint needs explicit max_tokens
-    
+    # Claude / Gemini / OpenAI: configure OpenAI-compatible base URL & model defaults
     _provider = os.environ.get('LLM_PROVIDER', 'claude').strip().lower()
-    
     _base = os.environ.get('OPENAI_API_BASE_URL', '')
-    
+
     if _provider == 'claude' and not _base:
-    
         os.environ['OPENAI_API_BASE_URL'] = 'https://api.anthropic.com/v1/'
-    
+    elif _provider == 'gemini' and not _base:
+        os.environ['OPENAI_API_BASE_URL'] = 'https://generativelanguage.googleapis.com/v1beta/openai/'
+
     if _provider == 'claude' and not llm_model.startswith('claude'):
-    
         llm_model = os.environ.get('LLM_MODEL_NAME') or 'claude-haiku-4-5'
-    
+    elif _provider == 'gemini' and not llm_model.startswith('gemini'):
+        llm_model = os.environ.get('LLM_MODEL_NAME') or 'gemini-2.5-flash'
+
+    _is_compat = (
+        _provider in ('claude', 'gemini')
+        or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')
+        or 'generativelanguage.googleapis.com' in os.environ.get('OPENAI_API_BASE_URL', '')
+        or '127.0.0.1' in os.environ.get('OPENAI_API_BASE_URL', '')
+        or 'localhost' in os.environ.get('OPENAI_API_BASE_URL', '')
+    )
     _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
-    
+
     agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s (camel's own default is 180 s)
-    
+
     return ModelFactory.create(
-    
-        model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _cfg else ModelPlatformType.OPENAI,
-    
+        model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _is_compat else ModelPlatformType.OPENAI,
         model_type=llm_model,
-    
         model_config_dict=_cfg,
-    
-        url=os.environ.get('OPENAI_API_BASE_URL') if _cfg else None,
-    
-        api_key=os.environ.get('OPENAI_API_KEY') if _cfg else None,
-    
+        url=os.environ.get('OPENAI_API_BASE_URL') if _is_compat else None,
+        api_key=os.environ.get('OPENAI_API_KEY') if _is_compat else None,
     )
 
 
@@ -1306,12 +1307,18 @@ async def run_twitter_simulation(
         round_action_count = 0
         for action_data in actual_actions:
             if action_logger:
+                th, md = agent_context.thought_for_action(
+                    action_data['agent_id'], action_data['action_type'], action_data['action_args'],
+                    platform="twitter", agent_graph=result.agent_graph
+                )
                 action_logger.log_action(
                     round_num=round_num + 1,
                     agent_id=action_data['agent_id'],
                     agent_name=action_data['agent_name'],
                     action_type=action_data['action_type'],
-                    action_args=action_data['action_args']
+                    action_args=action_data['action_args'],
+                    thought=th,
+                    mood=md,
                 )
                 total_actions += 1
                 round_action_count += 1
@@ -1516,12 +1523,18 @@ async def run_reddit_simulation(
         round_action_count = 0
         for action_data in actual_actions:
             if action_logger:
+                th, md = agent_context.thought_for_action(
+                    action_data['agent_id'], action_data['action_type'], action_data['action_args'],
+                    platform="reddit", agent_graph=result.agent_graph
+                )
                 action_logger.log_action(
                     round_num=round_num + 1,
                     agent_id=action_data['agent_id'],
                     agent_name=action_data['agent_name'],
                     action_type=action_data['action_type'],
-                    action_args=action_data['action_args']
+                    action_args=action_data['action_args'],
+                    thought=th,
+                    mood=md,
                 )
                 total_actions += 1
                 round_action_count += 1

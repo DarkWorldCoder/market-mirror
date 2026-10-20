@@ -197,9 +197,89 @@ def _landing_html(lf: Optional[Dict[str, Any]]) -> str:
                    f'style="width:{100 * v / top:.0f}%"></span></span><b>{v}</b></div>' for k, v in steps)
     reasons = "".join(f'<li>{_e(r["reason"])} <span class="muted">×{r["count"]}</span></li>' for r in lf.get("drop_reasons") or [])
     nets = ", ".join(f"{k} {v}" for k, v in (lf.get("networks") or {}).items())
-    return (f'<div class="lf"><h4>After the click</h4>{bars}'
+    friction_pills = []
+    if lf.get("say_do_gap"):
+        friction_pills.append(f'<span class="pill accent">Say-vs-Do gap: {lf["say_do_gap"]}</span>')
+    if lf.get("price_blocked"):
+        friction_pills.append(f'<span class="pill orchid">Wallet cap blocked: {lf["price_blocked"]}</span>')
+    if lf.get("dealbreaker_blocked"):
+        friction_pills.append(f'<span class="pill orchid">Dealbreaker blocked: {lf["dealbreaker_blocked"]}</span>')
+    f_html = f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">{"".join(friction_pills)}</div>' if friction_pills else ""
+    return (f'<div class="lf"><h4>After the click</h4>{bars}{f_html}'
             f'<p class="muted small">Networks of clickers: {_e(nets)}. Page loaded for {lf.get("load_rate") or 0:.0f}% of clicks.</p>'
             + (f'<ul class="small">{reasons}</ul>' if reasons else "") + "</div>")
+
+
+def _competitor_shock_html(comp: Optional[Dict[str, Any]]) -> str:
+    """Competitor counter-offer / price-shock comparison card."""
+    if not comp or not comp.get("impressions"):
+        return ""
+    name = comp.get("name") or "Competitor"
+    price = f' ({comp["price"]})' if comp.get("price") else ""
+    tiles = "".join([
+        ui.kpi(f'{comp.get("brand_win_share_pct", 50):g}%', "Brand click share", f'vs {name}{price}', color=1, bar=comp.get("brand_win_share_pct", 50)),
+        ui.kpi(f'{comp.get("defection_rate") or 0:g}%', "Defection rate", "clicked competitor instead of brand", color=8, bar=comp.get("defection_rate") or 0),
+        ui.kpi(f'{comp.get("brand_ctr") or 0:g}% vs {comp.get("competitor_ctr") or 0:g}%', "Brand vs competitor CTR",
+               f'expected {comp.get("brand_expected_ctr") or 0:g}% vs {comp.get("competitor_expected_ctr") or 0:g}%', color=2),
+        ui.kpi(f'{comp.get("brand_thumb_stop") or 0:g}% vs {comp.get("competitor_thumb_stop") or 0:g}%', "Thumb-stop comparison",
+               f'{comp.get("both_clicked", 0)} clicked both offers', color=3),
+    ])
+    return (f'<div class="card" style="margin-bottom:14px"><div class="card-hd"><h3>Competitor counter-offer shock: {_e(name)}{_e(price)}</h3>'
+            f'<span class="card-eyebrow">Head-to-head in feed</span></div>'
+            + (f'<p class="muted small" style="margin:0 0 10px">Counter-offer in the same feed: “{_e(_t(comp.get("headline"), 180))}”</p>' if comp.get("headline") else "")
+            + f'<div class="kpis auto">{tiles}</div></div>')
+
+
+def _baseline_html(gb: Optional[Dict[str, Any]]) -> str:
+    """Generic-reader unconditioned LLM baseline comparator card."""
+    if not gb or not gb.get("per_creative"):
+        return ""
+    rows = []
+    for cid, m in gb["per_creative"].items():
+        lift = m.get("persona_lift_ctr_pt")
+        lift_txt = f"{lift:+.1f} pt" if isinstance(lift, (int, float)) else "–"
+        rows.append([
+            cid,
+            f'{m.get("persona_ctr") or 0:g}%',
+            f'{m.get("generic_reader_ctr") or 0:g}%',
+            lift_txt,
+            f'{m.get("persona_thumb_stop") or 0:g}% vs {m.get("generic_reader_thumb_stop") or 0:g}%',
+        ])
+    changed = gb.get("winner_changed")
+    badge = '<span class="pill accent">Persona conditioning changed winner</span>' if changed else '<span class="pill mint">Winner consistent with baseline</span>'
+    return (
+        f'<div class="card" style="margin-bottom:14px"><div class="card-hd"><h3>Persona-conditioned vs generic LLM baseline</h3>'
+        f'{badge}</div>'
+        f'<p class="muted small" style="margin:0 0 10px">{_e(gb.get("note") or "Compares persona-conditioned simulation against an unconditioned generic reader prompt.")}</p>'
+        + ui.table(["Creative", "Persona CTR", "Generic reader CTR", "Persona lift", "Thumb-stop (Persona vs Generic)"], rows, sortable=True)
+        + "</div>"
+    )
+
+
+def _provider_breakdown_html(by_prov: Optional[Dict[str, Any]]) -> str:
+    """Cross-model provider breakdown table when multiple providers or non-default providers run."""
+    if not by_prov or (len(by_prov) < 2 and "claude" in by_prov):
+        return ""
+    rows = []
+    for prov, m in sorted(by_prov.items()):
+        badge = ui.Raw(f'<span class="mm-provider-badge" data-prov="{_e(prov)}">{_e(prov)}</span>')
+        rows.append([
+            badge,
+            m.get("personas") or 0,
+            m.get("sessions") or 0,
+            f'{m.get("thumb_stop") or 0:g}%',
+            f'{m.get("ctr") or 0:g}%',
+            f'{m.get("expected_ctr") or 0:g}%' if m.get("expected_ctr") is not None else "–",
+            f'{m.get("hide_rate") or 0:g}%',
+            m.get("winner") or "–",
+        ])
+    return (
+        '<div class="card" style="margin-bottom:14px"><div class="card-hd"><h3>Cross-model provider breakdown</h3>'
+        f'<span class="card-eyebrow">{len(by_prov)} AI provider{"s" if len(by_prov) != 1 else ""}</span></div>'
+        '<p class="muted small" style="margin:0 0 10px">Compares how agents powered by different LLM families (Claude, Gemini, ChatGPT/OpenAI, Codex) responded to the same creatives.</p>'
+        + ui.table(["Provider", "Personas", "Sessions", "Thumb-stop", "CTR", "Expected CTR", "Hide rate", "Top creative"], rows, sortable=True)
+        + "</div>"
+    )
 
 
 def _projection_html(pr: Optional[Dict[str, Any]]) -> str:
@@ -278,7 +358,10 @@ def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Op
              'small samples are flagged. Observed seed ranges describe simulation variation, not real-world prediction intervals.'
              + ('' if n_seeds > 1 else ' One seed only: run with --seeds 3 to see how much the result moves.'))
     head = ui.section_head("Feed test", intro, insight)
-    return ("feedtest", "Feed test", head + seeds_card + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
+    comp_card = _competitor_shock_html(summary.get("competitor_shock"))
+    base_card = _baseline_html(ft.get("generic_reader_baseline"))
+    prov_card = _provider_breakdown_html(summary.get("by_provider"))
+    return ("feedtest", "Feed test", head + seeds_card + comp_card + base_card + prov_card + charts + '<div class="ftcs">' + "".join(cards) + "</div>")
 
 
 # --------------------------------------------------------------------------
@@ -290,23 +373,31 @@ def panel_section(p: Dict[str, Any], insight: Optional[str] = None) -> Optional[
         return None
     c = p.get("consensus") or {}
     aud, msg = c.get("best_audience") or {}, c.get("best_message") or {}
+    by_prov = c.get("by_provider") or {}
+    prov_line = ""
+    if len(by_prov) >= 2:
+        bits = [f'{prov.upper()}: {info.get("winner")} ({info.get("agreement")}% agree, n={info.get("analysts_ok")})'
+                for prov, info in sorted(by_prov.items())]
+        prov_line = f'<li>Cross-provider consensus: {_e(" · ".join(bits))}.</li>'
     head = (f'<div class="panel"><div class="eyebrow">Independent analyst panel · {c.get("analysts_ok", 0)} analysts, each working alone</div>'
             f'<div class="headline">Consensus is {_e(c.get("consensus"))}.'
             + (f' Best audience: {_e(aud.get("winner"))} ({aud.get("agreement")}% agree).' if aud.get("winner") else "")
             + (f' Best message: {_e(_t(msg.get("winner"), 80))} ({msg.get("agreement")}% agree).' if msg.get("winner") else "")
             + f'</div><ul class="verdicts"><li>Average sentiment {c.get("sentiment_mean")} (spread ±{c.get("sentiment_spread")}), '
-            f'purchase-intent signal {c.get("intent_mean")}/10, analyst confidence {c.get("confidence_mean")}/10.</li></ul></div>')
+            f'purchase-intent signal {c.get("intent_mean")}/10, analyst confidence {c.get("confidence_mean")}/10.</li>{prov_line}</ul></div>')
     themes = "".join(f'<tr><td>{_e(t["theme"])}</td><td class="num">{t["analysts"]}/{c.get("analysts_ok", 0)}</td>'
                      f'<td class="num">{t["weight"]}</td><td class="small">{_e(_t("; ".join(t.get("evidence") or []), 200))}</td></tr>'
                      for t in c.get("themes") or [])
     cards = []
     for a in p["analysts"]:
         r = a.get("result")
+        prov = str(a.get("provider") or "").strip().lower()
+        p_badge = f'<span class="mm-provider-badge" data-prov="{_e(prov)}" title="{_e(a.get("model") or prov)}">{_e(prov)}</span>' if prov else ""
         if not r:
-            cards.append(f'<div class="play"><div class="play-h"><strong>{_e(a["id"])}</strong><span class="pill">{_e(a["lens"])}</span></div>'
+            cards.append(f'<div class="play"><div class="play-h"><strong>{_e(a["id"])}</strong>{p_badge}<span class="pill">{_e(a["lens"])}</span></div>'
                          f'<p class="muted">Did not return a usable analysis.</p></div>')
             continue
-        cards.append(f'<div class="play"><div class="play-h"><strong>{_e(a["id"])}</strong><span class="pill">{_e(a["lens"])}</span></div>'
+        cards.append(f'<div class="play"><div class="play-h"><strong>{_e(a["id"])}</strong>{p_badge}<span class="pill">{_e(a["lens"])}</span></div>'
                      f'<p style="margin:0 0 8px"><b>{_e(r["headline"])}</b></p><dl>'
                      f'<dt>Recommend</dt><dd>{_e(r["recommendation"])}</dd>'
                      f'<dt>Audience</dt><dd>{_e(r["best_audience"])}</dd><dt>Message</dt><dd>{_e(_t(r["best_message"], 120))}</dd>'

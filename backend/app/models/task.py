@@ -3,6 +3,9 @@
 用于跟踪长时间运行的任务（如图谱构建）
 """
 
+import json
+import os
+import sqlite3
 import uuid
 import threading
 from datetime import datetime
@@ -70,7 +73,84 @@ class TaskManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._tasks: Dict[str, Task] = {}
                     cls._instance._task_lock = threading.Lock()
+                    cls._instance._init_db()
         return cls._instance
+
+    def _db_path(self) -> str:
+        custom = os.environ.get("MM_TASK_DB_PATH")
+        if custom:
+            return custom
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../uploads"))
+        os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "tasks.sqlite")
+
+    def _init_db(self) -> None:
+        try:
+            path = self._db_path()
+            with sqlite3.connect(path, timeout=10) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        task_id TEXT PRIMARY KEY,
+                        task_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        progress INTEGER DEFAULT 0,
+                        message TEXT DEFAULT '',
+                        result_json TEXT,
+                        error TEXT,
+                        metadata_json TEXT,
+                        progress_detail_json TEXT
+                    )
+                    """
+                )
+        except Exception:
+            pass
+
+    def _save_to_db(self, task: Task) -> None:
+        try:
+            with sqlite3.connect(self._db_path(), timeout=10) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO tasks
+                    (task_id, task_type, status, created_at, updated_at, progress, message,
+                     result_json, error, metadata_json, progress_detail_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        task.task_id,
+                        task.task_type,
+                        task.status.value,
+                        task.created_at.isoformat(),
+                        task.updated_at.isoformat(),
+                        int(task.progress or 0),
+                        str(task.message or ""),
+                        json.dumps(task.result, ensure_ascii=False, default=str) if task.result is not None else None,
+                        task.error,
+                        json.dumps(task.metadata or {}, ensure_ascii=False, default=str),
+                        json.dumps(task.progress_detail or {}, ensure_ascii=False, default=str),
+                    ),
+                )
+        except Exception:
+            pass
+
+    def _row_to_task(self, row: tuple) -> Task:
+        (tid, ttype, st, c_at, u_at, prog, msg, res_j, err, meta_j, det_j) = row
+        return Task(
+            task_id=tid,
+            task_type=ttype,
+            status=TaskStatus(st) if st in TaskStatus._value2member_map_ else TaskStatus.PENDING,
+            created_at=datetime.fromisoformat(c_at),
+            updated_at=datetime.fromisoformat(u_at),
+            progress=int(prog or 0),
+            message=msg or "",
+            result=json.loads(res_j) if res_j else None,
+            error=err,
+            metadata=json.loads(meta_j) if meta_j else {},
+            progress_detail=json.loads(det_j) if det_j else {},
+        )
     
     def create_task(self, task_type: str, metadata: Optional[Dict] = None) -> str:
         """
@@ -97,13 +177,30 @@ class TaskManager:
         
         with self._task_lock:
             self._tasks[task_id] = task
+            self._save_to_db(task)
         
         return task_id
     
     def get_task(self, task_id: str) -> Optional[Task]:
         """获取任务"""
         with self._task_lock:
-            return self._tasks.get(task_id)
+            task = self._tasks.get(task_id)
+            if task is not None:
+                return task
+            try:
+                with sqlite3.connect(self._db_path(), timeout=10) as conn:
+                    row = conn.execute(
+                        "SELECT task_id, task_type, status, created_at, updated_at, progress, message, "
+                        "result_json, error, metadata_json, progress_detail_json FROM tasks WHERE task_id = ?",
+                        (task_id,),
+                    ).fetchone()
+                if row:
+                    task = self._row_to_task(row)
+                    self._tasks[task_id] = task
+                    return task
+            except Exception:
+                pass
+            return None
     
     def update_task(
         self,
@@ -143,6 +240,7 @@ class TaskManager:
                     task.error = error
                 if progress_detail is not None:
                     task.progress_detail = progress_detail
+                self._save_to_db(task)
     
     def complete_task(self, task_id: str, result: Dict):
         """标记任务完成"""

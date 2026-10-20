@@ -69,7 +69,7 @@ def via_local_gateway() -> bool:
 
 def _fresh(seed: int = 7) -> Dict[str, Any]:
     return {"cards": {}, "budgets": {}, "moods": {}, "round": 0, "hour": 12, "rng": random.Random(seed),
-            "activity": {}}
+            "activity": {}, "occupations": {}, "behavior_states": {}, "personas": {}}
 
 
 # One state dict per platform. "default" also carries the (global) environment-patch flag.
@@ -142,15 +142,31 @@ def persona_cards(config: Dict[str, Any]) -> Dict[int, str]:
 
 
 def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
-                  activity: Optional[Dict[int, float]] = None) -> Tuple[int, str]:
+                  activity: Optional[Dict[int, float]] = None,
+                  occupation: str = "",
+                  bstate: Optional[Dict[str, Any]] = None) -> Tuple[int, str]:
     """(action budget 1-3, mood) for one agent this round. More active people and evening hours get bigger budgets."""
     act = (activity if activity is not None else _STATE["activity"]).get(agent_id, 0.5)
-    peak = 1.0 if 18 <= hour <= 23 or 12 <= hour <= 13 else 0.7 if 7 <= hour <= 17 else 0.4
+    occ = (occupation or "").lower()
+    if "night shift" in occ:
+        peak = 1.0 if (0 <= hour <= 6 or 20 <= hour <= 23) else 0.45
+    elif "student" in occ:
+        peak = 1.0 if (13 <= hour <= 15 or 19 <= hour <= 23) else 0.65 if 8 <= hour <= 18 else 0.4
+    else:
+        peak = 1.0 if 18 <= hour <= 23 or 12 <= hour <= 13 else 0.7 if 7 <= hour <= 17 else 0.4
     x = rng.random() * act * peak
     budget = 3 if x > 0.55 else 2 if x > 0.25 else 1
     mood = rng.choice(MOODS)
-    if 0 <= hour <= 5:
+    if 0 <= hour <= 5 and "night shift" not in occ:
         mood = rng.choice(["tired", "can't sleep", "bored"])
+    if bstate:
+        fat = float(bstate.get("fatigue", 0.0))
+        tru = float(bstate.get("trust", 0.5))
+        if fat >= 0.6:
+            mood = "irritated by repeated ads"
+            budget = max(1, budget - 1)
+        elif tru <= 0.3:
+            mood = "sceptical and guarded"
     return budget, mood
 
 
@@ -210,6 +226,59 @@ def card_for(agent_id: int, platform: Optional[str] = None) -> str:
     return _state(platform)["cards"].get(agent_id, "")
 
 
+def thought_for_action(
+    agent_id: int,
+    action_type: str,
+    action_args: Optional[Dict[str, Any]] = None,
+    platform: Optional[str] = None,
+    agent_graph: Any = None,
+) -> Tuple[str, str]:
+    """Return (thought, mood) for an agent's social action. Extracts assistant reasoning from
+    the agent's memory if present, else synthesizes an in-character BDE/mood inner monologue."""
+    st = _state(platform)
+    mood = str(st["moods"].get(agent_id, "relaxed"))
+    args = action_args or {}
+    # 1. Try extracting assistant reasoning from camel ChatHistoryMemory
+    if agent_graph is not None:
+        try:
+            ag = agent_graph.get_agent(agent_id)
+            mem = getattr(ag, "memory", None)
+            recs = mem.retrieve() if mem is not None and hasattr(mem, "retrieve") else []
+            for r in reversed(recs[-4:]):
+                mr = getattr(r, "memory_record", r)
+                role = getattr(getattr(mr, "role_at_backend", None), "value", getattr(mr, "role_at_backend", None))
+                msg = getattr(mr, "message", None)
+                txt = str(getattr(msg, "content", "") or "").strip()
+                if role == "assistant" and txt and not txt.startswith("{"):
+                    return txt[:240], mood
+        except Exception:
+            pass
+    # 2. Grounded persona BDE + mood synthesis
+    p = st.get("personas", {}).get(agent_id) or {}
+    bde = p.get("bde") if isinstance(p.get("bde"), dict) else {}
+    believes = str((bde.get("background") or {}).get("believes") or "").strip()
+    who_asks = str((bde.get("decision_procedure") or {}).get("who_they_ask") or "").strip()
+    stoppers = (bde.get("decision_procedure") or {}).get("stoppers") or []
+    seg = p.get("segment") or p.get("occupation") or "viewer"
+    act = (action_type or "").upper()
+    if act == "CREATE_POST":
+        thought = f"Feeling {mood}; sharing my honest view with my {seg} group" + (f" ({believes[:70]})" if believes else "") + "."
+    elif act == "CREATE_COMMENT":
+        thought = f"This caught my eye while {mood}; replying in my own words" + (f" — {believes[:60]}" if believes else "") + "."
+    elif act == "QUOTE_POST":
+        thought = f"Quoting this for my circle ({mood})" + (f"; I usually ask {who_asks} too" if who_asks else "") + "."
+    elif act in ("LIKE_POST", "LIKE_COMMENT"):
+        thought = f"Quick nod while scrolling ({mood}) — resonates with me, no need for a long comment."
+    elif act in ("DISLIKE_POST", "DISLIKE_COMMENT"):
+        stop_note = f" (triggers my stopper: {stoppers[0]})" if stoppers else ""
+        thought = f"Feels off or pushy{stop_note}; downvoting and moving on."
+    elif act == "DO_NOTHING":
+        thought = f"Scrolling while {mood}; nothing here clears my bar" + (f" ({believes[:60]})" if believes else "") + "."
+    else:
+        thought = f"Acting while {mood} ({act.lower().replace('_', ' ')})."
+    return thought, mood
+
+
 def _agents_of(agent_graph: Any) -> List[Any]:
     try:
         agents = list(agent_graph.get_agents()) if hasattr(agent_graph, "get_agents") else []
@@ -227,6 +296,11 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
     st = _state(platform)
     st["cards"] = persona_cards(config)
     st["activity"] = activity_levels(config)
+    st["personas"] = {
+        int(r["agent_id"]): r
+        for r in ((config or {}).get("persona_index") or [])
+        if isinstance(r, dict) and r.get("agent_id") is not None
+    }
     st["rng"] = random.Random(seed)
     st["config_path"] = config_path or (config or {}).get("_config_path")
     st["context"] = []

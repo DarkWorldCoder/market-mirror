@@ -28,6 +28,9 @@ class FakeLLM:
         elif system == ft.LANDING_SYSTEM:
             body = {"read": True, "started_form": True, "completed": "phone" not in user.lower(),
                     "drop_reason": "did not want to give my phone number", "thought": "ok"}
+        elif system == ft.GENERIC_READER_SYSTEM:
+            body = {"scores": [{"id": "ig1", "expected_ctr": 2.0, "thumb_stop": 25.0, "appeal_0_10": 7.5,
+                                "top_concern": "price", "verdict": "winner"}]}
         elif system == ft.SYSTEM_PROMPT:
             ids = re.findall(r"^\[(i\d+)\]", user, re.M)
             ad_line = next(l for l in user.splitlines() if "· Sponsored" in l or "· Promoted" in l)
@@ -302,3 +305,41 @@ def test_all_failed_decisions_are_not_a_completed_feed_test(monkeypatch):
     with pytest.raises(RuntimeError, match="No usable model decisions"):
         ft.run_feed_test(FakeLLM(), "m", ft.normalize_creatives(CREATIVES), people(4),
                          attention_gate=False, exposures=1, parallel=2)
+
+
+def test_say_do_friction_competitor_shock_and_generic_baseline():
+    import random
+    person = {
+        "agent_id": 1,
+        "name": "Ramesh",
+        "bde": {
+            "background": {"acquiescence": "high"},
+            "decision_procedure": {"stoppers": ["card required"]},
+            "evaluation": {"monthly_discretionary": "NPR 500", "discretionary_budget_num": 500.0, "dealbreakers": ["auto-renew"]},
+        },
+    }
+    # Price above discretionary budget triggers wallet_limit friction
+    f_wallet = ft.check_say_do_friction(person, {"price": "NPR 1200", "shows": "Pro plan"}, random.Random(1))
+    assert f_wallet is not None and f_wallet[0] == "wallet_limit"
+
+    # Dealbreaker present on landing page triggers dealbreaker friction
+    f_deal = ft.check_say_do_friction(person, {"price": "NPR 200", "shows": "7-day trial with auto-renew"}, random.Random(1))
+    assert f_deal is not None and f_deal[0] == "dealbreaker"
+
+    # Full feed test with competitor counter-offer and generic reader baseline
+    llm = FakeLLM()
+    cs = ft.normalize_creatives(CREATIVES[:1])
+    ps = people(4)
+    for idx, p in enumerate(ps):
+        p["model_provider"] = "claude" if idx % 2 == 0 else "gemini"
+    res = ft.run_feed_test(
+        llm, "m", cs, ps, waves=1, exposures=1, attention_gate=False,
+        competitor={"name": "RivalFit", "offer": "50% cheaper, no card"},
+        include_generic_baseline=True,
+    )
+    assert "competitor_shock" in res["summary"]
+    assert res["summary"]["competitor_shock"]["name"] == "RivalFit"
+    assert "generic_baseline" in res["summary"]
+    assert "by_provider" in res["summary"]
+    assert set(res["summary"]["by_provider"].keys()) == {"claude", "gemini"}
+

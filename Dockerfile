@@ -10,10 +10,12 @@ RUN cd backend && uv sync --frozen --python 3.12
 
 COPY . .
 ENV FLASK_HOST=0.0.0.0 \
+    FLASK_DEBUG=False \
+    MM_ENV=production \
     MIROFISH_URL=http://127.0.0.1:5001 \
     MEMORY_BACKEND=local \
     PYTHONUNBUFFERED=1
 
 EXPOSE 5001 5050
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD curl -fsS http://127.0.0.1:5001/health || exit 1
-CMD ["backend/.venv/bin/python", "backend/run.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD curl -fsS http://127.0.0.1:5001/ready || exit 1
+CMD ["backend/.venv/bin/python", "backend/run.py", "--prod"]

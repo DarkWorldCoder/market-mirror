@@ -178,6 +178,39 @@ class ExportTests(unittest.TestCase):
         for x, y in pos:
             self.assertTrue(0 <= x <= 1000 and 0 <= y <= 680)
 
+    def test_saas_dashboard_workspace_bento_crm_and_provider_badges(self):
+        h = self.html
+        self.assertIn('class="ws-bar"', h)
+        self.assertIn('data-ws-tab="buyers"', h)
+        self.assertIn('data-ws-search', h)
+        # Render with multi-provider personas, BDE, and pitch/feed-test decision data
+        bundle = exporter.load_run_dir(FIXTURE)
+        bundle["config"]["persona_index"] = [
+            {"agent_id": 1, "kind": "persona", "name": "Asha Rai", "segment": "Nepal students", "country": "Nepal",
+             "age": 20, "gender": "female", "occupation": "student", "model_provider": "gemini", "model_name": "gemini-2.5-flash",
+             "provenance": {"profile": "real_intake: customer_excerpts"}, "life_stage": "student_dependent", "payday_status": "end_of_month_tight",
+             "bde": {"background": {"believes": "free trials trap cards"}, "decision_procedure": {"style": "satisficer", "stoppers": ["card upfront"]},
+                     "evaluation": {"monthly_discretionary": "NPR 1500", "dealbreakers": ["auto-renew"]}}}
+        ]
+        bundle["pitch"] = {"answered": 1, "pitch_score": 72, "verdict_before": {"yes": 40}, "verdict_after": {"yes": 60},
+                           "people": [{"agent_id": 1, "name": "Asha Rai", "segment": "Nepal students",
+                                       "country": "Nepal", "final_verdict": "maybe", "lead_score": 75,
+                                       "turn1": {"reply": "Is a card required?"}}]}
+        bundle["survey"] = {"goal": "try", "responses": [
+            {"agent_id": 1, "name": "Asha Rai", "segment": "Nepal students", "country": "Nepal",
+             "answer": {"would_convert": "yes", "purchase_intent": 4, "trust": 4, "ad_appeal": 4, "value_for_money": 4}}
+        ]}
+        html2, _, _ = exporter.render_dashboard(bundle)
+        self.assertIn('data-ws-tab="overview"', html2)
+        self.assertIn('class="funnel-wf"', html2)
+        self.assertIn("Model ensemble &amp; provenance", html2)
+        self.assertIn('data-view-tab="crm"', html2)
+        self.assertIn('class="sortable crm-table"', html2)
+        self.assertIn('class="bde-drawer"', html2)
+        self.assertIn("prov-pill-real", html2)
+        self.assertIn("mm-provider-badge", html2)
+
+
 
 class CLITests(unittest.TestCase):
     def test_offline_export_via_cli(self):

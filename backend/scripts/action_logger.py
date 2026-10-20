@@ -48,7 +48,9 @@ class PlatformActionLogger:
         action_type: str,
         action_args: Optional[Dict[str, Any]] = None,
         result: Optional[str] = None,
-        success: bool = True
+        success: bool = True,
+        thought: Optional[str] = None,
+        mood: Optional[str] = None,
     ):
         """记录一个动作"""
         entry = {
@@ -61,6 +63,10 @@ class PlatformActionLogger:
             "result": result,
             "success": success,
         }
+        if thought:
+            entry["thought"] = thought
+        if mood:
+            entry["mood"] = mood
         
         with open(self.log_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')

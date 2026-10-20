@@ -84,7 +84,8 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream",
+    "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
 ]
 
 
@@ -865,7 +866,7 @@ background:var(--surface);padding:4px 10px;border-radius:999px}
 nav.toc a:hover{color:var(--text);border-color:var(--axis)}
 section{scroll-margin-top:56px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin:0 0 18px;min-width:0}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
-.card{background:var(--surface-2);border-radius:10px;padding:14px;min-width:0}
+.card{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px;min-width:0}
 section>.card+.card{margin-top:14px}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;list-style:none;padding:0;margin:0 0 8px;font-size:.82rem;color:var(--text-2)}
 .legend li{display:flex;align-items:center;gap:6px}
@@ -1162,12 +1163,16 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
+    for extra in (report_view.competitor_section(bundle, insights.get("competitors")),
+                  report_view.gtm_section(bundle, insights.get("gtm")),
+                  report_view.thoughts_section(bundle, insights.get("thoughts")),
+                  report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
                   report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))):   # pitch ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)
-    people_html = report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads)
+    states_by_agent = (bundle.get("behavior_state") or {}).get("agents") if isinstance(bundle.get("behavior_state"), dict) else {}
+    people_html = report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads, states_by_agent=states_by_agent)
     files = feed_view.export_files(bundle, mk, md)
     files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
     mr = bundle.get("market_report") or {}
@@ -1183,13 +1188,12 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     if (bundle.get("ideas") or {}).get("ideas"):
         files["ideas.md"] = bundle["ideas"].get("markdown") or ""
         files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)
-    for name in ("campaign_plan", "research", "predictions", "study_summary"):
+    for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel"):
         if bundle.get(name):
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
-        brief = overview.brief_card(bundle, mk, decision)
-        mk_sections.insert(0, ("decision", "Decision", overview.decision_row(dec[2], brief)))
+        mk_sections.insert(0, ("decision", "Decision", overview.cockpit_bento(bundle, mk, decision, dec[2])))
         mk_sections.insert(1, rep_sec)
     else:
         mk_sections.insert(0, rep_sec)
@@ -1297,6 +1301,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         '<main class="main"><div class="wrap">',
         shell.live_bar(page_title, verdict.title() if verdict else "", tone,
                        trunc(str((decision or {}).get("summary") or ""), 80), counts),
+        shell.workspace_bar(nav, overview.active_providers(bundle)),
         shell.page_header(page_title, eyebrow, marketing.hero_stats(mk), trunc(req, 400) if req else ""),
         '<div class="callout disclaimer" role="note"><strong>Exploratory simulation.</strong> These buyer responses and projected metrics are directional. Treat a predictive claim as supported only after held-out real experiments beat the no-persona baseline.</div>',
         *[f'<section id="{a}">{h}</section>' for a, _, h in mk_sections],

@@ -231,6 +231,7 @@ function applyFilters(root){var ctrls=Array.prototype.slice.call(root.querySelec
  var items=Array.prototype.slice.call(root.querySelectorAll('[data-item]')),shown=0,total=0;
  items.forEach(function(it){if(it.closest('[data-panel][hidden]'))return;total++;
   var ok=rules.every(function(r){var a=it.getAttribute('data-'+r.attr);if(a==null)a='';
+   if(r.op==='contains')return (a||it.textContent||'').toLowerCase().indexOf(String(r.v).toLowerCase().trim())>=0;
    if(r.op==='eq')return a===r.v;if(r.op==='truthy')return a==='1'||a==='true';
    if(r.op==='min')return parseFloat(a)>=parseFloat(r.v);if(r.op==='max')return parseFloat(a)<=parseFloat(r.v);
    if(r.op==='has')return (' '+a+' ').indexOf(' '+r.v+' ')>=0;return true;});
@@ -246,11 +247,50 @@ function applyFilters(root){var ctrls=Array.prototype.slice.call(root.querySelec
 document.querySelectorAll('[data-filter-root]').forEach(function(root){
  root.addEventListener('input',function(e){if(e.target.closest('[data-filter],[data-filter-sort]'))applyFilters(root);});
  root.addEventListener('change',function(e){if(e.target.closest('[data-filter],[data-filter-sort]'))applyFilters(root);});
- root.addEventListener('click',function(e){var b=e.target.closest('button[data-filter]');if(!b||!root.contains(b))return;
+ root.addEventListener('click',function(e){
+  var vt=e.target.closest('button[data-view-tab]');
+  if(vt&&root.contains(vt)){
+   var mode=vt.getAttribute('data-view-tab');
+   root.querySelectorAll('button[data-view-tab]').forEach(function(x){x.setAttribute('aria-pressed',x===vt?'true':'false');});
+   root.querySelectorAll('[data-panel-for="view"]').forEach(function(p){p.hidden=p.getAttribute('data-panel')!==mode;});
+   applyFilters(root);return;
+  }
+  var b=e.target.closest('button[data-filter]');if(!b||!root.contains(b))return;
   var attr=b.getAttribute('data-filter');root.querySelectorAll('button[data-filter="'+attr+'"]').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false');});
   root.querySelectorAll('[data-panel]').forEach(function(p){if(p.getAttribute('data-panel-for')===attr||!p.hasAttribute('data-panel-for'))p.hidden=p.getAttribute('data-panel')!==b.getAttribute('data-value');});
   applyFilters(root);});
  applyFilters(root);});
+/* workspace view switcher tabs + global section/buyer search */
+var wsTabs=Array.prototype.slice.call(document.querySelectorAll('[data-ws-tab]'));
+var wsSearch=document.querySelector('[data-ws-search]');
+var mainSecs=Array.prototype.slice.call(document.querySelectorAll('.main section[id]'));
+function applyWorkspace(){
+ var activeTab=document.querySelector('[data-ws-tab][aria-pressed="true"]');
+ var tabId=activeTab?activeTab.getAttribute('data-ws-tab'):'all';
+ var allowed=activeTab&&tabId!=='all'?(activeTab.getAttribute('data-ws-anchors')||'').split(',').filter(Boolean):null;
+ var q=(wsSearch&&wsSearch.value||'').toLowerCase().trim();
+ mainSecs.forEach(function(s){
+  var okTab=!allowed||allowed.indexOf(s.id)>=0;
+  var okQ=!q||(s.id.toLowerCase().indexOf(q)>=0)||((s.textContent||'').toLowerCase().indexOf(q)>=0);
+  s.hidden=!(okTab&&okQ);
+ });
+ var div=document.querySelector('.main h2.divider');
+ if(div)div.hidden=mainSecs.every(function(s){return s.hidden;});
+}
+wsTabs.forEach(function(btn){btn.addEventListener('click',function(){
+ wsTabs.forEach(function(x){x.setAttribute('aria-pressed',x===btn?'true':'false');});
+ applyWorkspace();
+});});
+if(wsSearch){wsSearch.addEventListener('input',function(){
+ var q=wsSearch.value.trim();
+ var pSearch=document.querySelector('#agents [data-filter="q"]');
+ if(pSearch&&pSearch.value!==q){pSearch.value=q;var r=pSearch.closest('[data-filter-root]');if(r)applyFilters(r);}
+ applyWorkspace();
+});}
+if(nav){nav.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href^="#"]');if(!a)return;
+ var sec=document.getElementById(a.getAttribute('href').slice(1));
+ if(sec&&sec.hidden){wsTabs.forEach(function(x){x.setAttribute('aria-pressed',x.getAttribute('data-ws-tab')==='all'?'true':'false');});if(wsSearch)wsSearch.value='';applyWorkspace();}
+});}
 /* print: open the "Show the numbers" details */
 var opened=[];function beforePrint(){opened=[];document.querySelectorAll('details.tv:not([open])').forEach(function(d){d.open=true;opened.push(d);});}
 function afterPrint(){opened.forEach(function(d){d.open=false;});opened=[];document.body.classList.remove('print-report');}

@@ -227,6 +227,24 @@ class MultiProviderPool:
         """Return a client view bound to slot `index % len(slots)`."""
         return BoundProviderClient(self, index % len(self.slots))
 
+    def with_options(self, **options: Any) -> "MultiProviderPool":
+        """Return a shallow pool clone where each underlying OpenAI client has `.with_options(**options)` applied."""
+        new_slots: List[ProviderSlot] = []
+        for s in self.slots:
+            cl = s.client.with_options(**options) if hasattr(s.client, "with_options") else s.client
+            new_slots.append(
+                ProviderSlot(
+                    provider=s.provider,
+                    model=s.model,
+                    base_url=s.base_url,
+                    api_key=s.api_key,
+                    client=cl,
+                    paused_until=s.paused_until,
+                    pause_seconds=s.pause_seconds,
+                )
+            )
+        return MultiProviderPool(new_slots, pause_seconds=self.pause_seconds)
+
     def for_agent(self, agent_id: Any) -> BoundProviderClient:
         """Deterministically assign an agent ID to a provider slot in the pool."""
         if isinstance(agent_id, int):

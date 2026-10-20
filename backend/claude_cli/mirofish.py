@@ -2266,7 +2266,112 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--interval", type=float, default=10, help="seconds between refreshes (default %(default)s)")
     s.add_argument("--offline", action="store_true", help="only re-render the saved JSON; never call the backend")
     s.add_argument("--title")
+
+    s = sub.add_parser("thoughts", help="simulate or harvest real agent cognitive inner-monologue streams (System 1 gut + System 2 BDE check + Say-vs-Do gap)")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--stimulus", help="stimulus text or @stimulus.json ({headline,text,price,channel}); omit to harvest existing run thoughts")
+    s.add_argument("--limit", type=int, default=40)
+    s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("gtm-suite", help="run the 6-in-1 Marketing & Sales GTM Hub (Buying Committee, Auto-Optimizer, Battlecards, 30d Journey/LTV, Pricing Conjoint, Competitor Intelligence)")
+    s.add_argument("--simulation", help="simulation ID (or use --run-dir offline)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--offer", help="offer headline/text or @offer.json")
+    s.add_argument("--competitor", default="Status Quo / Free Alternatives")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
+
+    s = sub.add_parser("competitor-analysis", help="run multi-agent Competitor Bake-Off, Feature Gap Matrix & AI Strategy Suggestions")
+    s.add_argument("--simulation", help="simulation ID (or use --run-dir offline)")
+    s.add_argument("--run-dir", help="run folder (default mirofish_runs/<simulation>)")
+    s.add_argument("--offer", help="offer headline/text or @offer.json")
+    s.add_argument("--competitors", nargs="*", help="competitor names or @competitors.json")
+    s.add_argument("--no-export", action="store_true")
+    s.add_argument("--title")
     return p
+
+
+def cmd_thoughts(c: Client, a) -> Any:
+    out_dir = _run_dir_for(a)
+    os.makedirs(out_dir, exist_ok=True)
+    if a.stimulus:
+        raw = read_text_arg(a.stimulus) or a.stimulus
+        try:
+            stim = json.loads(raw)
+        except ValueError:
+            stim = raw
+        started = c.data("POST", "/api/simulation/thought-stream", json={
+            "simulation_id": a.simulation, "stimulus": stim, "max_personas": a.limit, "parallel": a.parallel
+        })
+        res = market_cli.wait_task(c, started["task_id"], "thought-stream", log)
+    else:
+        res = c.data("GET", f"/api/simulation/{a.simulation}/thought-stream")
+    with open(os.path.join(out_dir, "thought_stream.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    return _reexport(c, a, out_dir, res)
+
+
+def cmd_gtm_suite(c: Optional[Client], a) -> Any:
+    out_dir = a.run_dir or (_run_dir_for(a) if getattr(a, "simulation", None) else "mirofish_runs/fitloop")
+    os.makedirs(out_dir, exist_ok=True)
+    offer = read_text_arg(a.offer) if getattr(a, "offer", None) else None
+    if c is not None and getattr(a, "simulation", None):
+        res = c.data("POST", "/api/simulation/gtm-suite", json={
+            "simulation_id": a.simulation, "offer": offer, "competitor": a.competitor
+        })
+    else:
+        # Offline execution directly against the run folder
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        from app.services import gtm_suite
+        cfg_path = os.path.join(out_dir, "config.json")
+        if not os.path.exists(cfg_path):
+            cfg_path = os.path.join(out_dir, "simulation_config.json")
+        people = []
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if isinstance(d, dict) and "data" in d and isinstance(d["data"], dict):
+                    d = d["data"]
+                people = d.get("persona_index") or []
+        res = gtm_suite.run_full_gtm_suite(None, "", people, offer=offer, competitor=a.competitor, run_dir=out_dir)
+    with open(os.path.join(out_dir, "gtm_suite.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    if not getattr(a, "no_export", False):
+        do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
+
+
+def cmd_competitor_analysis(c: Optional[Client], a) -> Any:
+    out_dir = a.run_dir or (_run_dir_for(a) if getattr(a, "simulation", None) else "mirofish_runs/fitloop")
+    os.makedirs(out_dir, exist_ok=True)
+    offer = read_text_arg(a.offer) if getattr(a, "offer", None) else None
+    comps = getattr(a, "competitors", None)
+    if c is not None and getattr(a, "simulation", None):
+        res = c.data("POST", "/api/simulation/competitor-analysis", json={
+            "simulation_id": a.simulation, "offer": offer, "competitors": comps
+        })
+    else:
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        from app.services import gtm_suite
+        cfg_path = os.path.join(out_dir, "config.json")
+        if not os.path.exists(cfg_path):
+            cfg_path = os.path.join(out_dir, "simulation_config.json")
+        people = []
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if isinstance(d, dict) and "data" in d and isinstance(d["data"], dict):
+                    d = d["data"]
+                people = d.get("persona_index") or []
+        res = gtm_suite.run_competitor_intelligence(None, "", people, offer=offer or "Our Product", competitors=comps)
+    with open(os.path.join(out_dir, "competitor_intel.json"), "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    if not getattr(a, "no_export", False):
+        do_export(out_dir, os.path.join(out_dir, "dashboard.html"), getattr(a, "title", None))
+    return res
 
 
 COMMANDS = {
@@ -2280,6 +2385,7 @@ COMMANDS = {
     "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
+    "thoughts": cmd_thoughts, "gtm-suite": cmd_gtm_suite, "competitor-analysis": cmd_competitor_analysis,
 }
 
 
@@ -2289,7 +2395,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline = offline_export or offline_live or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research") or \
-            (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run)
+            (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
+            (a.cmd in ("gtm-suite", "competitor-analysis") and not getattr(a, "simulation", None))
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

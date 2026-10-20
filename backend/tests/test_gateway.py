@@ -252,3 +252,37 @@ def test_huge_prompt_goes_over_stdin(tmp_path):
     big = "x" * 200_000                                                 # > 128 KiB: too large for one argument
     assert backend.complete("short system", big).startswith("got 2000")
     assert backend.complete("s" * 150_000, "hi").startswith("got 15")   # an oversized system prompt rides in stdin
+
+
+def test_gemini_chatgpt_and_multi_backends(tmp_path):
+    gem_bin = _fake_bin(
+        tmp_path,
+        "gemini",
+        'printf \'{"response":"gemini echo: namaste","stats":{"models":{"gemini-2.5-flash":{"tokens":{"prompt":12,"candidates":6,"total":18}}}}}\'\n',
+    )
+    gb = gw.GeminiBackend(binary=str(gem_bin), timeout=10)
+    gb.request = threading.local()
+    assert "namaste" in gb.complete("sys", "namaste")
+    assert gb.usage.value["total_tokens"] == 18
+
+    codex_bin = _fake_bin(tmp_path, "codex", 'out=""; while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; shift; fi; last="$1"; shift; done; printf "chatgpt-codex: %s" "$last" > "$out"\n')
+    cb = gw.ChatGPTBackend(binary=str(codex_bin), timeout=10)
+    cb.request = threading.local()
+    assert "chatgpt-codex:" in cb.complete("", "hello")
+
+    # MultiBackend round-robins across healthy children and fails over on 429
+    class Fail429(gw.Backend):
+        name = "claude"
+        model = "sonnet"
+        def __init__(self):
+            super().__init__(model="sonnet")
+        def available(self):
+            return True
+        def complete(self, system, prompt):
+            raise gw.cli_failure("claude", "rate limit exceeded")
+
+    mb = gw.MultiBackend(backends=[Fail429(), gb])
+    out = mb.complete("sys", "fallback test")
+    assert "gemini echo:" in out
+    assert mb.paused_until["claude"] > 0
+

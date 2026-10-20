@@ -60,9 +60,35 @@ def email_best(bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {"id": ranked[0], **per[ranked[0]]}
 
 
+def active_providers(bundle: Dict[str, Any]) -> List[str]:
+    """Ordered list of distinct LLM providers recorded across personas, feed test, and analyst panel."""
+    seen: List[str] = []
+
+    def _add(p: Any) -> None:
+        s = str(p or "").strip().lower()
+        if s and s not in seen:
+            seen.append(s)
+
+    for r in ((bundle.get("config") or {}).get("persona_index") or []):
+        if isinstance(r, dict) and r.get("kind") == "persona":
+            _add(r.get("model_provider"))
+    ft_prov = ((bundle.get("feed_test") or {}).get("summary") or {}).get("by_provider") or {}
+    if isinstance(ft_prov, dict):
+        for k in ft_prov:
+            _add(k)
+    ap_prov = (((bundle.get("analyst_panel") or {}).get("consensus") or {}).get("by_provider") or {})
+    if isinstance(ap_prov, dict):
+        for k in ap_prov:
+            _add(k)
+    for a in ((bundle.get("analyst_panel") or {}).get("analysts") or []):
+        if isinstance(a, dict):
+            _add(a.get("provider"))
+    return seen
+
+
 def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
     """Coloured tiles for whatever exists: people, would convert, expected converts, trust, best ad CTR,
-    pitch score, email click rate, cost per lead. Same colour slot for the same kind of number everywhere."""
+    pitch score, email click rate, cost per lead, and multi-model ensemble."""
     tiles: List[str] = []
     people = int(mk.get("people") or 0)
     o = mk.get("overall") or {}
@@ -70,8 +96,15 @@ def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
     has = bool(mk.get("has_survey"))
     answered = int(mk.get("answered") or 0)
     engaged = int(mk.get("engaged") or 0)
+    index = [r for r in ((bundle.get("config") or {}).get("persona_index") or []) if isinstance(r, dict) and r.get("kind") == "persona"]
+    grounded = sum(
+        1 for r in index
+        if "real_intake" in str((r.get("provenance") or {}).get("profile") if isinstance(r.get("provenance"), dict) else r.get("provenance") or "")
+    )
     if people:
         hint = (f"{answered} surveyed · {engaged} joined the conversation" if has else f"{engaged} joined the conversation")
+        if grounded:
+            hint += f" · {grounded} grounded"
         tiles.append(ui.kpi(f"{people:,}", "Simulated people", hint, color=1, bar=100 * engaged / people))
     goal = marketing._goal_verb(mk.get("goal"))
     if has and o.get("convert_yes") is not None:
@@ -124,6 +157,9 @@ def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
                          else f"-{float(cpl) - be:g} {cur} over break-even")
             tiles.append(ui.kpi(f"{_num(cpl)} {cur}".strip(), "Cost per lead",
                                 f'at a {_num(pr.get("budget"))} {cur} budget'.replace("  ", " "), delta, color=8))
+    provs = active_providers(bundle)
+    if len(provs) >= 2:
+        tiles.append(ui.kpi(f"{len(provs)} models", "Multi-AI ensemble", " · ".join(p.upper() for p in provs[:4]), color=7, bar=100.0))
     if not tiles:
         return ""
     return '<div class="kpi-strip">' + "".join(tiles) + "</div>"
@@ -235,6 +271,121 @@ def brief_card(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optional[Di
 def decision_row(decision_html: str, brief_html: str) -> str:
     """Two columns: the decision card and the brief (one column on phones)."""
     return f'<div class="dash-row">{decision_html}{brief_html}</div>'
+
+
+def funnel_waterfall_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
+    """Conversion waterfall card: survey funnel and/or winning ad post-click funnel."""
+    steps: List[Tuple[str, float, str]] = []
+    fn = mk.get("funnel") or []
+    if len(fn) >= 2:
+        top_v = max(float(fn[0][1] or 1), 1.0)
+        prev_v = top_v
+        for label, val in fn:
+            v = float(val or 0)
+            pct = 100.0 * v / top_v
+            step_rate = f"{100.0 * v / prev_v:.0f}%" if prev_v > 0 and v < prev_v else "100%"
+            steps.append((str(label), pct, f"{_num(v)} ({step_rate})"))
+            prev_v = max(v, 1.0)
+    else:
+        fb = feed_best(bundle)
+        if fb:
+            m = fb["m"]
+            imp = float(m.get("impressions") or 0)
+            if imp > 0:
+                stopped = round(imp * float(m.get("thumb_stop") or 0) / 100.0)
+                clicks = float(m.get("clicks") or 0)
+                lf = m.get("landing") or {}
+                raw_steps = [("Impressions", imp), ("Thumb-stopped", stopped), ("Clicked ad", clicks)]
+                if lf.get("clicks"):
+                    raw_steps.extend([
+                        ("Page loaded", float(lf.get("page_loaded") or 0)),
+                        ("Started form", float(lf.get("form_started") or 0)),
+                        ("Converted", float(lf.get("converted") or 0)),
+                    ])
+                for label, v in raw_steps:
+                    pct = 100.0 * v / imp
+                    steps.append((label, pct, f"{_num(v)} ({pct:.0f}%)"))
+    if not steps:
+        return ""
+    rows = "".join(
+        f'<div class="wf-step"><span class="wf-label" title="{_e(lbl)}">{_e(lbl)}</span>'
+        f'<span class="wf-track"><span class="wf-fill" style="width:{max(2.0, min(100.0, pct)):.1f}%"></span></span>'
+        f'<span class="wf-meta">{_e(meta)}</span></div>'
+        for lbl, pct, meta in steps
+    )
+    fb = feed_best(bundle)
+    lf = (fb["m"].get("landing") or {}) if fb else {}
+    friction_note = ""
+    if lf.get("say_do_gap") or lf.get("price_blocked") or lf.get("dealbreaker_blocked"):
+        bits = []
+        if lf.get("price_blocked"):
+            bits.append(f'{lf["price_blocked"]} blocked by wallet/budget cap')
+        if lf.get("dealbreaker_blocked"):
+            bits.append(f'{lf["dealbreaker_blocked"]} blocked by dealbreakers')
+        if lf.get("say_do_gap"):
+            bits.append(f'{lf["say_do_gap"]} say-vs-do gap drops')
+        friction_note = f'<p class="muted small" style="margin:8px 0 0"><strong>Say-vs-Do friction:</strong> {_e(" · ".join(bits))}.</p>'
+    return (
+        '<div class="card"><div class="card-hd"><h3>Conversion waterfall</h3>'
+        '<span class="card-eyebrow">End-to-end drop-off</span></div>'
+        f'<div class="funnel-wf">{rows}</div>{friction_note}</div>'
+    )
+
+
+def ensemble_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
+    """Multi-model provider ensemble & cohort provenance card for the executive cockpit."""
+    index = [r for r in ((bundle.get("config") or {}).get("persona_index") or []) if isinstance(r, dict) and r.get("kind") == "persona"]
+    prov_counts: Dict[str, int] = {}
+    for r in index:
+        p = str(r.get("model_provider") or "claude").strip().lower()
+        prov_counts[p] = prov_counts.get(p, 0) + 1
+    ft_prov = ((bundle.get("feed_test") or {}).get("summary") or {}).get("by_provider") or {}
+    ap_prov = (((bundle.get("analyst_panel") or {}).get("consensus") or {}).get("by_provider") or {})
+    all_provs = list(dict.fromkeys(list(prov_counts) + list(ft_prov) + list(ap_prov)))
+    if not all_provs:
+        return ""
+    grounded = sum(
+        1 for r in index
+        if "real_intake" in str((r.get("provenance") or {}).get("profile") if isinstance(r.get("provenance"), dict) else r.get("provenance") or "")
+    )
+    synthetic = max(0, len(index) - grounded)
+    rows = []
+    for p in all_provs:
+        badge = ui.Raw(f'<span class="mm-provider-badge" data-prov="{_e(p)}">{_e(p)}</span>')
+        n_pers = prov_counts.get(p, (ft_prov.get(p) or {}).get("personas") or 0)
+        ctr = (ft_prov.get(p) or {}).get("expected_ctr") or (ft_prov.get(p) or {}).get("ctr")
+        ap_v = (ap_prov.get(p) or {}).get("winner")
+        sig = f"CTR {ctr:g}%" if ctr is not None else (f"Verdict: {ap_v}" if ap_v else "Active")
+        rows.append([badge, n_pers or "–", sig])
+    prov_pills = (
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+        + (f'<span class="pill prov-pill-real">{grounded} grounded intake</span>' if grounded else "")
+        + (f'<span class="pill prov-pill-synth">{synthetic} synthetic seeded</span>' if synthetic else "")
+        + "</div>"
+    )
+    return (
+        '<div class="card"><div class="card-hd"><h3>Model ensemble &amp; provenance</h3>'
+        f'<span class="card-eyebrow">{len(all_provs)} provider{"s" if len(all_provs) != 1 else ""}</span></div>'
+        + ui.table(["Provider", "Agents", "Signal"], rows, sortable=False)
+        + prov_pills + "</div>"
+    )
+
+
+def cockpit_bento(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optional[Dict[str, Any]], decision_html: str) -> str:
+    """12-column SaaS Executive Cockpit combining Decision, Brief, Conversion Waterfall, and Model Ensemble."""
+    brief = brief_card(bundle, mk, decision)
+    wf = funnel_waterfall_card(bundle, mk)
+    ens = ensemble_card(bundle, mk)
+    right_cards = "".join(x for x in (wf, ens) if x)
+    if right_cards and brief:
+        return (
+            f'<div class="bento">'
+            f'<div class="span-5">{decision_html}</div>'
+            f'<div class="span-4">{brief}</div>'
+            f'<div class="span-3" style="display:flex;flex-direction:column;gap:14px">{right_cards}</div>'
+            f'</div>'
+        )
+    return decision_row(decision_html, brief + right_cards)
 
 
 def evidence_section(research: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:

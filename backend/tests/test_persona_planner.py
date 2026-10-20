@@ -456,3 +456,34 @@ def test_settlement_spread_and_stable_habits():
     assert e.attributes["habits"]["ad_avoidance"] >= 0 and e.attributes["provenance"]["profile"].startswith("synthetic")
     idx = pp.persona_index(ents)
     assert idx[0]["settlement"] and idx[0]["habits"] and idx[0]["provenance"]
+
+
+def test_coupled_demographics_real_intake_and_discretionary_budget():
+    s = pp.PersonaSegment.from_dict(seg(count=6, age_min=18, age_max=60))
+    slots = pp.demographic_slots(s, random.Random(7))
+    assert all(x.get("life_stage") and x.get("payday_status") for x in slots)
+
+    assert pp.parse_discretionary_amount("NPR 2,500 after rent") == 2500.0
+    assert pp.parse_discretionary_amount("Rs. 1200 / month") == 1200.0
+    assert pp.parse_discretionary_amount("tight") is None
+
+    spec = pp.PersonaSpec.from_dict({
+        "segments": [seg(count=2)],
+        "interview": True,
+        "real_profiles": [
+            {"name": "Sita Gurung", "age": 29, "gender": "female", "city": "Pokhara", "country": "Nepal",
+             "segment": "Nepal students", "occupation": "nurse", "income": "mid",
+             "bde": {"evaluation": {"monthly_discretionary": "NPR 3500"}},
+             "excerpts": ["I always check with my sister before subscribing."]}
+        ],
+    })
+    ents = pp.generate_personas(FakeClient(), "m", spec, "req", "ctx")
+    sita = next(e for e in ents if e.name == "Sita Gurung")
+    assert sita.attributes["provenance"]["profile"].startswith("real_intake")
+    assert sita.attributes["bde"]["evaluation"]["discretionary_budget_num"] == 3500.0
+    idx = pp.persona_index(ents)
+    sita_idx = next(p for p in idx if p["name"] == "Sita Gurung")
+    assert sita_idx["provenance"]["profile"].startswith("real_intake")
+    assert sita_idx["bde"]["evaluation"]["discretionary_budget_num"] == 3500.0
+    assert sita_idx["life_stage"] and sita_idx["payday_status"]
+

@@ -33,6 +33,8 @@ TRANSITIONS = {
     "answered_survey": (0.05, 0.02, 0.0), "objected": (0.0, 0.0, -0.05), "heard_pitch": (0.08, 0.05, 0.0),
     "agreed_next_step": (0.05, 0.0, 0.08), "declined": (0.0, 0.05, -0.05), "posted": (0.03, 0.0, 0.0),
     "saw_brand_post": (0.08, 0.04, 0.0), "replied_to_brand_post": (0.06, 0.0, 0.02),
+    "abandoned_price": (0.05, 0.06, -0.08), "abandoned_dealbreaker": (0.05, 0.08, -0.12),
+    "switched_competitor": (0.05, 0.05, -0.10),
 }
 
 
@@ -58,11 +60,33 @@ def _save(sim_dir: str, data: Dict[str, Any]) -> None:
 
 def _agent(data: Dict[str, Any], scope: str, agent_id: Any) -> Dict[str, Any]:
     sc = data.setdefault("scopes", {}).setdefault(scope or "default", {})
-    return sc.setdefault(str(agent_id), {"state": {"familiarity": 0.0, "fatigue": 0.0, "trust": 0.5}, "memory": []})
+    return sc.setdefault(
+        str(agent_id),
+        {
+            "state": {"familiarity": 0.0, "fatigue": 0.0, "trust": 0.5, "mood": "neutral", "energy": 0.7, "wallet_pressure": 0.3},
+            "memory": [],
+            "trajectory": [],
+        },
+    )
 
 
 def _clamp(x: float) -> float:
     return round(max(0.0, min(1.0, x)), 3)
+
+
+def _derive_mood(st: Dict[str, Any]) -> str:
+    fat = float(st.get("fatigue", 0.0))
+    tru = float(st.get("trust", 0.5))
+    fam = float(st.get("familiarity", 0.0))
+    if fat >= 0.6:
+        return "irritated by repeated ads"
+    if tru <= 0.3:
+        return "sceptical and guarded"
+    if tru >= 0.65 and fam >= 0.2:
+        return "curious and receptive"
+    if fat >= 0.35:
+        return "slightly fatigued"
+    return "neutral"
 
 
 def record(sim_dir: str, events: Iterable[Dict[str, Any]], scope: str = "default") -> int:
@@ -79,9 +103,26 @@ def record(sim_dir: str, events: Iterable[Dict[str, Any]], scope: str = "default
             st["familiarity"] = _clamp(st.get("familiarity", 0) + fam)
             st["fatigue"] = _clamp(st.get("fatigue", 0) + fat)
             st["trust"] = _clamp(st.get("trust", 0.5) + tru)
-            a["memory"].append({"t": ev.get("t") or time.strftime("%Y-%m-%dT%H:%M:%S"), "test": str(ev.get("test") or ""),
+            st["mood"] = _derive_mood(st)
+            st["energy"] = _clamp(0.8 - 0.5 * st["fatigue"])
+            if ev.get("kind") == "abandoned_price":
+                st["wallet_pressure"] = _clamp(st.get("wallet_pressure", 0.3) + 0.15)
+            ts = ev.get("t") or time.strftime("%Y-%m-%dT%H:%M:%S")
+            a["memory"].append({"t": ts, "test": str(ev.get("test") or ""),
                                 "kind": str(ev["kind"]), "text": str(ev.get("text") or "")[:240], "source": str(ev.get("source") or "")[:80]})
             a["memory"] = a["memory"][-MAX_MEMORIES:]
+            traj = a.setdefault("trajectory", [])
+            traj.append({
+                "step": len(traj) + 1,
+                "test": str(ev.get("test") or ""),
+                "kind": str(ev["kind"]),
+                "source": str(ev.get("source") or "")[:80],
+                "trust": st["trust"],
+                "familiarity": st["familiarity"],
+                "fatigue": st["fatigue"],
+                "mood": st["mood"],
+            })
+            a["trajectory"] = traj[-MAX_MEMORIES:]
             n += 1
         data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         _save(sim_dir, data)
@@ -118,12 +159,41 @@ def summary(sim_dir: str, scope: str = "default") -> Dict[str, Any]:
     fam = [a["state"].get("familiarity", 0) for a in agents.values()]
     fat = [a["state"].get("fatigue", 0) for a in agents.values()]
     kinds: Dict[str, int] = {}
+    mood_counts: Dict[str, int] = {}
+    max_steps = 0
     for a in agents.values():
+        m_label = str(a["state"].get("mood") or _derive_mood(a["state"]))
+        mood_counts[m_label] = mood_counts.get(m_label, 0) + 1
         for m in a["memory"]:
             kinds[m["kind"]] = kinds.get(m["kind"], 0) + 1
+        max_steps = max(max_steps, len(a.get("trajectory") or []))
+    trajectories = []
+    for step_idx in range(min(max_steps, 15)):
+        step_tr, step_fam, step_fat = [], [], []
+        for a in agents.values():
+            tr = a.get("trajectory") or []
+            if step_idx < len(tr):
+                pt = tr[step_idx]
+            elif tr:
+                pt = tr[-1]
+            else:
+                continue
+            step_tr.append(float(pt.get("trust", 0.5)))
+            step_fam.append(float(pt.get("familiarity", 0.0)))
+            step_fat.append(float(pt.get("fatigue", 0.0)))
+        if step_tr:
+            trajectories.append({
+                "step": step_idx + 1,
+                "avg_trust": round(sum(step_tr) / len(step_tr), 3),
+                "avg_familiarity": round(sum(step_fam) / len(step_fam), 3),
+                "avg_fatigue": round(sum(step_fat) / len(step_fat), 3),
+            })
     return {"people": len(agents), "scope": scope, "avg_trust": round(sum(trust) / len(trust), 3),
             "avg_familiarity": round(sum(fam) / len(fam), 3), "avg_fatigue": round(sum(fat) / len(fat), 3),
-            "fatigued_people": sum(1 for x in fat if x >= 0.5), "events": kinds, "scopes": sorted((data.get("scopes") or {}).keys())}
+            "fatigued_people": sum(1 for x in fat if x >= 0.5),
+            "sceptical_people": sum(1 for x in trust if x <= 0.35),
+            "moods": mood_counts, "trajectories": trajectories,
+            "events": kinds, "scopes": sorted((data.get("scopes") or {}).keys())}
 
 
 # --------------------------------------------------------------------------

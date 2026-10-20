@@ -170,6 +170,26 @@ def aggregate(analysts: List[Dict[str, Any]]) -> Dict[str, Any]:
     spread = pstdev(sent) if len(sent) > 1 else 0
     consensus = "strong" if (audience["agreement"] or 0) >= 70 and spread <= 25 else \
         "partial" if (audience["agreement"] or 0) >= 50 else "weak"
+    by_provider: Dict[str, Dict[str, Any]] = {}
+    for a in ok:
+        prov = str(a.get("provider") or "default")
+        bucket = by_provider.setdefault(prov, {"analysts": 0, "sentiments": [], "intents": [], "verdicts": []})
+        bucket["analysts"] += 1
+        if a["result"].get("sentiment") is not None:
+            bucket["sentiments"].append(a["result"]["sentiment"])
+        if a["result"].get("purchase_intent_signal") is not None:
+            bucket["intents"].append(a["result"]["purchase_intent_signal"])
+        if a["result"].get("verdict"):
+            bucket["verdicts"].append(a["result"]["verdict"])
+    provider_summary = {
+        p: {
+            "analysts": b["analysts"],
+            "sentiment_mean": round(mean(b["sentiments"])) if b["sentiments"] else None,
+            "intent_mean": round(mean(b["intents"]), 1) if b["intents"] else None,
+            "verdict": _vote(b["verdicts"]).get("winner"),
+        }
+        for p, b in by_provider.items()
+    }
     return {
         "analysts_ok": len(ok), "analysts_failed": len(analysts) - len(ok),
         "sentiment_mean": round(mean(sent)) if sent else None, "sentiment_spread": round(spread) if sent else None,
@@ -180,6 +200,7 @@ def aggregate(analysts: List[Dict[str, Any]]) -> Dict[str, Any]:
         "verdict": _vote([r.get("verdict") or "unclear" for r in res]),
         "success_probability": round(mean([r["success_probability"] for r in res if r.get("success_probability") is not None]))
         if any(r.get("success_probability") is not None for r in res) else None,
+        "by_provider": provider_summary,
     }
 
 
@@ -191,6 +212,7 @@ def run_panel(client, model: str, material: Dict[str, Any], brief: str = "", n: 
     def one(i_lens):
         i, (lens, focus) = i_lens
         result, err = None, None
+        prov, mod = None, model
         prompt = _prompt(lens, focus, brief, material)
         for attempt in range(2):
             try:
@@ -198,18 +220,24 @@ def run_panel(client, model: str, material: Dict[str, Any], brief: str = "", n: 
                     "\n\nYour previous answer was cut off. Answer again in under 350 words: at most 4 themes, "
                     "3 objections, 3 opportunities and 2 risks, each under 20 words.")
                 resp = create_chat_completion(client, model=model, temperature=0.6, max_tokens=4000,
+                                              slot_index=i,
                                               messages=[{"role": "system", "content": SYSTEM},
                                                         {"role": "user", "content": prompt + extra}])
+                prov = getattr(resp, "_mm_provider", None)
+                mod = getattr(resp, "_mm_model", None) or model
                 data = parse_json_block(extract_chat_completion_text(resp))
                 result, err = _clean(data if isinstance(data, dict) else {}), None
                 break
             except Exception as e:  # noqa: BLE001 - one analyst failing is reported, not fatal
                 logger.warning(f"analyst {lens} failed (attempt {attempt + 1}): {e}")
                 err = str(e)[:200]
+        if not prov:
+            from ..utils.model_pool import canonical_provider
+            prov = canonical_provider(None, str(getattr(client, "base_url", "") or ""), mod)
         done[0] += 1
         if progress:
             progress(done[0], len(lenses))
-        return {"id": f"Analyst {chr(65 + i)}", "lens": lens, "result": result, "error": err}
+        return {"id": f"Analyst {chr(65 + i)}", "lens": lens, "provider": prov, "model": mod, "result": result, "error": err}
 
     with ThreadPoolExecutor(max_workers=len(lenses)) as pool:
         analysts = list(pool.map(one, enumerate(lenses)))

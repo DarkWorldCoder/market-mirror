@@ -47,6 +47,12 @@ class BehaviorStateTest(unittest.TestCase):
         self.assertEqual(n, 4)
         self.assertEqual(summ["people"], 1)
         self.assertLess(summ["avg_trust"], 0.5)
+        self.assertIn("moods", summ)
+        self.assertIn("trajectories", summ)
+        st = bs.load(self.dir)["scopes"]["default"]["1"]
+        self.assertIn("mood", st["state"])
+        self.assertTrue(len(st.get("trajectory", [])) >= 1)
+
 
 
 class MemoryApiTest(unittest.TestCase):

@@ -69,22 +69,32 @@ def validate_url(url: str) -> str:
     return url.rstrip("/")
 
 
-def write_config(root: Path, provider: str, model: str, base_url: str = "", key: str = "") -> dict:
+def write_config(root: Path, provider: str, model: str, base_url: str = "", key: str = "", pool: str = "") -> dict:
     spec = CATALOG[provider]
-    if spec.get("gateway"):
+    if spec.get("gateway") and not (provider == "multi" and pool.strip()):
         raise ValueError("gateway providers use the gateway login/start commands")
     if not model.strip():
         raise ValueError("choose a model identifier installed locally or available in your provider account")
-    if any(c in value for value in (model, base_url, key) for c in ("\r", "\n", "\x00", "${")):
+    if any(c in value for value in (model, base_url, key, pool) for c in ("\r", "\n", "\x00", "${")):
         raise ValueError("configuration values must be single-line strings")
-    endpoint = validate_url(base_url or spec["base_url"])
-    if spec["key_required"] and not key.strip():
-        raise ValueError("API key required; use a named environment variable or hidden interactive input")
-    llm_prov = "claude" if provider == "anthropic" else ("gemini" if provider == "gemini" else "openai")
-    values = {"LLM_PROVIDER": llm_prov,
-              "LLM_BASE_URL": endpoint, "LLM_MODEL_NAME": model.strip(),
-              "LLM_API_KEY": key.strip() if spec["key_required"] else (key.strip() or "local"),
-              "MARKET_MIRROR_PROVIDER": provider}
+    if provider == "multi" and pool.strip():
+        values = {
+            "LLM_PROVIDER": "multi",
+            "LLM_MODEL_NAME": model.strip(),
+            "LLM_POOL": pool.strip(),
+            "MARKET_MIRROR_PROVIDER": "multi",
+        }
+    else:
+        endpoint = validate_url(base_url or spec["base_url"])
+        if spec["key_required"] and not key.strip():
+            raise ValueError("API key required; use a named environment variable or hidden interactive input")
+        llm_prov = "claude" if provider == "anthropic" else ("gemini" if provider == "gemini" else "openai")
+        values = {"LLM_PROVIDER": llm_prov,
+                  "LLM_BASE_URL": endpoint, "LLM_MODEL_NAME": model.strip(),
+                  "LLM_API_KEY": key.strip() if spec["key_required"] else (key.strip() or "local"),
+                  "MARKET_MIRROR_PROVIDER": provider}
+        if pool.strip():
+            values["LLM_POOL"] = pool.strip()
     root.mkdir(parents=True, exist_ok=True)
     env = root / ".env"
     template = env if env.exists() else root / ".env.example"

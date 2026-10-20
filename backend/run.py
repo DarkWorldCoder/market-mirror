@@ -21,6 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app import create_app
 from app.config import Config
 
+# WSGI Entrypoint for Gunicorn / uWSGI: `gunicorn -c backend/gunicorn.conf.py run:app`
+app = create_app()
+
 
 def main():
     """主函数"""
@@ -33,16 +36,25 @@ def main():
         print("\n请检查 .env 文件中的配置")
         sys.exit(1)
     
-    # 创建应用
-    app = create_app()
-    
     # 获取运行配置
     host = os.environ.get('FLASK_HOST', '127.0.0.1')
     port = int(os.environ.get('FLASK_PORT', 5001))
-    debug = Config.DEBUG
+    debug = Config.DEBUG and os.environ.get('MM_ENV', '').lower() != 'production'
     
-    # 启动服务
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    if os.environ.get('MM_ENV', '').lower() == 'production' or '--prod' in sys.argv:
+        from werkzeug.serving import make_server
+        import signal
+        threads = max(4, int(os.environ.get('MM_THREADS', '16')))
+        srv = make_server(host, port, app, threaded=True, processes=1)
+        def _shutdown(signum, frame):
+            srv.shutdown()
+        signal.signal(signal.SIGTERM, _shutdown)
+        signal.signal(signal.SIGINT, _shutdown)
+        print(f"[Production WSGI] Listening on http://{host}:{port} (threaded=True, env=production)")
+        srv.serve_forever()
+    else:
+        # 启动服务
+        app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == '__main__':

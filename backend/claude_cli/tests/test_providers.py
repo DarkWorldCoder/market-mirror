@@ -74,3 +74,29 @@ def test_cached_plugin_finds_registered_checkout_with_environment_override(tmp_p
         return subprocess.check_output(["bash",str(helper),"home"],env=settings,text=True).strip()
     assert home(env) == str(root)
     assert home({**env,"MARKET_MIRROR_HOME":"/tmp/explicit-engine"}) == "/tmp/explicit-engine"
+
+
+def test_gemini_chatgpt_codex_and_multi_provider_catalog(tmp_path):
+    for key in ("gemini", "gemini_cli", "chatgpt", "codex", "multi"):
+        assert key in providers.CATALOG
+    # Gemini API strips models/ prefix during model listing check
+    providers.write_config(tmp_path, "gemini", "gemini-2.5-flash", key="gem-secret-key")
+    assert providers.status(tmp_path)["provider"] == "gemini"
+    def gemini_opener(request, timeout):
+        return io.BytesIO(b'{"data":[{"id":"models/gemini-2.5-flash"}]}')
+    chk = providers.check(tmp_path, gemini_opener)
+    assert chk["model_listed"] is True
+
+    # Multi-provider pool configuration writes LLM_POOL
+    res = providers.write_config(tmp_path, "multi", "multi", pool="claude:sonnet,chatgpt:gpt-5.4,codex:gpt-5.4,gemini:gemini-2.5-flash")
+    assert res["provider"] == "multi"
+    assert "gemini:gemini-2.5-flash" in res["pool"]
+
+    # Gemini CLI MCP registration
+    root = tmp_path / "gem_proj"
+    server = root / "plugin/skills/market-mirror/scripts/mcp_server.py"
+    server.parent.mkdir(parents=True)
+    server.write_text("")
+    gem_reg = agent_install.configuration(root, "gemini")
+    assert gem_reg["registration_args"][:3] == ["gemini", "mcp", "add"]
+

@@ -149,6 +149,85 @@ def normalize_landing(raw: Any) -> Optional[Dict[str, Any]]:
             "steps": max(1, min(int(raw.get("steps") or 1), 10))}
 
 
+def normalize_competitor(raw: Any) -> Optional[Dict[str, Any]]:
+    """Normalize an optional competitor counter-offer / price-shock ad shown in the same feed."""
+    if not raw:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("competitor must be an object")
+    name = str(raw.get("name") or raw.get("page") or raw.get("brand") or "Competitor").strip()
+    headline = str(raw.get("headline") or raw.get("title") or "").strip()
+    text = str(raw.get("text") or raw.get("offer") or headline).strip()
+    if not text and not headline:
+        raise ValueError("competitor needs text, offer, or headline")
+    return {
+        "id": str(raw.get("id") or "comp1"),
+        "name": name,
+        "page": name,
+        "headline": headline,
+        "text": text,
+        "price": str(raw.get("price") or "").strip(),
+        "cta": str(raw.get("cta") or "Learn more").strip(),
+        "format": str(raw.get("format") or "image").strip().lower(),
+        "media": str(raw.get("media") or "").strip(),
+    }
+
+
+def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: random.Random) -> Optional[Tuple[str, str]]:
+    """
+    Evaluate research-backed Say-vs-Do friction gates from the persona's BDE card and wallet state:
+    1. Discretionary wallet limit vs landing price
+    2. Explicit BDE dealbreakers / stoppers triggered by landing page
+    3. High-acquiescence polite clickers hesitating on paid/card steps
+    Returns (gate_kind, drop_reason) if the person drops off, else None.
+    """
+    from .persona_planner import parse_discretionary_amount
+
+    bde = person.get("bde") if isinstance(person.get("bde"), dict) else {}
+    b_bg = bde.get("background") if isinstance(bde.get("background"), dict) else {}
+    b_dp = bde.get("decision_procedure") if isinstance(bde.get("decision_procedure"), dict) else {}
+    b_ev = bde.get("evaluation") if isinstance(bde.get("evaluation"), dict) else {}
+
+    price_str = str(landing.get("price") or "free").strip()
+    price_num = parse_discretionary_amount(price_str) if price_str.lower() not in ("free", "0", "$0", "rs 0") else 0.0
+    budget_num = b_ev.get("discretionary_budget_num")
+    if budget_num is None:
+        budget_num = parse_discretionary_amount(b_ev.get("monthly_discretionary"))
+
+    payday = str(person.get("payday_status") or "mid_month").lower()
+    if price_num and budget_num and budget_num > 0:
+        ratio = price_num / budget_num
+        # Compare only when both numbers are in the same currency order-of-magnitude
+        if 0.15 <= ratio <= 25.0:
+            threshold = 0.55 if payday == "end_of_month_tight" else (0.95 if payday == "just_paid" else 0.80)
+            if ratio > threshold:
+                disc_label = b_ev.get("monthly_discretionary") or str(budget_num)
+                return ("wallet_limit", f"price ({price_str}) exceeds comfortable discretionary budget ({disc_label})")
+
+    page_blob = " ".join([
+        str(landing.get("shows") or ""),
+        price_str,
+        " ".join(str(f) for f in (landing.get("form_fields") or [])),
+    ]).lower()
+    dealbreakers = [str(x).strip() for x in (b_ev.get("dealbreakers") or []) + (b_dp.get("stoppers") or []) if str(x).strip()]
+    for db in dealbreakers:
+        db_low = db.lower()
+        tokens = [w for w in re.findall(r"[a-z0-9]+", db_low) if len(w) > 3]
+        if (db_low in page_blob) or (tokens and all(t in page_blob for t in tokens[:2])):
+            return ("dealbreaker", f"triggered dealbreaker: {db}")
+
+    acq = str(b_bg.get("acquiescence") or "").strip().lower()
+    says_do = str(b_bg.get("says_vs_does") or "").strip()
+    has_commitment = (price_num and price_num > 0) or any(
+        k in page_blob for k in ("card", "credit", "payment", "subscribe", "auto-renew", "phone")
+    )
+    if acq == "high" and has_commitment and rng.random() < 0.45:
+        detail = f" ({says_do[:90]})" if says_do else ""
+        return ("say_vs_do_gap", f"polite interest, but backed out at commitment step{detail}")
+
+    return None
+
+
 def network_for(person: Dict[str, Any], rng: random.Random) -> str:
     w = NETWORK_WEIGHTS.get(str(person.get("income") or "middle").lower(), NETWORK_WEIGHTS["middle"])
     return rng.choices(list(NETWORKS), weights=w)[0]
@@ -233,10 +312,13 @@ def people_from_simulation(profiles: List[Dict[str, Any]], persona_index: List[D
                        "age": p.get("age") or m.get("age"), "gender": p.get("gender") or m.get("gender"),
                        "country": p.get("country") or m.get("country") or "",
                        "segment": m.get("segment") or p.get("profession") or "Everyone",
-                       "communities": m.get("communities") or [], "income": m.get("income"),
+                       "communities": m.get("communities") or [], "income": m.get("income") or m.get("income_level"),
                        "thinking_style": m.get("thinking_style"), "tech_comfort": m.get("tech_comfort"),
-                       "habits": m.get("habits"), "settlement": m.get("settlement"), "bde": m.get("bde"),
-                       "memory": m.get("memory")})
+                       "habits": m.get("habits"), "settlement": m.get("settlement"),
+                       "life_stage": m.get("life_stage"), "payday_status": m.get("payday_status"),
+                       "model_provider": m.get("model_provider"), "model_name": m.get("model_name"),
+                       "provenance": m.get("provenance"),
+                       "bde": m.get("bde"), "memory": m.get("memory")})
     if any(m.get("kind") == "persona" for m in meta.values()):
         people = [x for x in people if meta.get(x["agent_id"], {}).get("kind") == "persona"]
     return people
@@ -302,10 +384,20 @@ class UsageMeter:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def __getattr__(self, name):            # base_url etc. for is_claude_target
+        if name in ("for_agent", "for_slot") and hasattr(self._client, name):
+            def _bound_proxy(key):
+                sub = getattr(self._client, name)(key)
+                return SimpleNamespace(
+                    chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: self._create_on(sub, **kw))),
+                    base_url=getattr(sub, "base_url", getattr(self._client, "base_url", "")),
+                    provider=getattr(sub, "provider", None),
+                    model_name=getattr(sub, "model_name", None),
+                )
+            return _bound_proxy
         return getattr(self._client, name)
 
-    def _create(self, **kw):
-        resp = self._client.chat.completions.create(**kw)
+    def _create_on(self, target, **kw):
+        resp = target.chat.completions.create(**kw)
         usage = getattr(resp, "usage", None)
         with self._lock:
             self.calls += 1
@@ -314,20 +406,43 @@ class UsageMeter:
             self.usage_sources.add(getattr(resp, "usage_source", None) or ("provider" if usage else "unavailable"))
         return resp
 
+    def _create(self, **kw):
+        return self._create_on(self._client, **kw)
+
     def snapshot(self) -> Dict[str, int]:
         with self._lock:
             return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
 
 
-def _llm_json(client, model: str, system: str, prompt: str, temperature: float = 0.8, max_tokens: int = 3000) -> Any:
+def _llm_json(
+    client,
+    model: str,
+    system: str,
+    prompt: str,
+    temperature: float = 0.8,
+    max_tokens: int = 3000,
+    agent_id: Optional[Any] = None,
+    return_meta: bool = False,
+) -> Any:
     last: Optional[Exception] = None
     for attempt in range(3):
         try:
-            resp = create_chat_completion(client, model=model, temperature=max(0.3, temperature - 0.2 * attempt),
-                                          max_tokens=max_tokens,
-                                          messages=[{"role": "system", "content": system},
-                                                    {"role": "user", "content": prompt}])
-            return parse_json_block(extract_chat_completion_text(resp))
+            call_kw: Dict[str, Any] = {
+                "model": model,
+                "temperature": max(0.3, temperature - 0.2 * attempt),
+                "max_tokens": max_tokens,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            }
+            if agent_id is not None:
+                call_kw["agent_id"] = agent_id
+            resp = create_chat_completion(client, **call_kw)
+            parsed = parse_json_block(extract_chat_completion_text(resp))
+            if return_meta:
+                from ..utils.model_pool import canonical_provider
+                prov = getattr(resp, "_mm_provider", None) or canonical_provider(None, str(getattr(client, "base_url", "") or ""), model)
+                mod = getattr(resp, "_mm_model", None) or model
+                return parsed, str(prov), str(mod)
+            return parsed
         except Exception as e:  # noqa: BLE001 - retried then raised
             last = e
             logger.warning(f"feed test LLM call failed (attempt {attempt + 1}): {str(e)[:120]}")
@@ -516,17 +631,21 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                   landing: Optional[Dict[str, Any]] = None, benchmarks: Optional[Dict[str, Any]] = None,
                   exposures: int = 2, attention_gate: bool = True,
                   pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
-                  voices: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                  voices: Optional[List[Dict[str, Any]]] = None,
+                  competitor: Optional[Dict[str, Any]] = None,
+                  include_generic_baseline: bool = False) -> Dict[str, Any]:
     """waves: later waves see earlier reaction counts (and, if they open them, comments).
     exposures: how many times each person scrolls past the ad (frequency, with wear-out).
     attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
     benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections.
-    pools: organic posts per (platform, country), shared across seeds; missing keys are generated in parallel."""
+    pools: organic posts per (platform, country), shared across seeds; missing keys are generated in parallel.
+    competitor: optional counter-offer / price-shock creative inserted into the same feed."""
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
     client = meter
     start_usage = meter.snapshot()
     rng = random.Random(seed)
+    comp = normalize_competitor(competitor) if competitor else None
     creatives, plan = _plan(creatives, people, seed)
     by_id = {p["agent_id"]: p for p in people}
     pools = organic_pools(client, model, [(platform, by_id[aid].get("country", "")) for (aid, platform) in plan],
@@ -542,6 +661,14 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             pos = rng.randint(1, max(1, len(organic) - 1))
             items = [(f"i{j + 1}", o, False) for j, o in enumerate(organic)]
             items.insert(pos, ("ad", creative, True))
+            if comp:
+                comp_post = {
+                    **comp,
+                    "platform": platform,
+                    "text": comp["text"] + (f" (Price: {comp['price']})" if comp.get("price") and comp["price"] not in comp["text"] else ""),
+                }
+                comp_pos = min(len(items), pos + 2)
+                items.insert(comp_pos, ("comp", comp_post, True))
             items = [(f"i{j + 1}", post, ad) for j, (_, post, ad) in enumerate(items)]
             notice = NOTICE_RATE.get(platform, 0.3) * (1 - 0.6 * traits[aid]["ad_avoidance"]) * WEAR_OUT ** (k - 1)
             jobs.append({"person": person, "platform": platform, "creative": creative, "items": items, "k": k,
@@ -559,16 +686,24 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
         snap = {"reactions": pr["reactions"], "shares": pr["shares"],
                 "comments": list(pr["comments"]) if job["opens_comments"] else [],
                 "comment_count": len(pr["comments"]), "seen_before": job["k"] - 1}
-        feed = [render_item(iid, post, platform, ad, snap if ad else None) for iid, post, ad in job["items"]]
+        feed = [render_item(iid, post, platform, ad, (snap if post.get("id") == creative["id"] else None) if ad else None)
+                for iid, post, ad in job["items"]]
         try:
-            data = _llm_json(client, model, SYSTEM_PROMPT,
-                             scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]]))
+            res_tuple = _llm_json(
+                client, model, SYSTEM_PROMPT,
+                scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]]),
+                agent_id=person["agent_id"], return_meta=True,
+            )
+            if isinstance(res_tuple, tuple) and len(res_tuple) == 3:
+                data, prov, mod = res_tuple
+            else:
+                data, prov, mod = res_tuple, person.get("model_provider") or "claude", person.get("model_name") or model
             rows = data.get("items") if isinstance(data, dict) else data
             acts = {str(r.get("id")): normalize_action(r, platform) for r in rows or [] if isinstance(r, dict)}
         except Exception as e:  # noqa: BLE001 - a failed persona is recorded, not fatal
             logger.warning(f"feed test: {person['name']} on {platform} failed: {e}")
-            return job, None
-        return job, acts
+            return job, None, "", ""
+        return job, acts, prov, mod
 
     sessions = []
     waves = max(1, min(waves, 10))
@@ -580,33 +715,47 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
         llm_calls += len(live)
         results = {}
         with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-            for job, acts in pool.map(one, live):
-                results[id(job)] = acts
+            for job, acts, prov, mod in pool.map(one, live):
+                results[id(job)] = (acts, prov, mod)
         for job in batch:
             done += 1
             if progress:
                 progress(done, total)
             person, platform, creative, items = job["person"], job["platform"], job["creative"], job["items"]
+            comp_act = None
             if job["noticed"]:
-                acts = results.get(id(job))
-                if acts is None:
+                entry = results.get(id(job))
+                if not entry or entry[0] is None:
                     continue
-                ad_id = next(iid for iid, _, ad in items if ad)
+                acts, prov, mod = entry
+                ad_id = next(iid for iid, post, ad in items if ad and post.get("id") == creative["id"])
                 ad_act = acts.get(ad_id) or normalize_action({}, platform)
+                comp_ids = [iid for iid, post, ad in items if ad and post.get("id") != creative["id"]]
+                if comp_ids:
+                    comp_act = acts.get(comp_ids[0]) or normalize_action({}, platform)
                 organic = [acts.get(iid) or normalize_action({}, platform) for iid, _, ad in items if not ad]
             else:   # never caught their eye: scrolled past without a decision
                 ad_act = normalize_action({"stopped": False, "dwell_seconds": round(rng.uniform(0.2, 0.8), 1),
                                            "p_click": 0, "p_react": 0, "p_comment": 0, "p_share": 0, "p_hide": 0},
                                           platform)
+                if comp:
+                    comp_act = normalize_action({"stopped": False, "dwell_seconds": 0.4, "p_click": 0}, platform)
                 organic = []
+                prov = person.get("model_provider") or getattr(client, "provider", None) or "claude"
+                mod = person.get("model_name") or model
             ad_act["noticed"] = job["noticed"]
-            sessions.append({
+            sess_row = {
                 "agent_id": person["agent_id"], "name": person["name"], "segment": person["segment"],
                 "country": person["country"], "platform": platform, "creative_id": creative["id"], "hour": job["hour"],
                 "wave": w + 1, "exposure": job["k"], "saw_proof": bool(proof[creative["id"]]["reactions"]),
                 "opened_comments": job["opens_comments"], "ad": ad_act, "organic": organic,
                 "traits": traits[person["agent_id"]],
-            })
+                "model_provider": person.get("model_provider") or prov or "claude",
+                "model_name": person.get("model_name") or mod or model,
+            }
+            if comp_act is not None:
+                sess_row["competitor_ad"] = comp_act
+            sessions.append(sess_row)
             pr = proof[creative["id"]]
             pr["reactions"] += 1 if ad_act["reaction"] not in ("none", "downvote") else 0
             pr["shares"] += 1 if ad_act["share"] != "none" else 0
@@ -617,21 +766,28 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     failed = sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))
     if llm_calls and failed == llm_calls:
         raise RuntimeError("No usable model decisions: all noticed exposures failed. Check provider authentication and availability before retrying.")
+    summ = summarize(creatives, sessions, benchmarks, competitor=comp)
+    if include_generic_baseline:
+        try:
+            summ["generic_baseline"] = generic_reader_baseline(client, model, creatives, context, summ.get("ranked"))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"generic_reader_baseline failed: {e}")
     end_usage = meter.snapshot()
     usage = {k: end_usage[k] - start_usage[k] for k in end_usage}
-    return {"creatives": creatives, "sessions": sessions, "landing": landing, "waves": waves, "exposures": exposures,
-            "seed": seed, "usage": usage,
+    return {"creatives": creatives, "sessions": sessions, "landing": landing, "competitor": comp, "waves": waves,
+            "exposures": exposures, "seed": seed, "usage": usage,
             "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
                         "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
-            "summary": summarize(creatives, sessions, benchmarks),
+            "summary": summ,
             "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total,
             "completion_status": "partial" if failed else "complete", "failed": failed}
 
 
 def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[int, Dict[str, Any]],
                 creatives: Dict[str, Dict[str, Any]], landing: Dict[str, Any], rng: random.Random, parallel: int) -> None:
-    """Clickers: page load on their network vs their patience, then an in-character finish-or-leave decision."""
+    """Clickers: page load on their network vs their patience, then an in-character finish-or-leave decision
+    combined with the research-backed Say-vs-Do friction gate (wallet limit, dealbreakers, acquiescence)."""
     todo = []
     for s in sessions:
         if not s["ad"]["click"]:
@@ -640,10 +796,12 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
         net = network_for(person, rng)
         load = round(landing["load_seconds"] * NETWORKS[net], 1)
         patience = patience_for(person, rng)
-        s["landing"] = {"network": net, "load_seconds": load, "patience": patience, "loaded": load <= patience,
+        loaded = load <= patience
+        s["landing"] = {"network": net, "load_seconds": load, "patience": patience, "loaded": loaded,
                         "read": False, "started_form": False, "completed": False,
-                        "drop_reason": "" if load <= patience else f"left before the page loaded ({load}s on {net})"}
-        if load <= patience:
+                        "friction_gate": "" if loaded else "network_timeout",
+                        "drop_reason": "" if loaded else f"left before the page loaded ({load}s on {net})"}
+        if loaded:
             todo.append(s)
 
     def one(s):
@@ -651,7 +809,7 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
         try:
             d = _llm_json(client, model, LANDING_SYSTEM,
                           landing_prompt(person, creatives[s["creative_id"]], landing, s["landing"]["load_seconds"]),
-                          temperature=0.7, max_tokens=600)
+                          temperature=0.7, max_tokens=600, agent_id=person["agent_id"])
             d = d if isinstance(d, dict) else {}
         except Exception as e:  # noqa: BLE001
             logger.warning(f"landing step failed for {person['name']}: {e}")
@@ -660,12 +818,22 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
 
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         for s, d in pool.map(one, todo):
+            person = by_id[s["agent_id"]]
             completed = bool(d.get("completed"))
-            if completed and str(by_id[s["agent_id"]].get("tech_comfort") or "").lower() == "low" and rng.random() < 0.3:
-                completed = False
-                d["drop_reason"] = "gave up when the form showed an error or asked for a code"
             started = bool(d.get("started_form")) or completed
+            gate = "completed" if completed else "form_abandon"
+            if completed and str(person.get("tech_comfort") or "").lower() == "low" and rng.random() < 0.3:
+                completed = False
+                gate = "form_abandon"
+                d["drop_reason"] = "gave up when the form showed an error or asked for a code"
+            if completed:
+                friction = check_say_do_friction(person, landing, rng)
+                if friction:
+                    completed = False
+                    gate, reason = friction
+                    d["drop_reason"] = reason
             s["landing"].update({"read": bool(d.get("read")) or started, "started_form": started, "completed": completed,
+                                 "friction_gate": gate,
                                  "drop_reason": "" if completed else str(d.get("drop_reason") or "")[:200],
                                  "thought": str(d.get("thought") or "")[:160]})
 
@@ -722,11 +890,14 @@ def landing_funnel(ss: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     started = [s for s in landed if s["landing"].get("started_form")]
     done = [s for s in started if s["landing"].get("completed")]
     reasons = Counter(s["landing"]["drop_reason"] for s in clicked if s.get("landing") and s["landing"].get("drop_reason"))
+    gates = Counter(s["landing"].get("friction_gate") for s in clicked if s.get("landing") and s["landing"].get("friction_gate") and not s["landing"].get("completed"))
     nets = Counter(s["landing"]["network"] for s in clicked if s.get("landing"))
     return {"clicks": len(clicked), "page_loaded": len(landed), "form_started": len(started), "converted": len(done),
             "load_rate": _rate(len(landed), len(clicked)), "conversion_after_click": _rate(len(done), len(clicked)),
             "conversion_rate": _rate(len(done), len(ss)),
-            "drop_reasons": [{"reason": r, "count": n} for r, n in reasons.most_common(8)], "networks": dict(nets)}
+            "drop_reasons": [{"reason": r, "count": n} for r, n in reasons.most_common(8)],
+            "friction_gates": dict(gates),
+            "networks": dict(nets)}
 
 
 def projection(m: Dict[str, Any], lf: Optional[Dict[str, Any]], bench: Optional[Dict[str, Any]],
@@ -803,8 +974,75 @@ def economics(spend: float, leads: Optional[float], bench: Dict[str, Any]) -> Di
     return out
 
 
+GENERIC_READER_SYSTEM = (
+    "You are a calibrated direct-response marketing evaluator representing a typical target-market reader "
+    "(zero-persona baseline comparator). Score each ad creative objectively on realistic social feed base rates. "
+    "Return only valid JSON."
+)
+
+
+def generic_reader_baseline(
+    client,
+    model: str,
+    creatives: List[Dict[str, Any]],
+    context: str = "",
+    persona_ranked: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Matched-budget zero-persona generic-reader baseline comparator (Maiorano 2026, docs/HUMAN_BEHAVIOR_RESEARCH.md #8).
+    Evaluates all creatives in 1 LLM call without individual personas and reports whether the persona panel
+    agrees with or diverges from the generic ranker.
+    """
+    ads_block = "\n".join(
+        f"- ID '{c['id']}' ({c['platform']}): Headline: {c.get('headline') or '(none)'} | Text: {c.get('text') or ''} | CTA: {c.get('cta') or ''}"
+        for c in creatives
+    )
+    prompt = (
+        f"Context:\n{context[:1200] or 'General consumer campaign'}\n\n"
+        f"Creatives to evaluate:\n{ads_block}\n\n"
+        "For each creative, estimate realistic feed performance from a generic target-market reader perspective:\n"
+        'Return JSON: {"scores": [{"id": "<creative id>", "expected_ctr": 1.2, "thumb_stop": 22.0, '
+        '"appeal_0_10": 6.5, "top_concern": "short reason", "verdict": "winner|contender|weak"}]}'
+    )
+    data = _llm_json(client, model, GENERIC_READER_SYSTEM, prompt, temperature=0.3, max_tokens=2000)
+    raw_scores = (data.get("scores") if isinstance(data, dict) else data) or []
+    by_cid: Dict[str, Dict[str, Any]] = {}
+    for row in raw_scores:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        cid = str(row["id"])
+        by_cid[cid] = {
+            "id": cid,
+            "expected_ctr": round(_num(row.get("expected_ctr"), 0, 100), 2),
+            "thumb_stop": round(_num(row.get("thumb_stop"), 0, 100), 1),
+            "appeal_0_10": round(_num(row.get("appeal_0_10"), 0, 10), 1),
+            "top_concern": str(row.get("top_concern") or "")[:160],
+            "verdict": str(row.get("verdict") or "contender")[:40],
+        }
+    generic_ranked = sorted(
+        [c["id"] for c in creatives if c["id"] in by_cid],
+        key=lambda cid: (-by_cid[cid]["expected_ctr"], -by_cid[cid]["thumb_stop"], -by_cid[cid]["appeal_0_10"]),
+    )
+    if not generic_ranked:
+        generic_ranked = [c["id"] for c in creatives]
+    p_ranked = list(persona_ranked or [])
+    top_match = bool(p_ranked and generic_ranked and p_ranked[0] == generic_ranked[0])
+    return {
+        "scores": by_cid,
+        "ranked": generic_ranked,
+        "persona_ranked": p_ranked,
+        "winner_agrees_with_personas": top_match,
+        "note": (
+            "Persona panel and generic baseline pick the same top creative."
+            if top_match
+            else "Persona panel reverses the generic baseline winner due to segment/BDE friction."
+        ),
+    }
+
+
 def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
-              benchmarks: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+              benchmarks: Optional[Dict[str, Any]] = None,
+              competitor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     benchmarks = benchmarks or {}
     per: Dict[str, Any] = {}
     calib: Dict[str, Optional[float]] = {}
@@ -820,8 +1058,10 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
         if not ss:
             continue
         seg = defaultdict(list)
+        prov_groups = defaultdict(list)
         for s in ss:
             seg[s["segment"]].append(s["ad"])
+            prov_groups[str(s.get("model_provider") or "claude")].append(s["ad"])
         m = _metrics([s["ad"] for s in ss])
         lf = landing_funnel(ss)
         bench = benchmarks.get(c["platform"]) or benchmarks.get("default")
@@ -833,12 +1073,15 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
             "proof_effect": _proof_effect(ss),
             "by_segment": sorted([{"key": k, **_metrics(v)} for k, v in seg.items()],
                                  key=lambda r: (-(r["ctr"] or 0), -(r["engagement_rate"] or 0))),
+            "by_provider": sorted([{"provider": k, **_metrics(v)} for k, v in prov_groups.items()],
+                                  key=lambda r: r["provider"]),
             "comments_list": [{"name": s["name"], "segment": s["segment"], "text": s["ad"]["comment"],
                                "reaction": s["ad"]["reaction"]} for s in ss if s["ad"]["comment"]],
             "thoughts": [{"name": s["name"], "segment": s["segment"], "text": s["ad"]["thought"],
                           "stopped": s["ad"]["stopped"], "click": s["ad"]["click"]} for s in ss if s["ad"]["thought"]][:40],
             "events": [{"name": s["name"], "segment": s["segment"], "wave": s.get("wave", 1),
                         "exposure": s.get("exposure", 1), "noticed": s["ad"].get("noticed", True),
+                        "model_provider": s.get("model_provider"),
                         **{k: s["ad"][k] for k in
                            ("stopped", "dwell", "reaction", "comment", "share", "save", "click", "hide", "thought")},
                         **({"landing": s["landing"]} if s.get("landing") else {})}
@@ -851,8 +1094,78 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
     ranked = sorted(per, key=lambda cid: (-((per[cid]["landing"] or {}).get("conversion_rate") or 0),
                                           -(per[cid].get("expected_ctr") or per[cid]["ctr"] or 0),
                                           -(per[cid]["thumb_stop"] or 0)))
-    return {"per_creative": per, "calibration": calib, "organic_baseline": {k: {kk: vv for kk, vv in v.items() if kk not in ("reactions",)}
-                                                      for k, v in baseline.items()}, "ranked": ranked}
+
+    # Overall cross-provider breakdown across all sessions
+    all_by_prov: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for s in sessions:
+        all_by_prov[str(s.get("model_provider") or "claude")].append(s)
+    by_provider_summary: Dict[str, Any] = {}
+    prov_winners: Dict[str, str] = {}
+    for prov, p_sessions in sorted(all_by_prov.items()):
+        pm = _metrics([s["ad"] for s in p_sessions])
+        plf = landing_funnel(p_sessions)
+        # Find which creative won under this provider
+        c_scores = {}
+        for cid in per:
+            c_acts = [s["ad"] for s in p_sessions if s["creative_id"] == cid]
+            if c_acts:
+                cm = _metrics(c_acts)
+                c_scores[cid] = (cm.get("expected_ctr") or cm.get("ctr") or 0, cm.get("thumb_stop") or 0)
+        winner = max(c_scores, key=lambda k: c_scores[k]) if c_scores else None
+        if winner:
+            prov_winners[prov] = winner
+        by_provider_summary[prov] = {
+            "provider": prov,
+            "sessions": len(p_sessions),
+            "personas": len({s["agent_id"] for s in p_sessions}),
+            "thumb_stop": pm["thumb_stop"],
+            "ctr": pm["ctr"],
+            "expected_ctr": pm["expected_ctr"],
+            "engagement_rate": pm["engagement_rate"],
+            "hide_rate": pm["hide_rate"],
+            "conversion_rate": plf["conversion_rate"] if plf else None,
+            "winner": winner,
+        }
+
+    # Competitor counter-offer / price-shock summary when tested
+    comp_summary = None
+    comp_sessions = [s for s in sessions if s.get("competitor_ad")]
+    if comp_sessions:
+        comp_acts = [s["competitor_ad"] for s in comp_sessions]
+        brand_acts = [s["ad"] for s in comp_sessions]
+        cm = _metrics(comp_acts)
+        bm = _metrics(brand_acts)
+        b_clicks = bm["clicks"]
+        c_clicks = cm["clicks"]
+        defected = sum(1 for s in comp_sessions if s["competitor_ad"]["click"] and not s["ad"]["click"])
+        both_clicked = sum(1 for s in comp_sessions if s["competitor_ad"]["click"] and s["ad"]["click"])
+        denom = max(1, b_clicks + c_clicks)
+        comp_summary = {
+            "name": (competitor or {}).get("name") or "Competitor",
+            "price": (competitor or {}).get("price") or "",
+            "headline": (competitor or {}).get("headline") or (competitor or {}).get("text") or "",
+            "impressions": len(comp_sessions),
+            "brand_thumb_stop": bm["thumb_stop"],
+            "competitor_thumb_stop": cm["thumb_stop"],
+            "brand_ctr": bm["ctr"],
+            "competitor_ctr": cm["ctr"],
+            "brand_expected_ctr": bm["expected_ctr"],
+            "competitor_expected_ctr": cm["expected_ctr"],
+            "brand_win_share_pct": round(100.0 * b_clicks / denom, 1) if (b_clicks or c_clicks) else 50.0,
+            "defection_rate": _rate(defected, len(comp_sessions)),
+            "both_clicked": both_clicked,
+        }
+
+    out = {
+        "per_creative": per,
+        "calibration": calib,
+        "organic_baseline": {k: {kk: vv for kk, vv in v.items() if kk not in ("reactions",)} for k, v in baseline.items()},
+        "ranked": ranked,
+        "by_provider": by_provider_summary,
+    }
+    if comp_summary:
+        out["competitor_shock"] = comp_summary
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -880,7 +1193,7 @@ def combine_runs(runs: List[Dict[str, Any]], benchmarks: Optional[Dict[str, Any]
     """Pool the sessions of several seeds and keep, per creative, the mean and min-max range across seeds."""
     first = runs[0]
     sessions = [{**s, "seed": r.get("seed")} for r in runs for s in r["sessions"]]
-    summary = summarize(first["creatives"], sessions, benchmarks)
+    summary = summarize(first["creatives"], sessions, benchmarks, competitor=first.get("competitor"))
     first_per = first["summary"]["per_creative"]
     for cid, m in summary["per_creative"].items():
         if cid in first_per:            # replay one seed, so the same person does not scroll past twice

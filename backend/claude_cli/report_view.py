@@ -97,35 +97,111 @@ def enhance_report(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     return html, toc
 
 
+def _bde_inspector_drawer(r: Dict[str, Any], st: Optional[Dict[str, Any]] = None) -> str:
+    """Expandable BDE decision profile & stateful episodic memory drawer for a persona."""
+    bde = r.get("bde") if isinstance(r.get("bde"), dict) else {}
+    loss = r.get("loss_aversion") or bde.get("loss_aversion")
+    proof = r.get("social_proof_sensitivity") or bde.get("social_proof_sensitivity")
+    loyalty = r.get("brand_loyalty") or bde.get("brand_loyalty")
+    skep = r.get("skepticism") or bde.get("skepticism")
+    budget = r.get("discretionary_budget") or bde.get("discretionary_budget")
+    deals = r.get("dealbreakers") or bde.get("dealbreakers") or []
+    constraints = r.get("hidden_constraints") or bde.get("hidden_constraints") or []
+    payday = r.get("payday_status")
+    life_stage = r.get("life_stage")
+    st = st or {}
+    mood = st.get("mood")
+    energy = st.get("energy")
+    trust_d = st.get("brand_trust_delta")
+    fatigue = st.get("ad_fatigue")
+    memory = st.get("episodic_memory") or []
+    traj = st.get("trajectory") or []
+    if not any([loss, proof, loyalty, skep, budget, deals, constraints, payday, life_stage, mood, memory, traj]):
+        return ""
+    rows = []
+    if life_stage or payday:
+        rows.append(("Life stage / wallet", " · ".join(str(x).replace("_", " ") for x in (life_stage, payday) if x)))
+    if budget:
+        rows.append(("Discretionary budget", str(budget)))
+    psych = [f"{k}: {v}" for k, v in (("loss aversion", loss), ("social proof", proof), ("loyalty", loyalty), ("skepticism", skep)) if v]
+    if psych:
+        rows.append(("Decision profile", " · ".join(psych)))
+    if deals:
+        rows.append(("Dealbreakers", "; ".join(str(x) for x in deals[:4])))
+    if constraints:
+        rows.append(("Hidden constraints", "; ".join(str(x) for x in constraints[:3])))
+    if mood or energy is not None or trust_d is not None:
+        state_bits = []
+        if mood:
+            state_bits.append(f"mood: {mood}")
+        if energy is not None:
+            state_bits.append(f"energy: {float(energy):.0%}")
+        if trust_d is not None:
+            state_bits.append(f"trust Δ: {float(trust_d):+.2f}")
+        if fatigue:
+            state_bits.append(f"ad fatigue: {float(fatigue):.2f}")
+        rows.append(("Live state", " · ".join(state_bits)))
+    dl = '<dl class="person-d">' + "".join(f"<dt>{_e(k)}</dt><dd>{_e(v)}</dd>" for k, v in rows) + "</dl>"
+    mem_html = ""
+    if memory:
+        mem_items = "".join(f"<li>{_e(_t(m, 140))}</li>" for m in memory[-4:])
+        mem_html = f'<div class="bde-mem"><strong>Episodic memory</strong><ul>{mem_items}</ul></div>'
+    return f'<details class="bde-drawer"><summary>Inspect BDE &amp; memory</summary>{dl}{mem_html}</details>'
+
+
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
-                 leads: Dict[Any, int], limit: int = 150) -> str:
+                 leads: Dict[Any, int], limit: int = 150,
+                 states_by_agent: Optional[Dict[Any, Dict[str, Any]]] = None) -> str:
     everyone = [r for r in index if r.get("kind") == "persona"]
     if len(everyone) > limit:            # big runs: the strongest leads first, the rest are in leads.csv
         everyone = sorted(everyone, key=lambda r: -(leads.get(r.get("agent_id")) if leads.get(r.get("agent_id")) is not None else -1))
     people = everyone[:limit]
     if not people:
         return ""
+    states_by_agent = states_by_agent or {}
     cards = []
+    crm_rows = []
     segments: Counter = Counter()
     countries: Counter = Counter()
+    providers: Counter = Counter()
+    has_grounded = False
     for i, r in enumerate(people):
         aid = r.get("agent_id")
         sv = survey_by_agent.get(aid) or {}
+        st = states_by_agent.get(str(aid)) or states_by_agent.get(aid) or {}
         verdict = sv.get("would_convert")
         vcls = {"yes": "mint", "maybe": "accent", "no": "orchid"}.get(verdict, "")
         who = ", ".join(str(x) for x in (r.get("age"), r.get("city"), r.get("country")) if x)
         traits = [r.get("upbringing"), r.get("education"), r.get("income_level") or r.get("income"), r.get("thinking_style")]
+        prov = str(r.get("model_provider") or "").strip().lower()
+        provenance = "grounded" if r.get("provenance") == "real_intake" else "synthetic"
+        if provenance == "grounded":
+            has_grounded = True
         if r.get("segment"):
             segments[str(r["segment"])] += 1
         if r.get("country"):
             countries[str(r["country"])] += 1
+        if prov:
+            providers[prov] += 1
+        extra_attrs = ""
+        if prov:
+            extra_attrs += f' data-provider="{_e(prov)}"'
+        if provenance == "grounded":
+            extra_attrs += ' data-provenance="grounded"'
         attrs = (f'data-item data-order="{i}" data-segment="{_e(r.get("segment") or "")}" data-country="{_e(r.get("country") or "")}" '
-                 f'data-verdict="{_e(verdict or "none")}" data-lead="{leads[aid] if aid in leads else ""}"')
+                 f'data-verdict="{_e(verdict or "none")}" data-lead="{leads[aid] if aid in leads else ""}"{extra_attrs}')
+        prov_badge = (f'<span class="mm-provider-badge" data-prov="{_e(prov)}" title="{_e(r.get("model_name") or prov)}">{_e(prov)}</span>'
+                      if prov else "")
+        prov_pill = ('<span class="pill prov-pill-real" title="Grounded from real customer profile">Grounded</span>'
+                     if provenance == "grounded" else "")
+        life_pill = _pill(str(r["life_stage"]).replace("_", " ")) if r.get("life_stage") else ""
+        drawer = _bde_inspector_drawer(r, st)
         cards.append(
             f'<div class="person" {attrs}><div class="person-h"><span class="pm-av">{_e(str(r.get("name") or "?")[:1])}</span>'
             f'<div><b>{_e(r.get("name"))}</b><div class="muted small">{_e(who)} · {_e(r.get("occupation") or "")}</div></div>'
+            + prov_badge
             + (f'<span class="lead" title="Lead score 0-100">{leads[aid]}</span>' if aid in leads else "") + '</div>'
-            f'<div class="person-pills">{_pill(r.get("segment"))}'
+            f'<div class="person-pills">{_pill(r.get("segment"))}{prov_pill}{life_pill}'
             + "".join(_pill(l) for l in (r.get("languages") or [])[:2])
             + (_pill(f"would {verdict}", vcls) if verdict else "") + "</div>"
             + (f'<p class="person-q">“{_e(_t(r.get("interview_summary"), 320))}”</p>' if r.get("interview_summary") else "")
@@ -135,23 +211,61 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             + (f'<dt>Groups</dt><dd>{_e(", ".join(map(str, r.get("communities") or [])))}</dd>' if r.get("communities") else "")
             + (f'<dt>In the run</dt><dd>{activity.get(aid, 0)} actions</dd>' if activity else "")
             + (f'<dt>Objection</dt><dd>{_e(_t(sv.get("main_objection"), 140))}</dd>' if sv.get("main_objection") else "")
-            + '</dl></div>')
+            + f'</dl>{drawer}</div>')
+        crm_rows.append(
+            f'<tr {attrs}>'
+            f'<td><b>{_e(r.get("name"))}</b><div class="muted small">{_e(r.get("occupation") or "")}</div></td>'
+            f'<td>{_pill(r.get("segment"))}{" " + prov_pill if prov_pill else ""}</td>'
+            f'<td>{_e(who)}</td>'
+            f'<td>{prov_badge or "–"}</td>'
+            f'<td class="num">{leads[aid] if aid in leads else "–"}</td>'
+            f'<td>{_pill(f"would {verdict}", vcls) if verdict else "–"}</td>'
+            f'<td>{_e(r.get("discretionary_budget") or r.get("income_level") or "–")}</td>'
+            f'<td class="small">{_e(_t(sv.get("main_objection") or r.get("interview_summary") or "", 110))}</td>'
+            f'</tr>'
+        )
     total = len([r for r in index if r.get("kind") == "persona"])
     note = (f'<p class="muted small">Showing the {len(people)} people with the highest lead scores of {total:,}. '
             'Everyone is in the leads.csv download.</p>' if total > len(people) else "")
-    return (people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values())) + note
-            + f'<div class="people">{"".join(cards)}</div></div>')
+    crm_table = (
+        '<div data-panel="crm" data-panel-for="view" hidden>'
+        '<div class="tbl tall"><table class="sortable crm-table"><thead><tr>'
+        '<th data-sort="text" aria-sort="none" scope="col">Buyer</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Segment</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Location &amp; Age</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Model</th>'
+        '<th class="num" data-sort="num" aria-sort="none" scope="col">Lead score</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Verdict</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Budget / Income</th>'
+        '<th data-sort="text" aria-sort="none" scope="col">Key Objection / Note</th>'
+        f'</tr></thead><tbody>{"".join(crm_rows)}</tbody></table></div></div>'
+    )
+    return (people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values()), providers, has_grounded) + note
+            + f'<div data-panel="cards" data-panel-for="view"><div class="people">{"".join(cards)}</div></div>'
+            + crm_table + '</div>')
 
 
-def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_leads: bool, has_survey: bool) -> str:
-    """Opens the people filter root (closed by people_cards): segment, country, verdict and a minimum lead score."""
+def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_leads: bool, has_survey: bool,
+                      providers: Optional[Dict[str, int]] = None, has_grounded: bool = False) -> str:
+    """Opens the people filter root (closed by people_cards): view switcher, text search, segment, country, provider, verdict, lead score."""
     def opts(c: Dict[str, int]) -> str:
         return "".join(f'<option value="{_e(k)}">{_e(k)} ({n})</option>' for k, n in sorted(c.items(), key=lambda x: (-x[1], x[0])))
-    bar = ['<div class="filter-bar" role="group" aria-label="Filter people">']
+    bar = [
+        '<div class="filter-bar" role="group" aria-label="Filter people">',
+        '<div class="crm-view-switch" role="group" aria-label="People view mode">'
+        '<button type="button" data-view-tab="cards" aria-pressed="true">Cards</button>'
+        '<button type="button" data-view-tab="crm" aria-pressed="false">CRM Table</button></div>',
+        '<input type="text" data-filter="q" data-filter-op="contains" placeholder="Search buyer, city, objection…" aria-label="Search people">',
+    ]
     if segments:
         bar.append(f'<select data-filter="segment" aria-label="Segment"><option value="">All segments</option>{opts(segments)}</select>')
     if countries:
         bar.append(f'<select data-filter="country" aria-label="Country"><option value="">All countries</option>{opts(countries)}</select>')
+    if providers and len(providers) >= 1:
+        bar.append(f'<select data-filter="provider" aria-label="Model provider"><option value="">All AI models</option>{opts(providers)}</select>')
+    if has_grounded:
+        bar.append('<select data-filter="provenance" aria-label="Provenance"><option value="">All provenance</option>'
+                   '<option value="grounded">Grounded intake</option><option value="synthetic">Synthetic seeded</option></select>')
     if has_survey:
         bar.append('<select data-filter="verdict" aria-label="Survey verdict"><option value="">Any verdict</option>'
                    '<option value="yes">Would say yes</option><option value="maybe">Maybe</option><option value="no">Would say no</option>'
@@ -168,14 +282,15 @@ def leads_csv(index: List[Dict[str, Any]], survey_by_agent: Dict[Any, Dict[str, 
     import io
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["agent_id", "name", "segment", "country", "city", "age", "occupation", "lead_score", "would_convert",
-                "interest", "trust", "main_objection", "languages", "communities"])
+    w.writerow(["agent_id", "name", "segment", "country", "city", "age", "occupation", "model_provider", "provenance",
+                "lead_score", "would_convert", "interest", "trust", "main_objection", "languages", "communities"])
     for r in index:
         if r.get("kind") != "persona":
             continue
         aid = r.get("agent_id")
         sv = survey_by_agent.get(aid) or {}
         w.writerow([aid, r.get("name"), r.get("segment"), r.get("country"), r.get("city"), r.get("age"), r.get("occupation"),
+                    r.get("model_provider", ""), r.get("provenance", "llm_seeded"),
                     leads.get(aid, ""), sv.get("would_convert", ""), sv.get("interest", ""), sv.get("trust", ""),
                     sv.get("main_objection", ""), " / ".join(r.get("languages") or []), " / ".join(map(str, r.get("communities") or []))])
     return buf.getvalue()
@@ -243,14 +358,23 @@ border:1px solid var(--grid);border-radius:18px;overflow:hidden}
 @media(max-width:700px){#report .section-head .dl{justify-content:flex-start}.report-downloads summary{text-align:left}.mm-report{padding:4px 0}.mm-report table{display:block;overflow-x:auto}.mm-report td,.mm-report th{min-width:110px}}
 @media print{body.print-report{background:#fff;color:#111}body.print-report .wrap>*:not(#report){display:none!important}body.print-report #report{display:block;break-inside:auto;margin:0;padding:0;--text:#111;--text-2:#333;--muted:#555;--border:#bbb;--grid:#ddd}#report .report-downloads{display:none}.mm-report{color:#111;background:transparent}.mm-report h2,.mm-report h3{break-after:avoid}.mm-report tr,.mm-report blockquote{break-inside:avoid}.mm-report table{display:table;font-size:9pt}}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
-.person{background:var(--surface-2);border-radius:20px;padding:14px 16px}
+.person{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px}
 .person-h{display:flex;gap:10px;align-items:center}.person-h>div{flex:1;min-width:0}
-.person .pm-av{width:38px;height:38px;flex-basis:38px;background:var(--surface-2);color:var(--text)}
+.person .pm-av{width:38px;height:38px;flex-basis:38px;background:var(--surface);border:1px solid var(--border);color:var(--text)}
 .lead{font-weight:600;background:var(--mm-accent);color:var(--mm-accent-ink);border-radius:999px;padding:3px 10px;font-size:.85rem}
 .person-pills{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .person-q{font-size:.9rem;color:var(--text-2);margin:6px 0 8px;line-height:1.45}
 .person-d{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:.82rem;margin:0}
 .person-d dt{color:var(--muted)}.person-d dd{margin:0}
+.crm-view-switch{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-pill);padding:2px}
+.crm-view-switch button{font:inherit;font-size:.78rem;font-weight:550;border:0;background:transparent;color:var(--text-2);padding:4px 10px;border-radius:var(--r-pill);cursor:pointer}
+.crm-view-switch button[aria-pressed="true"]{background:var(--text);color:var(--surface)}
+.crm-table td{vertical-align:middle}
+.bde-drawer{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+.bde-drawer summary{font-size:.78rem;font-weight:600;color:var(--text-2);cursor:pointer}
+.bde-drawer .person-d{margin-top:6px}
+.bde-mem{margin-top:6px;font-size:.78rem;color:var(--text-2)}
+.bde-mem ul{margin:3px 0 0;padding-left:16px}
 """
 
 
@@ -259,7 +383,9 @@ border:1px solid var(--grid);border-radius:18px;overflow:hidden}
 # --------------------------------------------------------------------------
 
 DL_LABELS.update({"pitch.json": "Sales rehearsal (JSON)", "ideas.md": "Test ideas (Markdown)",
-                  "ideas.json": "Test ideas (JSON)"})
+                  "ideas.json": "Test ideas (JSON)", "thought_stream.json": "Agent mindstream (JSON)",
+                  "gtm_suite.json": "Marketing & Sales GTM Suite (JSON)",
+                  "competitor_intel.json": "Competitor Intelligence & AI Suggestions (JSON)"})
 
 
 def _mix_bar(m: Dict[str, Any]) -> str:
@@ -340,10 +466,569 @@ def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None
     return ("ideas", "Test ideas", html)
 
 
+def _gut_tag(text: str) -> str:
+    low = text.lower()
+    if any(w in low for w in ("scam", "fake", "catch", "trap", "doubt", "suspicious", "skeptic", "sceptic")):
+        return "skeptical"
+    if any(w in low for w in ("expensive", "price", "cost", "afford", "tight", "budget", "paisa", "rupees", "npr", "$")):
+        return "price_shock"
+    if any(w in low for w in ("again", "spam", "tired", "annoying", "hide")):
+        return "ad_fatigue"
+    if any(w in low for w in ("friend", "comments", "reviews", "sister", "wife", "husband", "group")):
+        return "social_proof"
+    if any(w in low for w in ("no card", "offline", "verified", "legit", "safe")):
+        return "trust_signal"
+    if any(w in low for w in ("interesting", "useful", "try", "check", "nice", "good", "helpful")):
+        return "curious"
+    return "habitual_ignore"
+
+
+def _roadblock_tag(text: str, gate: str = "") -> str:
+    low = f"{text} {gate}".lower()
+    if gate == "wallet_limit" or any(w in low for w in ("exceeds", "budget", "afford", "expensive", "price", "paisa", "tight")):
+        return "price_vs_wallet"
+    if any(w in low for w in ("card", "auto-renew", "autorenew", "subscription", "charged")):
+        return "card_trap_fear"
+    if any(w in low for w in ("scam", "fake", "trust", "spam", "agent")):
+        return "scam_skepticism"
+    if any(w in low for w in ("ask my", "wife", "husband", "parents", "sister", "family")):
+        return "family_approval_needed"
+    if gate in ("network_timeout", "form_abandon") or any(w in low for w in ("phone", "slow", "load", "form")):
+        return "page_or_form_friction"
+    return "none"
+
+
+def thoughts_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Agent thoughts & mindstream': System 1 gut monologue, System 2 BDE/wallet deliberation,
+    and private-thought vs public-action divergence across touchpoints."""
+    if not isinstance(bundle, dict):
+        return None
+    cfg = bundle.get("config") if isinstance(bundle.get("config"), dict) else {}
+    index = {
+        int(r["agent_id"]): r
+        for r in (cfg.get("persona_index") or [])
+        if isinstance(r, dict) and r.get("agent_id") is not None
+    }
+    entries: List[Dict[str, Any]] = []
+
+    def _meta(aid: Any, name: str = "", seg: str = "", country: str = "", prov: str = "") -> Dict[str, Any]:
+        try:
+            aid_i = int(aid) if aid is not None else -1
+        except (TypeError, ValueError):
+            aid_i = -1
+        p = index.get(aid_i) or {}
+        bde = p.get("bde") if isinstance(p.get("bde"), dict) else {}
+        return {
+            "agent_id": aid_i,
+            "name": p.get("name") or name or f"Agent {aid}",
+            "segment": p.get("segment") or seg or "",
+            "country": p.get("country") or country or "",
+            "model_provider": str(prov or p.get("model_provider") or "claude").lower(),
+            "bde": bde,
+        }
+
+    # 1. Dedicated thought_stream.json
+    ts = bundle.get("thought_stream")
+    if isinstance(ts, dict):
+        for r in ts.get("entries") or []:
+            if not isinstance(r, dict) or not r.get("thought"):
+                continue
+            m = _meta(r.get("agent_id"), r.get("name", ""), r.get("segment", ""), r.get("country", ""), r.get("model_provider", ""))
+            th = str(r.get("thought") or "").strip()
+            s2 = str(r.get("system2_deliberation") or "").strip()
+            pub = str(r.get("public_action") or "Evaluated stimulus").strip()
+            gut = str(r.get("system1_gut") or _gut_tag(th))
+            rb = str(r.get("mental_roadblock") or _roadblock_tag(th + " " + s2))
+            entries.append({
+                **m, "touchpoint": "thought_lab", "stimulus": str(r.get("stimulus") or ts.get("stimulus") or "Stimulus"),
+                "thought": th, "system2": s2, "public_action": pub, "gut": gut, "roadblock": rb,
+                "diverged": bool(r.get("diverged")),
+            })
+
+    # 2. Feed test scroll & landing thoughts
+    ft = bundle.get("feed_test")
+    if isinstance(ft, dict):
+        for s in (ft.get("sessions") or [])[:120]:
+            if not isinstance(s, dict):
+                continue
+            ad = s.get("ad") or {}
+            th = str(ad.get("thought") or "").strip()
+            cid = str(s.get("creative_id") or "ad")
+            m = _meta(s.get("agent_id"), s.get("name", ""), s.get("segment", ""), s.get("country", ""), s.get("model_provider", ""))
+            ev = (m["bde"].get("evaluation") or {}) if isinstance(m.get("bde"), dict) else {}
+            if th and th.lower() != "scroll":
+                clicked = bool(ad.get("click"))
+                stopped = bool(ad.get("stopped"))
+                pub = f"Clicked {cid}" if clicked else (f"Paused {ad.get('dwell', 2)}s, scrolled past" if stopped else "Scrolled past")
+                gut = _gut_tag(th + " " + pub)
+                rb = _roadblock_tag(th)
+                entries.append({
+                    **m, "touchpoint": "ad_scroll", "stimulus": f"{s.get('platform', 'Feed').title()} · {cid}",
+                    "thought": th,
+                    "system2": f"Discretionary budget: {ev.get('monthly_discretionary', 'standard')} · Dealbreakers: {', '.join(ev.get('dealbreakers') or ['none'])}",
+                    "public_action": pub, "gut": gut, "roadblock": rb,
+                    "diverged": (gut == "curious" and not clicked) or (clicked and not bool((s.get("landing") or {}).get("completed", True))),
+                })
+            land = s.get("landing") or {}
+            lth = str(land.get("thought") or land.get("drop_reason") or "").strip()
+            if lth:
+                conv = bool(land.get("completed"))
+                gate = str(land.get("friction_gate") or ("completed" if conv else "form_abandon"))
+                drop = str(land.get("drop_reason") or "")
+                entries.append({
+                    **m, "touchpoint": "landing_page", "stimulus": f"Landing page · {cid}",
+                    "thought": lth, "system2": drop or f"Gate: {gate}",
+                    "public_action": "Completed form (Converted)" if conv else f"Dropped ({gate})",
+                    "gut": "trust_signal" if conv else _gut_tag(lth + " " + drop),
+                    "roadblock": "none" if conv else _roadblock_tag(lth + " " + drop, gate),
+                    "diverged": not conv,
+                })
+
+    # 3. Pitch thoughts
+    pitch = bundle.get("pitch")
+    if isinstance(pitch, dict):
+        for p in (pitch.get("people") or [])[:80]:
+            if not isinstance(p, dict):
+                continue
+            t1 = p.get("turn1") or {}
+            t2 = p.get("turn2") or {}
+            th = str(t2.get("thought") or t1.get("thought") or t1.get("objection") or "").strip()
+            rep = str(t2.get("reply") or t1.get("reply") or "").strip()
+            if not th and not rep:
+                continue
+            m = _meta(p.get("agent_id"), p.get("name", ""), p.get("segment", ""), p.get("country", ""), p.get("model_provider", ""))
+            verdict = str(p.get("final_verdict") or "maybe").lower()
+            inner = th or f"Weighing offer: {rep[:120]}"
+            entries.append({
+                **m, "touchpoint": "sales_pitch", "stimulus": "1-on-1 Sales Pitch",
+                "thought": inner, "system2": str(t1.get("objection") or "Evaluated rebuttal"),
+                "public_action": f'Verdict {verdict.upper()}: "{_t(rep, 80)}"',
+                "gut": _gut_tag(inner + " " + rep),
+                "roadblock": _roadblock_tag(inner + " " + str(t1.get("objection") or "")),
+                "diverged": verdict == "maybe",
+            })
+
+    # 4. Social actions with explicit recorded thoughts
+    for act in (bundle.get("actions") or [])[:80]:
+        if not isinstance(act, dict) or not act.get("thought"):
+            continue
+        m = _meta(act.get("agent_id"), act.get("agent_name", ""))
+        th = str(act.get("thought") or "").strip()
+        atype = str(act.get("action_type") or "ACTION")
+        entries.append({
+            **m, "touchpoint": "social_feed", "stimulus": f"Round {act.get('round', '?')}",
+            "thought": th, "system2": f"Mood: {act.get('mood', 'neutral')}",
+            "public_action": atype, "gut": _gut_tag(th), "roadblock": _roadblock_tag(th),
+            "diverged": atype == "DO_NOTHING" and "curious" in th.lower(),
+        })
+
+    if not entries:
+        return None
+
+    from collections import Counter
+    guts = Counter(e["gut"] for e in entries)
+    rbs = Counter(e["roadblock"] for e in entries if e["roadblock"] != "none")
+    div_cnt = sum(1 for e in entries if e["diverged"])
+    div_pct = round(100.0 * div_cnt / len(entries), 1)
+    top_gut = (guts.most_common(1)[0][0] if guts else "neutral").replace("_", " ")
+    top_rb = (rbs.most_common(1)[0][0] if rbs else "none").replace("_", " ")
+
+    kpis_html = '<div class="kpis auto">' + "".join([
+        ui.kpi(str(len(entries)), "Thoughts captured", f'{len({e["name"] for e in entries})} agents across touchpoints'),
+        ui.kpi(f"{div_pct:g}%", "Say-vs-Do divergence", f"{div_cnt} thought privately vs acted differently", hl=True),
+        ui.kpi(top_gut.title(), "Dominant System-1 gut", "Fast emotional/attentional impulse"),
+        ui.kpi(top_rb.title(), "Top System-2 roadblock", "Primary BDE / wallet / trust blocker"),
+    ]) + "</div>"
+
+    touchpoints = list(dict.fromkeys(e["touchpoint"] for e in entries))
+    segs = list(dict.fromkeys(e["segment"] for e in entries if e["segment"]))
+    provs = list(dict.fromkeys(e["model_provider"] for e in entries if e["model_provider"]))
+
+    bar = [
+        '<div class="filter-bar" role="group" aria-label="Filter thoughts">',
+        '<input type="text" data-filter="q" data-filter-op="contains" placeholder="Filter monologue, blocker, name…" aria-label="Search thoughts">',
+        '<select data-filter="touchpoint" aria-label="Touchpoint"><option value="">All touchpoints</option>'
+        + "".join(f'<option value="{_e(t)}">{_e(t.replace("_", " ").title())}</option>' for t in touchpoints)
+        + '</select>',
+    ]
+    if len(segs) > 1:
+        bar.append('<select data-filter="segment" aria-label="Segment"><option value="">All segments</option>'
+                   + "".join(f'<option value="{_e(s)}">{_e(s)}</option>' for s in segs) + '</select>')
+    bar.append('<select data-filter="diverged" aria-label="Say-vs-Do"><option value="">Any alignment</option>'
+               '<option value="yes">Diverged only</option><option value="no">Aligned</option></select>')
+    if len(provs) > 1:
+        bar.append('<select data-filter="provider" aria-label="AI Model"><option value="">All AI models</option>'
+                   + "".join(f'<option value="{_e(p)}">{_e(p.upper())}</option>' for p in provs) + '</select>')
+    bar.append('<span data-filter-count aria-live="polite"></span></div>')
+
+    cards = []
+    for idx, e in enumerate(entries[:120]):
+        q_blob = f"{e['name']} {e['segment']} {e['thought']} {e['system2']} {e['public_action']} {e['gut']} {e['roadblock']}".lower()
+        div_flag = "yes" if e["diverged"] else "no"
+        prov_badge = f'<span class="mm-provider-badge" data-prov="{_e(e["model_provider"])}">{_e(e["model_provider"])}</span>'
+        div_pill = '<span class="pill stop">Say-vs-Do gap</span>' if e["diverged"] else ""
+        rb_pill = f'<span class="pill iterate">Blocker: {_e(e["roadblock"].replace("_", " "))}</span>' if e["roadblock"] != "none" else ""
+        cards.append(
+            f'<div class="thought-card" data-item data-order="{idx}" data-touchpoint="{_e(e["touchpoint"])}" '
+            f'data-segment="{_e(e["segment"])}" data-diverged="{div_flag}" data-provider="{_e(e["model_provider"])}" '
+            f'data-q="{_e(q_blob)}">'
+            f'<div class="person-h"><span class="pm-av">{_e(str(e["name"] or "?")[:1])}</span><div><b>{_e(e["name"])}</b>'
+            f'<div class="small muted">{_e(" · ".join(x for x in (e["segment"], e["country"], e["stimulus"]) if x))}</div></div>'
+            f'{prov_badge}</div>'
+            f'<div class="person-pills">'
+            f'<span class="pill">{_e(e["touchpoint"].replace("_", " "))}</span>'
+            f'<span class="pill">System 1: {_e(e["gut"].replace("_", " "))}</span>'
+            f'{rb_pill}{div_pill}</div>'
+            f'<div class="th-box"><span class="th-lbl">💭 Private Inner Monologue</span><p>“{_e(_t(e["thought"], 260))}”</p></div>'
+            + (f'<div class="th-sys2"><b>🧠 System 2 BDE Check:</b> {_e(_t(e["system2"], 180))}</div>' if e["system2"] else "")
+            + f'<div class="th-act"><b>⚡ Public Action:</b> {_e(_t(e["public_action"], 140))}</div>'
+            f'</div>'
+        )
+
+    intro = (
+        "Real first-person cognitive stream of simulated buyers across ad feeds, landing pages, sales pitches, and social feeds: "
+        "comparing their fast System-1 gut reaction and System-2 BDE wallet/dealbreaker check against what they publicly did."
+    )
+    body = (
+        ui.section_head("Agent thoughts & mindstream", intro, insight)
+        + kpis_html
+        + f'<div data-filter-root data-filter-noun="thoughts">'
+        + "".join(bar)
+        + f'<div class="people">{"".join(cards)}</div></div>'
+    )
+    return ("thoughts", "Agent thoughts", body)
+
+
+def gtm_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Marketing & Sales GTM Hub': Buying Committee Simulator, Auto-Iteration Creative Optimizer,
+    Pricing & Packaging Conjoint, 30-Day Multi-Touch Journey/LTV, and Sales Battlecards & Outbound Sequences."""
+    if not isinstance(bundle, dict):
+        return None
+    suite = bundle.get("gtm_suite") if isinstance(bundle.get("gtm_suite"), dict) else {}
+    bc = suite.get("buying_committee") or bundle.get("buying_committee")
+    co = suite.get("creative_optimizer") or bundle.get("creative_optimizer")
+    sb = suite.get("sales_battlecard") or bundle.get("sales_battlecard")
+    js = suite.get("journey_simulation") or bundle.get("journey_sim")
+    pc = suite.get("pricing_conjoint") or bundle.get("pricing_conjoint")
+    if not any(isinstance(x, dict) and x for x in (bc, co, sb, js, pc)):
+        return None
+
+    kpis = []
+    if isinstance(bc, dict):
+        kpis.append(ui.kpi(f"{bc.get('win_rate_pct', 0):g}%", "Buying unit win rate",
+                           f"{bc.get('committee_count', 0)} {bc.get('mode', 'group')} committees simulated", hl=True))
+    if isinstance(co, dict) and isinstance(co.get("lift"), dict):
+        lift = co["lift"]
+        kpis.append(ui.kpi(f"+{lift.get('ctr_delta_pts', 0):g} pts", "Auto-optimized CTR lift",
+                           f"Conv +{lift.get('conversion_delta_pts', 0):g} pts · Say-vs-Do −{lift.get('say_do_gap_reduction_pts', 0):g} pts"))
+    if isinstance(js, dict) and isinstance(js.get("unit_economics"), dict):
+        ue = js["unit_economics"]
+        kpis.append(ui.kpi(f"{ue.get('ltv_cac_ratio', 0):g}x", "30-Day LTV : CAC",
+                           f"Retained {ue.get('day30_retention_pct', 0):g}% · Viral K={ue.get('viral_k_factor', 0):g}"))
+    if isinstance(pc, dict):
+        kpis.append(ui.kpi(str(pc.get("revenue_maximizing_tier") or "Starter"), "Top LTV package",
+                           f"Best adoption: {pc.get('adoption_maximizing_tier') or 'No-Card Pass'}"))
+    kpis_html = f'<div class="kpis auto">{"".join(kpis)}</div>' if kpis else ""
+
+    parts: List[str] = []
+
+    # 1. Auto-Iteration Creative Optimizer
+    if isinstance(co, dict) and co.get("generations"):
+        gen_rows = "".join(
+            f"<tr><td><b>Gen {g.get('generation')}</b></td>"
+            f"<td><b>{_e((g.get('creative') or {}).get('headline'))}</b>"
+            f"<div class='small muted'>{_e(_t((g.get('creative') or {}).get('text'), 130))}</div>"
+            + (f"<div class='small'><i>Fix: {_e((g.get('creative') or {}).get('fix_applied'))}</i></div>" if (g.get("creative") or {}).get("fix_applied") else "")
+            + f"</td><td>{_pill((g.get('creative') or {}).get('cta'))}</td>"
+            f"<td class='num'>{g.get('thumb_stop_pct', 0)}%</td>"
+            f"<td class='num'><b>{g.get('ctr_pct', 0)}%</b></td>"
+            f"<td class='num'><b>{g.get('conversion_pct', 0)}%</b></td>"
+            f"<td class='num'>{g.get('say_do_gap_pct', 0)}%</td>"
+            f"<td>{_pill(str(g.get('top_roadblock') or 'none').replace('_', ' '))}</td></tr>"
+            for g in co.get("generations") or []
+        )
+        parts.append(
+            '<div class="card"><h3>1. Closed-Loop Creative &amp; Copy Auto-Optimizer</h3>'
+            '<p class="small muted">Automatically diagnoses System-1 gut failures and System-2 BDE roadblocks from Gen 1, rewrites challenger copy, and re-tests on the same buyer cohort.</p>'
+            '<div class="tbl"><table class="sortable"><thead><tr>'
+            '<th>Gen</th><th>Headline &amp; Copy</th><th>CTA</th><th class="num">Thumb-Stop</th>'
+            '<th class="num">CTR</th><th class="num">Conversion</th><th class="num">Say-vs-Do Gap</th><th>Primary Blocker</th>'
+            f'</tr></thead><tbody>{gen_rows}</tbody></table></div></div>'
+        )
+
+    # 2. Pricing & Packaging Conjoint
+    if isinstance(pc, dict) and pc.get("tiers"):
+        cur = str(pc.get("currency") or "USD")
+        t_rows = "".join(
+            f"<tr><td><b>{_e(t.get('name'))}</b><div class='small muted'>{_e(t.get('description'))}</div></td>"
+            f"<td class='num'>{_e(cur)} {t.get('price', 0):g}</td>"
+            f"<td>{_pill('Card upfront', 'stop') if t.get('requires_card_upfront') else _pill('No card upfront', 'mint')}</td>"
+            f"<td class='num'>{t.get('signup_rate_pct', 0)}%</td>"
+            f"<td class='num'>{t.get('card_drop_off_pct', 0)}%</td>"
+            f"<td class='num'><b>{t.get('paid_take_rate_pct', 0)}%</b></td>"
+            f"<td class='num'>{t.get('day30_retained_pct', 0)}%</td>"
+            f"<td class='num'><b>{_e(cur)} {t.get('90d_ltv_per_1000_visitors', 0):,.0f}</b></td></tr>"
+            for t in pc.get("tiers") or []
+        )
+        rec = pc.get("packaging_recommendation")
+        parts.append(
+            '<div class="card"><h3>2. Pricing &amp; Packaging Conjoint Simulator</h3>'
+            + (f'<div class="callout">{_e(rec)}</div>' if rec else "")
+            + '<div class="tbl"><table class="sortable"><thead><tr>'
+            '<th>Package / Tier</th><th class="num">Price</th><th>Card Gate</th><th class="num">Signup %</th>'
+            '<th class="num">Card Drop-off</th><th class="num">Paid Take Rate</th><th class="num">Day-30 Retained</th><th class="num">90d LTV / 1k Visitors</th>'
+            f'</tr></thead><tbody>{t_rows}</tbody></table></div></div>'
+        )
+
+    # 3. 30-Day Longitudinal Journey, Attribution & Unit Economics
+    if isinstance(js, dict) and js.get("funnel_stages"):
+        f_rows = "".join(
+            f"<tr><td><b>{_e(st.get('stage'))}</b></td><td class='num'>{st.get('count', 0)}</td><td class='num'><b>{st.get('rate_pct', 0)}%</b></td></tr>"
+            for st in js.get("funnel_stages") or []
+        )
+        a_rows = "".join(
+            f"<tr><td><b>{_e(a.get('channel'))}</b></td><td class='num'>{a.get('first_touch_pct', 0)}%</td>"
+            f"<td class='num'>{a.get('last_touch_pct', 0)}%</td><td class='num'><b>{a.get('multi_touch_share_pct', 0)}%</b></td></tr>"
+            for a in js.get("attribution") or []
+        )
+        ue = js.get("unit_economics") or {}
+        cur = str(ue.get("currency") or "USD")
+        parts.append(
+            '<div class="card"><h3>3. Full-Funnel 30-Day Customer Journey, LTV/CAC &amp; Attribution</h3>'
+            f'<p class="small muted">Tracks {js.get("cohort_size", 0)} simulated buyers from cold ad scroll through retargeting, WhatsApp/email nurture, checkout, Day-30 retention, and referral. '
+            f'Estimated CAC: <b>{_e(cur)} {ue.get("cac", 0)}</b> · LTV: <b>{_e(cur)} {ue.get("ltv", 0)}</b> · Payback: <b>{ue.get("payback_months", 0)} mo</b>.</p>'
+            '<div class="mixbars">'
+            '<div><h4>6-Stage Longitudinal Funnel</h4><div class="tbl"><table><thead><tr><th>Lifecycle Stage</th><th class="num">Buyers</th><th class="num">Share</th></tr></thead>'
+            f'<tbody>{f_rows}</tbody></table></div></div>'
+            '<div><h4>Multi-Touch Revenue Attribution</h4><div class="tbl"><table><thead><tr><th>Channel</th><th class="num">First-Touch</th><th class="num">Last-Touch</th><th class="num">Multi-Touch</th></tr></thead>'
+            f'<tbody>{a_rows}</tbody></table></div></div>'
+            '</div></div>'
+        )
+
+    # 4. Buying Committee & Multi-Stakeholder Deal Simulator
+    if isinstance(bc, dict) and bc.get("committees"):
+        c_cards = []
+        for c in (bc.get("committees") or [])[:6]:
+            out = str(c.get("outcome") or "stalled").upper()
+            p_cls = "mint" if "APPROV" in out else ("accent" if "PILOT" in out else "stop")
+            lines = "".join(
+                f"<div class='th-sys2'><b>{_e(t.get('role'))} ({_e(t.get('speaker'))}):</b> “{_e(_t(t.get('text'), 150))}” "
+                f"<span class='muted small'>[Private: {_e(_t(t.get('private_thought'), 100))}]</span></div>"
+                for t in (c.get("room_transcript") or [])
+            )
+            c_cards.append(
+                f'<div class="thought-card">'
+                f'<div class="person-h"><div><b>{_e(c.get("unit_label"))}</b>'
+                f'<div class="small muted">Consensus: {c.get("consensus_score", 0)}/10 · Blocker: {_e(c.get("primary_blocker"))}</div></div>'
+                f'<span class="pill {p_cls}">{_e(out)}</span></div>'
+                f'{lines}'
+                f'<div class="th-act"><b>🎯 How to win unit:</b> {_e(c.get("how_to_win_unit"))}</div>'
+                f'</div>'
+            )
+        parts.append(
+            '<div class="card"><h3>4. Buying Committee &amp; Household Decision Simulator</h3>'
+            '<p class="small muted">Simulates what happens behind closed doors when the Champion, Wallet Holder / Economic Buyer, Peer Evaluator, and Skeptical Blocker debate the purchase together.</p>'
+            f'<div class="people">{"".join(c_cards)}</div></div>'
+        )
+
+    # 5. Sales Battlecards, Objection Matrix & Outbound Sequences
+    if isinstance(sb, dict):
+        obj_rows = "".join(
+            f"<tr><td><b>{_e(str(o.get('objection_type') or '').replace('_', ' ').title())}</b></td>"
+            f"<td class='small'>{_e(o.get('what_buyer_says'))}</td>"
+            f"<td class='small muted'>{_e(o.get('private_system2_thought'))}</td>"
+            f"<td class='small'>{_e(o.get('worst_seller_response'))}</td>"
+            f"<td class='small'><b>{_e(o.get('winning_rebuttal'))}</b></td></tr>"
+            for o in (sb.get("objection_playbook") or [])
+        )
+        seq_cards = []
+        for seq in (sb.get("outbound_sequences") or [])[:2]:
+            steps_html = "".join(
+                f"<div class='th-sys2'><b>Step {s.get('step')} (Day {s.get('day')} · {_e(s.get('channel'))}):</b> {_e(s.get('message'))}</div>"
+                for s in (seq.get("steps") or [])
+            )
+            seq_cards.append(
+                f'<div class="thought-card"><b>Outbound Sequence · {_e(seq.get("segment"))}</b>'
+                f'<div class="small muted">Channels: {_e(" → ".join(seq.get("best_channel_order") or []))}</div>'
+                f'{steps_html}</div>'
+            )
+        parts.append(
+            '<div class="card"><h3>5. Sales Battlecard, Objection Matrix &amp; Multi-Channel Outbound Kit</h3>'
+            '<div class="tbl"><table><thead><tr><th>Objection</th><th>What Buyer Says</th><th>Private System-2 Thought</th>'
+            '<th>Worst Response (Avoid)</th><th>Winning Word-for-Word Rebuttal</th></tr></thead>'
+            f'<tbody>{obj_rows}</tbody></table></div>'
+            + (f'<div class="people" style="margin-top:12px">{"".join(seq_cards)}</div>' if seq_cards else "")
+            + '</div>'
+        )
+
+    intro = (
+        "Full-funnel Marketing & Sales Go-To-Market (GTM) simulation suite: closed-loop creative optimization, "
+        "pricing & packaging conjoint, 30-day journey attribution & LTV/CAC, multi-stakeholder buying committees, and sales battlecards."
+    )
+    body = ui.section_head("Marketing & sales GTM hub", intro, insight) + kpis_html + "".join(parts)
+    return ("gtm", "GTM & sales hub", body)
+
+
+def competitor_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Competitor & AI strategy': Multi-agent competitor bake-off, 'What Competitors Have vs What We Have'
+    feature gap matrix, AI strategic product/pricing/marketing suggestions, and war-game counter-moves."""
+    if not isinstance(bundle, dict):
+        return None
+    suite = bundle.get("gtm_suite") if isinstance(bundle.get("gtm_suite"), dict) else {}
+    ci = bundle.get("competitor_intel") or suite.get("competitor_intelligence")
+    if not isinstance(ci, dict) or not ci:
+        return None
+
+    cur_win = ci.get("current_brand_win_share_pct", 0)
+    upg_win = ci.get("projected_win_share_after_ai_adds_pct", 0)
+    lift = ci.get("win_share_lift_pts", 0)
+    top_comp = str(ci.get("top_competitor_threat") or "Status Quo")
+    sugs = ci.get("ai_suggestions") or []
+    top_sug = sugs[0]["title"] if sugs else "No-Card 7-Day Pass"
+
+    kpis_html = '<div class="kpis auto">' + "".join([
+        ui.kpi(f"{cur_win:g}% → {upg_win:g}%", "Simulated brand win share", f"+{lift:g} pts after adding AI recommendations", hl=True),
+        ui.kpi(_t(top_comp, 28), "#1 Competitor threat", f"{ci.get('top_competitor_share_pct', 0):g}% current buyer preference"),
+        ui.kpi(str(len(sugs)), "AI strategic suggestions", f"Top add: {_t(top_sug, 40)}"),
+        ui.kpi(str(len(ci.get("feature_gap_matrix") or [])), "Capabilities benchmarked", "Scored by simulated buyer importance (0–10)"),
+    ]) + "</div>"
+
+    parts: List[str] = []
+
+    # 1. AI Strategic Suggestions ("What Competitors Have vs What You Should Add Next")
+    if sugs:
+        sug_cards = []
+        for s in sugs:
+            pri = str(s.get("priority") or "high").upper()
+            p_cls = "stop" if pri == "CRITICAL" else "accent"
+            sug_cards.append(
+                f'<div class="thought-card">'
+                f'<div class="person-h"><div><b>{_e(s.get("title"))}</b>'
+                f'<div class="small muted">{_e(s.get("category"))} · Effort: {_e(s.get("effort"))} · Priority Score: {s.get("priority_score", 90)}/100</div></div>'
+                f'<span class="pill mint">+{s.get("simulated_win_share_lift_pts", 0):g} pts win share</span>'
+                f'<span class="pill {p_cls}">{_e(pri)}</span></div>'
+                f'<div class="th-sys2"><b>🏢 What Competitor Has:</b> {_e(s.get("what_competitor_has"))}</div>'
+                f'<div class="th-box"><span class="th-lbl">✨ AI Suggestion: What You Should Add</span><p>{_e(s.get("what_you_should_add"))}</p></div>'
+                f'<div class="th-sys2"><b>🧠 Why Simulated Buyers Care:</b> {_e(s.get("why_buyers_care"))}</div>'
+                f'<div class="th-act"><b>🚀 Ready-to-Ship Spec / Copy:</b> <code>{_e(s.get("ready_to_ship_spec"))}</code></div>'
+                f'</div>'
+            )
+        parts.append(
+            '<div class="card"><h3>1. AI Strategic Suggestions: What Competitors Have &amp; What You Should Add Next</h3>'
+            '<p class="small muted">Ranked by simulated Win-Share Lift (+pts) when re-tested against the persona cohort’s BDE wallets and dealbreakers.</p>'
+            f'<div class="people">{"".join(sug_cards)}</div></div>'
+        )
+
+    # 2. Feature Gap & Whitespace Matrix ("What Competitor Has vs What We Have")
+    fgm = ci.get("feature_gap_matrix") or []
+    if fgm:
+        def _status_pill(val: Any) -> str:
+            s_val = str(val or "")
+            if s_val.startswith("Has"):
+                return _pill(s_val, "mint")
+            if "Missing" in s_val:
+                return _pill(s_val, "stop")
+            return _pill(s_val, "accent")
+
+        fg_rows = "".join(
+            f"<tr><td><b>{_e(r.get('capability'))}</b><div class='small muted'>{_e(r.get('category'))}</div></td>"
+            f"<td class='num'><b>{r.get('buyer_importance', 0)}/10</b></td>"
+            f"<td>{_status_pill(r.get('our_current_status'))}</td>"
+            f"<td>{_e(r.get('free_alternatives'))}</td>"
+            f"<td>{_e(r.get('global_incumbent'))}</td>"
+            f"<td>{_e(r.get('local_challenger'))}</td>"
+            f"<td class='small'>{_e(r.get('strategic_verdict'))}</td></tr>"
+            for r in fgm
+        )
+        parts.append(
+            '<div class="card"><h3>2. Feature Parity &amp; Competitive Whitespace Matrix</h3>'
+            '<div class="tbl"><table class="sortable"><thead><tr>'
+            '<th>Capability / Feature</th><th class="num">Buyer Importance</th><th>Our Current Status</th>'
+            '<th>Free Alternatives</th><th>Global Incumbent</th><th>Local Challenger</th><th>Strategic Whitespace Verdict</th>'
+            f'</tr></thead><tbody>{fg_rows}</tbody></table></div></div>'
+        )
+
+    # 3. Competitor Breakdown Cards ("What Each Competitor Has vs Where They Fail")
+    comps = ci.get("competitors") or []
+    if comps:
+        comp_cards = []
+        for c in comps:
+            has_li = "".join(f"<li>{_e(x)}</li>" for x in (c.get("what_they_have") or []))
+            fail_li = "".join(f"<li>{_e(x)}</li>" for x in (c.get("where_they_fail") or []))
+            comp_cards.append(
+                f'<div class="thought-card">'
+                f'<div class="person-h"><div><b>{_e(c.get("name"))}</b>'
+                f'<div class="small muted">Price: {_e(c.get("price"))}</div></div>'
+                f'<span class="pill">{c.get("current_preference_share_pct", 0):g}% → {c.get("share_after_our_ai_upgrades_pct", 0):g}% share</span></div>'
+                f'<div class="th-sys2"><b>✅ What They Have (Why buyers defect to them):</b><ul class="small" style="margin:4px 0 0;padding-left:18px">{has_li}</ul></div>'
+                f'<div class="th-sys2"><b>❌ Where They Fail Buyers (Our wedge):</b><ul class="small" style="margin:4px 0 0;padding-left:18px">{fail_li}</ul></div>'
+                f'<div class="th-act"><b>🎯 Stealable Share:</b> +{c.get("stealable_share_pts", 0):g} pts recaptured when AI suggestions are shipped</div>'
+                f'</div>'
+            )
+        parts.append(
+            '<div class="card"><h3>3. Competitor Deep-Dive: What Each Competitor Has vs. Where They Fail</h3>'
+            f'<div class="people">{"".join(comp_cards)}</div></div>'
+        )
+
+    # 4. Head-to-Head Buyer Bake-Off & Switching Triggers
+    bakeoff = ci.get("head_to_head_bakeoff") or []
+    if bakeoff:
+        b_rows = "".join(
+            f"<tr><td><b>{_e(b.get('name'))}</b><div class='small muted'>{_e(b.get('segment'))} · {_e(b.get('country'))}</div></td>"
+            f"<td><span class='mm-provider-badge' data-prov='{_e(b.get('model_provider'))}'>{_e(b.get('model_provider'))}</span></td>"
+            f"<td>{_pill(b.get('current_choice'), 'mint' if b.get('current_choice') == 'Our Brand' else 'stop')}</td>"
+            f"<td>{_pill(b.get('choice_after_ai_adds'), 'mint' if b.get('choice_after_ai_adds') == 'Our Brand' else '')}</td>"
+            f"<td class='small'>{_e(b.get('what_makes_them_switch'))}</td>"
+            f"<td class='small muted'>{_e(b.get('thought'))}</td></tr>"
+            for b in bakeoff
+        )
+        parts.append(
+            '<div class="card"><h3>4. Head-to-Head Agent Bake-Off &amp; Switching Triggers</h3>'
+            '<div class="tbl"><table class="sortable"><thead><tr>'
+            '<th>Simulated Buyer</th><th>Model</th><th>Current Choice</th><th>After AI Suggestions</th>'
+            '<th>Exact Switching Trigger</th><th>First-Person Buyer Quote</th>'
+            f'</tr></thead><tbody>{b_rows}</tbody></table></div></div>'
+        )
+
+    # 5. Competitive War-Game Counter-Move Simulator
+    wg = ci.get("wargame_scenarios") or []
+    if wg:
+        wg_rows = "".join(
+            f"<tr><td><b>{_e(w.get('scenario'))}</b><div class='small muted'>{_e(w.get('competitor_move'))}</div></td>"
+            f"<td class='num'>{w.get('our_retention_without_response_pct', 0)}%</td>"
+            f"<td class='num'><b>{w.get('our_retention_with_ai_counter_pct', 0)}%</b></td>"
+            f"<td class='small'>{_e(w.get('ai_counter_strategy'))}</td></tr>"
+            for w in wg
+        )
+        parts.append(
+            '<div class="card"><h3>5. Competitive War-Game &amp; Counter-Move Simulator</h3>'
+            '<div class="tbl"><table><thead><tr>'
+            '<th>Competitor Attack Scenario</th><th class="num">Share If Unanswered</th>'
+            '<th class="num">Share With AI Counter</th><th>Recommended AI Counter-Play</th>'
+            f'</tr></thead><tbody>{wg_rows}</tbody></table></div></div>'
+        )
+
+    intro = (
+        "Simulated head-to-head buyer bake-off against competitors: see what competitors have, where they fail your buyers, "
+        "which missing features cost you deals, and the highest-lift AI product & marketing additions to steal back market share."
+    )
+    body = ui.section_head("Competitor intelligence & AI strategy", intro, insight) + kpis_html + "".join(parts)
+    return ("competitors", "Competitor & AI strategy", body)
+
+
+
+
+
 REPORT_CSS += """
 .mixbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0}
 .mixbar span{display:block;height:100%}.mixbar .yes{background:var(--mm-yes)}.mixbar .maybe{background:var(--mm-maybe)}.mixbar .no{background:var(--mm-no)}
 .mixbars{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:700px){.mixbars{grid-template-columns:1fr}}
 pre.script{white-space:pre-wrap;font:13px/1.5 var(--mono);margin:8px 0 0}
 .idea dl{margin:8px 0 0}.idea ul.small{margin:0;padding-left:18px}
+.thought-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.th-box{background:var(--surface);border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;margin:2px 0}
+.th-box .th-lbl{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px}
+.th-box p{margin:0;font-size:.88rem;line-height:1.45;color:var(--text);font-style:italic}
+.th-sys2{font-size:.8rem;color:var(--text-2);line-height:1.4}
+.th-act{font-size:.8rem;color:var(--text);padding-top:4px;border-top:1px dashed var(--border)}
 """
