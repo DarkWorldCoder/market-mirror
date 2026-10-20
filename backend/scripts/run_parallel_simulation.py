@@ -1176,6 +1176,9 @@ async def run_twitter_simulation(
         available_actions=TWITTER_ACTIONS,
     )
     agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="twitter")
+    mixed = agent_context.assign_provider_models(result.agent_graph, config)
+    if mixed:
+        log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
     scheduled_by_round = events_by_round(config, "twitter")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1384,6 +1387,9 @@ async def run_reddit_simulation(
         available_actions=REDDIT_ACTIONS,
     )
     agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="reddit")
+    mixed = agent_context.assign_provider_models(result.agent_graph, config)
+    if mixed:
+        log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
     scheduled_by_round = events_by_round(config, "reddit")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）

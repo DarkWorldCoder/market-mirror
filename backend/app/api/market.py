@@ -129,6 +129,15 @@ def _client():
     return OpenAI(api_key=Config.LLM_API_KEY, base_url=Config.LLM_BASE_URL)
 
 
+def _client_for(people):
+    """The client for a test on these people: with several providers each person is answered by the provider
+    that wrote them."""
+    client = _client()
+    if getattr(client, "is_multi", False) and hasattr(client, "with_people"):
+        return client.with_people(people)
+    return client
+
+
 def _sim_dir(simulation_id: str) -> str:
     manager = SimulationManager()
     if not manager.get_simulation(simulation_id):
@@ -279,7 +288,7 @@ def start_feed_test():
     people = _with_history(people, sid, scope)
 
     def work(progress):
-        return feed_test.run_multi_seed(_client(), Config.LLM_MODEL_NAME, creatives, people,
+        return feed_test.run_multi_seed(_client_for(people), Config.LLM_MODEL_NAME, creatives, people,
                                         seeds=feed_test.seed_list(seed, n_seeds), context=context, voices=voices,
                                         organic_per_feed=organic, parallel=parallel, progress=progress,
                                         waves=int(data.get("waves") or 3), landing=landing,
@@ -431,7 +440,7 @@ def start_email_test():
     people = _with_history(people, sid, scope)
 
     def work(progress):
-        return email_test.run_email_test(_client(), Config.LLM_MODEL_NAME, emails, people, product=product, seed=seed,
+        return email_test.run_email_test(_client_for(people), Config.LLM_MODEL_NAME, emails, people, product=product, seed=seed,
                                          parallel=parallel, list_size=int(list_size) if list_size else None,
                                          benchmarks=bench, familiarity=fam, progress=progress)
 
@@ -875,50 +884,50 @@ def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people:
             "price": _num_arg(data, "price", float, 0), "generations": _num_arg(data, "generations", int, 1, 5)}
     model = Config.LLM_MODEL_NAME
     if engine in gtm_suite.ENGINES:
-        return lambda progress: gtm_suite.run_engine(engine, _client(), model, people, opts, profile, rd, progress)
+        return lambda progress: gtm_suite.run_engine(engine, _client_for(people), model, people, opts, profile, rd, progress)
     if engine == "teardown":
         page = data.get("page") or data.get("url")
         if not page:
             raise ValueError("pass url (a public page) or page (its text)")
-        return lambda progress: cro_and_sparring.run_landing_teardown(_client(), model, page, people, seed=seed,
+        return lambda progress: cro_and_sparring.run_landing_teardown(_client_for(people), model, page, people, seed=seed,
                                                                       cohort_size=cohort or 40, profile=profile,
                                                                       parallel=par, progress=progress)
     if engine == "roleplay":
         msgs = data.get("messages") or data.get("rep_messages")
         if not msgs:
             raise ValueError("pass messages: the rep's opener and up to three follow-ups")
-        return lambda progress: cro_and_sparring.run_sales_roleplay(_client(), model, people, offer=data.get("offer") or "",
+        return lambda progress: cro_and_sparring.run_sales_roleplay(_client_for(people), model, people, offer=data.get("offer") or "",
                                                                     rep_messages=msgs, seed=seed, cohort_size=cohort or 20,
                                                                     profile=profile, parallel=par, progress=progress)
     if engine == "whatif":
         return lambda progress: cro_and_sparring.run_causal_whatif_model(
-            people, seed=seed, client=_client(), model=model, offer=data.get("offer") or "", attributes=data.get("attributes"),
+            people, seed=seed, client=_client_for(people), model=model, offer=data.get("offer") or "", attributes=data.get("attributes"),
             rounds=_num_arg(data, "rounds", int, 2, 6) or 4, cohort_size=cohort or 60, profile=profile, parallel=par, progress=progress)
     if engine == "personalize":
         return lambda progress: cro_and_sparring.run_segment_personalizer(
-            _client(), model, data.get("offer") or "", people, seed=seed, creative=data.get("creative"),
+            _client_for(people), model, data.get("offer") or "", people, seed=seed, creative=data.get("creative"),
             segments=_num_arg(data, "segments", int, 1, 8) or 4, per_segment=cohort or 12, profile=profile, run_data=rd,
             parallel=par, progress=progress)
     if engine == "thoughts":
         stim = data.get("stimulus") or data.get("offer")
         if not stim:
             raise ValueError("stimulus is required")
-        return lambda progress: agent_thoughts.run_thought_simulation(_client(), model, stim, people, max_personas=cohort or 40,
+        return lambda progress: agent_thoughts.run_thought_simulation(_client_for(people), model, stim, people, max_personas=cohort or 40,
                                                                       parallel=par, seed=seed, progress=progress)
     if engine in ("geo", "voc", "cascade"):
         from ..services import search_and_geo
         if engine == "geo":
             return lambda progress: search_and_geo.run_geo_visibility_audit(
-                _client(), model, offer=data.get("offer") or "", people=people, queries=data.get("queries"),
+                _client_for(people), model, offer=data.get("offer") or "", people=people, queries=data.get("queries"),
                 competitors=data.get("competitors"), seed=seed, cohort_size=cohort or 30, profile=profile,
                 parallel=par, progress=progress)
         if engine == "voc":
             return lambda progress: search_and_geo.run_voc_grounding(
-                _client(), model, offer=data.get("offer") or "", people=people, url=data.get("url"),
+                _client_for(people), model, offer=data.get("offer") or "", people=people, url=data.get("url"),
                 raw_reviews=data.get("raw_reviews") or data.get("reviews"), run_data=rd, seed=seed,
                 profile=profile, parallel=par, progress=progress)
         return lambda progress: search_and_geo.run_dark_social_cascade(
-            _client(), model, people=people, offer=data.get("offer") or "", seed=seed, cohort_size=cohort or 36,
+            _client_for(people), model, people=people, offer=data.get("offer") or "", seed=seed, cohort_size=cohort or 36,
             profile=profile, parallel=par, progress=progress)
     raise LookupError(f"unknown test: {engine} (choose from {', '.join(GTM_ENGINES)})")
 
@@ -992,7 +1001,7 @@ def start_gtm_suite():
         return jsonify({"success": False, "error": str(e)}), 400
 
     def work(progress):
-        return gtm_suite.run_full_gtm_suite(_client(), Config.LLM_MODEL_NAME, people, offer=data.get("offer"),
+        return gtm_suite.run_full_gtm_suite(_client_for(people), Config.LLM_MODEL_NAME, people, offer=data.get("offer"),
                                             competitor=str(data.get("competitor") or ""), competitors=data.get("competitors"),
                                             run_dir=sim_dir, seed=_num_arg(data, "seed", int) or 19, engines=engines, opts=opts,
                                             profile=profile, run_data=rd, progress=progress)

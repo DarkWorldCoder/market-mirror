@@ -369,6 +369,69 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
 
 
 # ---------------------------------------------------------------------------------------------------
+# Mixed providers: every person is played by the model that wrote them
+# ---------------------------------------------------------------------------------------------------
+
+def _pool_slots(env: Optional[Dict[str, str]] = None) -> List[Any]:
+    """The provider slots of LLM_POOL (no network clients are built here)."""
+    try:
+        from app.utils.model_pool import MultiProviderPool
+    except ImportError:  # pragma: no cover - the runner always has the backend on sys.path
+        return []
+    try:
+        pool = MultiProviderPool.from_env(env=env, client_factory=lambda **kw: None)
+    except Exception:  # noqa: BLE001 - a bad pool spec leaves the single model in place
+        return []
+    return list(pool.slots) if pool.is_multi else []
+
+
+def _camel_model(slot: Any) -> Any:
+    from camel.models import ModelFactory
+    from camel.types import ModelPlatformType
+    from app.utils.model_pool import provider_family
+    cfg = {"max_tokens": 4096} if provider_family(slot.provider) == "claude" else None
+    return ModelFactory.create(model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL, model_type=slot.model,
+                               model_config_dict=cfg, url=slot.base_url, api_key=slot.api_key)
+
+
+def assign_provider_models(agent_graph: Any, config: Dict[str, Any], env: Optional[Dict[str, str]] = None,
+                           make_model: Any = None) -> Dict[str, int]:
+    """With several providers in LLM_POOL, give every agent the model of the provider that wrote them
+    (persona_index[].model_provider); agents without one (graph entities, community accounts) are spread evenly.
+    Returns agents per provider, or {} when there is only one provider (the shared model stays)."""
+    slots = _pool_slots(env)
+    if not slots:
+        return {}
+    from app.utils.model_pool import provider_family
+    try:
+        from camel.models import ModelManager
+    except ImportError:  # pragma: no cover
+        ModelManager = None
+    make = make_model or _camel_model
+    models = [make(s) for s in slots]
+    family = [provider_family(s.provider) for s in slots]
+    writers = {int(r["agent_id"]): provider_family(r.get("model_provider"))
+               for r in (config or {}).get("persona_index") or []
+               if isinstance(r, dict) and r.get("agent_id") is not None}
+    counts: Dict[str, int] = {}
+    for agent in _agents_of(agent_graph):
+        aid = getattr(agent, "social_agent_id", None)
+        if aid is None:
+            continue
+        w = writers.get(int(aid))
+        idx = family.index(w) if w in family else int(aid) % len(slots)
+        backend = ModelManager(models[idx]) if ModelManager is not None else models[idx]
+        try:
+            agent.model_backend = backend
+            agent.model_type = getattr(backend, "model_type", getattr(agent, "model_type", None))
+            agent.mm_provider = slots[idx].provider
+        except Exception:  # noqa: BLE001 - an agent that cannot be rebound keeps the shared model
+            continue
+        counts[slots[idx].provider] = counts.get(slots[idx].provider, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------------------------------------------
 # Speed knobs
 # ---------------------------------------------------------------------------------------------------
 

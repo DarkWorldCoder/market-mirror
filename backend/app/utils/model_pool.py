@@ -240,6 +240,19 @@ def answered_provider(resp: Any) -> Optional[str]:
     return None
 
 
+# a gateway slot and the backend it reports answer for the same model family
+_FAMILY = {"claude_code": "claude", "anthropic": "claude", "gemini_cli": "gemini", "chatgpt": "codex", "siwc": "codex"}
+
+
+def provider_family(name: Any) -> str:
+    n = str(name or "").strip().lower()
+    return _FAMILY.get(n, n)
+
+
+def _strict_from_env() -> bool:
+    return (os.environ.get("LLM_POOL_STRICT") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class PoolPausedError(RuntimeError):
     """Every provider in the pool is paused (rate limited or failing); raised without calling any of them."""
     status_code = 429
@@ -348,6 +361,11 @@ class MultiProviderPool:
         self._rr = 0
         self._client_options = dict(client_options or {})
         self._option_clients: Dict[int, Any] = {}
+        # agent id -> slot: the provider that wrote a person also plays and answers for them (with_people)
+        self._assign: Dict[Any, int] = dict(_parent._assign) if _parent is not None else {}
+        # strict: a call bound to a slot never fails over to another provider (LLM_POOL_STRICT), so a person's
+        # answers always come from their own model; failures are reported instead of substituted
+        self.strict: bool = _parent.strict if _parent is not None else _strict_from_env()
         self.chat = _BoundChat(self, preferred_index=None)
 
     @property
@@ -392,8 +410,34 @@ class MultiProviderPool:
             self._option_clients[key] = client
         return client
 
+    def slot_for_provider(self, provider: Any) -> Optional[int]:
+        """Index of the slot that serves `provider` (claude_code and claude count as the same family)."""
+        want = provider_family(provider)
+        if not want:
+            return None
+        for i, s in enumerate(self.slots):
+            if provider_family(s.provider) == want:
+                return i
+        return None
+
+    def with_people(self, people: Any) -> "MultiProviderPool":
+        """A view whose for_agent sends each person to the slot of the provider that wrote them (their
+        model_provider), so one model writes, plays and answers for a person. Anyone else keeps agent_id % slots."""
+        view = MultiProviderPool(self.slots, pause_seconds=self.pause_seconds, client_options=self._client_options,
+                                 _parent=self)
+        for p in people or []:
+            if not isinstance(p, dict) or p.get("agent_id") is None:
+                continue
+            idx = self.slot_for_provider(p.get("model_provider"))
+            if idx is not None:
+                view._assign[p["agent_id"]] = idx
+                view._assign[str(p["agent_id"])] = idx
+        return view
+
     def for_agent(self, agent_id: Any) -> BoundProviderClient:
-        """Deterministically assign an agent ID to a provider slot in the pool."""
+        """The slot of the provider that wrote this person (with_people), else a fixed slot by agent id."""
+        if agent_id in self._assign:
+            return BoundProviderClient(self, self._assign[agent_id])
         if isinstance(agent_id, int):
             idx = agent_id % len(self.slots)
         else:
@@ -469,11 +513,24 @@ class MultiProviderPool:
             raise PoolPausedError(resume)
         time.sleep(max(0.0, wait))
 
+    def _wait_for_slot(self, idx: int) -> None:
+        wait = self.slots[idx].paused_until - time.time()
+        if wait <= 0:
+            return
+        if wait > MAX_WAIT_S:
+            raise PoolPausedError(self.slots[idx].paused_until)
+        time.sleep(wait)
+
     def _create_completion(self, preferred_index: Optional[int] = None, **kwargs: Any) -> Any:
-        self._wait_or_raise_if_all_paused()
-        indices = self._ordered_indices(preferred_index)
+        if self.strict and self.is_multi and preferred_index is not None:
+            idx = preferred_index % len(self.slots)
+            self._wait_for_slot(idx)
+            indices = [idx] * 3                         # the same provider, retried; never another one
+        else:
+            self._wait_or_raise_if_all_paused()
+            indices = self._ordered_indices(preferred_index)
         now = time.time()
-        if self.is_multi:
+        if self.is_multi and not (self.strict and preferred_index is not None):
             healthy = [i for i in indices if self.slots[i].is_healthy(now)]
             indices = healthy or indices[:1]           # paused slots are not tried again until their pause ends
         last_error: Optional[Exception] = None
@@ -498,7 +555,11 @@ class MultiProviderPool:
                             slot.timeouts += 1
                         if self.is_multi:
                             slot.paused_until = max(slot.paused_until, time.time() + TRANSIENT_PAUSE_S)
-                if len(indices) > 1 and transient:
+                if len(indices) > 1 and transient and attempt < len(indices) - 1:
+                    if self.strict and preferred_index is not None:
+                        if is_rl:
+                            raise
+                        time.sleep(min(2.0 * (attempt + 1), 6.0))
                     continue
                 raise
             usage = getattr(resp, "usage", None)

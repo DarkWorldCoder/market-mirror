@@ -892,7 +892,16 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
     With probes=True a second call per batch asks adaptive follow-ups and product questions and extracts the
     structured BDE card (background / decision procedure / evaluation). Returns the number of people interviewed."""
     people = [e for e in entities if PERSONA_LABEL in e.labels]
-    batches = [people[i:i + INTERVIEW_BATCH] for i in range(0, len(people), INTERVIEW_BATCH)]
+    # each person is interviewed by the provider that wrote them, so one model speaks for a person throughout
+    by_writer: Dict[str, List[EntityNode]] = {}
+    for e in people:
+        by_writer.setdefault(str((e.attributes or {}).get("model_provider") or ""), []).append(e)
+    batches, batch_slot = [], []
+    for writer, group in by_writer.items():
+        slot = client.slot_for_provider(writer) if writer and hasattr(client, "slot_for_provider") else None
+        for i in range(0, len(group), INTERVIEW_BATCH):
+            batch_slot.append(slot if slot is not None else len(batches))
+            batches.append(group[i:i + INTERVIEW_BATCH])
     if not batches:
         return 0
     done = 0
@@ -911,7 +920,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
         try:
             data, prov, mod = _llm_json(
                 client, model, _interview_prompt([card(e) for e in batch], context, voices),
-                temperature=0.9, max_tokens=6000, slot_index=b_idx, return_meta=True,
+                temperature=0.9, max_tokens=6000, slot_index=batch_slot[b_idx], return_meta=True,
             )
             rows = data.get("interviews") if isinstance(data, dict) else data
             return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
@@ -932,7 +941,7 @@ def run_interviews(client, model: str, entities: List[EntityNode], context: str,
         try:
             data, prov, mod = _llm_json(
                 client, model, _probe_prompt(cards, answers_by_name, probes_by_name, product_qs, context),
-                temperature=0.8, max_tokens=7000, slot_index=b_idx, return_meta=True,
+                temperature=0.8, max_tokens=7000, slot_index=batch_slot[b_idx], return_meta=True,
             )
             rows = data.get("people") if isinstance(data, dict) else data
             return batch, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
@@ -1111,6 +1120,19 @@ def _dedupe_name(name: str, taken: set) -> str:
     return candidate
 
 
+def provider_shares(sizes: List[int], n_slots: int) -> List[int]:
+    """Slot for each persona job so every provider in a pool writes the same number of people (within one job),
+    and each segment is split across the providers: the job goes to the provider with the fewest people so far."""
+    counts = [0] * max(1, n_slots)
+    out = []
+    for i, size in enumerate(sizes):
+        start = i % len(counts)
+        idx = min(range(len(counts)), key=lambda k: (counts[k], (k - start) % len(counts)))
+        counts[idx] += size
+        out.append(idx)
+    return out
+
+
 def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, context: str,
                       progress: Optional[Callable[[int, int, str], None]] = None,
                       parallel: int = 4, product: Optional[Dict[str, Any]] = None,
@@ -1133,6 +1155,7 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
         for start in range(0, len(slots), MAX_PER_CALL):
             jobs.append((seg, slots[start:start + MAX_PER_CALL], seg_comms))
     total = sum(len(j[1]) for j in jobs)
+    job_slot = provider_shares([len(j[1]) for j in jobs], len(getattr(client, "slots", None) or [None]))
 
     taken: set = set()
     done = 0
@@ -1140,7 +1163,7 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     def run(job_idx: int):
         seg, slots, comms = jobs[job_idx]
         prompt = _persona_prompt(seg, slots, requirement, context, sorted(taken), comms)
-        data, prov, mod = _llm_json(client, model, prompt, slot_index=job_idx, return_meta=True)
+        data, prov, mod = _llm_json(client, model, prompt, slot_index=job_slot[job_idx], return_meta=True)
         rows = data.get("personas") if isinstance(data, dict) else data
         return job_idx, [r for r in (rows or []) if isinstance(r, dict)], prov, mod
 

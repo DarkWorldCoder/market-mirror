@@ -580,7 +580,6 @@ class SimulationManager:
 
         Agent ids are list positions, so the order here (kept graph entities, then personas, then
         community accounts) is the order used for profiles, config and the follow graph."""
-        from openai import OpenAI
 
         def persona_progress(done, total, label):
             if progress_callback:
@@ -588,7 +587,8 @@ class SimulationManager:
                                   f"Personas {done}/{total}: {label}", current=done, total=total,
                                   item_name=label)
 
-        client = OpenAI(api_key=Config.LLM_API_KEY, base_url=Config.LLM_BASE_URL)
+        # the configured pool: with several providers (LLM_POOL) each writes an equal share of the people
+        client = Config.get_model_pool()
         context = (document_text or "")[:12000]
         try:                                                   # product profile first, so segments and interviews know the product
             from ..models.project import ProjectManager
