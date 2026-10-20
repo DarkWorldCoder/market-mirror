@@ -181,7 +181,9 @@ case "$cmd" in
           say "gateway already running ($be on $url)"
         else
           margs=(); [ -n "$gw_model" ] && margs=(--model "$gw_model")
-          (cd "$HOME_DIR" && nohup "$PY" backend/gateway/local_gateway.py --backend "$be" --port "$port" --auth-token-file "$tokenf" ${margs[@]+"${margs[@]}"} > "$logf" 2>&1 & echo $! > "$pidf")
+          # exec, so the recorded pid is the gateway itself (stop kills it) and nothing keeps the caller's output open
+          (cd "$HOME_DIR" && exec nohup "$PY" backend/gateway/local_gateway.py --backend "$be" --port "$port" --auth-token-file "$tokenf" ${margs[@]+"${margs[@]}"} > "$logf" 2>&1 < /dev/null) &
+          echo $! > "$pidf"
           for _ in $(seq 1 20); do curl -fsS -m 1 "$url/health" >/dev/null 2>&1 && break; sleep 0.5; done
           curl -fsS -m 1 "$url/health" >/dev/null 2>&1 || { tail -n 20 "$logf" >&2; die "gateway did not start; see $logf"; }
           say "gateway started ($be) on $url/v1 (log $logf)"

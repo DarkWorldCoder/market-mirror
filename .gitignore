@@ -17,6 +17,7 @@ Thumbs.db
 .env.chatgpt
 .env.siwc
 .env.multi
+.env.mixed
 
 # Python
 __pycache__/
