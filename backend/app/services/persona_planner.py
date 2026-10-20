@@ -498,8 +498,11 @@ def parse_json_block(text: str) -> Any:
         if not starts:
             raise
         start = min(starts)
-        end = max(text.rfind("}"), text.rfind("]"))
-        return json.loads(text[start:end + 1])
+        try:                                     # the first complete value, even with text or a second one after it
+            return json.JSONDecoder().raw_decode(text[start:])[0]
+        except ValueError:
+            end = max(text.rfind("}"), text.rfind("]"))
+            return json.loads(text[start:end + 1])
 
 
 _SEGMENT_SCHEMA = (

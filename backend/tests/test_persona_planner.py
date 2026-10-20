@@ -527,3 +527,8 @@ def test_persona_calls_in_flight_never_exceed_parallel(monkeypatch):
     client.chat.completions.create = create
     pp.generate_personas(client, "m", spec, "req", "ctx", parallel=3)
     assert 1 <= state["max"] <= 3
+
+
+def test_json_with_trailing_text_or_a_second_object_is_read():
+    assert pp.parse_json_block('{"a": 1}\n{"b": 2}') == {"a": 1}
+    assert pp.parse_json_block('Here you go: {"people": [1, 2]} hope this helps}') == {"people": [1, 2]}
