@@ -445,6 +445,39 @@ def _group_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _wilson_pct(pct: Optional[float], n: int, z: float = 1.96) -> Tuple[Optional[float], Optional[float]]:
+    """95% Wilson range for a share given in percent over n answers."""
+    if pct is None or not n:
+        return None, None
+    p = pct / 100.0
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * (p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5 / d
+    return round(100 * max(0.0, c - h), 1), round(100 * min(1.0, c + h), 1)
+
+
+def provider_agreement(groups: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Where the providers' people agree: would-convert ranges that overlap, the same top objection, the same best
+    message. Each provider wrote and answered for its own people, so a difference mixes the model and its people."""
+    rows = []
+    for g in groups:
+        lo, hi = _wilson_pct(g.get("convert_yes"), int(g.get("n") or 0))
+        rows.append({"provider": g["key"], "n": g.get("n"), "convert_yes": g.get("convert_yes"), "lo": lo, "hi": hi,
+                     "top_objection": g.get("top_objection"), "top_message": g.get("top_message"),
+                     "intent": ((g.get("ssr") or {}).get("purchase") or {}).get("mean")})
+    pairs = [(a, b) for i, a in enumerate(rows) for b in rows[i + 1:] if None not in (a["lo"], b["lo"])]
+    overlap = all(not (a["hi"] < b["lo"] or b["hi"] < a["lo"]) for a, b in pairs) if pairs else None
+
+    def same(key):
+        vals = [r[key] for r in rows if r.get(key)]
+        return (len(set(vals)) == 1) if len(vals) == len(rows) and vals else None
+    checks = {"ranges_overlap": overlap, "top_objection": same("top_objection"), "best_message": same("top_message")}
+    known = [v for v in checks.values() if v is not None]
+    rates = [r["convert_yes"] for r in rows if r["convert_yes"] is not None]
+    return {"providers": rows, "checks": checks, "agree": sum(1 for v in known if v), "of": len(known),
+            "gap": round(max(rates) - min(rates), 1) if len(rates) > 1 else None}
+
+
 def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
     meta = agent_meta(bundle)
     people = people_ids(meta)
@@ -469,7 +502,8 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                      "assigned": r.get("assigned_message"),
                      "segment": m.get("segment") or "Unassigned", "country": m.get("country") or "Unknown",
                      "communities": m.get("communities") or [], "age_band": age_band(m.get("age")),
-                     "gender": m.get("gender"), "acted": acted.get(aid, 0), "weight": m.get("weight", 1.0)})
+                     "gender": m.get("gender"), "acted": acted.get(aid, 0), "weight": m.get("weight", 1.0),
+                     "provider": ui.persona_provider(m)})
 
     split_mode = survey.get("mode") == "split"
     for r in rows:
@@ -532,6 +566,10 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                            key=lambda x: [b[2] for b in AGE_BANDS].index(x["key"]) if x["key"] in
                            [b[2] for b in AGE_BANDS] else 99)
     out["by_gender"] = breakdown(lambda r: [str(r["gender"]).title()] if r.get("gender") else [])
+    # several providers in one market: each provider's people, side by side
+    providers = {r["provider"] for r in rows if r.get("provider")}
+    out["by_provider"] = breakdown(lambda r: [r["provider"]] if r.get("provider") else []) if len(providers) > 1 else []
+    out["provider_agreement"] = provider_agreement(out["by_provider"]) if out["by_provider"] else None
 
     obj = Counter(r["objection_type"] for r in rows if r.get("objection_type") not in (None, "none"))
     out["objections"] = [{"type": t, "label": OBJECTION_LABELS.get(t, t), "count": c, "share": _pct(c, base),
@@ -941,6 +979,29 @@ def _ms(pool: Optional[Dict[str, Any]]) -> str:
     return "–" if not pool else f'{pool["mean"]:.1f} ±{pool["sd"]:.1f}'
 
 
+def models_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
+    """'Do the models agree?': the same survey, split by the provider that wrote and answered for each person."""
+    pa = a.get("provider_agreement")
+    if not pa:
+        return None
+    labels = {"ranges_overlap": "Would-convert ranges overlap", "top_objection": "Same top objection",
+              "best_message": "Same best message"}
+    chips = "".join(f'<span class="pill {"mint" if v else "orchid" if v is False else ""}">{_e(labels[k])}: '
+                    f'{"yes" if v else "no" if v is False else "not enough data"}</span>' for k, v in pa["checks"].items())
+    rows = [[r["provider"], r["n"], "–" if r["convert_yes"] is None else
+             f'{r["convert_yes"]:g}% ({r["lo"]:g}–{r["hi"]:g})' if r["lo"] is not None else f'{r["convert_yes"]:g}%',
+             "–" if r.get("intent") is None else f'{r["intent"]:g}',
+             OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"), r["top_message"] or "–"] for r in pa["providers"]]
+    gap = f' The would-convert rates are {pa["gap"]:g} points apart.' if pa.get("gap") is not None else ""
+    return ("models", "Models", ui.section_head("Do the models agree?") + '<div class="card">'
+            f'<p class="muted small" style="margin-top:0">Each provider wrote its own people and answered for them in the same '
+            f'market. {pa["agree"]} of {pa["of"]} checks agree.{_e(gap)} A difference mixes the model and the people it wrote, '
+            'so treat agreement as robustness, not as proof about real buyers.</p>'
+            f'<p style="display:flex;gap:8px;flex-wrap:wrap">{chips}</p>'
+            + ui.table(["Model", "People", "Would convert (95% range)", "Purchase intent (1–5)", "Top objection", "Best message"], rows, sortable=False)
+            + "</div>")
+
+
 def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
     if not rows:
         return '<p class="empty">No data.</p>'
@@ -1105,6 +1166,9 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
     rs = ssr_section(a, ins.get("ratings"))
     if rs:
         sections.append(rs)
+    ms = models_section(a)
+    if ms:
+        sections.append(ms)
 
     plays = a.get("playbook") or []
     if plays:
@@ -1137,7 +1201,7 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
 
     tabs = [("segment", "Segment", a["by_segment"]), ("country", "Country", a["by_country"]),
             ("community", "Community", a["by_community"]), ("age", "Age", a["by_age"]),
-            ("gender", "Gender", a["by_gender"])]
+            ("gender", "Gender", a["by_gender"]), ("provider", "Model", a.get("by_provider") or [])]
     tabs = [t for t in tabs if t[2]]
     tab_btns = "".join(f'<button type="button" data-panel="{k}" aria-pressed="{"true" if i == 0 else "false"}">{_e(lbl)}</button>'
                        for i, (k, lbl, _) in enumerate(tabs))

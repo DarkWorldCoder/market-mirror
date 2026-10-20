@@ -29,7 +29,7 @@ FAVICON = ("data:image/svg+xml," + MARK_SVG.replace('class="mm-mark" ', 'xmlns="
 
 GROUPS: List[Tuple[str, Sequence[str]]] = [
     ("Overview", ("kpis", "decision", "worldmap", "report", "brief")),
-    ("Buyers", ("results", "ratings", "funnel", "audiences", "objections", "messages", "pricing", "voices")),
+    ("Buyers", ("results", "ratings", "funnel", "audiences", "objections", "messages", "pricing", "voices", "models")),
     # thoughts and the lab sections are placed after the playbook on the page, so they sit with the tests here too
     ("Tests", ("feedtest", "socialfeed", "posts", "email", "emailtest", "pitch", "website", "playbook", "ideas", "gtm",
                "competitors", "cro-lab", "search-geo", "thoughts")),
@@ -73,7 +73,7 @@ _P = {
 }
 ICON_OF = {"kpis": "grid", "decision": "target", "worldmap": "globe", "report": "doc", "brief": "doc", "results": "bars",
            "ratings": "bars", "funnel": "funnel", "audiences": "users", "objections": "flag", "messages": "chat",
-           "pricing": "tag", "voices": "quote", "thoughts": "bulb", "gtm": "rocket", "competitors": "target", "cro-lab": "pulse", "search-geo": "search", "feedtest": "image", "socialfeed": "feed", "posts": "feed", "email": "mail",
+           "pricing": "tag", "voices": "quote", "models": "layers", "thoughts": "bulb", "gtm": "rocket", "competitors": "target", "cro-lab": "pulse", "search-geo": "search", "feedtest": "image", "socialfeed": "feed", "posts": "feed", "email": "mail",
            "emailtest": "mail", "pitch": "phone", "website": "globe", "playbook": "play", "ideas": "bulb", "scenarios": "layers",
            "study": "layers", "campaign": "rocket", "research": "search", "evidence": "search", "predictions": "trend",
            "prediction": "trend", "analysts": "check", "backtest": "rewind", "run-health": "pulse", "agents": "user",
