@@ -16,6 +16,19 @@ from .config import Config
 from .utils.logger import setup_logger, get_logger
 
 
+_DEV_CORS_ORIGINS = [r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"]
+
+
+def _cors_origins():
+    raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if raw.lower() == "none":
+        return None
+    if raw:
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        return origins[0] if origins == ["*"] else origins
+    return None if Config.is_production() else _DEV_CORS_ORIGINS
+
+
 def create_app(config_class=Config):
     """Flask应用工厂函数"""
     app = Flask(__name__)
@@ -39,10 +52,16 @@ def create_app(config_class=Config):
         logger.info("MiroFish Backend 启动中...")
         logger.info("=" * 50)
     
-    # 启用CORS
-    cors_origins = os.environ.get("CORS_ORIGINS", "*").strip()
-    origins_val = [o.strip() for o in cors_origins.split(",") if o.strip()] if "," in cors_origins else cors_origins
-    CORS(app, resources={r"/api/*": {"origins": origins_val}})
+    # Production safety: refuse an open or misconfigured production start (token, CORS, SECRET_KEY).
+    production_errors = Config.production_errors()
+    if production_errors:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(production_errors))
+
+    # CORS: explicit CORS_ORIGINS (comma-separated, or "none"); otherwise loopback origins in
+    # development and no cross-origin access in production.
+    origins_val = _cors_origins()
+    if origins_val:
+        CORS(app, resources={r"/api/*": {"origins": origins_val}})
     
     # 注册模拟进程清理函数（确保服务器关闭时终止所有模拟进程）
     from .services.simulation_runner import SimulationRunner
@@ -50,16 +69,22 @@ def create_app(config_class=Config):
     if should_log_startup:
         logger.info("已注册模拟进程清理函数")
 
+    # Tasks left pending/processing by a previous process can never finish: mark them failed.
+    from .models.task import TaskManager
+    TaskManager().recover_interrupted_tasks()
+
     # 注册生产级中间件（API 鉴权、限流、请求追踪ID、安全响应头、/ready 与 /metrics 探针）
     from .utils.production import install_production_middleware
     install_production_middleware(app)
     
-    # 请求日志中间件
+    # 请求日志中间件（生产环境不记录请求体：可能含客户数据或凭据）
+    log_bodies = not Config.is_production()
+
     @app.before_request
     def log_request():
         logger = get_logger('mirofish.request')
         logger.debug(f"请求: {request.method} {request.path}")
-        if request.content_type and 'json' in request.content_type:
+        if log_bodies and request.content_type and 'json' in request.content_type:
             body = request.get_json(silent=True)
             if request.path == '/api/simulation/website-test' and isinstance(body, dict):
                 body = {**body, 'spec': {**(body.get('spec') or {}), 'test_data': '[redacted]'}} if isinstance(body.get('spec'), dict) else body

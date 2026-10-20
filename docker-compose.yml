@@ -1,12 +1,19 @@
+# Production: cp .env.production.example .env, fill in the secrets, then
+#   mkdir -p backend/uploads mirofish_runs scenarios && sudo chown -R 10001:10001 backend/uploads mirofish_runs scenarios
+#   docker compose up -d --build
+# The backend binds 0.0.0.0 inside the container, so it refuses to start without
+# MM_API_AUTH_TOKEN, an explicit CORS_ORIGINS and a non-default SECRET_KEY (see .env.production.example).
 services:
   backend:
     build: .
     container_name: marketmirror
-    env_file: .env                     # LLM_API_KEY=... (or the gateway settings below)
+    env_file: .env                     # LLM keys, MM_API_AUTH_TOKEN, CORS_ORIGINS, SECRET_KEY (see .env.production.example)
+    init: true                         # tini as PID 1: forwards SIGTERM to run.py and reaps orphaned simulation processes
+    stop_grace_period: 30s             # simulation cleanup + MM_SHUTDOWN_GRACE (10s) fit inside it
     ports:
-      - "127.0.0.1:5001:5001"
+      - "127.0.0.1:5001:5001"          # loopback only; put a TLS reverse proxy in front for remote access
     volumes:
-      - ./backend/uploads:/app/backend/uploads     # knowledge graph, simulations, embedding model, calibration store
+      - ./backend/uploads:/app/backend/uploads     # knowledge graph, simulations, task store, embedding model, calibration store
       - ./mirofish_runs:/app/mirofish_runs         # run folders with dashboards and reports
       - ./scenarios:/app/scenarios                 # your inputs
     restart: unless-stopped
@@ -17,8 +24,10 @@ services:
     command: ["backend/.venv/bin/python", "backend/claude_cli/mirofish.py", "live", "--host", "0.0.0.0", "--interval", "10"]
     environment:
       - MIROFISH_URL=http://backend:5001
+      - MM_API_AUTH_TOKEN=${MM_API_AUTH_TOKEN:?set MM_API_AUTH_TOKEN in .env}   # only the token, not the LLM keys
+    init: true
     ports:
-      - "127.0.0.1:5050:5050"
+      - "127.0.0.1:5050:5050"          # the live view has no login of its own: keep it on loopback
     volumes:
       - ./mirofish_runs:/app/mirofish_runs
     depends_on:

@@ -1,6 +1,9 @@
 """\n配置管理\n统一从项目根目录的 .env 文件加载配置\n"""
 
+import ipaddress
 import os
+import re
+import secrets
 from dotenv import load_dotenv
 
 # 加载项目根目录的 .env 文件
@@ -18,7 +21,9 @@ class Config:
     """Flask配置类"""
     
     # Flask配置
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'mirofish-secret-key')
+    # No hard-coded fallback: without SECRET_KEY a random per-process key is used
+    # (development only; production refuses to start without an explicit key).
+    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
     # JSON配置 - 禁用ASCII转义，让中文直接显示
@@ -174,4 +179,95 @@ class Config:
         if cls.DEBUG:
             import warnings
             warnings.warn("Flask DEBUG mode is enabled. Do not use in production.", RuntimeWarning)
+        return errors
+
+    # ------------------------------------------------------------------
+    # Production checks (MM_ENV=production)
+    # ------------------------------------------------------------------
+
+    # The old hard-coded default and the .env.production.example values are refused.
+    _INSECURE_SECRET_DEFAULTS = {'mirofish-secret-key'}
+    _PLACEHOLDER_MARKERS = (
+        'replace-with', 'replace_me', 'replaceme', 'changeme', 'change-me', 'change_me',
+        'your-', 'your_', 'example', 'placeholder', 'secret-here', 'token-here', '<', '>', 'xxxx',
+    )
+    MIN_SECRET_LENGTH = 32
+    _ORIGIN_RE = re.compile(r'^https?://[A-Za-z0-9.\-\[\]:]+$')
+
+    @staticmethod
+    def is_production() -> bool:
+        return os.environ.get('MM_ENV', '').strip().lower() == 'production'
+
+    @staticmethod
+    def is_loopback_host(host: str) -> bool:
+        host = (host or '').strip().strip('[]').lower()
+        if host in ('localhost', 'ip6-localhost'):
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
+
+    @classmethod
+    def _looks_like_placeholder(cls, value: str) -> bool:
+        low = value.strip().lower()
+        return low in cls._INSECURE_SECRET_DEFAULTS or any(m in low for m in cls._PLACEHOLDER_MARKERS)
+
+    @classmethod
+    def production_errors(cls, host: str | None = None) -> list[str]:
+        """
+        Settings that make a production start unsafe. Empty unless MM_ENV=production.
+
+        Always (production): SECRET_KEY set explicitly, not a default or placeholder,
+        at least 32 characters; FLASK_DEBUG off; CORS_ORIGINS never "*".
+        Non-loopback bind host: MM_API_AUTH_TOKEN (>= 32 chars, not a placeholder)
+        and an explicit CORS_ORIGINS (comma-separated http(s) origins, or "none").
+        Values are never echoed back.
+        """
+        if not cls.is_production():
+            return []
+        env = os.environ
+        host = host if host is not None else env.get('FLASK_HOST', '127.0.0.1')
+        errors: list[str] = []
+
+        secret = (env.get('SECRET_KEY') or '').strip()
+        if not secret:
+            errors.append('SECRET_KEY is not set (generate one with: openssl rand -hex 32)')
+        elif cls._looks_like_placeholder(secret):
+            errors.append('SECRET_KEY is a default or placeholder value; set a random secret')
+        elif len(secret) < cls.MIN_SECRET_LENGTH:
+            errors.append(f'SECRET_KEY must be at least {cls.MIN_SECRET_LENGTH} characters')
+
+        if env.get('FLASK_DEBUG', 'False').strip().lower() in ('1', 'true', 'yes', 'on'):
+            errors.append('FLASK_DEBUG must be off in production')
+
+        cors = (env.get('CORS_ORIGINS') or '').strip()
+        if cors == '*' or '*' in [o.strip() for o in cors.split(',')]:
+            errors.append('CORS_ORIGINS="*" is not allowed in production; list the allowed origins or use "none"')
+
+        if not cls.is_loopback_host(host):
+            token = (env.get('MM_API_AUTH_TOKEN') or env.get('API_AUTH_TOKEN') or '').strip()
+            if not token:
+                errors.append(
+                    f'MM_API_AUTH_TOKEN is required when binding to a non-loopback host ({host}); '
+                    'generate one with: openssl rand -hex 32'
+                )
+            elif cls._looks_like_placeholder(token):
+                errors.append('MM_API_AUTH_TOKEN is a placeholder value; set a random token')
+            elif len(token) < cls.MIN_SECRET_LENGTH:
+                errors.append(f'MM_API_AUTH_TOKEN must be at least {cls.MIN_SECRET_LENGTH} characters')
+
+            if not cors:
+                errors.append(
+                    f'CORS_ORIGINS must be set explicitly when binding to a non-loopback host ({host}): '
+                    'a comma-separated list such as https://app.yourcompany.com, or "none" for no browser access'
+                )
+            elif cors.lower() != 'none' and '*' not in cors:
+                for origin in (o.strip() for o in cors.split(',')):
+                    if not origin:
+                        continue
+                    if not cls._ORIGIN_RE.match(origin):
+                        errors.append(f'CORS_ORIGINS entry is not an http(s) origin without a path: {origin!r}')
+                    elif cls._looks_like_placeholder(origin):
+                        errors.append(f'CORS_ORIGINS entry is a placeholder: {origin!r}')
         return errors
