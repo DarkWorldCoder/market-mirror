@@ -19,6 +19,7 @@ import json
 import os
 import threading
 import traceback
+from typing import Any, Dict, List
 
 from flask import jsonify, request
 
@@ -813,58 +814,198 @@ def generate_captions():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@simulation_bp.route('/thought-stream', methods=['POST'])
-def start_thought_stream():
-    """POST {simulation_id, stimulus: str|{headline,text,price,channel}, max_personas?, parallel?, seed?}
-    Runs a live cognitive inner-monologue simulation across the simulation's personas."""
-    from ..services import agent_thoughts
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    stimulus = data.get("stimulus")
+GTM_ENGINES = {
+    "committee": "buying_committee.json", "creative": "creative_optimizer.json", "battlecard": "sales_battlecard.json",
+    "journey": "journey_sim.json", "pricing": "pricing_conjoint.json", "competitors": "competitor_intel.json",
+    "teardown": "landing_teardown.json", "roleplay": "sales_roleplay.json", "whatif": "causal_whatif.json",
+    "personalize": "segment_personalization.json", "thoughts": "thought_stream.json",
+}
+RESULT_FILES.update({f"gtm-{k}": v for k, v in GTM_ENGINES.items()})
+RESULT_FILES["gtm-suite"] = "gtm_suite.json"
+LEGACY_GTM_ROUTES = {"buying-committee": "committee", "creative-optimizer": "creative", "sales-battlecard": "battlecard",
+                     "journey": "journey", "pricing-conjoint": "pricing", "competitor-analysis": "competitors",
+                     "landing-teardown": "teardown", "sales-roleplay": "roleplay", "whatif-simulator": "whatif",
+                     "segment-personalizer": "personalize", "thought-stream": "thoughts"}
+
+
+def _num_arg(data: Dict[str, Any], key: str, kind=int, lo=None, hi=None):
+    v = data.get(key)
+    if v in (None, ""):
+        return None
     try:
-        root = _sim_dir(sid)
+        v = kind(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number")
+    if lo is not None and v < lo or hi is not None and v > hi:
+        raise ValueError(f"{key} must be between {lo} and {hi}")
+    return v
+
+
+def _run_data(sim_dir: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """What the run already produced: feed test and pitch from the simulation folder, survey answers from the
+    request (the CLI keeps them in the run folder) or the simulation folder."""
+    out = {}
+    for key, name in (("feed_test", "feed_test.json"), ("pitch", "pitch.json"), ("survey", "survey.json")):
+        try:
+            with open(os.path.join(sim_dir, name), encoding="utf-8") as f:
+                out[key] = json.load(f)
+        except (OSError, ValueError):
+            pass
+    if isinstance(data.get("survey"), dict):
+        out["survey"] = data["survey"]
+    return out
+
+
+def _gtm_work(engine: str, sid: str, sim_dir: str, data: Dict[str, Any], people: List[Dict[str, Any]]):
+    """Validate the request and return work(progress) for the background task."""
+    from ..services import gtm_suite, cro_and_sparring, agent_thoughts
+    profile = _profile(sid)
+    rd = _run_data(sim_dir, data)
+    cohort = _num_arg(data, "cohort", int, 2, 1000)
+    par = _num_arg(data, "parallel", int, 1, 32) or 8
+    seed = _num_arg(data, "seed", int) or 19
+    opts = {**data, "cohort": cohort, "parallel": par, "seed": seed,
+            "spend": _num_arg(data, "spend", float, 0), "audience": _num_arg(data, "audience", int, 1),
+            "price": _num_arg(data, "price", float, 0), "generations": _num_arg(data, "generations", int, 1, 5)}
+    model = Config.LLM_MODEL_NAME
+    if engine in gtm_suite.ENGINES:
+        return lambda progress: gtm_suite.run_engine(engine, _client(), model, people, opts, profile, rd, progress)
+    if engine == "teardown":
+        page = data.get("page") or data.get("url")
+        if not page:
+            raise ValueError("pass url (a public page) or page (its text)")
+        return lambda progress: cro_and_sparring.run_landing_teardown(_client(), model, page, people, seed=seed,
+                                                                      cohort_size=cohort or 40, profile=profile,
+                                                                      parallel=par, progress=progress)
+    if engine == "roleplay":
+        msgs = data.get("messages") or data.get("rep_messages")
+        if not msgs:
+            raise ValueError("pass messages: the rep's opener and up to three follow-ups")
+        return lambda progress: cro_and_sparring.run_sales_roleplay(_client(), model, people, offer=data.get("offer") or "",
+                                                                    rep_messages=msgs, seed=seed, cohort_size=cohort or 20,
+                                                                    profile=profile, parallel=par, progress=progress)
+    if engine == "whatif":
+        return lambda progress: cro_and_sparring.run_causal_whatif_model(
+            people, seed=seed, client=_client(), model=model, offer=data.get("offer") or "", attributes=data.get("attributes"),
+            rounds=_num_arg(data, "rounds", int, 2, 6) or 4, cohort_size=cohort or 60, profile=profile, parallel=par, progress=progress)
+    if engine == "personalize":
+        return lambda progress: cro_and_sparring.run_segment_personalizer(
+            _client(), model, data.get("offer") or "", people, seed=seed, creative=data.get("creative"),
+            segments=_num_arg(data, "segments", int, 1, 8) or 4, per_segment=cohort or 12, profile=profile, run_data=rd,
+            parallel=par, progress=progress)
+    if engine == "thoughts":
+        stim = data.get("stimulus") or data.get("offer")
+        if not stim:
+            raise ValueError("stimulus is required")
+        return lambda progress: agent_thoughts.run_thought_simulation(_client(), model, stim, people, max_personas=cohort or 40,
+                                                                      parallel=par, seed=seed, progress=progress)
+    raise LookupError(f"unknown test: {engine} (choose from {', '.join(GTM_ENGINES)})")
+
+
+def _start_gtm(engine: str, data: Dict[str, Any]):
+    sid = str(data.get("simulation_id") or "").strip()
+    try:
+        sim_dir = _sim_dir(sid)
         people, _ = _people(sid)
         if not people:
-            raise ValueError("no personas found in simulation")
-        if not stimulus:
-            raise ValueError("stimulus is required")
+            raise ValueError("no simulated people yet: prepare the simulation first")
+        scope = _memory_scope(data)
+        if scope:
+            people = _with_history(people, sid, scope)
+        work = _gtm_work(engine, sid, sim_dir, data, people)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    task_id = _start(f"gtm-{engine}", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "test": engine,
+                                              "file": GTM_ENGINES[engine]}})
+
+
+@simulation_bp.route('/gtm/<engine>', methods=['POST'])
+def start_gtm_test(engine: str):
+    """POST {simulation_id, offer?, cohort?, parallel?, seed?, ...test options} -> background task. Every test asks
+    each person in its cohort; see docs/API.md for the options of each test."""
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "request body must be an object"}), 400
+    return _start_gtm(engine, data)
+
+
+@simulation_bp.route('/<simulation_id>/gtm/<engine>', methods=['GET'])
+def get_gtm_test(simulation_id: str, engine: str):
+    if engine not in GTM_ENGINES:
+        return jsonify({"success": False, "error": f"unknown test: {engine}"}), 404
+    try:
+        path = os.path.join(_sim_dir(simulation_id), GTM_ENGINES[engine])
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": f"no {engine} result yet"}), 404
+    with open(path, encoding="utf-8") as f:
+        return jsonify({"success": True, "data": json.load(f)})
+
+
+@simulation_bp.route('/gtm-suite', methods=['POST'])
+def start_gtm_suite():
+    """POST {simulation_id, engines?: [...], offer?, competitors?, ...} -> one background task running the tests in turn."""
+    from ..services import gtm_suite
+    data = request.get_json(silent=True) or {}
+    sid = str(data.get("simulation_id") or "").strip()
+    engines = [e for e in (data.get("engines") or gtm_suite.ENGINES) if e in gtm_suite.ENGINES]
+    if not engines:
+        return jsonify({"success": False, "error": f"engines must be some of {', '.join(gtm_suite.ENGINES)}"}), 400
+    try:
+        sim_dir = _sim_dir(sid)
+        people, _ = _people(sid)
+        if not people:
+            raise ValueError("no simulated people yet: prepare the simulation first")
+        rd = _run_data(sim_dir, data)
+        opts = {**data, "cohort": _num_arg(data, "cohort", int, 2, 1000), "parallel": _num_arg(data, "parallel", int, 1, 32) or 8,
+                "spend": _num_arg(data, "spend", float, 0), "audience": _num_arg(data, "audience", int, 1),
+                "price": _num_arg(data, "price", float, 0), "generations": _num_arg(data, "generations", int, 1, 5)}
+        profile = _profile(sid)
     except LookupError as e:
         return jsonify({"success": False, "error": str(e)}), 404
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-    max_personas = max(1, min(int(data.get("max_personas") or 40), 200))
-    parallel = max(1, min(int(data.get("parallel") or 8), 24))
-    seed = int(data.get("seed") or 7)
-    scope = _memory_scope(data)
-    if scope:
-        people = _with_history(people, sid, scope)
-
-    if data.get("sync"):
-        try:
-            res = agent_thoughts.run_thought_simulation(
-                _client(), Config.LLM_MODEL_NAME, stimulus, people,
-                max_personas=max_personas, parallel=parallel, seed=seed
-            )
-            with open(os.path.join(root, "thought_stream.json"), "w", encoding="utf-8") as f:
-                json.dump(res, f, ensure_ascii=False, indent=2)
-            return jsonify({"success": True, "data": res})
-        except Exception as e:  # noqa: BLE001
-            return jsonify({"success": False, "error": str(e)}), 500
-
     def work(progress):
-        return agent_thoughts.run_thought_simulation(
-            _client(), Config.LLM_MODEL_NAME, stimulus, people,
-            max_personas=max_personas, parallel=parallel, seed=seed, progress=progress
-        )
+        return gtm_suite.run_full_gtm_suite(_client(), Config.LLM_MODEL_NAME, people, offer=data.get("offer"),
+                                            competitor=str(data.get("competitor") or ""), competitors=data.get("competitors"),
+                                            run_dir=sim_dir, seed=_num_arg(data, "seed", int) or 19, engines=engines, opts=opts,
+                                            profile=profile, run_data=rd, progress=progress)
+    task_id = _start("gtm-suite", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "engines": engines}})
 
-    task_id = _start("thought-stream", sid, work)
-    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": min(len(people), max_personas)}})
+
+@simulation_bp.route('/<simulation_id>/gtm-suite', methods=['GET'])
+def get_gtm_suite(simulation_id: str):
+    try:
+        path = os.path.join(_sim_dir(simulation_id), "gtm_suite.json")
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": "no GTM results yet"}), 404
+    with open(path, encoding="utf-8") as f:
+        return jsonify({"success": True, "data": json.load(f)})
+
+
+def _legacy_gtm(route: str):
+    def view():
+        data = request.get_json(silent=True) or {}
+        return _start_gtm(LEGACY_GTM_ROUTES[route], data if isinstance(data, dict) else {})
+    view.__name__ = "legacy_" + route.replace("-", "_")
+    return view
+
+
+for _route in LEGACY_GTM_ROUTES:
+    simulation_bp.add_url_rule(f"/{_route}", view_func=_legacy_gtm(_route), methods=["POST"])
 
 
 @simulation_bp.route('/<simulation_id>/thought-stream', methods=['GET'])
 def get_thought_stream(simulation_id: str):
-    """Return the unified agent cognitive mindstream harvested across all touchpoints in the simulation."""
+    """Text the simulated people wrote during the run (thoughts, things said, posts), by person and source."""
     from ..services import agent_thoughts
     try:
         root = _sim_dir(simulation_id)
@@ -873,283 +1014,6 @@ def get_thought_stream(simulation_id: str):
     return jsonify({"success": True, "data": agent_thoughts.harvest_thoughts(root)})
 
 
-@simulation_bp.route('/buying-committee', methods=['POST'])
-def start_buying_committee():
-    """POST {simulation_id, offer: str|{headline,text,price}, mode?: auto|b2b|household, committee_count?, seed?}"""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    offer = data.get("offer") or "15-Minute Daily Routine App"
-    mode = str(data.get("mode") or "auto")
-    count = int(data.get("committee_count") or 6)
-    client = _client() if data.get("use_llm") else None
-    res = gtm_suite.run_buying_committee(client, Config.LLM_MODEL_NAME, offer, people, mode=mode, committee_count=count, seed=int(data.get("seed") or 17))
-    with open(os.path.join(root, "buying_committee.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/creative-optimizer', methods=['POST'])
-def start_creative_optimizer():
-    """POST {simulation_id, creative: str|{headline,text,cta,price}, generations?: 3, seed?}"""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    creative = data.get("creative") or data.get("offer") or "Start your 7-day free trial today"
-    gens = int(data.get("generations") or 3)
-    client = _client() if data.get("use_llm") else None
-    res = gtm_suite.run_creative_optimizer(client, Config.LLM_MODEL_NAME, creative, people, generations=gens, seed=int(data.get("seed") or 23))
-    with open(os.path.join(root, "creative_optimizer.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/sales-battlecard', methods=['POST'])
-def start_sales_battlecard():
-    """POST {simulation_id, offer?, competitor?}"""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    res = gtm_suite.run_sales_battlecard(
-        None, Config.LLM_MODEL_NAME, people,
-        offer=str(data.get("offer") or ""),
-        competitor=str(data.get("competitor") or "Status Quo / Free Alternatives"),
-    )
-    with open(os.path.join(root, "sales_battlecard.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/journey', methods=['POST'])
-def start_journey_simulation():
-    """POST {simulation_id, offer?, cpm?, retargeting_cpm?, monthly_price?, seed?}"""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    res = gtm_suite.run_journey_simulation(
-        None, Config.LLM_MODEL_NAME, data.get("offer") or "Offer", people,
-        cpm=float(data.get("cpm") or 4.5),
-        retargeting_cpm=float(data.get("retargeting_cpm") or 6.0),
-        monthly_price=float(data["monthly_price"]) if data.get("monthly_price") is not None else None,
-        seed=int(data.get("seed") or 29),
-    )
-    with open(os.path.join(root, "journey_sim.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/pricing-conjoint', methods=['POST'])
-def start_pricing_conjoint():
-    """POST {simulation_id, tiers?, base_price?, currency?, seed?}"""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    res = gtm_suite.run_pricing_conjoint(
-        None, Config.LLM_MODEL_NAME, people,
-        tiers=data.get("tiers"),
-        base_price=float(data.get("base_price") or 12.0),
-        currency=str(data.get("currency") or "USD"),
-        seed=int(data.get("seed") or 37),
-    )
-    with open(os.path.join(root, "pricing_conjoint.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/gtm-suite', methods=['POST'])
-def start_gtm_suite():
-    """POST {simulation_id, offer?, competitor?, seed?} — runs all 5 Marketing & Sales GTM engines."""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    client = _client() if data.get("use_llm") else None
-    res = gtm_suite.run_full_gtm_suite(
-        client, Config.LLM_MODEL_NAME, people,
-        offer=data.get("offer"),
-        competitor=str(data.get("competitor") or "Status Quo / Free Alternatives"),
-        run_dir=root,
-        seed=int(data.get("seed") or 19),
-    )
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/<simulation_id>/gtm-suite', methods=['GET'])
-def get_gtm_suite(simulation_id: str):
-    """GET the saved (or on-the-fly generated) Marketing & Sales GTM suite for a simulation."""
-    from ..services import gtm_suite
-    try:
-        root = _sim_dir(simulation_id)
-        people, _ = _people(simulation_id)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    p = os.path.join(root, "gtm_suite.json")
-    if os.path.exists(p):
-        with open(p, "r", encoding="utf-8") as f:
-            return jsonify({"success": True, "data": json.load(f)})
-    res = gtm_suite.run_full_gtm_suite(None, Config.LLM_MODEL_NAME, people, run_dir=root)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/competitor-analysis', methods=['POST'])
-def start_competitor_analysis():
-    """POST {simulation_id, offer?, competitors?: [str|dict], seed?} — Multi-agent Competitor Bake-Off & AI Suggestion Engine."""
-    from ..services import gtm_suite
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    client = _client() if data.get("use_llm") else None
-    res = gtm_suite.run_competitor_intelligence(
-        client, Config.LLM_MODEL_NAME, data.get("offer") or "Our Product", people,
-        competitors=data.get("competitors"),
-        seed=int(data.get("seed") or 41),
-    )
-    with open(os.path.join(root, "competitor_intel.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
 @simulation_bp.route('/<simulation_id>/competitor-analysis', methods=['GET'])
 def get_competitor_analysis(simulation_id: str):
-    """GET the Competitor Bake-Off, Feature Gap Matrix, and AI Suggestions for a simulation."""
-    from ..services import gtm_suite
-    try:
-        root = _sim_dir(simulation_id)
-        people, _ = _people(simulation_id)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    p = os.path.join(root, "competitor_intel.json")
-    if os.path.exists(p):
-        with open(p, "r", encoding="utf-8") as f:
-            return jsonify({"success": True, "data": json.load(f)})
-    res = gtm_suite.run_competitor_intelligence(None, Config.LLM_MODEL_NAME, "Our Product", people)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/landing-teardown', methods=['POST'])
-def start_landing_teardown():
-    """POST {simulation_id, url?: str, page?: dict|str, seed?} — Wynter + Neurons 5-Second Teardown & Scroll Decay."""
-    from ..services import cro_and_sparring
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    page_input = data.get("url") or data.get("page") or data.get("offer") or "15-Minute Daily Routine App"
-    res = cro_and_sparring.run_landing_teardown(None, Config.LLM_MODEL_NAME, page_input, people, seed=int(data.get("seed") or 53))
-    with open(os.path.join(root, "landing_teardown.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/sales-roleplay', methods=['POST'])
-def start_sales_roleplay():
-    """POST {simulation_id, rep_messages?: [str], persona_id?: int, offer?: str} — Hyperbound/Yoodli AI Buyer Roleplay Dojo."""
-    from ..services import cro_and_sparring
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    res = cro_and_sparring.run_sales_roleplay(
-        None, Config.LLM_MODEL_NAME, people,
-        rep_messages=data.get("rep_messages"),
-        persona_id=data.get("persona_id"),
-        offer=str(data.get("offer") or ""),
-    )
-    with open(os.path.join(root, "sales_roleplay.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/whatif-simulator', methods=['POST'])
-def start_whatif_simulator():
-    """POST {simulation_id, base_price?: float, currency?: str} — Subconscious.ai Causal Marginal Utility & What-If Model."""
-    from ..services import cro_and_sparring
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    res = cro_and_sparring.run_causal_whatif_model(
-        people,
-        base_price=float(data.get("base_price") or 12.0),
-        currency=str(data.get("currency") or "USD"),
-    )
-    with open(os.path.join(root, "causal_whatif.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-@simulation_bp.route('/segment-personalizer', methods=['POST'])
-def start_segment_personalizer():
-    """POST {simulation_id, offer?} — Mutiny 1:1 Segment Personalizer & Evidenza Category Entry Points (CEPs)."""
-    from ..services import cro_and_sparring
-    data = request.get_json(silent=True) or {}
-    sid = str(data.get("simulation_id") or "").strip()
-    try:
-        root = _sim_dir(sid)
-        people, _ = _people(sid)
-    except LookupError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
-    res = cro_and_sparring.run_segment_personalizer(None, Config.LLM_MODEL_NAME, data.get("offer") or "15-Min Daily Routine", people)
-    with open(os.path.join(root, "segment_personalization.json"), "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=2)
-    return jsonify({"success": True, "data": res})
-
-
-
-
+    return get_gtm_test(simulation_id, "competitors")

@@ -48,6 +48,7 @@ try:  # marketing layer (stdlib only)
     import overview  # type: ignore
     import geo_view  # type: ignore
     import shell  # type: ignore
+    import gtm_view  # type: ignore
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
@@ -57,6 +58,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import overview  # type: ignore
     from . import geo_view  # type: ignore
     from . import shell  # type: ignore
+    from . import gtm_view  # type: ignore
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
@@ -84,7 +86,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
 ]
@@ -1164,10 +1166,10 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if r.get("lead_score") is not None:
             aid = r.get("agent_id")
             leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (report_view.cro_lab_section(bundle, insights.get("cro-lab")),
-                  report_view.competitor_section(bundle, insights.get("competitors")),
-                  report_view.gtm_section(bundle, insights.get("gtm")),
-                  report_view.thoughts_section(bundle, insights.get("thoughts")),
+    for extra in (gtm_view.cro_lab_section(bundle, insights.get("cro-lab")),
+                  gtm_view.competitor_section(bundle, insights.get("competitors")),
+                  gtm_view.lab_section(bundle, insights.get("gtm")),
+                  gtm_view.thoughts_section(bundle, insights.get("thoughts")),
                   report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
                   report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))):   # pitch ends up first
         if extra:
@@ -1338,7 +1340,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         f"<script>{ui.HEAD_JS}</script>\n"
         # tokens.TOKENS_CSS comes last so its palette and components win over the per-module styles
         f"<style>{CSS}{marketing.MARKETING_CSS}{feed_view.FEED_CSS}{report_view.REPORT_CSS}"
-        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}{tokens.section_css()}{geo_view.GEO_CSS}{shell.SHELL_CSS}</style>\n</head>\n<body>\n"
+        f"{getattr(social_feed, 'SOCIAL_CSS', '') if social_feed else ''}{tokens.TOKENS_CSS}{tokens.section_css()}{geo_view.GEO_CSS}{gtm_view.GTM_CSS}{shell.SHELL_CSS}</style>\n</head>\n<body>\n"
         + "\n".join(body)
         + (f"\n<script>{_echarts_inline()}</script>" if 'class="ec"' in "".join(body) else "")
         # ui.UI_JS first: it defines window.MM (theme reader, filter engine) that the module scripts use
