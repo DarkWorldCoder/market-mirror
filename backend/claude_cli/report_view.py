@@ -97,56 +97,85 @@ def enhance_report(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     return html, toc
 
 
+def _listish(v: Any, n: int) -> str:
+    items = v if isinstance(v, list) else [v] if v not in (None, "", []) else []
+    return "; ".join(str(x) for x in items[:n] if str(x).strip())
+
+
+_BDE_ROWS = (  # (section, field, label, list items shown; 0 = a single value)
+    ("background", "who", "Who", 0), ("background", "believes", "Believes", 3),
+    ("background", "says_vs_does", "Says vs does", 0),
+    ("decision_procedure", "who_they_ask", "Asks", 0), ("decision_procedure", "triggers", "Acts on", 3),
+    ("decision_procedure", "stoppers", "Stops at", 3),
+    ("evaluation", "monthly_discretionary", "Spare money a month", 0), ("evaluation", "value_priorities", "Pays for value in", 3),
+    ("evaluation", "never_pays_for", "Never pays for", 3), ("evaluation", "dealbreakers", "Dealbreakers", 4),
+    ("evaluation", "trust_cues", "Trusts", 3),
+)
+
+
+def bde_card(r: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """The persona's BDE card (persona_planner.clean_bde): {background, decision_procedure, evaluation}; {} if absent."""
+    bde = (r or {}).get("bde")
+    if not isinstance(bde, dict):
+        return {}
+    return {k: bde[k] for k in ("background", "decision_procedure", "evaluation") if isinstance(bde.get(k), dict)}
+
+
+def person_budget(r: Dict[str, Any]) -> str:
+    """Monthly spare money from the BDE card, else the income band; '' when neither was recorded."""
+    disc = (bde_card(r).get("evaluation") or {}).get("monthly_discretionary")
+    return str(disc or r.get("income_level") or r.get("income") or "").strip()
+
+
 def _bde_inspector_drawer(r: Dict[str, Any], st: Optional[Dict[str, Any]] = None) -> str:
-    """Expandable BDE decision profile & stateful episodic memory drawer for a persona."""
-    bde = r.get("bde") if isinstance(r.get("bde"), dict) else {}
-    loss = r.get("loss_aversion") or bde.get("loss_aversion")
-    proof = r.get("social_proof_sensitivity") or bde.get("social_proof_sensitivity")
-    loyalty = r.get("brand_loyalty") or bde.get("brand_loyalty")
-    skep = r.get("skepticism") or bde.get("skepticism")
-    budget = r.get("discretionary_budget") or bde.get("discretionary_budget")
-    deals = r.get("dealbreakers") or bde.get("dealbreakers") or []
-    constraints = r.get("hidden_constraints") or bde.get("hidden_constraints") or []
-    payday = r.get("payday_status")
-    life_stage = r.get("life_stage")
-    st = st or {}
-    mood = st.get("mood")
-    energy = st.get("energy")
-    trust_d = st.get("brand_trust_delta")
-    fatigue = st.get("ad_fatigue")
-    memory = st.get("episodic_memory") or []
-    traj = st.get("trajectory") or []
-    if not any([loss, proof, loyalty, skep, budget, deals, constraints, payday, life_stage, mood, memory, traj]):
+    """The person's decision profile (the BDE card from persona_planner) and what the simulation did to them
+    (one behavior_state.json record: {"state": {...}, "memory": [...], "trajectory": [...]}). Empty without real data."""
+    bde = bde_card(r)
+    rows: List[Tuple[str, str]] = []
+    for section, field, label, n in _BDE_ROWS:
+        v = (bde.get(section) or {}).get(field)
+        text = _listish(v, n) if n else (str(v).strip() if v not in (None, "", []) else "")
+        if text:
+            rows.append((label, text))
+    dp = bde.get("decision_procedure") or {}
+    style = " · ".join(f"{k} {dp[k]}" for k in ("speed", "style", "risk", "patience") if str(dp.get(k) or "").strip())
+    if style:
+        at = next((i for i, (k, _) in enumerate(rows) if k in ("Asks", "Acts on", "Stops at")), len(rows))
+        rows.insert(at, ("Decides", style))
+    bg = bde.get("background") or {}
+    bias = " · ".join(f"{k.replace('_', ' ')} {bg[k]}" for k in ("acquiescence", "social_desirability") if str(bg.get(k) or "").strip())
+    if bias:
+        rows.append(("Answer bias", bias))
+    st = st if isinstance(st, dict) else {}
+    state = st.get("state") if isinstance(st.get("state"), dict) else {}
+    memory = [m for m in (st.get("memory") or []) if isinstance(m, dict) and str(m.get("text") or "").strip()]
+    trajectory = [t for t in (st.get("trajectory") or []) if isinstance(t, dict)]
+    live = [f"{label} {v:.0%}" for label, v in
+            ((label, ui.num(state.get(key))) for key, label in (("trust", "trust"), ("familiarity", "familiarity"),
+                                                                 ("fatigue", "ad fatigue"), ("energy", "energy"),
+                                                                 ("wallet_pressure", "wallet pressure")))
+            if v is not None]
+    if str(state.get("mood") or "").strip():
+        live.insert(0, str(state["mood"]))
+    if live:
+        rows.append(("After the tests", " · ".join(live)))
+    trust_path = [v for v in (ui.num(t.get("trust")) for t in trajectory) if v is not None]
+    if len(trust_path) >= 2:
+        rows.append(("Trust over time", f"{trust_path[0]:.0%} → {trust_path[-1]:.0%} over {len(trust_path)} events"))
+    if not rows and not memory:
         return ""
-    rows = []
-    if life_stage or payday:
-        rows.append(("Life stage / wallet", " · ".join(str(x).replace("_", " ") for x in (life_stage, payday) if x)))
-    if budget:
-        rows.append(("Discretionary budget", str(budget)))
-    psych = [f"{k}: {v}" for k, v in (("loss aversion", loss), ("social proof", proof), ("loyalty", loyalty), ("skepticism", skep)) if v]
-    if psych:
-        rows.append(("Decision profile", " · ".join(psych)))
-    if deals:
-        rows.append(("Dealbreakers", "; ".join(str(x) for x in deals[:4])))
-    if constraints:
-        rows.append(("Hidden constraints", "; ".join(str(x) for x in constraints[:3])))
-    if mood or energy is not None or trust_d is not None:
-        state_bits = []
-        if mood:
-            state_bits.append(f"mood: {mood}")
-        if energy is not None:
-            state_bits.append(f"energy: {float(energy):.0%}")
-        if trust_d is not None:
-            state_bits.append(f"trust Δ: {float(trust_d):+.2f}")
-        if fatigue:
-            state_bits.append(f"ad fatigue: {float(fatigue):.2f}")
-        rows.append(("Live state", " · ".join(state_bits)))
-    dl = '<dl class="person-d">' + "".join(f"<dt>{_e(k)}</dt><dd>{_e(v)}</dd>" for k, v in rows) + "</dl>"
+    if r.get("payday_status"):
+        rows.insert(0, ("Wallet", str(r["payday_status"]).replace("_", " ")))
+    dl = ('<dl class="person-d">' + "".join(f"<dt>{_e(k)}</dt><dd>{_e(v)}</dd>" for k, v in rows) + "</dl>") if rows else ""
     mem_html = ""
     if memory:
-        mem_items = "".join(f"<li>{_e(_t(m, 140))}</li>" for m in memory[-4:])
-        mem_html = f'<div class="bde-mem"><strong>Episodic memory</strong><ul>{mem_items}</ul></div>'
-    return f'<details class="bde-drawer"><summary>Inspect BDE &amp; memory</summary>{dl}{mem_html}</details>'
+        items = "".join(f'<li><span class="muted">{_e(str(m.get("test") or "").replace("_", " "))}</span> {_e(_t(m.get("text"), 160))}</li>'
+                        for m in memory[-4:])
+        mem_html = (f'<div class="bde-mem"><strong>What happened to them</strong> <span class="muted">(last {min(4, len(memory))} '
+                    f'of {len(memory)})</span><ul>{items}</ul></div>')
+    label = ("Decision profile and memory" if bde and (memory or live) else "Decision profile" if bde
+             else "Memory from the tests")
+    return f'<details class="bde-drawer"><summary>{label}</summary>{dl}{mem_html}</details>'
 
 
 def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_by_agent: Dict[Any, Dict[str, Any]],
@@ -159,12 +188,13 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
     if not people:
         return ""
     states_by_agent = states_by_agent or {}
+    any_model = any(ui.persona_provider(r) for r in people)     # the Model column only when providers were recorded
     cards = []
     crm_rows = []
     segments: Counter = Counter()
     countries: Counter = Counter()
     providers: Counter = Counter()
-    has_grounded = False
+    provenances: Counter = Counter()
     for i, r in enumerate(people):
         aid = r.get("agent_id")
         sv = survey_by_agent.get(aid) or {}
@@ -173,26 +203,25 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
         vcls = {"yes": "mint", "maybe": "accent", "no": "orchid"}.get(verdict, "")
         who = ", ".join(str(x) for x in (r.get("age"), r.get("city"), r.get("country")) if x)
         traits = [r.get("upbringing"), r.get("education"), r.get("income_level") or r.get("income"), r.get("thinking_style")]
-        prov = str(r.get("model_provider") or "").strip().lower()
-        provenance = "grounded" if r.get("provenance") == "real_intake" else "synthetic"
-        if provenance == "grounded":
-            has_grounded = True
+        prov = ui.persona_provider(r)
+        provenance = ui.persona_provenance(r)
         if r.get("segment"):
             segments[str(r["segment"])] += 1
         if r.get("country"):
             countries[str(r["country"])] += 1
         if prov:
             providers[prov] += 1
-        extra_attrs = ""
-        if prov:
-            extra_attrs += f' data-provider="{_e(prov)}"'
-        if provenance == "grounded":
-            extra_attrs += ' data-provenance="grounded"'
+        if provenance:
+            provenances[provenance] += 1
+        extra_attrs = f' data-provider="{_e(prov)}"' if prov else ""
+        if provenance:
+            extra_attrs += f' data-provenance="{provenance}"'
+        lead = leads.get(aid) if aid in leads else None
         attrs = (f'data-item data-order="{i}" data-segment="{_e(r.get("segment") or "")}" data-country="{_e(r.get("country") or "")}" '
-                 f'data-verdict="{_e(verdict or "none")}" data-lead="{leads[aid] if aid in leads else ""}"{extra_attrs}')
+                 f'data-verdict="{_e(verdict or "none")}" data-lead="{_e(lead if lead is not None else "")}"{extra_attrs}')
         prov_badge = (f'<span class="mm-provider-badge" data-prov="{_e(prov)}" title="{_e(r.get("model_name") or prov)}">{_e(prov)}</span>'
                       if prov else "")
-        prov_pill = ('<span class="pill prov-pill-real" title="Grounded from real customer profile">Grounded</span>'
+        prov_pill = ('<span class="pill prov-pill-real" title="Built from real customer intake">Grounded</span>'
                      if provenance == "grounded" else "")
         life_pill = _pill(str(r["life_stage"]).replace("_", " ")) if r.get("life_stage") else ""
         drawer = _bde_inspector_drawer(r, st)
@@ -200,7 +229,7 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             f'<div class="person" {attrs}><div class="person-h"><span class="pm-av">{_e(str(r.get("name") or "?")[:1])}</span>'
             f'<div><b>{_e(r.get("name"))}</b><div class="muted small">{_e(who)} · {_e(r.get("occupation") or "")}</div></div>'
             + prov_badge
-            + (f'<span class="lead" title="Lead score 0-100">{leads[aid]}</span>' if aid in leads else "") + '</div>'
+            + (f'<span class="lead" title="Lead score 0-100">{_e(lead)}</span>' if lead is not None else "") + '</div>'
             f'<div class="person-pills">{_pill(r.get("segment"))}{prov_pill}{life_pill}'
             + "".join(_pill(l) for l in (r.get("languages") or [])[:2])
             + (_pill(f"would {verdict}", vcls) if verdict else "") + "</div>"
@@ -217,10 +246,10 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             f'<td><b>{_e(r.get("name"))}</b><div class="muted small">{_e(r.get("occupation") or "")}</div></td>'
             f'<td>{_pill(r.get("segment"))}{" " + prov_pill if prov_pill else ""}</td>'
             f'<td>{_e(who)}</td>'
-            f'<td>{prov_badge or "–"}</td>'
-            f'<td class="num">{leads[aid] if aid in leads else "–"}</td>'
+            + (f'<td>{prov_badge or "–"}</td>' if any_model else "") +
+            f'<td class="num">{_e(lead) if lead is not None else "–"}</td>'
             f'<td>{_pill(f"would {verdict}", vcls) if verdict else "–"}</td>'
-            f'<td>{_e(r.get("discretionary_budget") or r.get("income_level") or "–")}</td>'
+            f'<td>{_e(person_budget(r) or "–")}</td>'
             f'<td class="small">{_e(_t(sv.get("main_objection") or r.get("interview_summary") or "", 110))}</td>'
             f'</tr>'
         )
@@ -233,21 +262,22 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
         '<th data-sort="text" aria-sort="none" scope="col">Buyer</th>'
         '<th data-sort="text" aria-sort="none" scope="col">Segment</th>'
         '<th data-sort="text" aria-sort="none" scope="col">Location &amp; Age</th>'
-        '<th data-sort="text" aria-sort="none" scope="col">Model</th>'
-        '<th class="num" data-sort="num" aria-sort="none" scope="col">Lead score</th>'
+        + ('<th data-sort="text" aria-sort="none" scope="col">Model</th>' if any_model else "")
+        + '<th class="num" data-sort="num" aria-sort="none" scope="col">Lead score</th>'
         '<th data-sort="text" aria-sort="none" scope="col">Verdict</th>'
         '<th data-sort="text" aria-sort="none" scope="col">Budget / Income</th>'
         '<th data-sort="text" aria-sort="none" scope="col">Key Objection / Note</th>'
         f'</tr></thead><tbody>{"".join(crm_rows)}</tbody></table></div></div>'
     )
-    return (people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values()), providers, has_grounded) + note
+    return (people_filter_bar(segments, countries, bool(leads), any(survey_by_agent.values()), providers, provenances) + note
             + f'<div data-panel="cards" data-panel-for="view"><div class="people">{"".join(cards)}</div></div>'
             + crm_table + '</div>')
 
 
 def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_leads: bool, has_survey: bool,
-                      providers: Optional[Dict[str, int]] = None, has_grounded: bool = False) -> str:
-    """Opens the people filter root (closed by people_cards): view switcher, text search, segment, country, provider, verdict, lead score."""
+                      providers: Optional[Dict[str, int]] = None, provenances: Optional[Dict[str, int]] = None) -> str:
+    """Opens the people filter root (closed by people_cards): view switcher, text search, segment, country, provider,
+    provenance, verdict, lead score. Provider and provenance filters only list values that were recorded."""
     def opts(c: Dict[str, int]) -> str:
         return "".join(f'<option value="{_e(k)}">{_e(k)} ({n})</option>' for k, n in sorted(c.items(), key=lambda x: (-x[1], x[0])))
     bar = [
@@ -261,11 +291,14 @@ def people_filter_bar(segments: Dict[str, int], countries: Dict[str, int], has_l
         bar.append(f'<select data-filter="segment" aria-label="Segment"><option value="">All segments</option>{opts(segments)}</select>')
     if countries:
         bar.append(f'<select data-filter="country" aria-label="Country"><option value="">All countries</option>{opts(countries)}</select>')
-    if providers and len(providers) >= 1:
+    if providers and len(providers) >= 2:
         bar.append(f'<select data-filter="provider" aria-label="Model provider"><option value="">All AI models</option>{opts(providers)}</select>')
-    if has_grounded:
-        bar.append('<select data-filter="provenance" aria-label="Provenance"><option value="">All provenance</option>'
-                   '<option value="grounded">Grounded intake</option><option value="synthetic">Synthetic seeded</option></select>')
+    provenances = provenances or {}
+    if provenances.get("grounded"):
+        labels = (("grounded", "Grounded in real intake"), ("synthetic", "Model-written"))
+        bar.append('<select data-filter="provenance" aria-label="Provenance"><option value="">Any source</option>'
+                   + "".join(f'<option value="{k}">{label} ({provenances[k]})</option>' for k, label in labels if provenances.get(k))
+                   + '</select>')
     if has_survey:
         bar.append('<select data-filter="verdict" aria-label="Survey verdict"><option value="">Any verdict</option>'
                    '<option value="yes">Would say yes</option><option value="maybe">Maybe</option><option value="no">Would say no</option>'
@@ -283,30 +316,34 @@ def leads_csv(index: List[Dict[str, Any]], survey_by_agent: Dict[Any, Dict[str, 
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["agent_id", "name", "segment", "country", "city", "age", "occupation", "model_provider", "provenance",
-                "lead_score", "would_convert", "interest", "trust", "main_objection", "languages", "communities"])
+                "provenance_profile", "lead_score", "would_convert", "interest", "trust", "main_objection", "languages", "communities"])
     for r in index:
         if r.get("kind") != "persona":
             continue
         aid = r.get("agent_id")
         sv = survey_by_agent.get(aid) or {}
+        prov = r.get("provenance")
+        profile = prov.get("profile") if isinstance(prov, dict) else prov if isinstance(prov, str) else ""
         w.writerow([aid, r.get("name"), r.get("segment"), r.get("country"), r.get("city"), r.get("age"), r.get("occupation"),
-                    r.get("model_provider", ""), r.get("provenance", "llm_seeded"),
+                    ui.persona_provider(r), ui.persona_provenance(r), profile or "",
                     leads.get(aid, ""), sv.get("would_convert", ""), sv.get("interest", ""), sv.get("trust", ""),
-                    sv.get("main_objection", ""), " / ".join(r.get("languages") or []), " / ".join(map(str, r.get("communities") or []))])
+                    sv.get("main_objection", ""), " / ".join(map(str, r.get("languages") or [])),
+                    " / ".join(map(str, r.get("communities") or []))])
     return buf.getvalue()
 
 
 def person_lead_score(sv: Dict[str, Any]) -> Optional[int]:
     """Per-person lead score from their own survey answer (SSR purchase mean if present, else yes/maybe/no)."""
-    if not sv:
+    if not isinstance(sv, dict) or not sv:
         return None
-    ssr = ((sv.get("ssr") or {}).get("purchase") or {})
-    if ssr.get("mean") is not None:
-        intent = (float(ssr["mean"]) - 1) / 4 * 60
+    ssr = (sv.get("ssr") or {}).get("purchase") if isinstance(sv.get("ssr"), dict) else None
+    mean = ui.num((ssr or {}).get("mean")) if isinstance(ssr, dict) else None
+    if mean is not None:
+        intent = (mean - 1) / 4 * 60
     else:
         intent = {"yes": 60, "maybe": 30, "no": 0}.get(sv.get("would_convert"), 15)
-    trust = sv.get("trust")
-    trust_pts = float(trust) / 10 * 25 if isinstance(trust, (int, float)) else 10
+    trust = ui.num(sv.get("trust"))
+    trust_pts = trust / 10 * 25 if trust is not None else 10
     click = {"yes": 15, "maybe": 7}.get(sv.get("would_click"), 0)
     return int(round(max(0, min(100, intent + trust_pts + click))))
 
@@ -322,7 +359,7 @@ border-radius:999px;background:var(--text);color:var(--surface)}
 .report-downloads[open] summary{margin-bottom:12px}
 .rp-doc{display:block;background:var(--surface);border-radius:28px;padding:36px 40px 40px}
 .rp-doc.has-toc{display:grid;grid-template-columns:220px minmax(0,1fr);gap:40px;align-items:start}
-.rp-toc{position:sticky;top:96px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.rp-toc{position:sticky;top:136px;display:flex;flex-direction:column;gap:2px;font-size:13px}
 .rp-toc p{margin:0 0 8px;color:var(--muted);font-size:12px}
 .rp-toc a{display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-radius:999px;color:var(--text-2);text-decoration:none;line-height:1.3}
 .rp-toc a span{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11px}
@@ -331,7 +368,7 @@ border-radius:999px;background:var(--text);color:var(--surface)}
 .mm-report{background:transparent;border:0;border-radius:0;padding:0;max-width:none;font-size:15px;line-height:1.7;overflow-wrap:anywhere;color:var(--text-2)}
 .mm-report h1{font-size:clamp(1.8rem,3.2vw,2.6rem);font-weight:500;line-height:1.05;letter-spacing:-.04em;margin:0 0 22px;max-width:24ch;color:var(--text)}
 .mm-report h2{font-size:1.35rem;font-weight:500;line-height:1.3;letter-spacing:-.025em;margin:44px 0 14px;padding:24px 0 0;border:0;
-border-top:1px solid var(--grid);color:var(--text);scroll-margin-top:96px}
+border-top:1px solid var(--grid);color:var(--text);scroll-margin-top:136px}
 .mm-report h3{font-size:1rem;font-weight:600;margin:26px 0 10px;color:var(--text)}
 .mm-report p,.mm-report ul,.mm-report ol,.mm-report blockquote{max-width:74ch}
 .mm-report p{margin:0 0 16px}.mm-report li{margin:6px 0}.mm-report strong{font-weight:600;color:var(--text)}
@@ -390,41 +427,52 @@ DL_LABELS.update({"pitch.json": "Sales rehearsal (JSON)", "ideas.md": "Test idea
 
 
 def _mix_bar(m: Dict[str, Any]) -> str:
-    y, mb, n = (float(m.get(k) or 0) for k in ("yes", "maybe", "no"))
-    return (f'<div class="mixbar" role="img" aria-label="yes {y}%, maybe {mb}%, no {n}%" title="yes {y}% · maybe {mb}% · no {n}%">'
-            f'<span class="yes" style="width:{y}%"></span><span class="maybe" style="width:{mb}%"></span>'
-            f'<span class="no" style="width:{n}%"></span></div>')
+    m = m if isinstance(m, dict) else {}
+    vals = [ui.num(m.get(k)) for k in ("yes", "maybe", "no")]
+    if all(v is None for v in vals):
+        return '<p class="muted small">Not recorded.</p>'
+    y, mb, n = (max(0.0, min(100.0, v or 0.0)) for v in vals)
+    label = " · ".join(f"{k} {ui.fnum(v, 'g', '%')}" for k, v in zip(("yes", "maybe", "no"), vals))
+    return (f'<div class="mixbar" role="img" aria-label="{_e(label)}" title="{_e(label)}">'
+            f'<span class="yes" style="width:{y:g}%"></span><span class="maybe" style="width:{mb:g}%"></span>'
+            f'<span class="no" style="width:{n:g}%"></span></div>')
 
 
 def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Sales rehearsal': how simulated buyers answered the pitch, which objections the rebuttals handled."""
-    if not p or not p.get("answered"):
+    if not isinstance(p, dict) or not p.get("answered"):
         return None
-    before, after = p.get("verdict_before") or {}, p.get("verdict_after") or {}
-    tiles = [("People pitched", p.get("answered")), ("Pitch score", f'{p.get("pitch_score")}/100'),
-             ("Yes after rebuttals", f'{after.get("yes", 0)}%'), ("Maybe", f'{after.get("maybe", 0)}%'),
+    before = p.get("verdict_before") if isinstance(p.get("verdict_before"), dict) else {}
+    after = p.get("verdict_after") if isinstance(p.get("verdict_after"), dict) else {}
+    tiles = [("People pitched", p.get("answered")), ("Pitch score", ui.rawnum(p.get("pitch_score"), "/100")),
+             ("Yes after rebuttals", ui.rawnum(after.get("yes"), "%")), ("Maybe", ui.rawnum(after.get("maybe"), "%")),
              ("Hot leads (55+)", len(p.get("hot_leads") or []))]
     tiles_html = "".join(ui.kpi(v, k, hl=(k == "Pitch score")) for k, v in tiles)
+    f = ui.fnum
     obj_rows = "".join(
-        f'<tr><td><b>{_e(o["type"])}</b><div class="small muted">{_e(_t("; ".join(x["text"] for x in o.get("examples") or []), 220))}</div></td>'
-        f'<td class="num">{o["share"]}%<div class="small muted">{o["count"]}</div></td>'
+        f'<tr><td><b>{_e(o.get("type"))}</b><div class="small muted">'
+        f'{_e(_t("; ".join(str(x.get("text") or "") for x in o.get("examples") or [] if isinstance(x, dict)), 220))}</div></td>'
+        f'<td class="num">{_e(ui.rawnum(o.get("share"), "%"))}<div class="small muted">{_e(f(o.get("count")))}</div></td>'
         f'<td class="small">{_e(_t(o.get("rebuttal") or "no rebuttal given", 160))}</td>'
-        f'<td class="num">{"–" if o.get("rebuttal_success") is None else str(o["rebuttal_success"]) + "%"}'
-        f'<div class="small muted">{o.get("moved_yes", 0)} yes · {o.get("moved_partly", 0)} partly · {o.get("moved_no", 0)} no</div></td>'
-        f'<td class="small">{_e(_t("; ".join(o.get("questions") or []), 180))}</td></tr>'
-        for o in p.get("objections") or [] if o.get("type") != "none")
+        f'<td class="num">{_e(ui.rawnum(o.get("rebuttal_success"), "%"))}'
+        + (f'<div class="small muted">{_e(f(o.get("moved_yes")))} yes · {_e(f(o.get("moved_partly")))} partly · '
+           f'{_e(f(o.get("moved_no")))} no</div>' if any(ui.num(o.get(k)) is not None for k in ("moved_yes", "moved_partly", "moved_no")) else "")
+        + f'</td><td class="small">{_e(_t("; ".join(map(str, o.get("questions") or [])), 180))}</td></tr>'
+        for o in p.get("objections") or [] if isinstance(o, dict) and o.get("type") != "none")
     seg_rows = "".join(
-        f'<tr><td>{_e(s["segment"])}</td><td class="num">{s["n"]}</td><td>{_mix_bar(s)}</td>'
-        f'<td class="num">{s["lead_score"]}</td><td>{_e(s.get("top_objection") or "–")}</td></tr>' for s in p.get("by_segment") or [])
-    hot = "".join(f'<tr><td><b>{_e(h["name"])}</b><div class="small muted">{_e(h.get("segment"))}</div></td><td class="num">{h["lead_score"]}</td>'
+        f'<tr><td>{_e(s.get("segment"))}</td><td class="num">{_e(f(s.get("n")))}</td><td>{_mix_bar(s)}</td>'
+        f'<td class="num">{_e(f(s.get("lead_score")))}</td><td>{_e(s.get("top_objection") or "–")}</td></tr>'
+        for s in p.get("by_segment") or [] if isinstance(s, dict))
+    hot = "".join(f'<tr><td><b>{_e(h.get("name"))}</b><div class="small muted">{_e(h.get("segment"))}</div></td><td class="num">{_e(f(h.get("lead_score")))}</td>'
                   f'<td>{_e(h.get("verdict"))}</td><td class="small">{_e(_t(h.get("next_step") or "", 80))}</td>'
-                  f'<td class="small">{_e(_t(h.get("reach") or "", 100))}</td></tr>' for h in p.get("hot_leads") or [])
-    quotes = "".join(f'<blockquote class="voice"><p>{_e(q["text"])}</p><footer>{_e(q["name"])} · {_e(q.get("segment"))}</footer></blockquote>'
-                     for q in (p.get("best_replies") or [])[:2] + (p.get("worst_replies") or [])[:2])
-    fixes = "".join(f"<li>{_e(f)}</li>" for f in p.get("fixes") or [])
+                  f'<td class="small">{_e(_t(h.get("reach") or "", 100))}</td></tr>' for h in p.get("hot_leads") or [] if isinstance(h, dict))
+    quotes = "".join(f'<blockquote class="voice"><p>{_e(q.get("text"))}</p><footer>{_e(q.get("name"))} · {_e(q.get("segment"))}</footer></blockquote>'
+                     for q in (p.get("best_replies") or [])[:2] + (p.get("worst_replies") or [])[:2] if isinstance(q, dict))
+    fixes = "".join(f"<li>{_e(x)}</li>" for x in p.get("fixes") or [])
+    given = ui.num(p.get("rebuttals_given"))
     intro = ('Every simulated buyer heard the pitch' + (f" (as a {p.get('channel')})" if p.get("channel") else "")
-             + f'; those who hesitated heard the rebuttal written for their objection. {p.get("rebuttals_given", 0)} rebuttals given. '
-             'Scores are directions, not measurements.')
+             + '; those who hesitated heard the rebuttal written for their objection.'
+             + (f' {given:g} rebuttals given.' if given is not None else "") + ' Scores are directions, not measurements.')
     html = (ui.section_head("Sales rehearsal", intro, insight)
             + f'<div class="kpis auto">{tiles_html}</div>'
             f'<div class="card"><h3>Before and after the rebuttals</h3><div class="mixbars"><div><div class="small muted">After the pitch</div>{_mix_bar(before)}</div>'

@@ -121,21 +121,25 @@ background:var(--surface-2);color:var(--text-2);font-variant-numeric:tabular-num
 .pill.mint{background:var(--mm-mint);color:var(--mm-mint-ink)}
 .pill.accent{background:var(--mm-accent);color:var(--mm-accent-ink)}
 .pill.orchid{background:var(--mm-orchid);color:var(--mm-orchid-ink)}
+/* verdict names as classes: go = mint, iterate = accent, stop / no-go = orchid */
+.pill.go{background:var(--mm-mint);color:var(--mm-mint-ink)}
+.pill.iterate{background:var(--mm-accent);color:var(--mm-accent-ink)}
+.pill.stop,.pill.no-go{background:var(--mm-orchid);color:var(--mm-orchid-ink)}
 .pill.sky{background:var(--mm-sky);color:var(--mm-sky-ink)}
 .pill.pos{background:var(--pos-bg);color:var(--pos-fg)}.pill.neg{background:var(--neg-bg);color:var(--neg-fg)}
 .pill.neu{background:var(--neu-bg);color:var(--neu-fg)}
 .pill.lg{font-size:1.1rem;padding:6px 14px}
 .panel .pill,.play.p-high .pill{background:var(--mm-panel-2);color:var(--mm-panel-ink)}
-.panel .pill.mint,.play.p-high .pill.mint{background:var(--mm-mint);color:var(--mm-mint-ink)}
-.panel .pill.accent,.play.p-high .pill.accent{background:var(--mm-accent);color:var(--mm-accent-ink)}
-.panel .pill.orchid,.play.p-high .pill.orchid{background:var(--mm-orchid);color:var(--mm-orchid-ink)}
+.panel .pill.mint,.play.p-high .pill.mint,.panel .pill.go,.play.p-high .pill.go{background:var(--mm-mint);color:var(--mm-mint-ink)}
+.panel .pill.accent,.play.p-high .pill.accent,.panel .pill.iterate,.play.p-high .pill.iterate{background:var(--mm-accent);color:var(--mm-accent-ink)}
+.panel .pill.orchid,.play.p-high .pill.orchid,.panel .pill.stop,.play.p-high .pill.stop,.panel .pill.no-go,.play.p-high .pill.no-go{background:var(--mm-orchid);color:var(--mm-orchid-ink)}
 /* section head + insight callout */
 .section-head{margin:0 0 14px}
 .section-head .sh-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
 .section-head .sh-text{min-width:0;flex:1 1 320px}
 .section-head h2{margin:0 0 4px}
 .section-head .intro{margin:0;color:var(--muted);font-size:var(--fs-sm);max-width:90ch}
-.callout{background:var(--surface-2);border:0;border-radius:var(--r-sm);padding:12px 16px}
+.callout{background:var(--surface-2);border:0;border-radius:var(--r-sm);padding:12px 16px;overflow-wrap:anywhere}
 .callout.insight{margin-top:10px;display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-md)}
 .callout.insight::before{content:"Insight";flex:none;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
 color:var(--text-2);background:transparent;padding:3px 0;margin-top:1px}
@@ -186,6 +190,15 @@ section .card,section .play:not(.p-high),section .ftc{background-image:none}
 .bento>.span-6{grid-column:span 6}.bento>.span-5{grid-column:span 5}.bento>.span-4{grid-column:span 4}.bento>.span-3{grid-column:span 3}
 @media (max-width:1080px){.bento>.span-8,.bento>.span-7,.bento>.span-6,.bento>.span-5,.bento>.span-4,.bento>.span-3{grid-column:span 6}}
 @media (max-width:700px){.bento{grid-template-columns:1fr}.bento>[class*="span-"]{grid-column:span 1}}
+/* decision cockpit: decision | brief | side cards on wide screens. Below 1400px the side column is too narrow, so the
+   side cards move under the decision card and the brief spans both rows (the 1fr row takes the brief's extra height). */
+.bento-side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.bento-side>.card{margin:0}
+@media (max-width:1399px){.bento.cockpit{grid-template-rows:auto 1fr;align-items:start}
+.bento.cockpit>.bento-dec{grid-column:1/8;grid-row:1}.bento.cockpit>.bento-brief{grid-column:8/13;grid-row:1/span 2}
+.bento.cockpit>.bento-side{grid-column:1/8;grid-row:2;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));align-items:start}}
+@media (max-width:1080px){.bento.cockpit>.bento-dec,.bento.cockpit>.bento-side{grid-column:1/7}.bento.cockpit>.bento-brief{grid-column:7/13}}
+@media (max-width:700px){.bento.cockpit{grid-template-rows:none}.bento.cockpit>*{grid-column:1/-1!important;grid-row:auto!important}}
 .card-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--grid);flex-wrap:wrap}
 .card-hd h3{margin:0;font-size:.95rem;font-weight:600;letter-spacing:-.01em;color:var(--text)}
 .card-eyebrow{font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
@@ -196,13 +209,16 @@ padding:2px 8px;border-radius:var(--r-pill);border:1px solid var(--border);backg
 .mm-provider-badge[data-prov="openai"],.mm-provider-badge[data-prov="chatgpt"],.mm-provider-badge[data-prov="codex"]{background:var(--mm-mint);color:var(--mm-mint-ink);border-color:transparent}
 .prov-pill-real{background:var(--mm-mint);color:var(--mm-mint-ink)}
 .prov-pill-synth{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}
-.funnel-wf{display:flex;flex-direction:column;gap:8px;margin:8px 0}
-.wf-step{display:grid;grid-template-columns:125px 1fr 82px;gap:10px;align-items:center;font-size:.82rem}
-.wf-label{color:var(--text-2);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wf-track{height:16px;background:var(--surface);border:1px solid var(--grid);border-radius:var(--r-sm);overflow:hidden}
-.wf-fill{display:block;height:100%;background:var(--s1);border-radius:4px}
-.wf-meta{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-mono);font-size:.76rem;color:var(--text)}
-.wf-drop{color:var(--muted);font-size:.68rem;margin-left:3px}
+/* conversion waterfall: label and figures on one line, the bar under them, so it fits any column width */
+.funnel-wf{display:flex;flex-direction:column;gap:10px;margin:8px 0}
+.wf-step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:baseline;font-size:.82rem}
+.wf-label{color:var(--text-2);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wf-track{grid-column:1/-1;height:8px;background:var(--grid);border-radius:var(--r-pill);overflow:hidden}
+.wf-fill{display:block;height:100%;background:var(--s1);border-radius:var(--r-pill)}
+.wf-meta{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--text);font-weight:500}
+.wf-drop{color:var(--muted);font-weight:400;margin-left:4px}
+.wf-note{margin:8px 0 0}
+.ens-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 /* decision + brief row */
 .dash-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start}
 @media (max-width:900px){.dash-row{grid-template-columns:1fr}}

@@ -651,7 +651,7 @@ def _runner_status(sim_dir: str) -> str:
 
 @simulation_bp.route('/<simulation_id>/memory', methods=['GET', 'POST'])
 def simulation_memory(simulation_id: str):
-    """GET ?scope=&agent= -> behaviour-state summary (or one person's state and memories).
+    """GET ?scope=&agent= -> behaviour-state summary (or one person's state and memories); GET ?raw=1 -> the whole file.
     POST {scope?, events?: [{agent_id, test, kind, text}], survey?: {responses, offer}} -> record events."""
     from ..services import behavior_state
     try:
@@ -659,6 +659,8 @@ def simulation_memory(simulation_id: str):
     except LookupError as e:
         return jsonify({"success": False, "error": str(e)}), 404
     if request.method == "GET":
+        if request.args.get("raw") in ("1", "true"):        # the whole file, for the dashboard's people cards
+            return jsonify({"success": True, "data": behavior_state.load(sim_dir)})
         scope = request.args.get("scope") or "default"
         agent = request.args.get("agent")
         if agent is not None:

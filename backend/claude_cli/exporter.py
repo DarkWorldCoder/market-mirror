@@ -103,8 +103,62 @@ def _unwrap(obj: Any, *keys: str) -> Any:
     return obj
 
 
+def uploads_dir() -> str:
+    """The backend's runtime data folder: MIROFISH_UPLOADS, else backend/uploads next to this CLI."""
+    return os.environ.get("MIROFISH_UPLOADS") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+
+
+def _simulation_id(run_dir: str) -> str:
+    for name, keys in (("simulation", ("simulation_id",)), ("run_manifest", ("simulation_id",)), ("summary", ("simulation_id",))):
+        try:
+            with open(os.path.join(run_dir, f"{name}.json"), encoding="utf-8") as f:
+                data = _unwrap(json.load(f))
+        except (OSError, ValueError):
+            continue
+        for k in keys:
+            sid = data.get(k) if isinstance(data, dict) else None
+            if isinstance(sid, str) and re.fullmatch(r"[A-Za-z0-9_\-]+", sid):
+                return sid
+    return ""
+
+
+def copy_behavior_state(run_dir: str) -> Optional[str]:
+    """behavior_state.json (each person's state and memories) is written by the backend into the simulation folder,
+    not the run folder. Copy it next to the other run files when the run folder has none and the simulation folder is
+    on this machine, so offline exports can show it. Returns the copied path or None."""
+    dest = os.path.join(run_dir, "behavior_state.json")
+    if os.path.exists(dest):
+        return None
+    sid = _simulation_id(run_dir)
+    if not sid:
+        return None
+    src = os.path.join(uploads_dir(), "simulations", sid, "behavior_state.json")
+    if not os.path.isfile(src):
+        return None
+    try:
+        import shutil
+        shutil.copyfile(src, dest)
+    except OSError:
+        return None
+    return dest
+
+
+def behavior_states(bundle: Dict[str, Any], scope: str = "default") -> Dict[str, Dict[str, Any]]:
+    """agent id (str) -> {"state", "memory", "trajectory"} from behavior_state.json ({"scopes": {scope: {id: record}}}).
+    The run's own scope is "default"; a study writes one scope per cell, so fall back to the largest scope."""
+    data = bundle.get("behavior_state")
+    scopes = data.get("scopes") if isinstance(data, dict) else None
+    if not isinstance(scopes, dict) or not scopes:
+        return {}
+    chosen = scopes.get(scope)
+    if not isinstance(chosen, dict) or not chosen:
+        chosen = max((v for v in scopes.values() if isinstance(v, dict)), key=len, default={})
+    return {str(k): v for k, v in chosen.items() if isinstance(v, dict)}
+
+
 def load_run_dir(run_dir: str) -> Dict[str, Any]:
     bundle: Dict[str, Any] = {}
+    copy_behavior_state(run_dir)
     for name in RUN_FILES:
         path = os.path.join(run_dir, f"{name}.json")
         if not os.path.exists(path):
@@ -1095,6 +1149,20 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
     return ins
 
 
+def _safe(label: str, fn, default: Any = None) -> Any:
+    """Run one optional section builder. A malformed result file (a key holding text, None or the wrong shape) must
+    cost that section only, never the whole dashboard: log it to stderr and leave the section out."""
+    try:
+        return fn()
+    except Exception as e:  # noqa: BLE001 - never lose the dashboard to one section
+        import sys
+        import traceback
+        tb = traceback.extract_tb(e.__traceback__)[-1]
+        print(f"dashboard: skipped the {label} section ({type(e).__name__}: {e} at "
+              f"{os.path.basename(tb.filename)}:{tb.lineno})", file=sys.stderr)
+        return default
+
+
 def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """Return (html, report_markdown, summary)."""
     project = bundle.get("project") or {}
@@ -1124,26 +1192,30 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     summary = build_summary(bundle, graph_stats, rounds, series_totals, profiles)
     mk = marketing.analyze(bundle)
     summary["marketing"] = marketing.summary_block(mk)
-    decision = feed_view.decision(bundle, mk)
+    decision = _safe("decision", lambda: feed_view.decision(bundle, mk))
     summary["decision"] = decision
-    insights = build_insights(bundle, mk, decision, graph_stats, rounds, values)
+    insights = _safe("insights", lambda: build_insights(bundle, mk, decision, graph_stats, rounds, values), {})
     mk_sections = marketing.render_sections(mk, insights)
-    for section in (overview.run_health(bundle), overview.study_section(bundle.get("study_summary")),
-                    overview.campaign_section(bundle.get("campaign_plan")),
-                    overview.evidence_section(bundle.get("research")),
-                    overview.prediction_section(bundle.get("predictions"))):
+    for label, build in (("run health", lambda: overview.run_health(bundle)),
+                         ("study", lambda: overview.study_section(bundle.get("study_summary"))),
+                         ("campaign plan", lambda: overview.campaign_section(bundle.get("campaign_plan"))),
+                         ("evidence", lambda: overview.evidence_section(bundle.get("research"))),
+                         ("predictions", lambda: overview.prediction_section(bundle.get("predictions")))):
+        section = _safe(label, build)
         if section:
             mk_sections.append(section)
     # MarketMirror extras: feed test after the playbook; panel, backtest and downloads after the voices
-    fs = feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart, insights.get("feedtest"))
+    fs = _safe("feed test", lambda: feed_view.feed_section(bundle.get("feed_test") or {}, marketing.chart, insights.get("feedtest")))
     if fs:
         at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), 1)
         mk_sections.insert(at, fs)
-    for extra in (feed_view.panel_section(bundle.get("analyst_panel") or {}, insights.get("analysts")),
-                  feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart, insights.get("backtest"))):
+    for label, build in (("analyst panel", lambda: feed_view.panel_section(bundle.get("analyst_panel") or {}, insights.get("analysts"))),
+                         ("backtest", lambda: feed_view.backtest_section(bundle.get("backtest") or {}, marketing.chart,
+                                                                         insights.get("backtest")))):
+        extra = _safe(label, build)
         if extra:
             mk_sections.append(extra)
-    dec = feed_view.decision_section(decision)
+    dec = _safe("decision card", lambda: feed_view.decision_section(decision))
     # social feed (real post view) right after the feed test, when the section module and data exist
     if social_feed is not None and bundle.get("feed_story"):
         try:
@@ -1162,23 +1234,25 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
             survey_by_agent[r.get("agent_id")] = r["answer"]
     leads = {aid: sc for aid, sc in ((aid, report_view.person_lead_score(a)) for aid, a in survey_by_agent.items())
              if sc is not None}
-    pitch = bundle.get("pitch") or {}
+    pitch = bundle.get("pitch") if isinstance(bundle.get("pitch"), dict) else {}
     for r in pitch.get("people") or []:                     # a pitch answer is the stronger lead signal
-        if r.get("lead_score") is not None:
+        score = ui.num(r.get("lead_score")) if isinstance(r, dict) else None
+        if score is not None:
             aid = r.get("agent_id")
-            leads[aid] = int(round((leads[aid] + r["lead_score"]) / 2)) if aid in leads else r["lead_score"]
-    for extra in (gtm_view.search_geo_section(bundle, insights.get("search-geo")),
-                  gtm_view.cro_lab_section(bundle, insights.get("cro-lab")),
-                  gtm_view.competitor_section(bundle, insights.get("competitors")),
-                  gtm_view.lab_section(bundle, insights.get("gtm")),
-                  gtm_view.thoughts_section(bundle, insights.get("thoughts")),
-                  report_view.ideas_section(bundle.get("ideas"), insights.get("ideas")),
-                  report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))):   # pitch ends up first
+            leads[aid] = int(round((leads[aid] + score) / 2)) if aid in leads else int(round(score))
+    for label, build in (("search and AI answers", lambda: gtm_view.search_geo_section(bundle, insights.get("search-geo"))),
+                         ("landing and sales lab", lambda: gtm_view.cro_lab_section(bundle, insights.get("cro-lab"))),
+                         ("competitor", lambda: gtm_view.competitor_section(bundle, insights.get("competitors"))),
+                         ("marketing lab", lambda: gtm_view.lab_section(bundle, insights.get("gtm"))),
+                         ("agent thoughts", lambda: gtm_view.thoughts_section(bundle, insights.get("thoughts"))),
+                         ("test ideas", lambda: report_view.ideas_section(bundle.get("ideas"), insights.get("ideas"))),
+                         ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
+        extra = _safe(label, build)                          # pitch ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)
-    states_by_agent = (bundle.get("behavior_state") or {}).get("agents") if isinstance(bundle.get("behavior_state"), dict) else {}
-    people_html = report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads, states_by_agent=states_by_agent)
+    people_html = _safe("people", lambda: report_view.people_cards(index, dict(actions_by_agent), survey_by_agent, leads,
+                                                                   states_by_agent=behavior_states(bundle))) or ""
     files = feed_view.export_files(bundle, mk, md)
     files["summary.json"] = json.dumps(summary, ensure_ascii=False, indent=2, default=str)
     mr = bundle.get("market_report") or {}
@@ -1186,7 +1260,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         files = {"market_report.md": mr["markdown"],
                  "action_plan.json": json.dumps(mr.get("action_plan") or {}, ensure_ascii=False, indent=2), **files}
     if leads:
-        files["leads.csv"] = report_view.leads_csv(index, survey_by_agent, leads)
+        csv_text = _safe("leads.csv", lambda: report_view.leads_csv(index, survey_by_agent, leads))
+        if csv_text:
+            files["leads.csv"] = csv_text
     if bundle.get("feed_story"):
         files["feed_story.json"] = json.dumps(bundle["feed_story"], ensure_ascii=False, default=str)
     if pitch.get("answered"):
@@ -1199,11 +1275,12 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
-        mk_sections.insert(0, ("decision", "Decision", overview.cockpit_bento(bundle, mk, decision, dec[2])))
+        cockpit = _safe("decision cockpit", lambda: overview.cockpit_bento(bundle, mk, decision, dec[2]), dec[2])
+        mk_sections.insert(0, ("decision", "Decision", cockpit))
         mk_sections.insert(1, rep_sec)
     else:
         mk_sections.insert(0, rep_sec)
-    strip = overview.kpi_strip(bundle, mk)
+    strip = _safe("at a glance", lambda: overview.kpi_strip(bundle, mk), "")
     if strip:
         mk_sections.insert(0, ("kpis", "At a glance", ui.section_head("At a glance") + strip))
     try:
@@ -1367,8 +1444,7 @@ def export_run_dir(run_dir: str, out_html: Optional[str] = None, title: Optional
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
     # every downloadable file, next to the dashboard (same payload the page embeds)
-    import re as _re
-    m = _re.search(r'<script type="application/json" id="mm-files">(.*?)</script>', page, _re.S)
+    m = re.search(r'<script type="application/json" id="mm-files">(.*?)</script>', page, re.S)
     written = {}
     if m:
         try:

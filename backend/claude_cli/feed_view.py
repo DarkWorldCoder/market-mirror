@@ -131,9 +131,9 @@ def post_mock(cr: Dict[str, Any], m: Dict[str, Any]) -> str:
 
 def _range_txt(sp: Optional[Dict[str, Any]], n_seeds: int, digits: int = 1) -> str:
     """'2.1-3.4% across 3 seeds' from a multi-seed spread, or empty."""
-    if not sp or n_seeds < 2:
+    if not isinstance(sp, dict) or n_seeds < 2 or ui.num(sp.get("min")) is None or ui.num(sp.get("max")) is None:
         return ""
-    return f'{sp["min"]:.{digits}f}–{sp["max"]:.{digits}f}% across {n_seeds} seeds'
+    return f'{ui.num(sp["min"]):.{digits}f}–{ui.num(sp["max"]):.{digits}f}% across {n_seeds} seeds'
 
 
 def _metric_rows(m: Dict[str, Any], base: Optional[Dict[str, Any]], spread: Optional[Dict[str, Any]] = None,
@@ -147,10 +147,12 @@ def _metric_rows(m: Dict[str, Any], base: Optional[Dict[str, Any]], spread: Opti
         return f"{r}; {default}" if r and default else r or default
     rows = [
         ("Noticed the ad", pct_ci(m.get("noticed"), n), "caught their eye at all while scrolling") if m.get("noticed") is not None else None,
-        ("Thumb-stop", pct_ci(m.get("thumb_stop"), n), hint("thumb_stop", f'organic posts: {base.get("thumb_stop"):.0f}%' if base and base.get("thumb_stop") is not None else "")),
-        ("Avg time when stopped", f'{m["avg_dwell"]}s' if m.get("avg_dwell") is not None else "–", ""),
-        ("CTR", pct_ci(m.get("ctr"), n), f'{m.get("clicks", 0)} clicks'),
-        ("Expected CTR", f'{m["expected_ctr"]:.1f}%', hint("expected_ctr", "average of each person's stated click chance")) if m.get("expected_ctr") is not None else None,
+        ("Thumb-stop", pct_ci(m.get("thumb_stop"), n), hint("thumb_stop", f'organic posts: {ui.fnum(base.get("thumb_stop"), ".0f", "%")}'
+                                                             if base and ui.num(base.get("thumb_stop")) is not None else "")),
+        ("Avg time when stopped", ui.fnum(m.get("avg_dwell"), "g", "s"), ""),
+        ("CTR", pct_ci(m.get("ctr"), n), f'{ui.fnum(m.get("clicks"))} clicks' if ui.num(m.get("clicks")) is not None else ""),
+        ("Expected CTR", ui.fnum(m.get("expected_ctr"), ".1f", "%"), hint("expected_ctr", "average of each person's stated click chance"))
+        if ui.num(m.get("expected_ctr")) is not None else None,
         ("Engagement rate", pct_ci(m.get("engagement_rate"), n), hint("engagement_rate", "reactions, comments, shares, saves")),
         ("Comments / shares", f'{m.get("comments", 0)} / {m.get("shares", 0)}', ""),
         ("Hid the ad", pct_ci(m.get("hide_rate"), n), ""),
@@ -168,7 +170,11 @@ def _seeds_html(ft: Dict[str, Any], ranked: List[str], labels: List[str]) -> str
     wins = ms.get("winner_counts") or {}
 
     def cell(sp):
-        return "–" if not sp else f'{sp["mean"]:.1f}% ({sp["min"]:.1f}–{sp["max"]:.1f})'
+        if not isinstance(sp, dict) or ui.num(sp.get("mean")) is None:
+            return "–"
+        rng = (f' ({ui.num(sp["min"]):.1f}–{ui.num(sp["max"]):.1f})'
+               if ui.num(sp.get("min")) is not None and ui.num(sp.get("max")) is not None else "")
+        return f'{ui.num(sp["mean"]):.1f}%{rng}'
     body = "".join(f'<tr><td>{_e(lbl)}</td>'
                    + "".join(f'<td class="num">{_e(cell((spread.get(cid) or {}).get(k)))}</td>'
                              for k in ("expected_ctr", "thumb_stop", "engagement_rate"))
@@ -188,42 +194,60 @@ def _seeds_html(ft: Dict[str, Any], ranked: List[str], labels: List[str]) -> str
 
 
 def _landing_html(lf: Optional[Dict[str, Any]]) -> str:
-    if not lf:
+    if not isinstance(lf, dict) or not lf:
         return ""
-    steps = [("Clicked", lf["clicks"]), ("Page loaded", lf["page_loaded"]), ("Started form", lf["form_started"]),
-             ("Converted", lf["converted"])]
-    top = max(lf["clicks"], 1)
+    steps = [(k, ui.num(lf.get(key))) for k, key in (("Clicked", "clicks"), ("Page loaded", "page_loaded"),
+                                                      ("Started form", "form_started"), ("Converted", "converted"))]
+    top = max(steps[0][1] or 0, 1)
     bars = "".join(f'<div class="lf-row"><span>{_e(k)}</span><span class="lf-track"><span class="lf-bar" '
-                   f'style="width:{100 * v / top:.0f}%"></span></span><b>{v}</b></div>' for k, v in steps)
-    reasons = "".join(f'<li>{_e(r["reason"])} <span class="muted">×{r["count"]}</span></li>' for r in lf.get("drop_reasons") or [])
-    nets = ", ".join(f"{k} {v}" for k, v in (lf.get("networks") or {}).items())
+                   f'style="width:{min(100.0, 100 * v / top):.0f}%"></span></span><b>{_e(ui.fnum(v))}</b></div>'
+                   for k, v in steps if v is not None)
+    reasons = "".join(f'<li>{_e(r.get("reason"))} <span class="muted">×{_e(ui.fnum(r.get("count")))}</span></li>'
+                      for r in lf.get("drop_reasons") or [] if isinstance(r, dict) and r.get("reason"))
+    nets = ", ".join(f"{k} {v}" for k, v in (lf.get("networks") or {}).items()) if isinstance(lf.get("networks"), dict) else ""
     friction_pills = []
-    if lf.get("say_do_gap"):
-        friction_pills.append(f'<span class="pill accent">Say-vs-Do gap: {lf["say_do_gap"]}</span>')
-    if lf.get("price_blocked"):
-        friction_pills.append(f'<span class="pill orchid">Wallet cap blocked: {lf["price_blocked"]}</span>')
-    if lf.get("dealbreaker_blocked"):
-        friction_pills.append(f'<span class="pill orchid">Dealbreaker blocked: {lf["dealbreaker_blocked"]}</span>')
-    f_html = f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">{"".join(friction_pills)}</div>' if friction_pills else ""
+    for key, label, tone in (("say_do_gap", "Say-vs-Do gap", "accent"), ("price_blocked", "Wallet cap blocked", "orchid"),
+                             ("dealbreaker_blocked", "Dealbreaker blocked", "orchid")):
+        if lf.get(key):
+            friction_pills.append(f'<span class="pill {tone}">{_e(label)}: {_e(ui.fnum(lf[key], missing=str(lf[key])))}</span>')
+    f_html = f'<div class="lf-friction">{"".join(friction_pills)}</div>' if friction_pills else ""
+    load = ui.num(lf.get("load_rate"))
+    foot = " ".join(x for x in ((f"Networks of clickers: {nets}." if nets else ""),
+                                (f"Page loaded for {load:.0f}% of clicks." if load is not None else "")) if x)
     return (f'<div class="lf"><h4>After the click</h4>{bars}{f_html}'
-            f'<p class="muted small">Networks of clickers: {_e(nets)}. Page loaded for {lf.get("load_rate") or 0:.0f}% of clicks.</p>'
+            + (f'<p class="muted small">{_e(foot)}</p>' if foot else "")
             + (f'<ul class="small">{reasons}</ul>' if reasons else "") + "</div>")
 
 
 def _competitor_shock_html(comp: Optional[Dict[str, Any]]) -> str:
     """Competitor counter-offer / price-shock comparison card."""
-    if not comp or not comp.get("impressions"):
+    if not isinstance(comp, dict) or not ui.num(comp.get("impressions")):
         return ""
     name = comp.get("name") or "Competitor"
     price = f' ({comp["price"]})' if comp.get("price") else ""
-    tiles = "".join([
-        ui.kpi(f'{comp.get("brand_win_share_pct", 50):g}%', "Brand click share", f'vs {name}{price}', color=1, bar=comp.get("brand_win_share_pct", 50)),
-        ui.kpi(f'{comp.get("defection_rate") or 0:g}%', "Defection rate", "clicked competitor instead of brand", color=8, bar=comp.get("defection_rate") or 0),
-        ui.kpi(f'{comp.get("brand_ctr") or 0:g}% vs {comp.get("competitor_ctr") or 0:g}%', "Brand vs competitor CTR",
-               f'expected {comp.get("brand_expected_ctr") or 0:g}% vs {comp.get("competitor_expected_ctr") or 0:g}%', color=2),
-        ui.kpi(f'{comp.get("brand_thumb_stop") or 0:g}% vs {comp.get("competitor_thumb_stop") or 0:g}%', "Thumb-stop comparison",
-               f'{comp.get("both_clicked", 0)} clicked both offers', color=3),
-    ])
+    g = comp.get
+
+    def pair(a: str, b: str) -> Optional[str]:
+        return (f'{ui.fnum(g(a), "g", "%")} vs {ui.fnum(g(b), "g", "%")}'
+                if ui.num(g(a)) is not None or ui.num(g(b)) is not None else None)
+    tiles = []
+    if ui.num(g("brand_win_share_pct")) is not None:
+        tiles.append(ui.kpi(ui.fnum(g("brand_win_share_pct"), "g", "%"), "Brand click share", f'vs {name}{price}', color=1,
+                            bar=ui.num(g("brand_win_share_pct"))))
+    if ui.num(g("defection_rate")) is not None:
+        tiles.append(ui.kpi(ui.fnum(g("defection_rate"), "g", "%"), "Defection rate", "clicked competitor instead of brand",
+                            color=8, bar=ui.num(g("defection_rate"))))
+    if pair("brand_ctr", "competitor_ctr"):
+        tiles.append(ui.kpi(pair("brand_ctr", "competitor_ctr"), "Brand vs competitor CTR",
+                            f'expected {pair("brand_expected_ctr", "competitor_expected_ctr")}'
+                            if pair("brand_expected_ctr", "competitor_expected_ctr") else None, color=2))
+    if pair("brand_thumb_stop", "competitor_thumb_stop"):
+        both = ui.num(g("both_clicked"))
+        tiles.append(ui.kpi(pair("brand_thumb_stop", "competitor_thumb_stop"), "Thumb-stop comparison",
+                            f'{both:g} clicked both offers' if both is not None else None, color=3))
+    if not tiles:
+        return ""
+    tiles = "".join(tiles)
     return (f'<div class="card" style="margin-bottom:14px"><div class="card-hd"><h3>Competitor counter-offer shock: {_e(name)}{_e(price)}</h3>'
             f'<span class="card-eyebrow">Head-to-head in feed</span></div>'
             + (f'<p class="muted small" style="margin:0 0 10px">Counter-offer in the same feed: “{_e(_t(comp.get("headline"), 180))}”</p>' if comp.get("headline") else "")
@@ -232,18 +256,17 @@ def _competitor_shock_html(comp: Optional[Dict[str, Any]]) -> str:
 
 def _baseline_html(gb: Optional[Dict[str, Any]]) -> str:
     """Generic-reader unconditioned LLM baseline comparator card."""
-    if not gb or not gb.get("per_creative"):
+    if not isinstance(gb, dict) or not isinstance(gb.get("per_creative"), dict) or not gb["per_creative"]:
         return ""
     rows = []
     for cid, m in gb["per_creative"].items():
-        lift = m.get("persona_lift_ctr_pt")
-        lift_txt = f"{lift:+.1f} pt" if isinstance(lift, (int, float)) else "–"
+        m = m if isinstance(m, dict) else {}
         rows.append([
             cid,
-            f'{m.get("persona_ctr") or 0:g}%',
-            f'{m.get("generic_reader_ctr") or 0:g}%',
-            lift_txt,
-            f'{m.get("persona_thumb_stop") or 0:g}% vs {m.get("generic_reader_thumb_stop") or 0:g}%',
+            ui.fnum(m.get("persona_ctr"), "g", "%"),
+            ui.fnum(m.get("generic_reader_ctr"), "g", "%"),
+            ui.fnum(m.get("persona_lift_ctr_pt"), "+.1f", " pt"),
+            f'{ui.fnum(m.get("persona_thumb_stop"), "g", "%")} vs {ui.fnum(m.get("generic_reader_thumb_stop"), "g", "%")}',
         ])
     changed = gb.get("winner_changed")
     badge = '<span class="pill accent">Persona conditioning changed winner</span>' if changed else '<span class="pill mint">Winner consistent with baseline</span>'
@@ -258,19 +281,20 @@ def _baseline_html(gb: Optional[Dict[str, Any]]) -> str:
 
 def _provider_breakdown_html(by_prov: Optional[Dict[str, Any]]) -> str:
     """Cross-model provider breakdown table when multiple providers or non-default providers run."""
-    if not by_prov or (len(by_prov) < 2 and "claude" in by_prov):
+    if not isinstance(by_prov, dict) or len(by_prov) < 2:     # one provider: nothing to compare
         return ""
     rows = []
     for prov, m in sorted(by_prov.items()):
+        m = m if isinstance(m, dict) else {}
         badge = ui.Raw(f'<span class="mm-provider-badge" data-prov="{_e(prov)}">{_e(prov)}</span>')
         rows.append([
             badge,
-            m.get("personas") or 0,
-            m.get("sessions") or 0,
-            f'{m.get("thumb_stop") or 0:g}%',
-            f'{m.get("ctr") or 0:g}%',
-            f'{m.get("expected_ctr") or 0:g}%' if m.get("expected_ctr") is not None else "–",
-            f'{m.get("hide_rate") or 0:g}%',
+            ui.fnum(m.get("personas")),
+            ui.fnum(m.get("sessions")),
+            ui.fnum(m.get("thumb_stop"), "g", "%"),
+            ui.fnum(m.get("ctr"), "g", "%"),
+            ui.fnum(m.get("expected_ctr"), "g", "%"),
+            ui.fnum(m.get("hide_rate"), "g", "%"),
             m.get("winner") or "–",
         ])
     return (
@@ -283,25 +307,28 @@ def _provider_breakdown_html(by_prov: Optional[Dict[str, Any]]) -> str:
 
 
 def _projection_html(pr: Optional[Dict[str, Any]]) -> str:
-    if not pr:
+    if not isinstance(pr, dict) or not pr:
         return ""
     cur = pr.get("currency") or ""
-    items = [("Budget", _money(pr["budget"], cur)), ("Impressions", f'{pr["impressions"]:,}'),
-             ("Clicks", f'{pr["clicks"]:,}'), ("CPC", _money(pr.get("cpc"), cur)),
-             ("Conversions", "–" if pr.get("conversions") is None else f'{pr["conversions"]:g}'),
-             ("Cost per lead", _money(pr.get("cpl") or pr.get("cost_per_conversion"), cur))]
+    items = [("Budget", _money(pr.get("budget"), cur)), ("Impressions", ui.fnum(pr.get("impressions"), ",.0f")),
+             ("Clicks", ui.fnum(pr.get("clicks"), ",.0f")), ("CPC", _money(pr.get("cpc"), cur)),
+             ("Conversions", ui.fnum(pr.get("conversions"))),
+             ("Cost per lead", _money(pr.get("cpl") if pr.get("cpl") is not None else pr.get("cost_per_conversion"), cur))]
     if pr.get("cac") is not None:
         items.append(("CAC", _money(pr["cac"], cur)))
     if pr.get("roas") is not None:
-        items += [("ROAS", f'{pr["roas"]:.2f}x'), ("ROI", f'{pr["roi_pct"]:+.0f}%'), ("Break-even CPL", _money(pr.get("break_even_cpl"), cur))]
+        items += [("ROAS", ui.fnum(pr.get("roas"), ".2f", "x")), ("ROI", ui.fnum(pr.get("roi_pct"), "+.0f", "%")),
+                  ("Break-even CPL", _money(pr.get("break_even_cpl"), cur))]
     if pr.get("payback_months") is not None:
-        items.append(("Payback", f'{pr["payback_months"]} months'))
+        items.append(("Payback", ui.fnum(pr.get("payback_months"), "g", " months")))
     cells = "".join(ui.kpi(v, k, cls="sm") for k, v in items)
-    note = f'CTR {pr["ctr_used"]}%' + (" calibrated to your real platform CTR" if pr.get("calibrated") else " as simulated (not calibrated)")
+    note = (f'CTR {ui.fnum(pr.get("ctr_used"), "g", "%")}' if ui.num(pr.get("ctr_used")) is not None else "CTR") + (
+        " calibrated to your real platform CTR" if pr.get("calibrated") else " as simulated (not calibrated)")
     if pr.get("too_few_clicks") is not None:
         note += (f'. Only {pr["too_few_clicks"]} simulated click(s): too few to estimate conversions, '
                  'so add personas or exposures')
-    return f'<div class="proj"><h4>If you spend {_e(_money(pr["budget"], cur))} at CPM {_e(pr["cpm"])}</h4><div class="kpis auto proj-g">{cells}</div><p class="muted small">{_e(note)}.</p></div>'
+    head = f'If you spend {_money(pr.get("budget"), cur)}' + (f' at CPM {pr["cpm"]}' if pr.get("cpm") not in (None, "") else "")
+    return f'<div class="proj"><h4>{_e(head)}</h4><div class="kpis auto proj-g">{cells}</div><p class="muted small">{_e(note)}.</p></div>'
 
 
 def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
@@ -328,13 +355,15 @@ def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Op
         cr, m = creatives.get(cid, {"id": cid, "platform": "facebook", "text": cid}), per[cid]
         n = m.get("impressions") or 0
         events = json.dumps(m.get("events") or [], ensure_ascii=False)
-        seg_rows = "".join(f'<tr><td>{_e(s["key"])}{low_n_pill(s["impressions"], 5)}</td><td class="num">{s["impressions"]}</td>'
+        seg_rows = "".join(f'<tr><td>{_e(s["key"])}{low_n_pill(s["impressions"], 5)}</td><td class="num">{_e(s["impressions"])}</td>'
                            f'<td class="num">{pct_ci(s["thumb_stop"], s["impressions"])}</td><td class="num">{pct_ci(s["ctr"], s["impressions"])}</td>'
                            f'<td class="num">{pct_ci(s["engagement_rate"], s["impressions"])}</td></tr>' for s in m.get("by_segment") or [])
         thoughts = "".join(f'<li><span class="pill">{_e(t["segment"])}</span> {_e(_t(t["text"], 140))}</li>' for t in (m.get("thoughts") or [])[:6])
         pe = m.get("proof_effect")
-        proof = (f'<p class="muted small">Social proof: engagement {pe["first_wave_engagement"] or 0:.0f}% for the first viewers vs '
-                 f'{pe["later_engagement"] or 0:.0f}% once earlier reactions and comments were visible.</p>') if pe else ""
+        proof = (f'<p class="muted small">Social proof: engagement {ui.fnum(pe.get("first_wave_engagement"), ".0f", "%")} for the first '
+                 f'viewers vs {ui.fnum(pe.get("later_engagement"), ".0f", "%")} once earlier reactions and comments were visible.</p>'
+                 ) if isinstance(pe, dict) and (ui.num(pe.get("first_wave_engagement")) is not None
+                                                or ui.num(pe.get("later_engagement")) is not None) else ""
         cards.append(
             f'<div class="ftc{" winner" if i == 0 and len(ranked) > 1 else ""}"><div class="ftc-l">'
             f'<div class="ftc-top"><span class="pill {"accent" if i == 0 and len(ranked) > 1 else ""}">{_e(PLATFORM_LABEL.get(cr.get("platform"), ""))} · {_e(cid)}'
@@ -376,18 +405,25 @@ def panel_section(p: Dict[str, Any], insight: Optional[str] = None) -> Optional[
     by_prov = c.get("by_provider") or {}
     prov_line = ""
     if len(by_prov) >= 2:
-        bits = [f'{prov.upper()}: {info.get("winner")} ({info.get("agreement")}% agree, n={info.get("analysts_ok")})'
-                for prov, info in sorted(by_prov.items())]
+        bits = [f'{prov.upper()}: {info.get("winner")} ({ui.fnum(info.get("agreement"), "g", "%")} agree, n={ui.fnum(info.get("analysts_ok"))})'
+                for prov, info in sorted(by_prov.items()) if isinstance(info, dict)]
         prov_line = f'<li>Cross-provider consensus: {_e(" · ".join(bits))}.</li>'
-    head = (f'<div class="panel"><div class="eyebrow">Independent analyst panel · {c.get("analysts_ok", 0)} analysts, each working alone</div>'
+    f = ui.fnum
+    stats = ", ".join(x for x in (
+        (f'average sentiment {f(c.get("sentiment_mean"))}' + (f' (spread ±{f(c.get("sentiment_spread"))})'
+                                                               if ui.num(c.get("sentiment_spread")) is not None else ""))
+        if ui.num(c.get("sentiment_mean")) is not None else "",
+        f'purchase-intent signal {f(c.get("intent_mean"))}/10' if ui.num(c.get("intent_mean")) is not None else "",
+        f'analyst confidence {f(c.get("confidence_mean"))}/10' if ui.num(c.get("confidence_mean")) is not None else "") if x)
+    head = (f'<div class="panel"><div class="eyebrow">Independent analyst panel · {_e(f(c.get("analysts_ok")))} analysts, each working alone</div>'
             f'<div class="headline">Consensus is {_e(c.get("consensus"))}.'
-            + (f' Best audience: {_e(aud.get("winner"))} ({aud.get("agreement")}% agree).' if aud.get("winner") else "")
-            + (f' Best message: {_e(_t(msg.get("winner"), 80))} ({msg.get("agreement")}% agree).' if msg.get("winner") else "")
-            + f'</div><ul class="verdicts"><li>Average sentiment {c.get("sentiment_mean")} (spread ±{c.get("sentiment_spread")}), '
-            f'purchase-intent signal {c.get("intent_mean")}/10, analyst confidence {c.get("confidence_mean")}/10.</li>{prov_line}</ul></div>')
-    themes = "".join(f'<tr><td>{_e(t["theme"])}</td><td class="num">{t["analysts"]}/{c.get("analysts_ok", 0)}</td>'
-                     f'<td class="num">{t["weight"]}</td><td class="small">{_e(_t("; ".join(t.get("evidence") or []), 200))}</td></tr>'
-                     for t in c.get("themes") or [])
+            + (f' Best audience: {_e(aud.get("winner"))} ({_e(f(aud.get("agreement"), "g", "%"))} agree).' if aud.get("winner") else "")
+            + (f' Best message: {_e(_t(msg.get("winner"), 80))} ({_e(f(msg.get("agreement"), "g", "%"))} agree).' if msg.get("winner") else "")
+            + '</div><ul class="verdicts">' + (f'<li>{_e(stats[:1].upper() + stats[1:])}.</li>' if stats else "")
+            + f'{prov_line}</ul></div>')
+    themes = "".join(f'<tr><td>{_e(t.get("theme"))}</td><td class="num">{_e(f(t.get("analysts")))}/{_e(f(c.get("analysts_ok")))}</td>'
+                     f'<td class="num">{_e(f(t.get("weight")))}</td><td class="small">{_e(_t("; ".join(map(str, t.get("evidence") or [])), 200))}</td></tr>'
+                     for t in c.get("themes") or [] if isinstance(t, dict))
     cards = []
     for a in p["analysts"]:
         r = a.get("result")
@@ -417,8 +453,10 @@ def backtest_section(b: Dict[str, Any], chart, insight: Optional[str] = None) ->
     head = ui.section_head("Backtest against real ads", insight=insight)
     if b.get("note"):
         return ("backtest", "Backtest", head + f'<div class="callout">{_e(b["note"])}</div>')
-    rows = "".join(f'<tr><td>{_e(p["creative"])}</td><td>{_e(p["real_ad"])}</td><td class="num">{p["sim_ctr"]}%</td>'
-                   f'<td class="num">{p["real_ctr"]}%</td><td class="num">{p["real_clicks"]}</td><td class="num">{p["real_conversions"]}</td>'
+    f = ui.fnum
+    rows = "".join(f'<tr><td>{_e(p.get("creative"))}</td><td>{_e(p.get("real_ad"))}</td><td class="num">{_e(f(p.get("sim_ctr"), "g", "%"))}</td>'
+                   f'<td class="num">{_e(f(p.get("real_ctr"), "g", "%"))}</td><td class="num">{_e(f(p.get("real_clicks")))}</td>'
+                   f'<td class="num">{_e(f(p.get("real_conversions")))}</td>'
                    f'<td>{_e(", ".join(p.get("sources") or []))}</td><td>{_e(", ".join(p.get("dates") or []))}</td>'
                    f'<td>{_e(", ".join(p.get("markets") or []))}</td><td>{_e(p.get("quality") or "unverified")}</td></tr>'
                    for p in b["pairs"])
@@ -515,6 +553,7 @@ def downloads_section(files: Dict[str, str]) -> Tuple[str, str, str]:
 
 
 FEED_CSS = """
+.lf-friction{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
 .ftcs{display:grid;gap:16px}
 .ftc{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:18px;background:var(--surface);border-radius:24px;padding:18px}
 .ftc.winner{box-shadow:0 0 0 2px var(--mm-accent) inset}
