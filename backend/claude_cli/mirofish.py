@@ -1196,6 +1196,13 @@ def _cfg_path(base: str, v: Any) -> Any:
     return v
 
 
+def _prepare_timeout(persona_spec: Any) -> float:
+    """Persona writing and interviews take longer with more people: an hour, or about 6 s per person."""
+    segs = (persona_spec or {}).get("segments") if isinstance(persona_spec, dict) else None
+    n = sum(int(s.get("count") or 0) for s in segs or [] if isinstance(s, dict))
+    return float(max(3600, 6 * n))
+
+
 def cmd_market_test(c: Client, a) -> Any:
     """All-in-one market test from one JSON config: personas -> feed test -> rounds -> survey -> panel -> dashboard.
 
@@ -1289,9 +1296,15 @@ def cmd_market_test(c: Client, a) -> Any:
         sim = step_create_sim(c, up["project_id"], g.get("graph_id"), cfg.get("platform") or "parallel")
         sid = state["simulation_id"] = sim["simulation_id"]
         checkpoint()
-        step_prepare(c, sid, parallel=int(cfg.get("parallel") or DEFAULT_PARALLEL), persona_spec=persona_spec)
+        step_prepare(c, sid, parallel=int(cfg.get("parallel") or DEFAULT_PARALLEL), persona_spec=persona_spec,
+                     timeout=_prepare_timeout(persona_spec))
         collect(c, out_dir, state.get("project_id"), sid)
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    elif not cfg.get("simulation_id"):
+        # resuming this run folder: a simulation that stopped before its people were ready is prepared now
+        # (an already prepared one answers at once)
+        step_prepare(c, sid, parallel=int(cfg.get("parallel") or DEFAULT_PARALLEL), persona_spec=persona_spec,
+                     timeout=_prepare_timeout(persona_spec))
     state["simulation_id"] = sid
     checkpoint()
     if not cfg.get("approve_spend"):
