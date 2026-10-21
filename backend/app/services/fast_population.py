@@ -194,13 +194,15 @@ class LaneDown(RuntimeError):
 
 
 class Lane:
-    """Calls in flight for one provider: the limit halves after an overload (timeout, rate limit, 5xx) and grows by
-    one after twice its size in successes, between 1 and `max_limit`."""
+    """Calls in flight for one provider. A rate limit halves the limit; a timeout or server error lowers it by one,
+    never below half the starting limit (one slow or hung call is not a sign of overload); twice the limit in
+    successes raises it by one again, up to `max_limit`."""
 
     def __init__(self, name: str, limit: int, max_limit: Optional[int] = None):
         self.name = name
         self.max_limit = max(1, max_limit or limit)
         self.limit = max(1, min(limit, self.max_limit))
+        self.floor = max(1, self.limit // 2)
         self.in_flight = 0
         self._streak = 0
         self._cond = threading.Condition()
@@ -222,7 +224,7 @@ class Lane:
                 self._cond.wait(timeout=wait if wait > 0 else None)
             self.in_flight += 1
 
-    def release(self, ok: bool, overloaded: bool = False) -> None:
+    def release(self, ok: bool, overloaded: bool = False, rate_limited: bool = False) -> None:
         with self._cond:
             self.in_flight -= 1
             self.calls += 1
@@ -234,9 +236,13 @@ class Lane:
                     self.dead = True
                 elif self.fail_streak % BREAK_AFTER == 0:
                     self.paused_until = time.time() + BREAK_PAUSE_S
-            if overloaded:
+            if rate_limited:
                 self.overloads += 1
                 self.limit = max(1, self.limit // 2)
+                self._streak = 0
+            elif overloaded:
+                self.overloads += 1
+                self.limit = max(self.floor, self.limit - 1)
                 self._streak = 0
             elif ok:
                 self._streak += 1
@@ -257,6 +263,11 @@ def lane_limit(provider: str, default: int) -> int:
 def _overloaded(err: Exception) -> bool:
     from ..utils.model_pool import _is_rate_limit_or_transient
     return _is_rate_limit_or_transient(err)
+
+
+def _rate_limited(err: Exception) -> bool:
+    from ..utils.model_pool import _is_rate_limit
+    return _is_rate_limit(err)
 
 
 class Caller:
@@ -304,7 +315,7 @@ class Caller:
             return hit
         lane = self.lanes[lane_idx]
         lane.acquire()
-        ok = overloaded = False
+        ok = overloaded = limited = False
         try:
             kw: Dict[str, Any] = {"model": self.model, "temperature": temperature, "max_tokens": max_tokens,
                                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
@@ -315,10 +326,10 @@ class Caller:
             prov, mod = _resolve_provider_meta(self.client, self.model, resp, lane_idx if slot is not None else None)
             ok = True
         except Exception as e:  # noqa: BLE001 - classified for the lane, then re-raised
-            overloaded = _overloaded(e)
+            overloaded, limited = _overloaded(e), _rate_limited(e)
             raise
         finally:
-            lane.release(ok, overloaded)
+            lane.release(ok, overloaded, limited)
         return text, prov, mod
 
     def remember(self, lane_idx: int, system: str, prompt: str, answer: Tuple[str, str, str]) -> None:
@@ -373,7 +384,7 @@ def write_cards(client: Any, model: str, jobs: List[Tuple[Any, List[Dict[str, An
             return hit
         lane = lanes[lane_idx]
         lane.acquire()
-        ok = overloaded = False
+        ok = overloaded = limited = False
         try:
             kw: Dict[str, Any] = {"model": model, "temperature": 0.9, "max_tokens": 9000,
                                   "messages": [{"role": "system", "content": CARD_SYSTEM}, {"role": "user", "content": prompt}]}
@@ -385,10 +396,10 @@ def write_cards(client: Any, model: str, jobs: List[Tuple[Any, List[Dict[str, An
             ok = True
             return text, prov, mod
         except Exception as e:  # noqa: BLE001 - classified for the lane, then re-raised
-            overloaded = _overloaded(e)
+            overloaded, limited = _overloaded(e), _rate_limited(e)
             raise
         finally:
-            lane.release(ok, overloaded)
+            lane.release(ok, overloaded, limited)
 
     def run_job(j: int) -> None:
         seg, slots, comms = jobs[j]

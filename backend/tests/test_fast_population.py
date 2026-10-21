@@ -116,10 +116,15 @@ def test_a_rerun_reuses_cached_cards():
     assert second.calls == [] and [e.name for e in a] == [e.name for e in b]
 
 
-def test_lane_halves_on_overload_and_grows_back():
+def test_lane_halves_on_rate_limits_only_and_grows_back():
+    lane = fp.Lane("codex", 10)
+    for _ in range(8):                     # timeouts lower it by one, never below half the start
+        lane.acquire()
+        lane.release(ok=False, overloaded=True)
+    assert lane.limit == 5
     lane = fp.Lane("codex", 4)
     lane.acquire()
-    lane.release(ok=False, overloaded=True)
+    lane.release(ok=False, overloaded=True, rate_limited=True)
     assert lane.limit == 2
     for _ in range(4):
         lane.acquire()
