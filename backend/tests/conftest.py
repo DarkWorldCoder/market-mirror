@@ -13,6 +13,9 @@ def _isolated_local_graph_db(tmp_path, monkeypatch):
     monkeypatch.setenv("MM_TASK_DB_PATH", str(tmp_path / "tasks.sqlite"))
     # ...nor the people cache (backend/uploads/population_cache.sqlite): every test starts with an empty one
     monkeypatch.setenv("MM_POPULATION_CACHE", str(tmp_path / "population_cache.sqlite"))
+    # files the services write under the upload folder (debug answers and the like) go to the test's folder
+    from app import config as _config
+    monkeypatch.setattr(_config, "UPLOAD_ROOT", str(tmp_path))
     # no real pauses between re-asks or after a run of failures
     from app.services import fast_population, persona_planner
     monkeypatch.setattr(persona_planner, "RETRY_PAUSE_S", 0)
