@@ -121,10 +121,13 @@ def test_generate_personas_uses_fixed_demographics_and_unique_names():
     client = FakeClient(duplicate_names=True)
     ents = pp.generate_personas(client, "m", spec, "How do Nepali families react?", "context")
     assert len(ents) == 11
-    assert len(client.prompts) == 3                     # 5 + 3 students, then 3 parents (MAX_PER_CALL = 5)
+    first = [p for p in client.prompts if "Do not reuse or resemble" not in p]
+    assert len(first) == 3                              # 4 + 4 students, then 3 parents (DEEP_BATCH = 4)
+    again = [p for p in client.prompts if "Do not reuse or resemble" in p]
+    assert again and all("asha rai" in p.lower() for p in again)   # a taken name is asked again with the names to avoid
     assert all("never use the name" in s for s in client.systems)
     names = [e.name for e in ents]
-    assert len(set(names)) == 11                        # duplicates from the LLM are renamed
+    assert len(set(names)) == 11                        # still the same name on the last try: kept and numbered
     students = [e for e in ents if e.get_entity_type() == "Student"]
     parents = [e for e in ents if e.get_entity_type() == "Parent"]
     assert len(students) == 8 and len(parents) == 3

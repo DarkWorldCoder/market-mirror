@@ -90,11 +90,21 @@ def _float(v: Any, default: float) -> float:
 
 
 def _str_list(v: Any) -> List[str]:
+    """A list of strings from what a model or a spec gave: a comma-separated string, a list (items that are
+    objects give their first text value, empty items are dropped), or a single value."""
     if v is None:
         return []
     if isinstance(v, str):
         return [x.strip() for x in v.split(",") if x.strip()]
-    return [str(x).strip() for x in v if str(x).strip()]
+    if not isinstance(v, (list, tuple, set)):
+        return [str(v).strip()] if str(v).strip() else []
+    out = []
+    for x in v:
+        if isinstance(x, dict):
+            x = next((y for y in x.values() if isinstance(y, str) and y.strip()), "")
+        if x is not None and str(x).strip():
+            out.append(str(x).strip())
+    return out
 
 
 def _type_name(v: Any) -> str:
@@ -580,6 +590,8 @@ def _persona_prompt(seg: PersonaSegment, slots: List[Dict[str, Any]], requiremen
         groups = "\nCommunities people in this segment may belong to:\n" + "\n".join(
             f"- {c.name} ({c.kind}): {c.description} Norms: {c.norms}" for c in communities) + "\n"
     extra = []
+    if not seg.country:
+        extra.append('"country": "..."')
     if any(not s.get("city") for s in slots):
         extra.append('"city": "... (only when no city is given)"')
     if any("education" not in (s.get("traits") or {}) for s in slots):
@@ -652,7 +664,7 @@ def _voices_block(voices: Optional[List[Dict[str, Any]]], country: str = "", n: 
     picks = pick_voices(voices, n, country)
     if not picks:
         return ""
-    lines = "\n".join(f"- \"{v['text'][:220]}\" ({v['source']})" for v in picks)
+    lines = "\n".join(f"- \"{str(v.get('text') or '')[:220]}\" ({v.get('source') or 'public post'})" for v in picks)
     return f"\nWhat real people wrote in public reviews and threads about this kind of product (ground the answers in this reality, do not copy it):\n{lines}\n"
 
 
@@ -946,7 +958,7 @@ def _interview_card(e: EntityNode) -> Dict[str, Any]:
     prof = a.get(SYNTHETIC_PROFILE_KEY) or {}
     return {"name": e.name, "age": prof.get("age"), "gender": prof.get("gender"), "occupation": a.get("occupation"),
             "city": a.get("city"), "country": a.get("country"), "segment": a.get("segment"),
-            "languages": a.get("languages"), "upbringing": a.get("upbringing"), "education": a.get("education"),
+            "languages": _str_list(a.get("languages")), "upbringing": a.get("upbringing"), "education": a.get("education"),
             "income_level": a.get("income_level"), "income": a.get("income"), "thinking_style": a.get("thinking_style"),
             "tech_comfort": a.get("tech_comfort"), "media_diet": a.get("media_diet"), "attitude": a.get("attitude")}
 
@@ -976,13 +988,14 @@ def apply_interview(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str =
     """Attach a life interview row (answers in order as "a", or the older [{q, a}] form). False when it has none."""
     raw = r.get("a") if isinstance(r.get("a"), list) else r.get("answers")
     answers = []
-    for i, x in enumerate(raw or []):
+    for i, x in enumerate(raw if isinstance(raw, list) else []):
         q, a = (str(x.get("q") or f"Q{i + 1}"), str(x.get("a") or "").strip()) if isinstance(x, dict) else (f"Q{i + 1}", str(x or "").strip())
-        if a:
-            answers.append({"q": q, "a": a})
-    if not answers:
-        return False
+        answers.append({"q": q, "a": a})
     summary = str(r.get("summary") or "").strip()
+    # complete or not at all: every question answered (labels stay aligned) and the summary written
+    if len(answers) < len(INTERVIEW_QUESTIONS) or not all(x["a"] for x in answers[:len(INTERVIEW_QUESTIONS)]) or not summary:
+        return False
+    answers = answers[:len(INTERVIEW_QUESTIONS)]
     e.attributes["interview"] = answers
     (e.attributes.setdefault("provenance", {}))["interview"] = f"synthetic: model-written life interview ({prov}/{mod})" if prov else "synthetic: model-written life interview"
     if summary:
@@ -997,17 +1010,22 @@ def apply_interview(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str =
     return True
 
 
-def apply_probes(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = "") -> bool:
-    """Attach follow-up answers ("p" in order, or the older probe_answers) and the decision card."""
+def apply_probes(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = "", expected: Optional[int] = None) -> bool:
+    """Attach follow-up answers ("p" in order, or the older probe_answers) and the decision card. With `expected`,
+    only a complete row counts: that many non-empty answers and a usable card."""
     raw = r.get("p") if isinstance(r.get("p"), list) else r.get("probe_answers")
     pa = []
-    for i, x in enumerate(raw or []):
+    for i, x in enumerate(raw if isinstance(raw, list) else []):
         q, a = (str(x.get("q") or f"P{i + 1}"), str(x.get("a") or "").strip()) if isinstance(x, dict) else (f"P{i + 1}", str(x or "").strip())
         if a:
             pa.append({"q": q, "a": a})
     bde = clean_bde(r.get("bde") or r.get("BDE") or r.get("card"))
+    if expected is not None and (bde is None or len(pa) < expected):
+        return False
     if not pa and not bde:
         return False
+    if expected is not None:
+        pa = pa[:expected]
     if pa:
         e.attributes["interview"] = (e.attributes.get("interview") or []) + pa
     if bde:
@@ -1019,29 +1037,38 @@ def apply_probes(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = ""
     return True
 
 
-def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any]], str], batch: List[Any], key: str,
+def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any], int], str], batch: List[Any], key: str,
               apply: Callable[[Any, Dict[str, Any], str, str], bool], what: str, max_tokens: int, temperature: float) -> List[Any]:
-    """Ask for `batch`, apply each usable row, then ask again only for whoever is still missing (ATTEMPTS in all).
-    Returns the people still missing. Nobody is filled in by code."""
+    """Ask for `batch`, apply each complete row, then ask again only for whoever is still missing (ATTEMPTS in all).
+    Any error while building the prompt, calling, parsing or applying counts as a failed attempt. An answer from
+    another provider than this lane's (a failover) is not used. Returns the people still missing; nobody is filled
+    in by code."""
+    from ..utils.model_pool import provider_family
+    expected = caller.family(lane)
     pending = list(batch)
     for attempt in range(ATTEMPTS):
         if not pending:
             break
         if attempt:
             time.sleep(RETRY_PAUSE_S * attempt)
-        prompt = build_prompt(pending)
         try:
+            prompt = build_prompt(pending, attempt)
             answer = caller.text(lane, SYSTEM_PROMPT, prompt, max_tokens=max_tokens,
                                  temperature=max(0.4, temperature - 0.2 * attempt))
+            if expected and answer[1] and provider_family(answer[1]) != expected:
+                raise RuntimeError(f"answered by {answer[1]}, not {expected}")
             data = parse_json_block(answer[0])
+            rows = data.get(key) if isinstance(data, dict) else data
+            rows = [r for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)]
+            done = {k for k, r in _match_rows(rows, pending).items() if apply(pending[k], r, answer[1], answer[2])}
         except Exception as e:  # noqa: BLE001 - asked again below, then reported missing
             logger.warning(f"{what}: {len(pending)} people, attempt {attempt + 1}: {str(e)[:160]}")
             continue
-        rows = data.get(key) if isinstance(data, dict) else data
-        rows = [r for r in (rows or []) if isinstance(r, dict)]
-        done = {k for k, r in _match_rows(rows, pending).items() if apply(pending[k], r, answer[1], answer[2])}
         if done:
-            caller.remember(lane, SYSTEM_PROMPT, prompt, answer)
+            try:
+                caller.remember(lane, SYSTEM_PROMPT, prompt, answer)
+            except Exception as e:  # noqa: BLE001 - the cache is an optimisation
+                logger.warning(f"{what}: answer not cached: {e}")
         pending = [e for k, e in enumerate(pending) if k not in done]
     return pending
 
@@ -1049,19 +1076,24 @@ def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any]], str], 
 def interview_batch(caller: Any, lane: int, batch: List[EntityNode], context: str,
                     voices: Optional[List[Dict[str, Any]]], product_qs: List[str], probes: bool = True) -> Tuple[int, int]:
     """The life interview for one batch, then its follow-ups and decision card straight away (no waiting for other
-    batches). Returns (interviewed, followed up)."""
-    def iv_prompt(people: List[EntityNode]) -> str:
+    batches). Only complete answers count: all 12 interview answers and the summary; every follow-up answer and a
+    usable decision card. Returns (interviewed, followed up)."""
+    def iv_prompt(people: List[EntityNode], attempt: int) -> str:
         return _interview_prompt([{**_interview_card(e), "i": k + 1} for k, e in enumerate(people)], context, voices)
     _ask_rows(caller, lane, iv_prompt, batch, "interviews", apply_interview, "interview", 9000, 0.9)
     interviewed = [e for e in batch if e.attributes.get("interview")]
     if not probes or not interviewed:
         return len(interviewed), 0
+    asked = {id(e): choose_probes(e.attributes.get("interview") or []) for e in interviewed}
 
-    def pr_prompt(people: List[EntityNode]) -> str:
+    def pr_prompt(people: List[EntityNode], attempt: int) -> str:
         return _probe_prompt([{**_interview_card(e), "i": k + 1} for k, e in enumerate(people)],
                              {e.name: e.attributes.get("interview") or [] for e in people},
-                             {e.name: choose_probes(e.attributes.get("interview") or []) for e in people}, product_qs, context)
-    missing = _ask_rows(caller, lane, pr_prompt, interviewed, "people", apply_probes, "follow-ups", 9000, 0.8)
+                             {e.name: asked[id(e)] for e in people}, product_qs, context)
+
+    def apply(e: EntityNode, r: Dict[str, Any], prov: str, mod: str) -> bool:
+        return apply_probes(e, r, prov, mod, expected=len(asked[id(e)]) + len(product_qs))
+    missing = _ask_rows(caller, lane, pr_prompt, interviewed, "people", apply, "follow-ups", 9000, 0.8)
     return len(interviewed), len(interviewed) - len(missing)
 
 
@@ -1135,10 +1167,12 @@ def diversity_report(entities: List[EntityNode]) -> Dict[str, Any]:
     return {"segments": rows, "flagged": [r["segment"] for r in rows if r["flag"]]}
 
 
-def fix_duplicates(entities: List[EntityNode], rng: random.Random) -> int:
+def fix_duplicates(entities: List[EntityNode], rng: random.Random, move_city: bool = True) -> int:
     """Code-only repair for the commonest stereotype: several people in a segment with the same occupation and
-    city. The duplicates get another city from the segment (round-robin) and a numbered variant of the role
-    ('shop owner' -> 'shop owner (second-hand phones)'). Returns how many people were changed."""
+    city. With move_city the duplicates get another city from the segment (round-robin, the first one where that
+    occupation is still free); otherwise, or when no city is free, a numbered variant of the role
+    ('shop owner' -> 'shop owner (part-time)'). Runs in list order, so it is deterministic. Returns how many people
+    were changed."""
     changed = 0
     by_seg: Dict[str, List[EntityNode]] = {}
     for e in entities:
@@ -1150,19 +1184,25 @@ def fix_duplicates(entities: List[EntityNode], rng: random.Random) -> int:
         seen: Dict[tuple, int] = {}
         for e in people:
             a = e.attributes or {}
-            key = (str(a.get("occupation") or "").lower(), str(a.get("city") or "").lower())
+            occ = str(a.get("occupation") or "").lower()
+            key = (occ, str(a.get("city") or "").lower())
             k = seen.get(key, 0)
-            seen[key] = k + 1
-            if k == 0 or not key[0]:
+            if k == 0 or not occ:
+                seen[key] = k + 1
                 continue
-            if len(cities) > 1:
-                a["city"] = cities[(cities.index(a.get("city")) + k) % len(cities)] if a.get("city") in cities else rng.choice(cities)
+            before = (a.get("city"), a.get("occupation"))
+            free = [c for c in cities if seen.get((occ, c.lower()), 0) == 0] if move_city else []
+            if free:
+                a["city"] = free[0]
             else:
                 a["occupation"] = f"{a['occupation']} {variants[(k - 1) % len(variants)]}"
                 prof = a.get(SYNTHETIC_PROFILE_KEY)
                 if prof:
                     prof["profession"] = a["occupation"]
-            changed += 1
+            new_key = (str(a.get("occupation") or "").lower(), str(a.get("city") or "").lower())
+            seen[key] = k + 1
+            seen[new_key] = seen.get(new_key, 0) + 1
+            changed += int((a.get("city"), a.get("occupation")) != before)
     return changed
 
 
@@ -1265,44 +1305,6 @@ def generate_personas(client, model: str, spec: PersonaSpec, requirement: str, c
     return _finish_population(entities, spec, rng, taken, stats)
 
 
-class DuplicateGuard:
-    """fix_duplicates, applied batch by batch: a person whose (occupation, city) is already taken in their segment
-    gets another city of the segment (or a numbered variant of the role) before their interview is written."""
-
-    VARIANTS = ["(part-time)", "(night shift)", "(freelance)", "(family business)", "(junior)", "(senior)", "(contract)"]
-
-    def __init__(self, segments: Sequence[PersonaSegment]):
-        self.seen: Dict[str, Dict[tuple, int]] = {}
-        self.cities: Dict[str, List[str]] = {s.label: list(dict.fromkeys(c for c in (s.cities or []) if c)) for s in segments}
-        self.lock = threading.Lock()
-
-    def fix(self, people: List[EntityNode]) -> int:
-        changed = 0
-        with self.lock:
-            for e in people:
-                a = e.attributes or {}
-                seg = str(a.get("segment") or "?")
-                cities = self.cities.setdefault(seg, [])
-                if a.get("city") and a["city"] not in cities:
-                    cities.append(a["city"])
-                seen = self.seen.setdefault(seg, {})
-                key = (str(a.get("occupation") or "").lower(), str(a.get("city") or "").lower())
-                k = seen.get(key, 0)
-                seen[key] = k + 1
-                if k == 0 or not key[0]:
-                    continue
-                if len(cities) > 1:
-                    a["city"] = cities[(cities.index(a["city"]) + k) % len(cities)] if a.get("city") in cities else cities[k % len(cities)]
-                    seen[(key[0], str(a["city"]).lower())] = seen.get((key[0], str(a["city"]).lower()), 0) + 1
-                else:
-                    a["occupation"] = f"{a['occupation']} {self.VARIANTS[(k - 1) % len(self.VARIANTS)]}"
-                    prof = a.get(SYNTHETIC_PROFILE_KEY)
-                    if prof:
-                        prof["profession"] = a["occupation"]
-                changed += 1
-        return changed
-
-
 def _write_full(client, model: str, spec: PersonaSpec, requirement: str, context: str, rng: random.Random,
                 progress: Optional[Callable[[int, int, str], None]], parallel: int,
                 product: Optional[Dict[str, Any]], voices: Optional[List[Dict[str, Any]]]
@@ -1310,7 +1312,9 @@ def _write_full(client, model: str, spec: PersonaSpec, requirement: str, context
     """The full-depth people: a persona with its paragraph, the 12-question life interview and the follow-ups with
     the decision card, for everyone. Each batch of DEEP_BATCH people goes straight through the three calls on its
     provider's lane (no waiting for the rest of the segment); every provider writes exactly its share, person by
-    person; rows carry their slot number so only missing people are asked again; answers are cached."""
+    person; rows carry their slot number and only complete rows count, so only missing people are asked again; a
+    person is interviewed by the provider that wrote them; answers are cached. A batch that fails for any reason is
+    counted, never fatal for the run."""
     from .fast_population import Caller
     caller = Caller(client, model, parallel)
     n = caller.n
@@ -1326,38 +1330,60 @@ def _write_full(client, model: str, spec: PersonaSpec, requirement: str, context
         offset = (offset + len(slots)) % n
     total = sum(len(j[1]) for j in jobs)
     taken: set = set()
+    reserved: set = set()                 # names accepted by any batch so far (two batches never keep the same name)
     lock = threading.Lock()
-    guard = DuplicateGuard(spec.segments)
     product_qs = product_questions(product)
     results: Dict[int, List[EntityNode]] = {}
-    count = {"done": 0, "missing": 0, "fixed": 0, "interviewed": 0, "followed_up": 0}
+    count = {"done": 0, "missing": 0, "interviewed": 0, "followed_up": 0, "errors": 0}
 
     def run_job(j: int) -> None:
         seg, slots, comms, lane = jobs[j]
         got: Dict[int, Tuple[Dict[str, Any], str, str]] = {}
-
-        def keep(k_slot: Dict[str, Any], r: Dict[str, Any], prov: str, mod: str) -> bool:
-            if not str(r.get("name") or "").strip():
-                return False
-            got[id(k_slot)] = (r, prov, mod)
-            return True
-
-        def prompt(pending: List[Dict[str, Any]]) -> str:
-            return _persona_prompt(seg, pending, requirement, context, (), comms,
-                                   numbers=list(range(1, len(pending) + 1)))
-        missing = _ask_rows(caller, lane, prompt, slots, "personas", keep, f"persona batch {j} ({seg.label})", 9000, 0.8)
-        with lock:
-            ents = [_to_entity(seg, sl, got[id(sl)][0], taken, j * DEEP_BATCH + k, model_provider=got[id(sl)][1],
-                               model_name=got[id(sl)][2]) for k, sl in enumerate(slots) if id(sl) in got]
-            count["missing"] += len(missing)
-        count["fixed"] += guard.fix(ents)
+        ents: List[EntityNode] = []
+        missing: List[Any] = list(slots)
         iv = fu = 0
-        if spec.interview and ents:
-            iv, fu = interview_batch(caller, lane, ents, context, voices, product_qs, spec.probes)
+        attempt_now = [0]
+        try:
+            def keep(sl: Dict[str, Any], r: Dict[str, Any], prov: str, mod: str) -> bool:
+                name = str(r.get("name") or "").strip()
+                if not (name and str(r.get("occupation") or "").strip() and str(r.get("persona") or "").strip()):
+                    return False                          # a persona without its job or its paragraph is asked again
+                with lock:
+                    # a name already used is asked again with the names to avoid; on the last try the person is
+                    # kept and the name gets a number, as the older method did
+                    if name.lower() in reserved and attempt_now[0] < ATTEMPTS - 1:
+                        return False
+                    reserved.add(name.lower())
+                got[id(sl)] = (r, prov, mod)
+                return True
+
+            def prompt(pending: List[Dict[str, Any]], attempt: int) -> str:
+                attempt_now[0] = attempt
+                with lock:
+                    avoid = sorted(reserved) if attempt else ()
+                return _persona_prompt(seg, pending, requirement, context, avoid, comms,
+                                       numbers=list(range(1, len(pending) + 1)))
+            missing = _ask_rows(caller, lane, prompt, slots, "personas", keep, f"persona batch {j} ({seg.label})", 9000, 0.8)
+            with lock:
+                ents = [_to_entity(seg, sl, got[id(sl)][0], taken, j * DEEP_BATCH + k, model_provider=got[id(sl)][1],
+                                   model_name=got[id(sl)][2]) for k, sl in enumerate(slots) if id(sl) in got]
+            if spec.interview and ents:
+                # each person is interviewed by the provider that wrote them
+                by_writer: Dict[int, List[EntityNode]] = {}
+                for e in ents:
+                    by_writer.setdefault(caller.lane_of(e.attributes.get("model_provider")), []).append(e)
+                for w_lane, group in sorted(by_writer.items()):
+                    a, b = interview_batch(caller, w_lane, group, context, voices, product_qs, spec.probes)
+                    iv, fu = iv + a, fu + b
+        except Exception as e:  # noqa: BLE001 - counted; the people written so far are kept
+            logger.warning(f"persona batch {j} ({seg.label}) stopped: {str(e)[:200]}")
+            with lock:
+                count["errors"] += 1
         for e in ents:
             e.attributes["depth"] = "interviewed" if e.attributes.get("interview") else "profile"
         with lock:
             results[j] = ents
+            count["missing"] += len(slots) - len(ents)
             count["done"] += len(slots)
             count["interviewed"] += iv
             count["followed_up"] += fu
@@ -1377,13 +1403,16 @@ def _write_full(client, model: str, spec: PersonaSpec, requirement: str, context
         for ex in executors.values():
             ex.shutdown(wait=True)
     entities = [e for j in range(len(jobs)) for e in results.get(j, [])]
+    # the stereotype guard runs once, in agent order, so the same seed always gives the same people (and a rerun
+    # reuses its cached interviews); it only marks repeated (occupation, city) pairs with a role variant and does
+    # not move anyone to another city, which their story and interview already mention
+    fixed = fix_duplicates(entities, rng, move_city=False)
     st = caller.stats()
     logger.info(f"persona planner (full): {len(entities)} people, {count['missing']} not written, "
-                f"{count['interviewed']} interviewed, {count['followed_up']} followed up; lanes {st['lanes']}; cache {st['cache']}")
-    return entities, taken, {"fixed": count["fixed"], "failed": count["missing"], "total": total,
+                f"{count['interviewed']} interviewed, {count['followed_up']} followed up, {count['errors']} batch errors; "
+                f"lanes {st['lanes']}; cache {st['cache']}")
+    return entities, taken, {"fixed": fixed, "failed": count["missing"], "total": total,
                              "interviewed": count["interviewed"], **st}
-
-
 
 
 def _write_fast(client, model: str, spec: PersonaSpec, requirement: str, context: str, rng: random.Random,
@@ -1555,7 +1584,7 @@ def _to_entity(seg: PersonaSegment, slot: Dict[str, Any], row: Dict[str, Any], t
         "segment": seg.label, "role": seg.role, "city": city, "country": country, "settlement": slot.get("settlement"),
         "life_stage": slot.get("life_stage"), "payday_status": slot.get("payday_status"),
         "occupation": occupation, "education": traits.get("education") or row.get("education"), "household": row.get("household"),
-        "income_level": traits.get("income") or row.get("income_level"), "languages": row.get("languages") or seg.languages,
+        "income_level": traits.get("income") or row.get("income_level"), "languages": _str_list(row.get("languages")) or seg.languages,
         "platform_habits": row.get("platform_habits"), "decision_role": row.get("decision_role"),
         "attitude": row.get("attitude"), "concerns": row.get("concerns"),
         "what_persuades_them": row.get("what_persuades_them"), "voice": row.get("voice"),

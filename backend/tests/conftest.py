@@ -13,6 +13,10 @@ def _isolated_local_graph_db(tmp_path, monkeypatch):
     monkeypatch.setenv("MM_TASK_DB_PATH", str(tmp_path / "tasks.sqlite"))
     # ...nor the people cache (backend/uploads/population_cache.sqlite): every test starts with an empty one
     monkeypatch.setenv("MM_POPULATION_CACHE", str(tmp_path / "population_cache.sqlite"))
+    # no real pauses between re-asks or after a run of failures
+    from app.services import fast_population, persona_planner
+    monkeypatch.setattr(persona_planner, "RETRY_PAUSE_S", 0)
+    monkeypatch.setattr(fast_population, "BREAK_PAUSE_S", 0)
     # Tests never download an embedding model; embedding tests inject a fake.
     monkeypatch.setattr(Config, "MEMORY_EMBEDDINGS", False)
     local_graph.clear_local_zep_clients()

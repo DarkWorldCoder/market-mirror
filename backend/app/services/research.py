@@ -219,14 +219,15 @@ def voices(quotes: List[Dict[str, Any]], country_hint: str = "") -> List[Dict[st
 
 def pick_voices(store: List[Dict[str, Any]], n: int = 4, country: str = "", sentiment_mix: bool = True) -> List[Dict[str, Any]]:
     """A few real voices for a prompt: prefer the country, keep both positive and negative."""
-    pool = [v for v in store if not country or not v.get("country") or v["country"].lower() == country.lower()] or store
+    store = [v for v in store or [] if isinstance(v, dict) and str(v.get("text") or "").strip()]
+    pool = [v for v in store if not country or not v.get("country") or str(v["country"]).lower() == country.lower()] or store
     if not pool:
         return []
     if not sentiment_mix:
         return pool[:n]
     by = defaultdict(list)
     for v in pool:
-        by[v["sentiment"]].append(v)
+        by[v.get("sentiment") or "neu"].append(v)
     out = []
     for s in ("neg", "pos", "neu"):
         out += by[s][: max(1, n // 2)]

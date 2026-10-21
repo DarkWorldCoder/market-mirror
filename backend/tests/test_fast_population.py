@@ -30,7 +30,8 @@ class CardClient:
             raise TimeoutError("Request timed out.")
         if user.startswith("This is a life interview"):
             names = re.findall(r"^\d+\. ([^:]+):", user, re.M)
-            body = {"interviews": [{"name": n, "answers": [{"q": "Q1", "a": "a"}], "summary": f"I am {n}."} for n in names]}
+            body = {"interviews": [{"name": n, "answers": [{"q": f"Q{i}", "a": "a"} for i in range(1, 13)],
+                                    "summary": f"I am {n}."} for n in names]}
         elif user.startswith("Second part of a life interview"):
             body = {"people": []}
         else:

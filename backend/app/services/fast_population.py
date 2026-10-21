@@ -34,7 +34,7 @@ from ..utils.openai_chat_compat import create_chat_completion, extract_chat_comp
 
 logger = get_logger('mirofish.fast_population')
 
-PROMPT_VERSION = "card-v1"
+PROMPT_VERSION = "v2"           # bump when prompts or the rules for a usable answer change
 CARD_BATCH = max(1, int(os.environ.get("MM_CARD_BATCH") or 20))
 CARD_ATTEMPTS = 3
 
@@ -184,6 +184,15 @@ class PromptCache:
 # Provider lanes with an adaptive limit
 # --------------------------------------------------------------------------
 
+BREAK_AFTER = max(1, int(os.environ.get("MM_LANE_BREAK_AFTER") or 8))
+BREAK_PAUSE_S = float(os.environ.get("MM_LANE_BREAK_PAUSE_S") or 60)
+DEAD_AFTER = max(BREAK_AFTER, int(os.environ.get("MM_LANE_DEAD_AFTER") or 40))
+
+
+class LaneDown(RuntimeError):
+    """A provider's lane stopped after too many failures in a row."""
+
+
 class Lane:
     """Calls in flight for one provider: the limit halves after an overload (timeout, rate limit, 5xx) and grows by
     one after twice its size in successes, between 1 and `max_limit`."""
@@ -196,17 +205,35 @@ class Lane:
         self._streak = 0
         self._cond = threading.Condition()
         self.calls = self.overloads = 0
+        # breaker: after BREAK_AFTER failures in a row the lane pauses BREAK_PAUSE_S before trying again; after
+        # DEAD_AFTER in a row it stops, and calls on it fail at once (their people are counted missing)
+        self.fail_streak = 0
+        self.paused_until = 0.0
+        self.dead = False
 
     def acquire(self) -> None:
         with self._cond:
-            while self.in_flight >= self.limit:
-                self._cond.wait()
+            while True:
+                if self.dead:
+                    raise LaneDown(f"{self.name}: {self.fail_streak} failures in a row, no more calls")
+                wait = self.paused_until - time.time()
+                if wait <= 0 and self.in_flight < self.limit:
+                    break
+                self._cond.wait(timeout=wait if wait > 0 else None)
             self.in_flight += 1
 
     def release(self, ok: bool, overloaded: bool = False) -> None:
         with self._cond:
             self.in_flight -= 1
             self.calls += 1
+            if ok:
+                self.fail_streak = 0
+            else:
+                self.fail_streak += 1
+                if self.fail_streak >= DEAD_AFTER:
+                    self.dead = True
+                elif self.fail_streak % BREAK_AFTER == 0:
+                    self.paused_until = time.time() + BREAK_PAUSE_S
             if overloaded:
                 self.overloads += 1
                 self.limit = max(1, self.limit // 2)
@@ -238,6 +265,11 @@ class Caller:
     again). Works with a provider pool (one lane per slot) or a single client (one lane)."""
 
     def __init__(self, client: Any, model: str, parallel: int, cache: Optional[PromptCache] = None):
+        if getattr(client, "is_multi", False) and hasattr(client, "with_options"):
+            # a strict view: a call made for one provider never fails over to another, so lane limits, the
+            # breaker and "one provider per person" all hold; a failure is retried and then counted
+            client = client.with_options()
+            client.strict = True
         self.client, self.model = client, model
         self.slots = getattr(client, "slots", None) or [None]
         self.n = len(self.slots)
@@ -245,6 +277,12 @@ class Caller:
         self.lanes = [Lane(getattr(s, "provider", None) or "default",
                            lane_limit(getattr(s, "provider", None) or "default", per_lane)) for s in self.slots]
         self.cache = cache if cache is not None else PromptCache()
+
+    def family(self, lane_idx: int) -> Optional[str]:
+        """The provider family a lane must answer from (None for a single client)."""
+        from ..utils.model_pool import provider_family
+        slot = self.slots[lane_idx % self.n]
+        return provider_family(slot.provider) if slot is not None and getattr(slot, "provider", None) else None
 
     def lane_of(self, provider: Optional[str]) -> int:
         """The slot index of a provider family (the writer of a person), else 0."""
