@@ -298,3 +298,14 @@ def test_a_broken_answer_keeps_its_readable_rows():
     import pytest
     with pytest.raises(ValueError):
         pp._rows_from("no json here", "people")
+
+
+def test_rows_keyed_by_person_number_are_read(monkeypatch, tmp_path):
+    rows = pp._rows_from('{"interviews": {"1": {"a": ["x"]}, "2": {"i": 2, "a": ["y"]}}}', "interviews")
+    assert [r["i"] for r in rows] == ["1", 2]
+    from app import config
+    monkeypatch.setattr(config, "UPLOAD_ROOT", str(tmp_path))
+    import pytest
+    with pytest.raises(ValueError):
+        pp._rows_from("", "interviews")
+    assert (tmp_path / "debug" / "unreadable_answers").exists()

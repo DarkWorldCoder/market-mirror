@@ -1075,6 +1075,8 @@ def _rows_from(text: str, key: str) -> List[Dict[str, Any]]:
     try:
         data = parse_json_block(text)
         rows = data.get(key) if isinstance(data, dict) else data
+        if isinstance(rows, dict) and rows and all(isinstance(v, dict) for v in rows.values()):
+            rows = [{"i": k, **v} if "i" not in v and str(k).isdigit() else v for k, v in rows.items()]   # {"1": {...}}
         if isinstance(rows, list):
             return [r for r in rows if isinstance(r, dict)]
     except ValueError:
@@ -1090,8 +1092,23 @@ def _rows_from(text: str, key: str) -> List[Dict[str, Any]]:
                 rows.append(obj)
             break
     if not rows:
+        _keep_unreadable(text, key)
         raise ValueError("no readable rows in the answer")
     return rows
+
+
+def _keep_unreadable(text: str, key: str) -> None:
+    """Save an answer no row could be read from (at most 200 files), so the cause can be looked at later."""
+    try:
+        from ..config import UPLOAD_ROOT
+        folder = os.path.join(UPLOAD_ROOT, "debug", "unreadable_answers")
+        os.makedirs(folder, exist_ok=True)
+        if len(os.listdir(folder)) >= 200:
+            return
+        with open(os.path.join(folder, f"{key}_{time.time():.3f}.txt"), "w", encoding="utf-8") as f:
+            f.write(text or "<empty answer>")
+    except Exception:  # noqa: BLE001 - debugging aid only
+        pass
 
 
 def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any], int], str], batch: List[Any], key: str,
