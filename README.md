@@ -161,16 +161,19 @@ For a login gateway, start it **before** `./mm provider check` and `./mm start`.
 One simulated market can be played by several model providers at once. Each provider writes an equal share of the people, interviews them, plays them in the social rounds and answers for them in every test, so one model speaks for a person from start to finish. The dashboard then splits the results by provider ("Do the models agree?") with 95% ranges.
 
 ```bash
-./mm gateway start claude                                            # 5055
-./mm gateway start codex --port 5056
-./mm gateway start antigravity --port 5057 --model gemini-3.8-flash-medium
+LLM_GATEWAY_WORKERS=12 LLM_GATEWAY_EFFORT=low ./mm gateway start claude                          # 5055
+LLM_GATEWAY_WORKERS=7 LLM_GATEWAY_EFFORT=low ./mm gateway start codex --port 5056 --model gpt-6-luna
+LLM_GATEWAY_WORKERS=10 ./mm gateway start antigravity --port 5057 --model gemini-3.8-flash-low
 ```
 
 Then give a backend these settings (a copy of `.env`, for example `.env.mixed`, with each gateway's token from `backend/logs/gateway-<port>.token`):
 
 ```bash
-LLM_POOL=claude_code:sonnet,codex,antigravity:gemini-3.8-flash-medium
+LLM_POOL=claude_code:sonnet,codex:gpt-6-luna,antigravity:gemini-3.8-flash-low
 LLM_POOL_STRICT=true                       # never hand a person's call to another model
+MM_LANE_CLAUDE_CODE=12                     # calls in flight per provider (see "Writing people fast" below)
+MM_LANE_CODEX=7
+MM_LANE_ANTIGRAVITY=10
 CLAUDE_CODE_GATEWAY_URL=http://127.0.0.1:5055/v1
 CLAUDE_CODE_GATEWAY_KEY=...
 CODEX_GATEWAY_URL=http://127.0.0.1:5056/v1
@@ -187,6 +190,44 @@ MIROFISH_URL=http://localhost:5004 ./mm cli market-test scenarios/acme/market_te
 With `LLM_POOL_STRICT=true` a failed call is retried on the same provider and then counted as failed; without it the pool fails over to the next provider, which is faster but mixes models. A difference between providers mixes the model and the people it wrote, so agreement is a robustness check, not evidence about real buyers. To compare separate runs instead (each provider with its own people in its own run), use `./mm cli compare --run Claude=mirofish_runs/a --run Codex=mirofish_runs/b --out mirofish_runs/compare`.
 
 Login subscriptions have their own limits. Antigravity's Gemini 4 Argon quota ran out after about 30 calls in our test and reset days later, while Gemini 3.8 Flash kept answering; the gateway reads the reset time and pauses that provider until then.
+
+### Writing people fast without losing depth
+
+Every simulated person still gets the full treatment: a persona with a 150-250 word description, a 12-question life interview with a first-person summary, follow-up questions chosen from their answers, product questions and a decision card. What changed is how the calls are run:
+
+- **No waiting between stages.** Each batch of 4 people goes straight from persona to interview to follow-ups; it does not wait for the rest of its audience.
+- **One lane per provider.** Writing and interviews share a per-provider limit on calls in flight (`MM_LANE_<PROVIDER>`), which halves after a timeout or rate limit and grows back after successes, so a slow provider never holds up a fast one.
+- **Nothing written twice.** Answers come back as compact JSON: numbered rows instead of echoed names, the 12 answers as a list instead of repeating every question, no fixed demographics written back, short keys for the decision card. That is about a quarter fewer output tokens for the same information.
+- **Only the missing are asked again.** A row that is missing or broken is asked for on its own; the rest of the batch is kept. Anyone still missing after three tries is left out and counted, never filled in by code.
+- **A cache.** Every usable answer is stored under a hash of the prompt, provider and model (`backend/uploads/population_cache.sqlite`, or `MM_POPULATION_CACHE`), so a rerun or a restart after a crash costs nothing for the people already written.
+
+Measured on the login gateways (one 4-person batch, all fields complete):
+
+| Provider | Setting | Persona batch | Interview batch | Calls in flight |
+|---|---|---:|---:|---|
+| Codex | `--model gpt-6-luna` + `LLM_GATEWAY_EFFORT=low` (default model: 82 s and 151 s) | 28 s | 35 s | about 7 per login; more are held back |
+| Gemini via Antigravity | `--model gemini-3.8-flash-low` (medium: 62 s and 66 s, with hidden thinking) | 50 s | 56 s | 10; 16 at once still raised throughput |
+| Claude Code | Sonnet + `LLM_GATEWAY_EFFORT=low` | 39 s | 53 s | 12-16 |
+
+With these settings 52 full-depth people from all three providers were finished in 4 minutes 23 seconds. A login CLI also sends about 20,000 tokens of its own instructions with every call and needs a few seconds to start, which an API key avoids.
+
+For a quick look at a large audience, `"depth": "fast"` in the persona spec writes compact profiles for everyone in batches of 20 and gives the full interview to a 10% sample of every audience and provider (`interview_share`). The survey can also stop early: `"settle": {"margin": 5}` asks people in random waves and stops asking a group once its would-convert shares are within ±5 points (checked with z = 2.5 because the results are looked at after every wave); the survey file and the dashboard say how many were asked and why it stopped. Both are off unless you ask for them.
+
+### API keys: cost and speed
+
+Prices checked on 2026-10-20 against the providers' pages; they change often. Token volumes for 3,000 people: preparing them in full depth is about 7M input and 10.5M output tokens; the whole market test afterwards (survey, sales pitch, feed test, four social rounds) is roughly 84M input and 8.4M output tokens (an estimate from the prompt sizes), most of it the same persona prefix again, which prompt caching discounts where the provider offers it.
+
+| Model and route | Price per 1M tokens (in / out) | Prepare 3,000 full-depth people | Market test for 3,000 | Speed per call |
+|---|---|---:|---:|---|
+| DeepSeek V4.1 Flash via OpenRouter (cheapest endpoint, pinned) | $0.09 / $0.18 | about $4.65 | about $9.60 | 80-200 tokens/s depending on the endpoint |
+| DeepSeek V4.1 Flash via OpenRouter (inference.net) | $0.08 / $0.50 | about $11.70 | about $11.50 | about 133 tokens/s |
+| DeepSeek V4.1 Flash, DeepSeek's own API (off-peak; peak is double) | $0.15 / $0.60, cache hits $0.003 | about $13.70 | about $17.60 | about 60 tokens/s, 2,500 calls in flight allowed |
+| DeepSeek V4 Pro via OpenRouter | $0.66 / $1.98 | about $49 | about $76 | about 30-50 tokens/s |
+| gpt-oss-120b on Cerebras | $0.35 / $0.75 | about $14 | about $37 | about 760 tokens/s; capped at 1M tokens per minute (about 23 minutes for the 3,000) |
+| Claude Haiku 5.5 (Anthropic API) | $0.10 / $0.50 | about $7.50 | about $12.60 | about 136 tokens/s |
+| Claude Sonnet 5.5 (Anthropic API) | $2 / $10 | about $170 | about $252 | about 90 tokens/s |
+
+OpenRouter adds 5.5% when you buy credits (bring-your-own-key is free up to $25,000 a month) and sets no rate limit of its own on paid models; its default routing balances across endpoints, so pin the provider to get one endpoint's price. With 50 calls in flight, preparing 3,000 full-depth people takes roughly 20-55 minutes on DeepSeek Flash. These are list prices for the stated token volumes, not measured bills; measure a small run first.
 
 API keys are entered privately in your terminal. `./mm configure --open-guide` can open the provider's key console; `./mm provider status` shows masked configuration. Agents can configure an existing secret with `--key-env` instead of placing it in tool arguments. See [provider setup and troubleshooting](docs/LOCAL_AGENTS.md).
 
