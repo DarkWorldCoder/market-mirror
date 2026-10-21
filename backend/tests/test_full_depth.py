@@ -288,3 +288,13 @@ def test_the_caller_uses_a_strict_view_of_a_provider_pool():
     c = Caller(pool, "m", 8)
     assert c.client.strict is True and pool.strict is False
     assert c.family(0) == "codex" and c.family(1) == "claude"
+
+
+def test_a_broken_answer_keeps_its_readable_rows():
+    bad = ('{"people": [{"i": 1, "p": ["ok"], "bde": {"b": {"who": "x"}}}, '
+           '{"i": 2, "p": ["he said "no" loudly"], "bde": {}}, {"i": 3, "p": ["fine",], "bde": {"d": {"ask": "mum"}}}]}')
+    assert [r["i"] for r in pp._rows_from(bad, "people")] == [1, 3]
+    assert pp._rows_from('{"interviews": [{"i": 1}]}', "interviews") == [{"i": 1}]
+    import pytest
+    with pytest.raises(ValueError):
+        pp._rows_from("no json here", "people")

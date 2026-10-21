@@ -1037,6 +1037,63 @@ def apply_probes(e: EntityNode, r: Dict[str, Any], prov: str = "", mod: str = ""
     return True
 
 
+def _object_spans(text: str) -> List[str]:
+    """Every balanced {...} at the outermost level inside the first JSON array of `text` (string-aware)."""
+    start = text.find("[")
+    if start < 0:
+        return []
+    out, depth, obj_start, in_str, esc = [], 0, -1, False, False
+    for i in range(start + 1, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0 and obj_start >= 0:
+                out.append(text[obj_start:i + 1])
+                obj_start = -1
+        elif ch == "]" and depth == 0:
+            break
+    return out
+
+
+def _rows_from(text: str, key: str) -> List[Dict[str, Any]]:
+    """The answer rows under `key`. When the whole answer is not valid JSON (a stray quote or a missing comma in
+    one person's text), each person's row is read on its own, so only the broken ones are asked again."""
+    try:
+        data = parse_json_block(text)
+        rows = data.get(key) if isinstance(data, dict) else data
+        if isinstance(rows, list):
+            return [r for r in rows if isinstance(r, dict)]
+    except ValueError:
+        pass
+    rows = []
+    for chunk in _object_spans(text or ""):
+        for candidate in (chunk, re.sub(r",\s*([}\]])", r"\1", chunk)):     # also without trailing commas
+            try:
+                obj = json.loads(candidate)
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+            break
+    if not rows:
+        raise ValueError("no readable rows in the answer")
+    return rows
+
+
 def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any], int], str], batch: List[Any], key: str,
               apply: Callable[[Any, Dict[str, Any], str, str], bool], what: str, max_tokens: int, temperature: float) -> List[Any]:
     """Ask for `batch`, apply each complete row, then ask again only for whoever is still missing (ATTEMPTS in all).
@@ -1057,9 +1114,7 @@ def _ask_rows(caller: Any, lane: int, build_prompt: Callable[[List[Any], int], s
                                  temperature=max(0.4, temperature - 0.2 * attempt))
             if expected and answer[1] and provider_family(answer[1]) != expected:
                 raise RuntimeError(f"answered by {answer[1]}, not {expected}")
-            data = parse_json_block(answer[0])
-            rows = data.get(key) if isinstance(data, dict) else data
-            rows = [r for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)]
+            rows = _rows_from(answer[0], key)
             done = {k for k, r in _match_rows(rows, pending).items() if apply(pending[k], r, answer[1], answer[2])}
         except Exception as e:  # noqa: BLE001 - asked again below, then reported missing
             logger.warning(f"{what}: {len(pending)} people, attempt {attempt + 1}: {str(e)[:160]}")
