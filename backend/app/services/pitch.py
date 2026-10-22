@@ -258,31 +258,60 @@ def score(people: List[Dict[str, Any]], turn1: Dict[int, Optional[Dict[str, Any]
             "people": rows}
 
 
+def provider_mixed(people: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """People reordered round-robin by the provider that plays them (model_provider), each provider spread evenly
+    over the whole list in proportion to its size, so every batch mixes providers and no gateway sits idle while a
+    batch waits for the slowest one. Order within a provider is kept; one provider (or none) keeps the order."""
+    from ..utils.model_pool import provider_family
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p in people:
+        groups.setdefault(provider_family(p.get("model_provider")), []).append(p)
+    if len(groups) < 2:
+        return list(people)
+    keyed = [((k + 0.5) / len(g), gi, p) for gi, g in enumerate(groups.values()) for k, p in enumerate(g)]
+    return [p for _, _, p in sorted(keyed, key=lambda x: (x[0], x[1]))]
+
+
+def _ask(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], items: List[Dict[str, Any]],
+         failures: List[str]) -> Dict[int, str]:
+    """One batch; a failed batch (IPC timeout, environment gone) leaves its people unanswered and is counted."""
+    try:
+        return interview_batch(items) or {}
+    except Exception as e:  # noqa: BLE001 - one failed batch must not fail the whole pitch
+        failures.append((str(e) or type(e).__name__)[:200])
+        return {}
+
+
 def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], people: List[Dict[str, Any]],
         script: str, rebuttals: Dict[str, str], product: str = "", channel: str = "message",
         batch: int = 8, progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
-    """interview_batch([{agent_id, prompt}]) -> {agent_id: reply text}. Two turns, batched."""
+    """interview_batch([{agent_id, prompt}]) -> {agent_id: reply text}. Two turns, batched, providers mixed in
+    every batch. A batch that raises leaves its people without an answer (failed_batches, unanswered)."""
     turn1: Dict[int, Optional[Dict[str, Any]]] = {}
     turn2: Dict[int, Optional[Dict[str, Any]]] = {}
+    failures: List[str] = []
+    order = provider_mixed(people)
     total = len(people) * (2 if rebuttals else 1)
     done = 0
-    for i in range(0, len(people), max(1, batch)):
-        chunk = people[i:i + batch]
-        texts = interview_batch([{"agent_id": p["agent_id"], "prompt": (p.get("history") or "") + pitch_prompt(script, product, channel)}
-                                 for p in chunk])
+    for i in range(0, len(order), max(1, batch)):
+        chunk = order[i:i + batch]
+        texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": (p.get("history") or "") + pitch_prompt(script, product, channel)}
+                                       for p in chunk], failures)
         for p in chunk:
             turn1[p["agent_id"]] = parse_turn1(texts.get(p["agent_id"]))
         done += len(chunk)
         if progress:
             progress(done, total)
+    second: List[Any] = []
     if rebuttals:
+        # turn 2 only for people whose own turn-1 answer arrived (and was not a firm yes)
         second = [(p, pick_rebuttal((turn1.get(p["agent_id"]) or {}).get("objection_type") or "", rebuttals))
-                  for p in people if turn1.get(p["agent_id"]) and (turn1[p["agent_id"]].get("verdict") != "yes")]
+                  for p in order if turn1.get(p["agent_id"]) and (turn1[p["agent_id"]].get("verdict") != "yes")]
         second = [(p, rb) for p, rb in second if rb]
         for i in range(0, len(second), max(1, batch)):
             chunk = second[i:i + batch]
-            texts = interview_batch([{"agent_id": p["agent_id"], "prompt": rebuttal_prompt(turn1[p["agent_id"]], rb)}
-                                     for p, rb in chunk])
+            texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": rebuttal_prompt(turn1[p["agent_id"]], rb)}
+                                           for p, rb in chunk], failures)
             for p, _ in chunk:
                 turn2[p["agent_id"]] = parse_turn2(texts.get(p["agent_id"]))
             done += len(chunk)
@@ -300,6 +329,10 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     out = score(people, turn1, turn2, rebuttals)
     means = [t["ssr_purchase"]["mean"] for t in turn1.values() if t and t.get("ssr_purchase") and t["ssr_purchase"].get("mean") is not None]
     out["ssr_purchase_mean"] = round(sum(means) / len(means), 2) if means else None
+    out["failed_batches"] = len(failures)
+    out["failed_batch_errors"] = failures[:5]
+    out["unanswered"] = {"turn1": sum(1 for p in people if not turn1.get(p["agent_id"])),
+                         "turn2": sum(1 for p, _ in second if not turn2.get(p["agent_id"]))}
     out["script"] = script[:5000]
     out["channel"] = channel
     out["rebuttals"] = rebuttals

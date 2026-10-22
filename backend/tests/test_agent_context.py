@@ -336,3 +336,22 @@ def test_gateway_gets_longer_timeouts(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://api.anthropic.com/v1/")
     monkeypatch.setenv("LLM_API_KEY", "x")
     assert not ac.via_local_gateway()
+
+
+def test_gateway_model_timeout_outlasts_queue_and_run_and_the_action_limit_stays_above_it(monkeypatch):
+    for key in ("MODEL_TIMEOUT", "OASIS_ACTION_TIMEOUT", "LLM_API_KEY", "LLM_GATEWAY", "OPENAI_API_BASE_URL"):
+        monkeypatch.setenv(key, "")          # recorded, so the values model_timeout() sets are undone afterwards
+        monkeypatch.delenv(key)
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:5055/v1")
+    assert ac.model_timeout() == 420.0 == float(ac.GATEWAY_MODEL_TIMEOUT)    # queue wait plus the gateway's ~210 s
+    assert ac.default_action_timeout() == ac.GATEWAY_ACTION_TIMEOUT == 480 > ac.GATEWAY_MODEL_TIMEOUT
+    env = SimpleNamespace(llm_semaphore=asyncio.Semaphore(1))
+    assert ac.bound_llm_actions(env) == 480
+    monkeypatch.setenv("MODEL_TIMEOUT", "600")                               # an override raises the action limit
+    assert ac.model_timeout() == 600.0 and ac.default_action_timeout() == 660
+    monkeypatch.setenv("OASIS_ACTION_TIMEOUT", "300")                        # an explicit action limit is kept
+    assert ac.bound_llm_actions(SimpleNamespace(llm_semaphore=asyncio.Semaphore(1))) == 300
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.anthropic.com/v1/")
+    monkeypatch.setenv("LLM_API_KEY", "x")
+    monkeypatch.delenv("MODEL_TIMEOUT")
+    assert ac.default_action_timeout() == ac.DEFAULT_ACTION_TIMEOUT == 120      # direct API: unchanged

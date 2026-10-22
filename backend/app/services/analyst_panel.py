@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from statistics import mean, pstdev
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
@@ -45,6 +45,11 @@ SYSTEM = (
 )
 
 MAX_ITEMS = {"posts": 120, "comments": 200, "feed_comments": 200, "survey": 300}
+# the most material (background plus rendered rows) one analyst reads: a ~52k-token prompt ran into the login
+# gateways' 210 s call limit, so longer material is thinned evenly first and the analysts are told what was cut
+MAX_MATERIAL_CHARS = 80_000
+LABELS = {"posts": "Posts written during the simulation", "comments": "Comments during the simulation",
+          "feed_comments": "Comments and reactions on the test ads (feed test)", "survey": "Buyer survey answers"}
 
 
 def normalize_material(m: Any) -> Dict[str, Any]:
@@ -71,24 +76,70 @@ def normalize_material(m: Any) -> Dict[str, Any]:
     return out
 
 
+def _line(r: Dict[str, Any]) -> str:
+    return f"- [{r['segment']}] {r['text']}" + (f" ({r['extra']})" if r.get("extra") else "")
+
+
 def _render(material: Dict[str, Any]) -> str:
     parts = []
-    labels = {"posts": "Posts written during the simulation", "comments": "Comments during the simulation",
-              "feed_comments": "Comments and reactions on the test ads (feed test)",
-              "survey": "Buyer survey answers"}
-    for key, label in labels.items():
+    for key, label in LABELS.items():
         rows = material.get(key) or []
         if rows:
-            parts.append(f"## {label} ({len(rows)})\n" + "\n".join(
-                f"- [{r['segment']}] {r['text']}" + (f" ({r['extra']})" if r.get("extra") else "") for r in rows))
+            parts.append(f"## {label} ({len(rows)})\n" + "\n".join(_line(r) for r in rows))
     return "\n\n".join(parts)
 
 
-def _prompt(lens: str, focus: str, brief: str, material: Dict[str, Any]) -> str:
+def _size(rows: List[Dict[str, Any]]) -> int:
+    return sum(len(_line(r)) + 1 for r in rows)
+
+
+def _evenly(rows: List[Dict[str, Any]], budget: int) -> List[Dict[str, Any]]:
+    """The largest evenly spaced sample of rows (first to last, not just the head) whose lines fit budget chars."""
+    n = len(rows)
+    k = min(n, max(1, n * budget // max(_size(rows), 1)))
+    while k > 1:
+        picked = [rows[i * n // k] for i in range(k)]
+        if _size(picked) <= budget:
+            return picked
+        k -= 1
+    return rows[:1]
+
+
+def fit_material(material: Dict[str, Any], max_chars: int = MAX_MATERIAL_CHARS) -> Tuple[Dict[str, Any], Dict[str, Dict[str, int]]]:
+    """Material cut to about max_chars (background plus rendered rows). Lists share the room fairly: a short list is
+    kept whole and what it leaves goes to the longer ones, each sampled evenly. Returns (material, cut) with
+    cut = {key: {"kept": k, "of": n}} for every list that lost rows ({} when nothing was cut)."""
+    sizes = {k: _size(material.get(k) or []) for k in LABELS}
+    fixed = len(material.get("context") or "") + sum(len(v) + 16 for k, v in LABELS.items() if sizes[k])
+    if fixed + sum(sizes.values()) <= max_chars:
+        return material, {}
+    left = max(max_chars - fixed, 0)
+    keys = sorted((k for k in LABELS if sizes[k]), key=lambda k: sizes[k])
+    out, cut = dict(material), {}
+    for i, k in enumerate(keys):
+        share = left // (len(keys) - i)
+        rows = material[k]
+        if sizes[k] > share:
+            out[k] = _evenly(rows, share)
+            cut[k] = {"kept": len(out[k]), "of": len(rows)}
+        left -= _size(out[k])
+    return out, cut
+
+
+def cut_note(cut: Dict[str, Dict[str, int]]) -> str:
+    if not cut:
+        return ""
+    parts = [f"{cut[k]['kept']} of {cut[k]['of']} {LABELS[k].lower()}" for k in LABELS if k in cut]
+    return ("The material was too long to send whole, so it was thinned evenly to fit: kept " + "; ".join(parts)
+            + ". Treat counts as a sample, not totals.")
+
+
+def _prompt(lens: str, focus: str, brief: str, material: Dict[str, Any], note: str = "") -> str:
     return (
         f"Your lens: {lens}. {focus}\n\n"
         f"What the client wants to decide:\n{brief or 'Which audience and message to invest in, and what is blocking conversion.'}\n\n"
         + (f"Background:\n{material['context']}\n\n" if material.get("context") else "")
+        + (f"Note: {note}\n\n" if note else "")
         + _render(material) + "\n\n"
         "Be concise: every list item under 20 words, at most 5 themes, 4 objections, 4 opportunities, 3 risks.\n"
         "Return JSON: {\"headline\": \"your single most important conclusion\", \"sentiment\": -100..100, "
@@ -205,22 +256,28 @@ def aggregate(analysts: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def run_panel(client, model: str, material: Dict[str, Any], brief: str = "", n: int = 5,
-              progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
+              progress: Optional[Callable[[int, int], None]] = None,
+              max_chars: int = MAX_MATERIAL_CHARS) -> Dict[str, Any]:
+    """Analysts are not simulated people: each call goes through the pool as usual (round-robin with failover),
+    never pinned to one provider slot, and each reads at most about max_chars of material (fit_material)."""
     lenses = LENSES[:max(2, min(n, len(LENSES)))]
     done = [0]
+    sent, cut = fit_material(material, max_chars)
+    note = cut_note(cut)
+    if cut:
+        logger.info(f"analyst panel: material cut to about {max_chars} characters ({note})")
 
     def one(i_lens):
         i, (lens, focus) = i_lens
         result, err = None, None
         prov, mod = None, model
-        prompt = _prompt(lens, focus, brief, material)
+        prompt = _prompt(lens, focus, brief, sent, note)
         for attempt in range(2):
             try:
                 extra = "" if attempt == 0 else (
                     "\n\nYour previous answer was cut off. Answer again in under 350 words: at most 4 themes, "
                     "3 objections, 3 opportunities and 2 risks, each under 20 words.")
                 resp = create_chat_completion(client, model=model, temperature=0.6, max_tokens=4000,
-                                              slot_index=i,
                                               messages=[{"role": "system", "content": SYSTEM},
                                                         {"role": "user", "content": prompt + extra}])
                 prov = getattr(resp, "_mm_provider", None)
@@ -242,4 +299,5 @@ def run_panel(client, model: str, material: Dict[str, Any], brief: str = "", n: 
     with ThreadPoolExecutor(max_workers=len(lenses)) as pool:
         analysts = list(pool.map(one, enumerate(lenses)))
     return {"brief": brief, "material_counts": {k: len(material.get(k) or []) for k in MAX_ITEMS},
-            "analysts": analysts, "consensus": aggregate(analysts)}
+            "material_sent": {k: len(sent.get(k) or []) for k in MAX_ITEMS}, "material_cut": cut,
+            "material_note": note, "analysts": analysts, "consensus": aggregate(analysts)}
