@@ -211,6 +211,8 @@ Measured on the login gateways (one 4-person batch, all fields complete):
 
 With these settings 52 full-depth people from all three providers were finished in 4 minutes 23 seconds. A login CLI also sends about 20,000 tokens of its own instructions with every call and needs a few seconds to start, which an API key avoids.
 
+For large markets also set `OASIS_MAX_ITERATION=1` (one model call per active person per turn in the social rounds); survey and pitch already send up to 120 people per call (`MM_INTERVIEW_BATCH`). What we borrowed from other large-scale simulators, and what we chose not to, is in [speed research notes](docs/SPEED_RESEARCH.md).
+
 For a quick look at a large audience, `"depth": "fast"` in the persona spec writes compact profiles for everyone in batches of 20 and gives the full interview to a 10% sample of every audience and provider (`interview_share`). The survey can also stop early: `"settle": {"margin": 5}` asks people in random waves and stops asking a group once its would-convert shares are within ±5 points (checked with z = 2.5 because the results are looked at after every wave); the survey file and the dashboard say how many were asked and why it stopped. Both are off unless you ask for them.
 
 ### API keys: cost and speed
@@ -507,6 +509,7 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 - [Agent plugin](plugin/README.md) · [Codex setup](codex/README.md)
 - [REST API](docs/API.md) · [OpenAPI schema](docs/openapi.json) · [Python SDK](sdk/README.md)
 - [Human-behavior research and proposed improvements](docs/HUMAN_BEHAVIOR_RESEARCH.md)
+- [Speed research: what large simulators do and what we borrowed](docs/SPEED_RESEARCH.md)
 - [Publishing](docs/PUBLISHING.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## Credits and license
