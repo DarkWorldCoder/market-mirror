@@ -57,6 +57,22 @@ class ScaleCliTest(unittest.TestCase):
         self.assertEqual({a // 20 for a in first}, {0, 1, 2})               # every provider in every batch
         self.assertTrue(os.path.exists(os.path.join(self.d, "survey_partial.json")))
 
+    def test_survey_calls_are_large_and_mixed_by_default(self):
+        c = SurveyClient()
+        c.batches.append(["warm-up"])                     # so no batch fails in this test
+        seen = []
+        real = c.data
+
+        def data(method, path, json=None, params=None, timeout=None):
+            if path == "/api/simulation/interview/batch":
+                seen.append((len(json["interviews"]), json["timeout"]))
+            return real(method, path, json=json, params=params, timeout=timeout)
+        c.data = data
+        with mock.patch.object(quota, "wait_if_paused", lambda *a, **k: 0):
+            mirofish.step_survey(c, "sim_x", self.d, "offer", "sign up", [], ssr=False)
+        self.assertEqual(seen, [(60, mirofish.INTERVIEW_WAIT_S)])   # 60 people fit in one call of up to 120
+        self.assertEqual((mirofish.INTERVIEW_BATCH, mirofish.INTERVIEW_WAIT_S), (120, 720))
+
     def test_wait_task_tolerates_a_few_status_errors(self):
         calls = {"n": 0}
 

@@ -41,6 +41,13 @@ import live_view  # noqa: E402
 import quota  # noqa: E402
 import settle as settle_mod  # noqa: E402
 
+# Interview-based stages (survey, pitch) send this many people per call to the simulation. The simulation answers
+# one call at a time and each call waits for its slowest interview, so bigger calls with every provider in them keep
+# all gateways busy (40 left them idle at the tail of each call). Each interview has its own deadline
+# (MM_INTERVIEW_DEADLINE_S, 540 s), so a call needs a little more than that.
+INTERVIEW_BATCH = max(1, int(os.environ.get("MM_INTERVIEW_BATCH") or 120))
+INTERVIEW_WAIT_S = max(60, int(os.environ.get("MM_INTERVIEW_WAIT_S") or 720))
+
 DEFAULT_BASE_URL = os.environ.get("MIROFISH_URL", "http://localhost:5001")
 TERMINAL_RUN = {"completed", "stopped", "failed"}
 
@@ -398,7 +405,7 @@ def read_messages(v: Optional[str]) -> List[str]:
 
 def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", goal: str = "",
                 messages: Optional[List[str]] = None, split: bool = False, currency: Optional[str] = None,
-                platform: Optional[str] = None, batch: int = 40, wait_s: int = 600,
+                platform: Optional[str] = None, batch: int = INTERVIEW_BATCH, wait_s: int = INTERVIEW_WAIT_S,
                 limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
                 seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False,
                 settle: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2245,8 +2252,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
     s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
     s.add_argument("--platform", choices=["twitter", "reddit"], help="which platform's agents to ask (default reddit)")
-    s.add_argument("--batch", type=int, default=40, help="people per interview call (default %(default)s)")
-    s.add_argument("--wait-s", type=int, default=600, help="server-side timeout per batch (s)")
+    s.add_argument("--batch", type=int, default=INTERVIEW_BATCH, help="people per interview call (default %(default)s)")
+    s.add_argument("--wait-s", type=int, default=INTERVIEW_WAIT_S, help="server-side timeout per batch (s)")
     s.add_argument("--limit", type=int, help="only ask the first N people (quick, cheap check)")
     s.add_argument("--retest", type=int, default=0, help="re-ask N people a week later (simulated) and report agreement")
     s.add_argument("--settle", action="store_true", help="stop asking once the would-convert shares are settled (settle.py)")
@@ -2377,7 +2384,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--channel", default="message", choices=["message", "call", "demo", "email", "dm"])
     s.add_argument("--segment", help="only this audience")
     s.add_argument("--agents", type=int, nargs="*", help="only these agent ids")
-    s.add_argument("--batch", type=int, default=40, help="people per interview call (default %(default)s)")
+    s.add_argument("--batch", type=int, default=INTERVIEW_BATCH, help="people per interview call (default %(default)s)")
     s.add_argument("--run-dir", help="run folder to update (default: mirofish_runs/<simulation>)")
     s.add_argument("--no-export", action="store_true")
 

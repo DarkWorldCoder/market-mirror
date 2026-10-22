@@ -580,7 +580,7 @@ def backtest(feed: Dict[str, Any], actual: Dict[str, Any], mapping: Dict[str, st
 
 def pitch(c, simulation_id: str, run_dir: str, log, script: str, rebuttals: Any = None, product: str = "",
           channel: str = "message", segment: Optional[str] = None, agents: Optional[List[int]] = None,
-          batch: int = 40) -> Dict[str, Any]:
+          batch: int = 120) -> Dict[str, Any]:
     """Pitch every simulated buyer (needs a live simulation environment), then answer their objections."""
     if not str(script or "").strip():
         raise ValueError("pitch: the script is empty")

@@ -399,8 +399,8 @@ def start_pitch():
         return jsonify({"success": False, "error": "no simulated people match (prepare the simulation first)"}), 400
     rebuttals = pitch_svc.parse_rebuttals(data.get("rebuttals"))
     platform = data.get("platform") or ("reddit" if (cfg.get("enable_reddit", True)) else "twitter")
-    timeout = float(data.get("timeout") or 600)
-    batch = max(1, min(int(data.get("batch") or 40), 64))
+    timeout = float(data.get("timeout") or 720)       # each interview has its own 540 s deadline
+    batch = max(1, min(int(data.get("batch") or 120), 200))
 
     def interview_batch(items):
         res = SimulationRunner.interview_agents_batch(
