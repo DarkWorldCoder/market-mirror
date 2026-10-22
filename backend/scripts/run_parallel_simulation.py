@@ -210,6 +210,20 @@ IPC_COMMANDS_DIR = "ipc_commands"
 IPC_RESPONSES_DIR = "ipc_responses"
 ENV_STATUS_FILE = "env_status.json"
 
+# MarketMirror: the longest one interview may take, counted from the start of its batch (the interviews of a batch
+# start together). It stays under the 600 s IPC wait of a batch, so a hung model call is counted as one failed
+# interview instead of making the whole batch miss its reply. MM_INTERVIEW_DEADLINE_S overrides it.
+DEFAULT_INTERVIEW_DEADLINE_S = 540.0
+
+
+def interview_deadline_s() -> float:
+    try:
+        v = float(os.environ.get("MM_INTERVIEW_DEADLINE_S") or DEFAULT_INTERVIEW_DEADLINE_S)
+    except ValueError:
+        v = DEFAULT_INTERVIEW_DEADLINE_S
+    return v if v > 0 else DEFAULT_INTERVIEW_DEADLINE_S
+
+
 class CommandType:
     """命令类型常量"""
     INTERVIEW = "interview"
@@ -317,17 +331,27 @@ class ParallelIPCHandler:
         else:
             return None, None, None
     
-    async def _interview_direct(self, env, agent, prompt: str) -> Optional[str]:
+    async def _interview_direct(self, env, agent, prompt: str) -> Tuple[Optional[str], Optional[str]]:
         """Run one interview through the environment's LLM semaphore without env.step (so no recommendation
-        refresh, no clock tick). Returns an error string or None."""
+        refresh, no clock tick), within the interview deadline (interview_deadline_s).
+
+        Returns (error, answer): error is a message or None; answer is the reply text the call returned, or None
+        when this OASIS build does not return it (the caller then reads the trace table)."""
+        deadline = interview_deadline_s()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
         try:
             if hasattr(env, "_perform_interview_action"):
-                await env._perform_interview_action(agent, prompt)
+                call = env._perform_interview_action(agent, prompt)
             else:  # older OASIS without the helper: same thing without the semaphore
-                await agent.perform_interview(prompt)
-            return None
+                call = agent.perform_interview(prompt)
+            out = await asyncio.wait_for(call, timeout=deadline)
+        except asyncio.TimeoutError:
+            return f"interview timed out after {loop.time() - started:.0f}s (deadline {deadline:g}s)", None
         except Exception as e:  # noqa: BLE001 - one failed interview must not sink the batch
-            return str(e)
+            return (str(e) or type(e).__name__), None   # an empty message must still count as a failure
+        answer = out.get("content") if isinstance(out, dict) else None
+        return None, (answer if isinstance(answer, str) and answer.strip() else None)
 
     async def _interview_single_platform(self, agent_id: int, prompt: str, platform: str) -> Dict[str, Any]:
         """
@@ -343,11 +367,13 @@ class ParallelIPCHandler:
         
         try:
             agent = agent_graph.get_agent(agent_id)
-            err = await self._interview_direct(env, agent, prompt)
+            err, answer = await self._interview_direct(env, agent, prompt)
             if err:
                 return {"platform": platform, "error": err}
             
             result = self._get_interview_result(agent_id, actual_platform)
+            if answer is not None:
+                result["response"] = answer      # this call's own reply
             result["platform"] = actual_platform
             return result
             
@@ -426,8 +452,10 @@ class ParallelIPCHandler:
             return False
     
     async def _interview_platform_batch(self, platform: str, interviews: List[Dict]) -> Dict[str, Dict[str, Any]]:
-        """Interview every agent of one platform concurrently (bounded by the env semaphore), then read the
-        answers back from the trace table. Result keys are "<platform>_<agent_id>" as before."""
+        """Interview every agent of one platform concurrently (bounded by the env semaphore and each by the
+        interview deadline). Result keys are "<platform>_<agent_id>" as before. A failed or timed-out interview is
+        {agent_id, response: None, error, platform}: the person's older answer in the trace table is never read
+        for it, since that would count an old reply as a new one (retest agreement, pitch turn 2)."""
         env, agent_graph, _ = self._get_env_and_graph(platform)
         out: Dict[str, Dict[str, Any]] = {}
         if not env or not agent_graph:
@@ -446,13 +474,22 @@ class ParallelIPCHandler:
             agent_ids.append(agent_id)
         if not tasks:
             return out
-        errors = await asyncio.gather(*tasks)
-        for agent_id, err in zip(agent_ids, errors):
+        outcomes = await asyncio.gather(*tasks)
+        failed = 0
+        for agent_id, (err, answer) in zip(agent_ids, outcomes):
             if err:
+                failed += 1
                 print(f"  警告: {platform} Agent {agent_id} interview failed: {err}")
+                out[f"{platform}_{agent_id}"] = {"agent_id": agent_id, "response": None, "error": err,
+                                                 "platform": platform}
+                continue
             result = self._get_interview_result(agent_id, platform)
+            if answer is not None:
+                result["response"] = answer      # this call's own reply
             result["platform"] = platform
             out[f"{platform}_{agent_id}"] = result
+        if failed:
+            print(f"  {platform}: {failed}/{len(agent_ids)} interviews failed or timed out (no answer recorded)")
         return out
 
     async def handle_batch_interview(self, command_id: str, interviews: List[Dict], platform: str = None) -> bool:
@@ -534,11 +571,13 @@ class ParallelIPCHandler:
             cursor = conn.cursor()
             
             # 查询最新的Interview记录
+            # newest by insertion (rowid): on Twitter created_at is the clock's time step, which does not move
+            # between interviews, so ordering by it alone could return an older answer of the same person
             cursor.execute("""
                 SELECT user_id, info, created_at
                 FROM trace
                 WHERE action = ? AND user_id = ?
-                ORDER BY created_at DESC
+                ORDER BY rowid DESC
                 LIMIT 1
             """, (ActionType.INTERVIEW.value, agent_id))
             

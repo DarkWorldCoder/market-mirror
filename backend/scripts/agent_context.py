@@ -29,9 +29,11 @@ Speed knobs (environment variables, all optional):
     OASIS_SEMAPHORE      concurrent LLM calls per platform (default 50).
     OASIS_RECSYS         Twitter recommender: random (default, cheap) | twitter | twhin-bert (CPU model).
     OASIS_MAX_ITERATION  model/tool iterations per social action (default 3); bounds a stalled agent.
-    OASIS_ACTION_TIMEOUT wall-time limit after an agent acquires a model slot (default 120 seconds).
+    OASIS_ACTION_TIMEOUT wall-time limit after an agent acquires a model slot (default 120 seconds, 480 through a
+                         login gateway; without the variable it always stays above MODEL_TIMEOUT).
     OASIS_ACTIVE_AGENT_CAP optional maximum social actors selected per round (unset uses the scenario activity).
-    MODEL_TIMEOUT        camel's per-call timeout in seconds (default 60 here; camel's own default is 180).
+    MODEL_TIMEOUT        camel's per-call timeout in seconds (default 60 here, 420 through a login gateway;
+                         camel's own default is 180).
 """
 
 from __future__ import annotations
@@ -56,10 +58,13 @@ DEFAULT_MAX_ITERATION = 3
 DEFAULT_ACTION_TIMEOUT = 120
 DEFAULT_ACTIVE_AGENT_CAP = 0
 DEFAULT_MODEL_TIMEOUT = 60
-# a subscription gateway (backend/gateway/local_gateway.py over `claude -p` / `codex exec`) answers in 20-120 s,
-# so agents talking to it get longer defaults instead of silently skipping their turn
-GATEWAY_MODEL_TIMEOUT = 240
-GATEWAY_ACTION_TIMEOUT = 300
+# a subscription gateway (backend/gateway/local_gateway.py over `claude -p` / `codex exec`) answers in 15-75 s but
+# queues calls behind its workers and stops a call after about 210 s of running, so a call can take queue wait plus
+# 210 s. camel's timeout must outlast that, or camel gives up and re-sends a call the gateway is still answering.
+# The action limit wraps the model call, so it must be longer again.
+GATEWAY_MODEL_TIMEOUT = 420
+GATEWAY_ACTION_TIMEOUT = 480
+ACTION_TIMEOUT_MARGIN = 60          # seconds an action limit keeps above the model timeout when not set explicitly
 
 
 def via_local_gateway() -> bool:
@@ -534,7 +539,7 @@ def bound_llm_actions(env: Any, timeout_s: Optional[float] = None) -> float:
     """
     if getattr(env, "mm_action_timeout_installed", False):
         return env.mm_action_timeout_s
-    seconds = timeout_s or _env_int("OASIS_ACTION_TIMEOUT", GATEWAY_ACTION_TIMEOUT if via_local_gateway() else DEFAULT_ACTION_TIMEOUT)
+    seconds = timeout_s or _env_int("OASIS_ACTION_TIMEOUT", default_action_timeout())
     env.mm_action_timeouts = 0
     env.mm_action_timeout_s = seconds
 
@@ -552,8 +557,21 @@ def bound_llm_actions(env: Any, timeout_s: Optional[float] = None) -> float:
     return seconds
 
 
+def default_action_timeout() -> int:
+    """The action limit when OASIS_ACTION_TIMEOUT is not set: 120 s (480 s through a login gateway), and always
+    ACTION_TIMEOUT_MARGIN above the model timeout, so an action is not cut off while its model call may still answer
+    (a MODEL_TIMEOUT override raises it too)."""
+    base = GATEWAY_ACTION_TIMEOUT if via_local_gateway() else DEFAULT_ACTION_TIMEOUT
+    try:
+        model_s = float(os.environ.get("MODEL_TIMEOUT") or 0)
+    except ValueError:
+        model_s = 0.0
+    return max(base, (int(model_s) + ACTION_TIMEOUT_MARGIN) if model_s > 0 else 0)
+
+
 def model_timeout() -> float:
-    """Set camel's MODEL_TIMEOUT default (60 s) unless the environment already chose one; returns the value."""
+    """Set camel's MODEL_TIMEOUT default (60 s, 420 s through a login gateway) unless the environment already chose
+    one; returns the value."""
     os.environ.setdefault("MODEL_TIMEOUT", str(GATEWAY_MODEL_TIMEOUT if via_local_gateway() else DEFAULT_MODEL_TIMEOUT))
     try:
         return float(os.environ["MODEL_TIMEOUT"])
