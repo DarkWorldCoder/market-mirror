@@ -80,10 +80,21 @@ def _image_data_uri(path: str, base_dir: str) -> Optional[str]:
 
 
 def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval: float = 5,
-              timeout: float = 3600) -> Dict[str, Any]:
-    start, last = time.time(), None
+              timeout: float = 6 * 3600, max_errors: int = 10) -> Dict[str, Any]:
+    """Follow a backend task until it completes. Large markets take hours (a 3,000-person feed test or pitch is
+    about an hour), so the default wait is six hours; a few failed status requests in a row are tolerated."""
+    start, last, errors = time.time(), None, 0
     while True:
-        st = c.data("POST", "/api/simulation/market-task/status", json={"task_id": task_id})
+        try:
+            st = c.data("POST", "/api/simulation/market-task/status", json={"task_id": task_id})
+            errors = 0
+        except Exception as e:  # noqa: BLE001 - a busy or restarting backend: try again a few times
+            errors += 1
+            if errors > max_errors:
+                raise
+            log(f"{label}: status not available ({str(e)[:80]}); trying again")
+            time.sleep(interval * 2)
+            continue
         msg = f"{st.get('status')} {st.get('progress', 0)}% {st.get('message') or ''}".strip()
         if msg != last:
             log(f"{label}: {msg}")
@@ -211,21 +222,28 @@ def build_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
             return "organisation or group account"
         return m.get("segment") or "unknown"
 
+    def prov(uid) -> str:
+        try:
+            return str((meta.get(int(uid)) or {}).get("model_provider") or "")
+        except (TypeError, ValueError):
+            return ""
+
     material: Dict[str, Any] = {"posts": [], "comments": [], "feed_comments": [], "survey": []}
     for plat in ("reddit", "twitter"):
         for p in _rows(bundle, f"posts_{plat}"):
             if p.get("content"):
-                material["posts"].append({"segment": seg(p.get("user_id")), "text": p["content"],
+                material["posts"].append({"segment": seg(p.get("user_id")), "text": p["content"], "_by": prov(p.get("user_id")),
                                           "extra": f"{plat}, {p.get('num_likes', 0)} likes"})
         for cm in _rows(bundle, f"comments_{plat}"):
             if cm.get("content"):
-                material["comments"].append({"segment": seg(cm.get("user_id")), "text": cm["content"]})
+                material["comments"].append({"segment": seg(cm.get("user_id")), "text": cm["content"],
+                                             "_by": prov(cm.get("user_id"))})
     ft = bundle.get("feed_test") or {}
     for s in ft.get("sessions") or []:
         ad = s.get("ad") or {}
         if ad.get("comment") or ad.get("thought"):
             material["feed_comments"].append({
-                "segment": s.get("segment") or "unknown",
+                "segment": s.get("segment") or "unknown", "_by": prov(s.get("agent_id")),
                 "text": ad.get("comment") or f"(thought) {ad.get('thought')}",
                 "extra": f"{s.get('platform')} ad {s.get('creative_id')}: "
                          + ", ".join(k for k in ("stopped", "click", "hide") if ad.get(k))})
@@ -237,13 +255,25 @@ def build_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         text = " ".join(t for t in (a.get("quote"), (a.get("texts") or {}).get("purchase")) if t) or a.get("main_objection")
         intent = ((a.get("ssr") or {}).get("purchase") or {}).get("mean")
         if text:
-            material["survey"].append({"segment": m.get("segment") or "unknown", "text": text,
+            material["survey"].append({"segment": m.get("segment") or "unknown", "text": text, "_by": prov(r.get("agent_id")),
                                        "extra": (f"purchase intent {intent:.1f}/5" if intent is not None
                                                  else f"would convert: {a.get('would_convert')}")
                                                 + f"; objection: {a.get('objection_type')}"})
+    # people are numbered segment by segment and provider by provider, and the panel reads only the first few
+    # hundred rows of each kind: deal the rows round-robin across (segment, provider) so every group is in that part
+    for k in ("posts", "comments", "feed_comments", "survey"):
+        material[k] = _interleave(material[k])
     req = (bundle.get("project") or {}).get("simulation_requirement") or ""
     material["context"] = req[:3000]
     return material
+
+
+def _interleave(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    groups: Dict[tuple, List[Dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault((r.get("segment"), r.pop("_by", "")), []).append(r)
+    queues = list(groups.values())
+    return [q[i] for i in range(max((len(q) for q in queues), default=0)) for q in queues if i < len(q)]
 
 
 def panel(c, simulation_id: str, run_dir: str, log, analysts: int = 5, brief: str = "",
@@ -278,6 +308,14 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         v = bundle.get(k)
         if v:
             keep[k] = v
+    # large markets: the per-person rows are tens of MB and the fact sheet uses only these fields of them
+    cfg = keep.get("config")
+    if isinstance(cfg, dict) and isinstance(cfg.get("persona_index"), list):
+        fields = ("agent_id", "kind", "segment", "country", "name", "age", "city", "occupation", "interview_summary",
+                  "model_provider")
+        keep["config"] = {**{k: v for k, v in cfg.items() if k != "persona_index"},
+                          "persona_index": [{f: r.get(f) for f in fields if r.get(f) is not None}
+                                            for r in cfg["persona_index"] if isinstance(r, dict)]}
     if "summary" not in keep:
         try:
             with open(os.path.join(bundle.get("_run_dir", ""), "summary.json"), encoding="utf-8") as f:

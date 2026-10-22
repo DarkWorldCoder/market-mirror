@@ -425,6 +425,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         people = people[:limit]
     if not people:
         raise CLIError("survey: no simulated people found (prepare the simulation first)")
+    people = _mix_providers(people, meta)
     assigned = marketing.assign_messages(people, len(messages), seed=seed) if split else {}
     log(f"survey: asking {len(people)} people on {platform}"
         + (f", split test across {len(messages)} messages" if split else "")
@@ -453,8 +454,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                 return
             yield nxt
 
-    for chunk in chunks():
-        quota.wait_if_paused(log)          # don't spend batches while the model account is paused
+    def ask(chunk):
+        quota.wait_if_paused(log)          # don't spend batches while a model account is paused
         interviews = [{"agent_id": aid, "platform": platform,
                        "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
                       for aid in chunk]
@@ -466,8 +467,12 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                          timeout=wait_s + 90)
             texts = marketing.interview_texts(res)
         except CLIError as e:
-            log(f"survey: batch {start // batch + 1} failed: {e}")
+            log(f"survey: a batch of {len(chunk)} failed: {e}")
             texts = {}
+        return texts
+
+    for chunk in chunks():
+        texts = ask(chunk)
         for aid in chunk:
             raw = texts.get(aid)
             responses.append({"agent_id": aid, "name": (meta.get(aid) or {}).get("name"),
@@ -475,6 +480,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                               "answer": marketing.parse_answer(raw, len(messages)) if raw else None})
             if settler is not None and responses[-1]["answer"]:
                 settler.record(aid, *marketing.conv_probs(responses[-1]["answer"]))
+        _try("partial survey", lambda: save_json(out_dir, "survey_partial", {"responses": responses}))
         ok = sum(1 for r in responses if r["answer"])
         line = f"survey: {len(responses)}/{len(people)} asked, {ok} usable answers"
         if settler is not None:
@@ -482,6 +488,18 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
             line += "; " + ", ".join(f"{c} n={v['n']} +/-{v['half_width']:g}{' settled' if v['settled'] else ''}"
                                      for c, v in sorted(st.items()))
         log(line)
+    # one more ask for whoever has no usable answer (a failed batch, a timeout, a provider that was paused)
+    missing = [r for r in responses if not r["answer"]]
+    if missing and settler is None:
+        log(f"survey: asking the {len(missing)} people without a usable answer once more")
+        for start in range(0, len(missing), max(1, batch)):
+            part = missing[start:start + batch]
+            texts = ask([r["agent_id"] for r in part])
+            for r in part:
+                raw = texts.get(r["agent_id"])
+                if raw:
+                    r["raw"], r["answer"] = raw, marketing.parse_answer(raw, len(messages))
+        log(f"survey: {sum(1 for r in responses if r['answer'])}/{len(people)} usable answers after the second ask")
     ssr_info = step_ssr(c, responses, engine=ssr_engine) if ssr else {"used": False, "reason": "disabled (--no-ssr)"}
     obj_check = step_objection_check(c, responses) if objection_check else None
     retest_info = None
@@ -531,6 +549,18 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         raise RuntimeError("Survey produced no usable answers. Check provider authentication and the interview environment; diagnostic responses were saved for retry.")
     return {"survey": os.path.join(os.path.abspath(out_dir), "survey.json"), "asked": len(responses),
             "answered": answered, "ssr_rated": ssr_info.get("mapped", 0)}
+
+
+def _mix_providers(people: List[int], meta: Dict[int, Dict[str, Any]]) -> List[int]:
+    """People dealt round-robin by the provider that plays them, so each batch has work for every gateway instead of
+    one batch waiting on one provider while the others sit idle. Order inside a provider is kept."""
+    by: Dict[str, List[int]] = {}
+    for aid in people:
+        by.setdefault(str((meta.get(aid) or {}).get("model_provider") or ""), []).append(aid)
+    if len(by) < 2:
+        return people
+    queues = list(by.values())
+    return [q[i] for i in range(max(len(q) for q in queues)) for q in queues if i < len(q)]
 
 
 def _add_counts(total: Dict[str, Any], part: Optional[Dict[str, Any]]) -> None:
@@ -604,9 +634,14 @@ def step_objection_check(c: Client, responses: List[Dict[str, Any]]) -> Optional
 
 
 def save_json(out_dir: str, name: str, data: Any) -> None:
+    """Write <name>.json atomically (a temporary file, then a rename), so a reader such as the live viewer never
+    sees a half-written file."""
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, f"{name}.json"), "w", encoding="utf-8") as f:
+    path = os.path.join(out_dir, f"{name}.json")
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def _try(label: str, fn: Callable[[], Any]) -> Any:
@@ -1489,10 +1524,14 @@ def cmd_market_test(c: Client, a) -> Any:
     panel_cfg = cfg.get("panel")
     if panel_cfg:
         collect(c, out_dir, state.get("project_id"), sid)
-        state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
-            c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
-            load_bundle=exporter.load_run_dir), log)
-        steps.append("panel")
+        try:
+            state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
+                c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
+                load_bundle=exporter.load_run_dir), log)
+            steps.append("panel")
+        except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
+            log(f"panel skipped: {e}")
+            state.setdefault("errors", []).append(f"panel: {e}")
     if cfg.get("report") == "upstream" or cfg.get("engine_report"):
         rep = step_report(c, sid)
         state["report_id"] = rep.get("report_id")
@@ -1502,9 +1541,13 @@ def cmd_market_test(c: Client, a) -> Any:
         market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
-        state["report"] = quota.guarded("the report", lambda: market_cli.report(
-            c, sid, out_dir, log, load_bundle=exporter.load_run_dir, brand=str(cfg.get("brand") or "")), log)
-        steps.append("report")
+        try:
+            state["report"] = quota.guarded("the report", lambda: market_cli.report(
+                c, sid, out_dir, log, load_bundle=exporter.load_run_dir, brand=str(cfg.get("brand") or "")), log)
+            steps.append("report")
+        except (ValueError, RuntimeError, CLIError) as e:     # the data-only dashboard is still written
+            log(f"report skipped: {e}")
+            state.setdefault("errors", []).append(f"report: {e}")
         collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     state["finished_at"] = datetime.now().isoformat()

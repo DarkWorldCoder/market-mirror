@@ -14,7 +14,7 @@ import json
 import os
 import time
 import urllib.request
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 MAX_WAIT_S = 12 * 3600
 GATEWAY_PORTS = (":5055",)
@@ -56,10 +56,17 @@ def gateway_url() -> Optional[str]:
     return url.rstrip("/") or None
 
 
-def status(url: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    url = url or gateway_url()
-    if not url:
-        return None
+# the gateways of a provider pool (LLM_POOL): each person may be answered through any of them
+POOL_GATEWAY_KEYS = ("CLAUDE_CODE_GATEWAY_URL", "CODEX_GATEWAY_URL", "ANTIGRAVITY_GATEWAY_URL", "GEMINI_CLI_GATEWAY_URL")
+
+
+def gateway_urls() -> List[str]:
+    """Every local gateway this run uses: the main one and those of the provider pool."""
+    urls = [gateway_url()] + [_env_value(k).split("/v1")[0].rstrip("/") for k in POOL_GATEWAY_KEYS]
+    return list(dict.fromkeys(u for u in urls if u))
+
+
+def _one_status(url: str) -> Optional[Dict[str, Any]]:
     try:
         with urllib.request.urlopen(url + "/health", timeout=5) as r:
             return json.loads(r.read().decode("utf-8"))
@@ -67,8 +74,34 @@ def status(url: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return None
 
 
+def status(url: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """One gateway's /health, or with no url all of this run's gateways together: paused while any of them is paused
+    (for less than MAX_WAIT_S; a provider paused for longer is left out, its calls fail and are counted), the latest
+    reset, and the limit hits added up."""
+    if url:
+        return _one_status(url)
+    urls = gateway_urls()
+    if not urls:
+        return None
+    states = [(u, _one_status(u)) for u in urls]
+    states = [(u, st) for u, st in states if st]
+    if not states:
+        return None
+    waiting = [(u, st) for u, st in states if st.get("paused") and 0 < int(st.get("resume_in_s") or 0) <= MAX_WAIT_S]
+    out: Dict[str, Any] = {"limit_hits": sum(int(st.get("limit_hits") or 0) for _, st in states),
+                           "paused": bool(waiting), "gateways": [u for u, _ in states]}
+    if waiting:
+        u, st = max(waiting, key=lambda x: int(x[1].get("resume_in_s") or 0))
+        out.update(resume_in_s=int(st.get("resume_in_s") or 0), paused_until=f"{st.get('paused_until')} ({u})")
+    return out
+
+
 def limit_hits(url: Optional[str] = None) -> int:
     return int((status(url) or {}).get("limit_hits") or 0)
+
+
+def any_gateway() -> bool:
+    return bool(gateway_urls())
 
 
 def wait_if_paused(log: Callable[[str], None], url: Optional[str] = None, sleep: Callable[[float], None] = time.sleep,
@@ -96,8 +129,7 @@ def wait_if_paused(log: Callable[[str], None], url: Optional[str] = None, sleep:
 def guarded(name: str, fn: Callable[[], Any], log: Callable[[str], None], retries: int = 4,
             url: Optional[str] = None, sleep: Callable[[float], None] = time.sleep) -> Any:
     """Run one pipeline step so that a usage limit pauses and redoes it instead of failing or half-finishing it."""
-    url = url or gateway_url()
-    if not url:
+    if not url and not any_gateway():
         return fn()
     for attempt in range(retries + 1):
         wait_if_paused(log, url, sleep)

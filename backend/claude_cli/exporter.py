@@ -749,10 +749,18 @@ def collect_profiles(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+PERSONA_TABLE_MAX = 500          # the table lists the most active agents; everyone is in the people cards and CSVs
+
+
 def render_personas(rows: List[Dict[str, Any]], actions_by_agent: Dict[Any, int]) -> str:
     if not rows:
         return '<p class="empty">No agent profiles in this run.</p>'
-    out = ['<div class="tbl tall"><table class="personas sortable"><thead><tr>'
+    note = ""
+    if len(rows) > PERSONA_TABLE_MAX:
+        note = (f'<p class="muted small">The {PERSONA_TABLE_MAX:,} most active of {len(rows):,} agents; '
+                'every person is in the people cards above and the CSV downloads.</p>')
+        rows = sorted(rows, key=lambda r: -int(actions_by_agent.get(r.get("agent_id"), 0) or 0))[:PERSONA_TABLE_MAX]
+    out = [note + '<div class="tbl tall"><table class="personas sortable"><thead><tr>'
            '<th>#</th><th>Agent</th><th>Type</th><th>Stance</th><th class="num">Sentiment</th>'
            '<th class="num">Activity</th><th class="num">Actions</th><th>Profile</th></tr></thead><tbody>']
     for r in rows:
