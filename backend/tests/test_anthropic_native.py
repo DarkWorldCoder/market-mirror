@@ -75,3 +75,14 @@ def test_native_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("MM_CLAUDE_NATIVE", "off")
     pool = MultiProviderPool.from_env(env={"LLM_PROVIDER": "claude", "ANTHROPIC_API_KEY": "k1"})
     assert type(pool.slots[0].client).__name__ == "OpenAI"
+
+
+def test_a_gateway_placeholder_model_becomes_the_slots_real_model():
+    seen = []
+    fake = SimpleNamespace(messages=SimpleNamespace(create=lambda **p: seen.append(p["model"]) or FakeMessages().create(**p)))
+    slot = ProviderSlot(provider="claude", model="claude-sonnet-5-5", base_url="https://api.anthropic.com/v1/", api_key="k",
+                        client=an.AnthropicChatClient("k", _client=fake))
+    pool = MultiProviderPool([slot])
+    for name in ("claude", "sonnet", "claude-sonnet-5-5"):
+        pool.for_slot(0).chat.completions.create(model=name, messages=[{"role": "user", "content": "x"}])
+    assert seen == ["claude-sonnet-5-5"] * 3

@@ -160,6 +160,8 @@ GATEWAY_PROVIDERS = ("codex", "antigravity", "claude_code", "gemini_cli")
 GATEWAY_BACKEND_LABELS = {"claude": "claude", "codex": "codex", "chatgpt": "codex", "siwc": "codex",
                           "gemini": "gemini", "antigravity": "antigravity", "multi": "multi"}
 _GENERIC_NAMES = ("", "openai", "custom", "compatible", "multi", "gateway")
+# model names only a login gateway understands (the CLI picks the real model)
+_GATEWAY_MODEL_ALIASES = ("sonnet", "haiku", "opus", "default", "gateway", "multi")
 _LOCAL_MODEL_PORTS = {11434: "ollama", 1234: "ollama"}          # Ollama, LM Studio
 _GATEWAY_LABEL_CACHE: Dict[str, Any] = {}
 _GATEWAY_LABEL_LOCK = threading.Lock()
@@ -571,7 +573,10 @@ class MultiProviderPool:
         # Use the slot's model when failing over, when no model was specified, or when the requested model
         # belongs to a different provider family than the slot.
         req_provider = canonical_provider(None, None, req_model) if req_model else slot.provider
-        if is_failover or not req_model or (req_provider != slot.provider and slot.model):
+        # A bare provider or gateway alias ("claude", "codex", "sonnet") is a placeholder a login gateway accepts but
+        # an API does not ("model: claude" -> 404), so it also gets the slot's real model.
+        placeholder = req_model.lower() in PROVIDER_ALIASES or req_model.lower() in _GATEWAY_MODEL_ALIASES
+        if is_failover or not req_model or (slot.model and (req_provider != slot.provider or placeholder)):
             adapted["model"] = slot.model
         model = str(adapted.get("model") or slot.model)
         if is_gemini_target(slot.client or slot, model) and model.lower().startswith("models/"):
