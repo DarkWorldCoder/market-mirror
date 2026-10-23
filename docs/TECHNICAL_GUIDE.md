@@ -275,6 +275,8 @@ The pitch made things worse, not better: after hearing the rebuttals, about a fi
 | Gemini (1,000) | Claude Sonnet 5.5 (stand-in) | 0.9% / 69.7% / 29.4% | trust, then price |
 | Codex (999) | Codex | 0.0% / 5.7% / 94.3% | trust, then "unclear" |
 
+![Simulated trial-start responses by buyer writer and answering provider](images/fitloop-model-responses.svg)
+
 Gemini's people, written by Gemini but played by Claude, answered like Claude's people, not like Codex's. So in this run the model that answers shapes the survey far more than the model that wrote the person, and Codex is much more negative than Claude. Read every rate above as a range between those two behaviours, not as one market's answer.
 
 **How the run went.** The population took 2 h 57 min to prepare (with one restart), and the feed test 62 min through the three login gateways. The social rounds then ran into usage limits: four times Gemini's or Claude's login hit its limit during the rounds, and each hit started the four rounds over, usually after waiting hours for the reset. Then Gemini's login ran out of quota for about four days (Flash and Argon alike). So the rest of the run moved to an Anthropic API key: Claude Sonnet 5.5 played the Claude-written people and, as a stand-in (`MM_PROVIDER_STANDIN=antigravity=claude`), the Gemini-written ones; Codex kept playing its own people through its login. From there it ran without a pause: four rounds in 40 minutes, the survey of 2,999 with its retest in 23 minutes, the pitch to 2,999 people in 37 minutes, then the panel and the report. The API spend for that part is on the Anthropic console; MarketMirror did not meter the tokens inside the rounds, survey and pitch.

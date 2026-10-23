@@ -1,40 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="605" viewBox="0 0 1200 605" role="img" aria-labelledby="title desc">
   <title id="title">Simulated trial-start intent in the Fitloop offer study</title>
   <desc id="desc">No card at USD 4.99: mean 4.1 percent, range 2.7 to 5.4. Card required at USD 4.99: mean 0.2 percent, range 0 to 0.7. No card at USD 2.99: mean 6.7 percent, range 5.3 to 8.0. Ranges span three seeds and do not measure predictive uncertainty.</desc>
-  <rect width="1200" height="605" rx="24" fill="#101827" />
-  <text x="48" y="54" font-family="Arial, Helvetica, sans-serif" fill="#70dbc1" font-size="17">EXAMPLE STUDY · SYNTHETIC RESPONSES</text>
-  <text x="48" y="101" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="34" font-weight="700">Would they start the trial?</text>
-  <text x="48" y="138" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Fitloop · same 150 simulated buyers · 3 offers × 3 seeds</text>
-  <text x="460" y="184" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Share answering yes (%)</text>
-  <path d="M460,200 V437" stroke="#34435d" />
-  <text x="460" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">0%</text>
-  <path d="M606,200 V437" stroke="#34435d" />
-  <text x="606" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">2%</text>
-  <path d="M752,200 V437" stroke="#34435d" />
-  <text x="752" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">4%</text>
-  <path d="M898,200 V437" stroke="#34435d" />
-  <text x="898" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">6%</text>
-  <path d="M1044,200 V437" stroke="#34435d" />
-  <text x="1044" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">8%</text>
-  <text x="48" y="233" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">No card</text>
-  <text x="48" y="260" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">USD 4.99 / month</text>
-  <rect x="460" y="222" width="299.29999999999995" height="30" rx="5" fill="#6ed9c0" opacity=".3" />
-  <path d="M657.1,237 H854.2 M657.1,228 V246 M854.2,228 V246" stroke="#6ed9c0" stroke-width="3" />
-  <circle cx="759.3" cy="237" r="7" fill="#6ed9c0" />
-  <text x="1130" y="244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">4.1%</text>
-  <text x="48" y="319" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">Card required</text>
-  <text x="48" y="346" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">USD 4.99 / month</text>
-  <rect x="460" y="308" width="14.600000000000001" height="30" rx="5" fill="#f2b278" opacity=".3" />
-  <path d="M460,323 H511.1 M460,314 V332 M511.1,314 V332" stroke="#f2b278" stroke-width="3" />
-  <circle cx="474.6" cy="323" r="7" fill="#f2b278" />
-  <text x="1130" y="330" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">0.2%</text>
-  <text x="48" y="405" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">No card</text>
-  <text x="48" y="432" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">USD 2.99 / month</text>
-  <rect x="460" y="394" width="489.1" height="30" rx="5" fill="#9cadff" opacity=".3" />
-  <path d="M846.9,409 H1044 M846.9,400 V418 M1044,400 V418" stroke="#9cadff" stroke-width="3" />
-  <circle cx="949.1" cy="409" r="7" fill="#9cadff" />
-  <text x="1130" y="416" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">6.7%</text>
-  <path d="M48,501 H1130" stroke="#34435d" />
-  <text x="48" y="537" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Dot = mean. Whisker = min–max across seeds; simulation variation only.</text>
-  <text x="48" y="569" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">These are generated trial-start intentions, not measured customer conversions.</text>
+  <rect width="1200" height="605" rx="24" fill="#FAF9F6" />
+  <text x="48" y="54" font-family="Arial, Helvetica, sans-serif" fill="#6E5B16" font-size="17">DOCUMENTED EXAMPLE · SIMULATED RESPONSES</text>
+  <text x="48" y="101" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="34" font-weight="700">Would simulated buyers start the trial?</text>
+  <text x="48" y="138" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">Fitloop · same 150 simulated buyers · 3 offers × 3 seeds</text>
+  <text x="460" y="184" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">Share answering yes (%)</text>
+  <path d="M460,200 V437" stroke="#DEDCD5" />
+  <text x="460" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">0%</text>
+  <path d="M606,200 V437" stroke="#DEDCD5" />
+  <text x="606" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">2%</text>
+  <path d="M752,200 V437" stroke="#DEDCD5" />
+  <text x="752" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">4%</text>
+  <path d="M898,200 V437" stroke="#DEDCD5" />
+  <text x="898" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">6%</text>
+  <path d="M1044,200 V437" stroke="#DEDCD5" />
+  <text x="1044" y="469" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">8%</text>
+  <text x="48" y="233" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">No card</text>
+  <text x="48" y="260" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">USD 4.99 / month</text>
+  <rect x="460" y="222" width="299.29999999999995" height="30" rx="5" fill="#947600" opacity=".3" />
+  <path d="M657.1,237 H854.2 M657.1,228 V246 M854.2,228 V246" stroke="#947600" stroke-width="3" />
+  <circle cx="759.3" cy="237" r="7" fill="#947600" />
+  <text x="1130" y="244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">4.1%</text>
+  <text x="48" y="319" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">Card required</text>
+  <text x="48" y="346" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">USD 4.99 / month</text>
+  <rect x="460" y="308" width="14.600000000000001" height="30" rx="5" fill="#9C573A" opacity=".3" />
+  <path d="M460,323 H511.1 M460,314 V332 M511.1,314 V332" stroke="#9C573A" stroke-width="3" />
+  <circle cx="474.6" cy="323" r="7" fill="#9C573A" />
+  <text x="1130" y="330" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">0.2%</text>
+  <text x="48" y="405" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">No card</text>
+  <text x="48" y="432" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">USD 2.99 / month</text>
+  <rect x="460" y="394" width="489.1" height="30" rx="5" fill="#252525" opacity=".3" />
+  <path d="M846.9,409 H1044 M846.9,400 V418 M1044,400 V418" stroke="#252525" stroke-width="3" />
+  <circle cx="949.1" cy="409" r="7" fill="#252525" />
+  <text x="1130" y="416" text-anchor="end" font-family="Arial, Helvetica, sans-serif" fill="#202020" font-size="21" font-weight="600">6.7%</text>
+  <path d="M48,501 H1130" stroke="#DEDCD5" />
+  <text x="48" y="537" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">Dot = average. Line = lowest–highest across 3 repeats; simulation variation only.</text>
+  <text x="48" y="569" font-family="Arial, Helvetica, sans-serif" fill="#5A5A54" font-size="17">These are generated trial-start intentions, not measured customer conversions.</text>
 </svg>
