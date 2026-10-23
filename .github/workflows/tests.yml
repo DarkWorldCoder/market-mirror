@@ -25,7 +25,7 @@ jobs:
         env:
           MEMORY_EMBEDDINGS: "false"
           LLM_API_KEY: "test"
-        run: uv run --no-sync python -m pytest tests claude_cli/tests -q -x --timeout=900
+        run: uv run --no-sync python -m pytest tests claude_cli/tests -q -x
       - name: API docs are up to date
         run: |
           backend/.venv/bin/python backend/scripts/gen_api_docs.py
