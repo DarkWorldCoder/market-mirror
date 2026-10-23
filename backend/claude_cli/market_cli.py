@@ -304,10 +304,15 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """Stdlib mirror of market_report.compact_material's inputs: the CLI sends the bundle's relevant parts and
     lets the backend compact them, so the two never drift."""
     keep = {}
-    for k in ("summary", "project", "config", "feed_test", "survey", "analyst_panel", "feed_story"):
+    for k in ("summary", "project", "config", "feed_test", "survey", "analyst_panel", "feed_story", "research",
+              "email_test", "calibration", "pitch"):
         v = bundle.get(k)
         if v:
             keep[k] = v
+    # the report reads the pitch's totals and objections, not its per-person rows (megabytes for a large market)
+    if isinstance(keep.get("pitch"), dict):
+        keep["pitch"] = {k: v for k, v in keep["pitch"].items() if k not in ("people", "memory", "best_replies",
+                                                                            "worst_replies")}
     # large markets: the per-person rows are tens of MB and the fact sheet uses only these fields of them
     cfg = keep.get("config")
     if isinstance(cfg, dict) and isinstance(cfg.get("persona_index"), list):

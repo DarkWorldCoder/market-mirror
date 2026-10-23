@@ -123,6 +123,15 @@ class ScaleCliTest(unittest.TestCase):
         texts = {int(r["text"][1:]) for r in first}
         self.assertEqual({(t // 100) % 3 for t in texts}, {0, 1, 2})
 
+    def test_the_report_request_carries_the_pitch_research_and_email_results(self):
+        bundle = {"summary": {"x": 1}, "pitch": {"answered": 3, "pitch_score": 23, "objections": [{"type": "trust"}],
+                                                 "people": [{"agent_id": 1}] * 3},
+                  "research": {"voices": [{"text": "q"}]}, "email_test": {"summary": {}}, "backtest": {"x": 1}}
+        keep = market_cli.compact_material(bundle)
+        self.assertEqual(keep["pitch"], {"answered": 3, "pitch_score": 23, "objections": [{"type": "trust"}]})
+        self.assertIn("research", keep)
+        self.assertIn("email_test", keep)
+
     def test_the_report_request_carries_a_lean_people_list(self):
         bundle = {"summary": {"x": 1}, "config": {"persona_index": [
             {"agent_id": 1, "segment": "S", "name": "A", "interview": [{"q": "Q1", "a": "long"}] * 12, "bde": {"b": {}}}]}}
