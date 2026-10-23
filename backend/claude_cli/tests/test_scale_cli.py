@@ -99,6 +99,14 @@ class ScaleCliTest(unittest.TestCase):
         self.assertEqual(st["resume_in_s"], 600)                            # the week-long pause is left out
         self.assertEqual(st["limit_hits"], 3)
 
+    def test_only_gateways_of_providers_in_the_pool_can_pause_the_run(self):
+        env = {"LLM_POOL": "claude:claude-sonnet-5-5,codex:m", "LLM_BASE_URL": "http://127.0.0.1:5055/v1",
+               "CLAUDE_CODE_GATEWAY_URL": "http://127.0.0.1:5055/v1", "CODEX_GATEWAY_URL": "http://127.0.0.1:5056/v1"}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(quota.gateway_urls(), ["http://127.0.0.1:5056"])   # Claude is on an API key now
+        with mock.patch.dict(os.environ, {**env, "LLM_POOL": ""}):
+            self.assertEqual(quota.gateway_urls(), ["http://127.0.0.1:5055"])   # no pool: the main gateway
+
     def test_save_json_is_atomic(self):
         mirofish.save_json(self.d, "x", {"a": 1})
         self.assertEqual(json.load(open(os.path.join(self.d, "x.json"))), {"a": 1})

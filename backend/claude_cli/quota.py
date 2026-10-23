@@ -58,11 +58,23 @@ def gateway_url() -> Optional[str]:
 
 # the gateways of a provider pool (LLM_POOL): each person may be answered through any of them
 POOL_GATEWAY_KEYS = ("CLAUDE_CODE_GATEWAY_URL", "CODEX_GATEWAY_URL", "ANTIGRAVITY_GATEWAY_URL", "GEMINI_CLI_GATEWAY_URL")
+_GATEWAY_PROVIDERS = {"CLAUDE_CODE_GATEWAY_URL": ("claude_code",), "CODEX_GATEWAY_URL": ("codex", "chatgpt", "siwc"),
+                      "ANTIGRAVITY_GATEWAY_URL": ("antigravity",), "GEMINI_CLI_GATEWAY_URL": ("gemini_cli",)}
+
+
+def _pool_providers() -> List[str]:
+    return [p.split(":", 1)[0].strip().lower() for p in _env_value("LLM_POOL").split(",") if p.strip()]
 
 
 def gateway_urls() -> List[str]:
-    """Every local gateway this run uses: the main one and those of the provider pool."""
-    urls = [gateway_url()] + [_env_value(k).split("/v1")[0].rstrip("/") for k in POOL_GATEWAY_KEYS]
+    """Every local gateway this run uses: with a provider pool (LLM_POOL), the gateways of the providers in it (a
+    provider moved to an API key no longer pauses the run); without one, the main gateway."""
+    pool = _pool_providers()
+    if not pool:
+        urls = [gateway_url()]
+    else:
+        urls = [_env_value(k).split("/v1")[0].rstrip("/") for k in POOL_GATEWAY_KEYS
+                if any(p in pool for p in _GATEWAY_PROVIDERS[k])]
     return list(dict.fromkeys(u for u in urls if u))
 
 
