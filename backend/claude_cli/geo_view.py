@@ -96,7 +96,10 @@ def country_rows(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         if r.get("settlement"):
             a["settlement"][str(r["settlement"])] += 1
         if r.get("city"):
-            a["cities"][str(r["city"])] += 1
+            city = str(r["city"]).strip()
+            if c and city.lower().endswith(", " + c.lower()):     # "Bengaluru, India" and "Bengaluru" are one city
+                city = city[: -len(c) - 2].strip()
+            a["cities"][city] += 1
         if r.get("segment"):
             a["segments"][str(r["segment"])] += 1
         try:

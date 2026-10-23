@@ -1112,6 +1112,14 @@ def generic_reader_baseline(
     }
 
 
+def _provider_key(session: Dict[str, Any]) -> str:
+    """The provider family of a session: a session the attention gate scrolled past is labelled with the pool's name
+    for the provider (claude_code) and an answered one with the name the response reports (claude); both are one
+    group, or the same people would be split into one that only noticed ads and one that never did."""
+    from ..utils.model_pool import provider_family
+    return provider_family(session.get("model_provider") or "claude") or "claude"
+
+
 def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
               benchmarks: Optional[Dict[str, Any]] = None,
               competitor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1133,7 +1141,7 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
         prov_groups = defaultdict(list)
         for s in ss:
             seg[s["segment"]].append(s["ad"])
-            prov_groups[str(s.get("model_provider") or "claude")].append(s["ad"])
+            prov_groups[_provider_key(s)].append(s["ad"])
         m = _metrics([s["ad"] for s in ss])
         lf = landing_funnel(ss)
         bench = benchmarks.get(c["platform"]) or benchmarks.get("default")
@@ -1170,7 +1178,7 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
     # Overall cross-provider breakdown across all sessions
     all_by_prov: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for s in sessions:
-        all_by_prov[str(s.get("model_provider") or "claude")].append(s)
+        all_by_prov[_provider_key(s)].append(s)
     by_provider_summary: Dict[str, Any] = {}
     prov_winners: Dict[str, str] = {}
     for prov, p_sessions in sorted(all_by_prov.items()):

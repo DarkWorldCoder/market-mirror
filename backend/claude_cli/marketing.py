@@ -998,9 +998,12 @@ def models_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
              "–" if r.get("intent") is None else f'{r["intent"]:g}',
              OBJECTION_LABELS.get(r["top_objection"], r["top_objection"] or "–"), r["top_message"] or "–"] for r in pa["providers"]]
     gap = f' The would-convert rates are {pa["gap"]:g} points apart.' if pa.get("gap") is not None else ""
+    stood_in = any("(played by " in str(r["provider"]) for r in pa["providers"])
+    who = (" Rows marked \u201cplayed by\u201d are people another provider answered for, because their writer\u2019s "
+           "account ran out." if stood_in else "")
     return ("models", "Models", ui.section_head("Do the models agree?") + '<div class="card">'
             f'<p class="muted small" style="margin-top:0">Each provider wrote its own people and answered for them in the same '
-            f'market. {pa["agree"]} of {pa["of"]} checks agree.{_e(gap)} A difference mixes the model and the people it wrote, '
+            f'market.{_e(who)} {pa["agree"]} of {pa["of"]} checks agree.{_e(gap)} A difference mixes the model and the people it wrote, '
             'so treat agreement as robustness, not as proof about real buyers.</p>'
             f'<p style="display:flex;gap:8px;flex-wrap:wrap">{chips}</p>'
             + ui.table(["Model", "People", "Would convert (95% range)", "Purchase intent (1–5)", "Top objection", "Best message"], rows, sortable=False)

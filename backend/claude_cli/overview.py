@@ -162,7 +162,8 @@ def kpi_strip(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
                          else f"-{float(cpl) - be:g} {cur} over break-even")
             tiles.append(ui.kpi(f"{_num(cpl)} {cur}".strip(), "Cost per lead",
                                 f'at a {_num(pr.get("budget"))} {cur} budget'.replace("  ", " "), delta, color=8))
-    provs = active_providers(bundle)
+    # "antigravity (played by claude)" is antigravity's people, not another model
+    provs = list(dict.fromkeys(p.partition(" (played by ")[0] for p in active_providers(bundle)))
     if len(provs) >= 2:
         tiles.append(ui.kpi(f"{len(provs)} models", "Multi-AI ensemble", " · ".join(p.upper() for p in provs[:4]), color=7, bar=100.0))
     if not tiles:

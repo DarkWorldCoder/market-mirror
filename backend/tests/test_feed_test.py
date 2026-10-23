@@ -418,3 +418,13 @@ def test_generic_baseline_survives_multiple_seeds():
     baseline_calls = [1 for s, _ in llm.prompts if s == ft.GENERIC_READER_SYSTEM]
     assert len(baseline_calls) == 1                                    # once on the pooled ranking, not per seed
 
+
+
+def test_a_gateway_and_its_reported_name_are_one_provider_group():
+    ad = lambda stopped: {**ft.normalize_action({"stopped": stopped, "dwell_seconds": 1.0}, "facebook"), "noticed": stopped}
+    sessions = [{"agent_id": i, "name": f"P{i}", "segment": "S", "country": "India", "platform": "facebook",
+                 "creative_id": "c1", "exposure": 1, "ad": ad(i < 2), "organic": [],
+                 "model_provider": "claude" if i < 2 else "claude_code"} for i in range(6)]
+    summary = ft.summarize(ft.normalize_creatives(CREATIVES[:1]), sessions)
+    assert set(summary["by_provider"]) == {"claude"}
+    assert summary["by_provider"]["claude"]["personas"] == 6

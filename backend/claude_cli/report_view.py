@@ -219,8 +219,11 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
         lead = leads.get(aid) if aid in leads else None
         attrs = (f'data-item data-order="{i}" data-segment="{_e(r.get("segment") or "")}" data-country="{_e(r.get("country") or "")}" '
                  f'data-verdict="{_e(verdict or "none")}" data-lead="{_e(lead if lead is not None else "")}"{extra_attrs}')
-        prov_badge = (f'<span class="mm-provider-badge" data-prov="{_e(prov)}" title="{_e(r.get("model_name") or prov)}">{_e(prov)}</span>'
+        # "antigravity (played by claude)": the badge names the writer, a pill says who played them (keeps the card narrow)
+        writer, _, played = prov.partition(" (played by ")
+        prov_badge = (f'<span class="mm-provider-badge" data-prov="{_e(writer)}" title="{_e(r.get("model_name") or prov)}">{_e(writer)}</span>'
                       if prov else "")
+        played_pill = _pill(f"played by {played.rstrip(')')}") if played else ""
         prov_pill = ('<span class="pill prov-pill-real" title="Built from real customer intake">Grounded</span>'
                      if provenance == "grounded" else "")
         life_pill = _pill(str(r["life_stage"]).replace("_", " ")) if r.get("life_stage") else ""
@@ -230,7 +233,7 @@ def people_cards(index: List[Dict[str, Any]], activity: Dict[Any, int], survey_b
             f'<div><b>{_e(r.get("name"))}</b><div class="muted small">{_e(who)} · {_e(r.get("occupation") or "")}</div></div>'
             + prov_badge
             + (f'<span class="lead" title="Lead score 0-100">{_e(lead)}</span>' if lead is not None else "") + '</div>'
-            f'<div class="person-pills">{_pill(r.get("segment"))}{prov_pill}{life_pill}'
+            f'<div class="person-pills">{_pill(r.get("segment"))}{played_pill}{prov_pill}{life_pill}'
             + "".join(_pill(l) for l in (r.get("languages") or [])[:2])
             + (_pill(f"would {verdict}", vcls) if verdict else "") + "</div>"
             + (f'<p class="person-q">“{_e(_t(r.get("interview_summary"), 320))}”</p>' if r.get("interview_summary") else "")

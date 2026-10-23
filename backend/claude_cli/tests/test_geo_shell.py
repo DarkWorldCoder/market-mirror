@@ -46,6 +46,12 @@ class GeoTest(unittest.TestCase):
         self.assertIn("India", [r["name"] for r in spec["rows"]])
         self.assertIsNone(geo_view.map_section({"config": {}}))
 
+    def test_a_city_that_repeats_its_country_counts_as_the_same_city(self):
+        people = [{"agent_id": i, "kind": "persona", "country": "India", "city": c}
+                  for i, c in enumerate(["Bengaluru, India", "Bengaluru", "Delhi, India", "Bengaluru"])]
+        rows = geo_view.country_rows({"config": {"persona_index": people}})
+        self.assertEqual(rows[0]["cities"], [("Bengaluru", 3), ("Delhi", 1)])
+
     def test_shell_groups_and_dashboard(self):
         side = shell.sidebar([("kpis", "At a glance"), ("feedtest", "Feed test"), ("agents", "People"), ("zzz", "Other")], "Run")
         self.assertLess(side.index("Overview"), side.index("Results"))
