@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="510" viewBox="0 0 1260 510" role="img" aria-labelledby="title desc">
+  <title id="title">MarketMirror simulation and validation workflow</title>
+  <desc id="desc">Understand the product, build synthetic buyers, run marketing tests, decide, then validate against real outcomes and repeat.</desc>
+  <rect width="1260" height="510" rx="24" fill="#101827" />
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6" fill="none" stroke="#8294b6" stroke-width="1.5" />
+    </marker>
+  </defs>
+  <text x="48" y="56" fill="#e9edf7" font-family="Arial, Helvetica, sans-serif" font-size="17">THE MARKETMIRROR WORKFLOW</text>
+  <text x="48" y="104" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="34" font-weight="700">From a product question to the next real experiment</text>
+  <text x="48" y="140" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Bring your evidence. Rehearse the decision. Validate with observed outcomes.</text>
+  <rect x="48" y="184" width="264" height="174" rx="16" fill="#1b263b" stroke="#34435d" />
+  <text x="70" y="220" font-family="Arial, Helvetica, sans-serif" fill="#70dbc1" font-size="17">01</text>
+  <text x="70" y="257" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">Understand</text>
+  <text x="70" y="297" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Product brief</text>
+  <text x="70" y="326" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Website + documents</text>
+  <path d="M317,270 h18" stroke="#8294b6" stroke-width="2" marker-end="url(#arrow)" />
+  <rect x="342" y="184" width="264" height="174" rx="16" fill="#1b263b" stroke="#34435d" />
+  <text x="364" y="220" font-family="Arial, Helvetica, sans-serif" fill="#70dbc1" font-size="17">02</text>
+  <text x="364" y="257" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">Build buyers</text>
+  <text x="364" y="297" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Audience segments</text>
+  <text x="364" y="326" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Interviews + decision cards</text>
+  <path d="M611,270 h18" stroke="#8294b6" stroke-width="2" marker-end="url(#arrow)" />
+  <rect x="636" y="184" width="264" height="174" rx="16" fill="#1b263b" stroke="#34435d" />
+  <text x="658" y="220" font-family="Arial, Helvetica, sans-serif" fill="#70dbc1" font-size="17">03</text>
+  <text x="658" y="257" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">Run tests</text>
+  <text x="658" y="297" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Ads + offers + pricing</text>
+  <text x="658" y="326" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Surveys + sales + journeys</text>
+  <path d="M905,270 h18" stroke="#8294b6" stroke-width="2" marker-end="url(#arrow)" />
+  <rect x="930" y="184" width="264" height="174" rx="16" fill="#1b263b" stroke="#34435d" />
+  <text x="952" y="220" font-family="Arial, Helvetica, sans-serif" fill="#70dbc1" font-size="17">04</text>
+  <text x="952" y="257" font-family="Arial, Helvetica, sans-serif" fill="#e9edf7" font-size="21" font-weight="600">Decide</text>
+  <text x="952" y="297" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Go / iterate / no-go</text>
+  <text x="952" y="326" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Report + offline dashboard</text>
+  <path d="M1062,368 V407 H200 V368" fill="none" stroke="#70dbc1" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)" />
+  <rect x="360" y="383" width="540" height="50" rx="25" fill="#233c3c" />
+  <text x="630" y="414" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" fill="#a7f0dc" font-size="17">Real experiment → import results → calibrate → retest</text>
+  <text x="48" y="474" font-family="Arial, Helvetica, sans-serif" fill="#a9b5ce" font-size="17">Cited public feedback can inform buyer generation. Generated responses remain synthetic.</text>
+</svg>
