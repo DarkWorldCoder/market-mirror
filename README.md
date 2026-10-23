@@ -15,7 +15,7 @@ Self-hosted · Open source · Works from Codex, Claude Code and any MCP agent ·
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png" />
-  <img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard for 1,008 simulated buyers: sidebar navigation, decision bar, headline figures and the at-a-glance cards" width="92%" />
+  <img src="docs/images/dashboard-results.png" alt="MarketMirror dashboard for the 3,000-person Fitloop market: sidebar navigation, decision bar, headline figures and the at-a-glance cards" width="92%" />
 </picture>
 
 </div>
@@ -509,7 +509,7 @@ Keep inputs under `scenarios/` and outputs under `mirofish_runs/`; both are giti
 
 ## The dashboard
 
-Each run produces one self-contained HTML dashboard: no server, no external requests, light and dark themes, and phone layouts. A sidebar groups its sections into overview, buyers, tests, evidence and the simulation itself; every chart has a table behind it, and the report exports to Markdown, JSON, CSV and PDF. In runs with more than 500 agents, the agents table lists the 500 most active and says so; everyone is still in the people cards and the CSV downloads. The screenshots below come from the 1,000-person Fitloop run and the offer study.
+Each run produces one self-contained HTML dashboard: no server, no external requests, light and dark themes, and phone layouts. A sidebar groups its sections into overview, buyers, tests, evidence and the simulation itself; every chart has a table behind it, and the report exports to Markdown, JSON, CSV and PDF. In runs with more than 500 agents, the agents table lists the 500 most active and says so; everyone is still in the people cards and the CSV downloads. The screenshots below come from the 3,000-person Fitloop market (people written by Claude, Codex and Gemini), except the study page (the offer study) and the live control room (the 1,000-person run). `scripts/readme_screenshots.py` regenerates them from any run's `dashboard.html` with your installed Chrome.
 
 <table>
 <tr><td colspan="2"><b>Overview</b></td></tr>
@@ -535,7 +535,11 @@ Each run produces one self-contained HTML dashboard: no server, no external requ
 <td width="50%" valign="top"><img src="docs/images/pricing.png" alt="Van Westendorp price sensitivity with acceptable range and sweet spot" /><br /><b>What people would pay.</b> Acceptable price range, sweet spot and the price-sensitivity curves, by segment.</td>
 <td width="50%" valign="top"><img src="docs/images/playbook.png" alt="Sales and marketing playbook cards per audience" /><br /><b>The playbook.</b> One card per audience: what to lead with, the objection to pre-empt, how to answer it, where to seed it, and a quote as proof.</td>
 </tr>
-<tr><td colspan="2" valign="top"><b>Marketing lab and model agreement.</b> The marketing lab (buying committee, creative optimizer, battlecard, journey, pricing choice, competitor choice, landing teardown, roleplay, what-if, per-audience ads, search behaviour, real versus simulated concerns, word of mouth) shows every result with how many people were asked, answered and failed, and a 95% range. In a market with several providers, "Do the models agree?" splits the survey by provider and checks whether the would-convert ranges overlap and whether the top objection and best message match.</td></tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/models.png" alt="Do the models agree: would-convert ranges, purchase intent, top objection and best message per provider" /><br /><b>Do the models agree?</b> The same survey split by the provider behind each person, with 95% ranges and three checks. Here Codex's people were far more negative than Claude's, and Gemini's people, played by Claude after Gemini ran out of quota, answered like Claude's.</td>
+<td width="50%" valign="top"><img src="docs/images/pitch.png" alt="Sales rehearsal: pitch score, before and after the rebuttals, and each objection with how far its rebuttal moved people" /><br /><b>The sales rehearsal.</b> Pitch score, yes/maybe/no before and after your rebuttals, and every objection with the rebuttal used, how many it moved and the questions people asked back.</td>
+</tr>
+<tr><td colspan="2" valign="top"><b>Marketing lab.</b> The marketing lab (buying committee, creative optimizer, battlecard, journey, pricing choice, competitor choice, landing teardown, roleplay, what-if, per-audience ads, search behaviour, real versus simulated concerns, word of mouth) shows every result with how many people were asked, answered and failed, and a 95% range.</td></tr>
 <tr><td colspan="2"><b>Evidence</b></td></tr>
 <tr>
 <td width="50%" valign="top"><img src="docs/images/analysts.png" alt="Independent analyst panel with consensus, themes and five analyst cards" /><br /><b>Analyst panel.</b> Five analysts read the run independently; their consensus, the themes they agree on, and each one's recommendation.</td>
