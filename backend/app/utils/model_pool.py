@@ -340,6 +340,14 @@ def provider_family(name: Any) -> str:
     return _FAMILY.get(n, n)
 
 
+def provider_standins(env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """MM_PROVIDER_STANDIN="antigravity=claude": a writer whose people another provider plays (its account is out of
+    quota), as provider families."""
+    raw = ((env if env is not None else os.environ).get("MM_PROVIDER_STANDIN") or "")
+    return {provider_family(a.strip()): provider_family(b.strip())
+            for a, _, b in (p.partition("=") for p in raw.split(",")) if a.strip() and b.strip()}
+
+
 def _strict_from_env() -> bool:
     return (os.environ.get("LLM_POOL_STRICT") or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -509,7 +517,8 @@ class MultiProviderPool:
         for i, s in enumerate(self.slots):
             if provider_family(s.provider) == want:
                 return i
-        return None
+        other = provider_standins().get(want)              # that writer's people are played by another provider
+        return self.slot_for_provider(other) if other and other != want else None
 
     def with_people(self, people: Any) -> "MultiProviderPool":
         """A view whose for_agent sends each person to the slot of the provider that wrote them (their

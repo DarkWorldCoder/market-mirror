@@ -109,3 +109,37 @@ def test_simulation_agents_get_their_writers_model():
     assert [a.mm_provider for a in agents[:3]] == ["codex", "antigravity", "claude_code"]
     assert sum(counts.values()) == 5
     assert agent_context.assign_provider_models(graph, cfg, env={"LLM_PROVIDER": "claude", "LLM_API_KEY": "k"}) == {}
+
+
+def test_a_stand_in_plays_every_person_of_a_provider_that_is_out_of_quota():
+    env = {"LLM_POOL": "claude,codex", "ANTHROPIC_API_KEY": "k", "MM_PROVIDER_STANDIN": "antigravity=claude",
+           "CODEX_GATEWAY_URL": "http://127.0.0.1:5056/v1", "CODEX_GATEWAY_KEY": "b"}
+    agents = [SimpleNamespace(social_agent_id=i, model_backend=None, model_type=None) for i in range(6)]
+    graph = SimpleNamespace(get_agents=lambda: [(a.social_agent_id, a) for a in agents])
+    cfg = {"persona_index": [{"agent_id": i, "model_provider": p}
+                             for i, p in enumerate(["antigravity", "antigravity", "antigravity", "codex", "claude_code",
+                                                    "antigravity"])]}
+    agent_context.assign_provider_models(graph, cfg, env=env, make_model=lambda s: SimpleNamespace(model_type=s.model))
+    assert [a.mm_provider for a in agents] == ["claude", "claude", "claude", "codex", "claude", "claude"]
+
+
+def test_people_played_by_a_stand_in_are_labelled(monkeypatch):
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_cli"))
+    import ui
+    monkeypatch.setenv("MM_PROVIDER_STANDIN", "antigravity=claude")
+    assert ui.persona_provider({"model_provider": "antigravity"}) == "antigravity (played by claude)"
+    assert ui.persona_provider({"model_provider": "codex"}) == "codex"
+    monkeypatch.delenv("MM_PROVIDER_STANDIN")
+    monkeypatch.delenv("MIROFISH_ENV_FILE", raising=False)
+    assert ui.persona_provider({"model_provider": "antigravity"}) == "antigravity"
+
+
+def test_with_people_sends_a_stood_in_writer_to_the_stand_in(monkeypatch):
+    from app.utils.model_pool import MultiProviderPool
+    monkeypatch.setenv("MM_PROVIDER_STANDIN", "antigravity=claude")
+    pool = MultiProviderPool.from_env(env={"LLM_POOL": "claude,codex", "ANTHROPIC_API_KEY": "k", "CODEX_GATEWAY_URL":
+                                           "http://127.0.0.1:5056/v1", "CODEX_GATEWAY_KEY": "b"},
+                                      client_factory=lambda **kw: None)
+    view = pool.with_people([{"agent_id": i, "model_provider": "antigravity"} for i in range(4)])
+    assert {pool.slots[view._assign[i]].provider for i in range(4)} == {"claude"}

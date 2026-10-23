@@ -415,9 +415,16 @@ def assign_provider_models(agent_graph: Any, config: Dict[str, Any], env: Option
     make = make_model or _camel_model
     models = [make(s) for s in slots]
     family = [provider_family(s.provider) for s in slots]
-    writers = {int(r["agent_id"]): provider_family(r.get("model_provider"))
+    # MM_PROVIDER_STANDIN="antigravity=claude": that writer's people are played by the other provider (its account
+    # is out of quota); without it they would be spread over the remaining providers
+    from app.utils.model_pool import provider_standins
+    standin = provider_standins(env)
+    writers = {int(r["agent_id"]): standin.get(provider_family(r.get("model_provider")),
+                                               provider_family(r.get("model_provider")))
                for r in (config or {}).get("persona_index") or []
                if isinstance(r, dict) and r.get("agent_id") is not None}
+    if standin:
+        print(f"provider stand-in: {standin}", flush=True)
     counts: Dict[str, int] = {}
     for agent in _agents_of(agent_graph):
         aid = getattr(agent, "social_agent_id", None)

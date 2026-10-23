@@ -101,11 +101,32 @@ def rawnum(v: Any, suffix: str = "", missing: str = MISSING) -> str:
 _NOT_A_MODEL ={"", "none", "null", "grounded", "real_intake", "unknown"}
 
 
+def provider_standins() -> Dict[str, str]:
+    """MM_PROVIDER_STANDIN ("antigravity=claude,..."): a provider whose people are played by another one, e.g. when
+    the writer's account is out of quota. Read from the environment, else from this run's env file."""
+    import os
+    raw = os.environ.get("MM_PROVIDER_STANDIN") or ""
+    if not raw and os.environ.get("MIROFISH_ENV_FILE"):
+        try:
+            with open(os.environ["MIROFISH_ENV_FILE"], encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("MM_PROVIDER_STANDIN="):
+                        raw = line.split("=", 1)[1].strip().strip('"').strip("'")
+        except OSError:
+            pass
+    pairs = (p.split("=", 1) for p in raw.split(",") if "=" in p)
+    return {a.strip().lower(): b.strip().lower() for a, b in pairs if a.strip() and b.strip()}
+
+
 def persona_provider(r: Dict[str, Any]) -> str:
     """The LLM provider recorded for a simulated person, lower case; '' when none was recorded (grounded
-    people carry model_provider "grounded", which names their source, not a model)."""
+    people carry model_provider "grounded", which names their source, not a model). A person whose writer is
+    stood in for by another provider (MM_PROVIDER_STANDIN) reads "writer (played by other)"."""
     p = str((r or {}).get("model_provider") or "").strip().lower()
-    return "" if p in _NOT_A_MODEL else p
+    if p in _NOT_A_MODEL:
+        return ""
+    other = provider_standins().get(p)
+    return f"{p} (played by {other})" if other else p
 
 
 def persona_provenance(r: Dict[str, Any]) -> str:
