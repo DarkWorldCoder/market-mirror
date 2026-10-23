@@ -4,7 +4,7 @@ The [README](../README.md) explains what MarketMirror does and how a market test
 
 ## Gateways, ports and usage limits
 
-The gateway commands in the [README's model table](../README.md#choose-your-model) use the default port 5055 and write their settings into `.env`. On another port (for example `--port 5057`) a gateway writes `.env.<backend>` instead, such as `.env.antigravity`; start a backend on that file with `./mm start --port <P> --env-file .env.antigravity`.
+The gateway commands in the [technical guide's model table](TECHNICAL_GUIDE.md#choose-your-model) use the default port 5055 and write their settings into `.env`. On another port (for example `--port 5057`) a gateway writes `.env.<backend>` instead, such as `.env.antigravity`; start a backend on that file with `./mm start --port <P> --env-file .env.antigravity`.
 
 Several providers in one market: `LLM_POOL=deepseek,kimi,claude` with each provider's key set (`<name>:<model>` picks a model, for example `deepseek:deepseek-v4-pro`). `LLM_POOL=auto` pools every provider that has a key, and a JSON list of `{"provider": ..., "model": ...}` objects also works. Pool names accept common aliases, such as `zai` or `glm` for `zhipu` and `moonshot` for `kimi`. See [Several providers in one market](#several-providers-in-one-market).
 
@@ -71,7 +71,7 @@ Two settings keep a long run going when one provider's account runs dry. Both go
 - **Move a provider to an API key.** Replace its pool entry, for example `claude_code:sonnet` with `claude:claude-sonnet-5-5` and `ANTHROPIC_API_KEY` set. `claude_code` and `claude` are the same family, so every person Claude wrote stays on Claude. Only the gateways of providers still in `LLM_POOL` can pause the run, so the old login's usage limit no longer stops it.
 - **Let another provider stand in.** `MM_PROVIDER_STANDIN=antigravity=claude` (comma-separated pairs) sends every person a writer wrote to another provider in the rounds, survey and pitch, after you remove the writer from `LLM_POOL`. Without it those people would be spread over the remaining providers. Results label them `antigravity (played by claude)`, so "Do the models agree?" never presents the stand-in's answers as the writer's own.
 
-The 3,000-person run used both: its Claude login kept hitting the session limit during the social rounds, and its Gemini login ran out of quota for about four days. See the [README](../README.md#the-3000-person-mixed-market).
+The 3,000-person run used both: its Claude login kept hitting the session limit during the social rounds, and its Gemini login ran out of quota for about four days. See the [technical guide](TECHNICAL_GUIDE.md#the-3000-person-mixed-market).
 
 ## Writing people fast without losing depth
 
@@ -91,7 +91,7 @@ Measured on the login gateways on 2026-10-20 (single-batch spot checks of one 4-
 | Gemini via Antigravity | `--model gemini-3.8-flash-low` (medium: 62 s and 66 s, with hidden thinking) | 50 s | 56 s | 10; 16 at once still raised throughput |
 | Claude Code | Sonnet + `LLM_GATEWAY_EFFORT=low` | 39 s | 53 s | 12-16 |
 
-With these models and lane limits, 60 full-depth people (20 per provider) were written and interviewed, and 57 of them followed up, in 6 minutes 7 seconds; see [Measured runs and costs](../README.md#measured-runs). The Codex and Antigravity CLIs add about 20,000 tokens of their own instructions to every call (21-23k input tokens per call in the 12-person feed test; Claude Code reported about 2,400) and need a few seconds to start, which an API key avoids.
+With these models and lane limits, 60 full-depth people (20 per provider) were written and interviewed, and 57 of them followed up, in 6 minutes 7 seconds; see [Measured runs and costs](TECHNICAL_GUIDE.md#measured-runs). The Codex and Antigravity CLIs add about 20,000 tokens of their own instructions to every call (21-23k input tokens per call in the 12-person feed test; Claude Code reported about 2,400) and need a few seconds to start, which an API key avoids.
 
 **Depth for large audiences.** `"depth": "fast"` writes compact cards for everyone in batches of 20 (`MM_CARD_BATCH`) and gives the full life interview to `interview_share` (default 10%) of every audience and provider pair, at least 2 per pair. `"depth": "auto"` uses full depth up to 300 people and fast depth above that (`MM_FAST_ABOVE`). Each person records their depth: `interviewed`, `profile` (the interview failed) or `card`. A persona spec may ask for up to 5,000 people; raise the limit with `MM_MAX_PERSONAS` in the backend's settings.
 
