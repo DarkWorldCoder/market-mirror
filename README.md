@@ -231,9 +231,48 @@ Feed-test previews cover Facebook, Instagram, Reddit, TikTok, LinkedIn, and X. O
 
 ### The 3,000-person mixed market
 
-One Fitloop market of 3,000 requested people, a third each written, interviewed and played by Claude Sonnet, Codex (gpt-6-luna) and Gemini 3.8 Flash (`gemini-3.8-flash-low`). The persona spec asks for full depth with interviews and follow-ups, six audiences in India, the Philippines and Kenya, and five communities: Bengaluru Fitness Buddies (WhatsApp), Working Moms & Dads India (Facebook), Fit Pinoy Community (Facebook), Nairobi Runners & Gym Rats (WhatsApp) and r/budgetfitness. Each person joins at most 2 communities.
+One Fitloop market of 3,000 requested people, a third each written and interviewed by Claude Sonnet, Codex (gpt-6-luna) and Gemini 3.8 Flash (`gemini-3.8-flash-low`). Six audiences in India, the Philippines and Kenya, and five communities: Bengaluru Fitness Buddies (WhatsApp), Working Moms & Dads India (Facebook), Fit Pinoy Community (Facebook), Nairobi Runners & Gym Rats (WhatsApp) and r/budgetfitness; each person joins at most 2. The offer as advertised: a 7-day free trial with no card, then USD 4.99 a month. As in the 1,000-person run, the brief and the landing page still ask for a card at sign-up, and the test is meant to catch that.
 
-What is final now is the simulated population:
+**Decision: iterate** (medium confidence). The survey alone says no-go (purchase intent 2.88 of 5, 0.7% would start the trial, n = 2,999), the feed test says iterate (best ad `fb_parents`, expected CTR 1.02%), and 5 of 5 simulated analysts say iterate. Fix first: trust ("looks like a scam"), doubt that it is really free, and an unclear product.
+
+| What was measured | Result |
+|---|---|
+| Would start the trial | 0.7% yes, 50.4% maybe, 48.9% no (2,999 of 2,999 answered) |
+| Purchase intent from free-text answers (1-5) | 2.88 ± 1.14; interest 3.22 |
+| Top objection | Trust / "looks like a scam": 59.6%; price 20.4%; unclear what it is 9.1% |
+| By audience, would start | Philippines young professionals 1.7%, Philippines parents 0.9%, India parents 0.9%, India young professionals 0.6%, students 0.3%, Kenya young professionals 0.0% |
+| Best survey message | "A month of Fitloop costs less than one gym visit" (about 1% yes, like the others) |
+| Acceptable price range | USD 1.50-5.50, sweet spot about USD 2.20 |
+| Test-retest (30 people, a simulated week later) | 76.7% gave the same verdict; 93.3% rated interest within 2 points |
+| Sales pitch (2,997 of 2,999 answered both turns) | Before the rebuttal 1.1% yes, 64.0% maybe, 34.8% no; after it 1.1% yes, 44.6% maybe, 54.2% no. The trust rebuttal moved 44.9% of those who raised trust, the price rebuttal 8.9% |
+| Social rounds (4 Reddit rounds) | 3,565 actions: 1,375 comment likes, 1,259 chose to do nothing, 770 comments, 135 post likes, 18 dislikes, 7 posts |
+| Analyst panel | 5 of 5 iterate (3 played by Claude, 2 by Codex). Themes: no local payment (UPI), a USD price against free YouTube, trust needs proof, a card wall kills the trial, data cost on cheap phones |
+
+The feed test, five ads across 5,140 person-platform sessions:
+
+| Ad | Platform | Impressions | Thumb-stop | CTR | Expected CTR |
+|---|---|---:|---:|---:|---:|
+| `fb_parents` | Facebook | 858 | 17.9% | 2.2% | 1.02% |
+| `ig_commute` | Instagram | 749 | 21.5% | 2.3% | 1.02% |
+| `ig_price` | Instagram | 750 | 19.9% | 1.9% | 0.91% |
+| `tt_challenge` | TikTok | 2,141 | 18.3% | 0.8% | 1.42% |
+| `rd_honest` | Reddit | 642 | 15.3% | 0.5% | 0.41% |
+
+The pitch made things worse, not better: after hearing the rebuttals, about a fifth of the people moved from "maybe" to "no" (pitch score 23 of 100). The report's fix: rewrite the trust and price rebuttals to show the exact charge after day 7, the cancel steps and the local price instead of arguing, which matches the analysts' themes.
+
+**The models did not agree, and the answering model mattered most.** Split by the provider that wrote each person:
+
+| People written by | Played in rounds, survey and pitch by | Would start: yes / maybe / no | Top objection |
+|---|---|---|---|
+| Claude (1,000) | Claude Sonnet 5.5 | 1.3% / 75.6% / 23.1% | trust, then price |
+| Gemini (1,000) | Claude Sonnet 5.5 (stand-in) | 0.9% / 69.7% / 29.4% | trust, then price |
+| Codex (999) | Codex | 0.0% / 5.7% / 94.3% | trust, then "unclear" |
+
+Gemini's people, written by Gemini but played by Claude, answered like Claude's people, not like Codex's. So in this run the model that answers shapes the survey far more than the model that wrote the person, and Codex is much more negative than Claude. Read every rate above as a range between those two behaviours, not as one market's answer.
+
+**How the run went.** The population took 2 h 57 min to prepare (with one restart), and the feed test 62 min through the three login gateways. The social rounds then ran into usage limits: four times Gemini's or Claude's login hit its limit during the rounds, and each hit started the four rounds over, usually after waiting hours for the reset. Then Gemini's login ran out of quota for about four days (Flash and Argon alike). So the rest of the run moved to an Anthropic API key: Claude Sonnet 5.5 played the Claude-written people and, as a stand-in (`MM_PROVIDER_STANDIN=antigravity=claude`), the Gemini-written ones; Codex kept playing its own people through its login. From there it ran without a pause: four rounds in 40 minutes, the survey of 2,999 with its retest in 23 minutes, the pitch to 2,999 people in 37 minutes, then the panel and the report. The API spend for that part is on the Anthropic console; MarketMirror did not meter the tokens inside the rounds, survey and pitch.
+
+The population behind it:
 
 | | Claude | Codex | Gemini | All |
 |---|---:|---:|---:|---:|
@@ -246,9 +285,7 @@ What is final now is the simulated population:
 - Audiences: Students 642, Philippines young professionals 536, India young professionals 534, India parents 429, Philippines parents 429 and Kenya young professionals 429, each split evenly across the three providers. By country: India 1,284, the Philippines 1,125 and Kenya 590.
 - The stereotype guard changed 20 people and found no audience with too little variety.
 - With 7 actors from the knowledge graph and the 5 community accounts, the simulation has 3,011 agents, each with a profile.
-- After the restart, the lanes made 471 Claude, 832 Codex and 688 Gemini calls (1,991 in all); the other 1,043 answers came from the cache written before the restart, whose calls are not counted here. The Gemini lane recorded 8 overloads and ended at 9 calls in flight; Claude ended at 12 and Codex at 7, with none.
-
-The feed test has finished: all 5,140 person-platform sessions, 1,289 model calls (Gemini 442, Codex 440, Claude 407) and 19.9M input / 0.94M output tokens in 62 minutes, with no session lost. Its results, and those of the social rounds, survey and pitch, will be added here when the run finishes.
+- The feed test made 1,289 model calls (Gemini 442, Codex 440, Claude 407) with 19.9M input and 0.94M output tokens, and lost no session.
 
 ### Which offer should Fitloop launch with?
 
