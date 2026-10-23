@@ -37,6 +37,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..utils.logger import get_logger
+from ..utils.anthropic_native import CACHE_BREAK
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .zep_entity_reader import EntityNode
 
@@ -614,12 +615,9 @@ Simulation requirement:
 Context from the seed documents:
 {context[:3500]}
 
-Use exactly these fixed demographics; keep each person's number as "i":
-{people}
-
 Rules:
 - Invent a realistic full name for each person: given name and family name common for their country,
-  region, religion mix and generation; no two people share a name.{f" Do not reuse or resemble these names: {avoid}." if avoid else ""}
+  region, religion mix and generation; no two people share a name.
 - Never use a real, famous or public person's name or biography.
 - Let where they live shape the details: small-town and rural people have different jobs, incomes, prices, data
   plans, shops and distances than metro people; do not make everyone an office worker in a tower.
@@ -636,7 +634,8 @@ Return compact JSON on one line, no code fence: {{"personas": [{{"i": N, "name":
   "example_post": "...", "interested_topics": ["..."],
   "bio": "one-line social media bio",
   "persona": "a description of at least 150 and at most 250 words combining all of the above and how they relate to the topic"
-}}]}}"""
+}}]}}{CACHE_BREAK}Use exactly these fixed demographics; keep each person's number as "i":
+{people}{f"{chr(10)}Do not reuse or resemble these names: {avoid}." if avoid else ""}"""
 
 
 INTERVIEW_QUESTIONS = [
@@ -689,9 +688,6 @@ different from the others. Never use real or public people.
 Context of the simulation (what they will later react to):
 {context[:1500]}
 {_voices_block(voices, str((people[0] or {}).get("country") or "") if people else "")}
-People:
-{cards}
-
 Questions:
 {qs}
 
@@ -699,7 +695,8 @@ Return compact JSON on one line, no code fence: {{"interviews": [{{"i": <person 
   "a": ["answer to Q1", "answer to Q2", ... all {len(INTERVIEW_QUESTIONS)} answers in order],
   "phone": "phone model and age", "data_plan": "wifi at home / prepaid data / unlimited...",
   "summary": "at least 100 and about 120 words in the first person, in their own voice, summarising who they are,
-  their money situation, how they decide on purchases and what they distrust"}}]}}"""
+  their money situation, how they decide on purchases and what they distrust"}}]}}{CACHE_BREAK}People:
+{cards}"""
 
 
 # --- research-backed second pass: adaptive probes, product questions and the structured BDE card ---
@@ -795,11 +792,9 @@ person, never their group; copy their own words where you can.
 Context (what they will react to later):
 {context[:1200]}
 
-{chr(10).join(blocks)}
-
 Return compact JSON on one line, no code fence: {{"people": [{{"i": <person number>,
   "p": ["answer to P1", "answer to P2", ... in order],
-  "bde": {json.dumps(BDE_SHORT_SCHEMA, ensure_ascii=False)}}}]}}"""
+  "bde": {json.dumps(BDE_SHORT_SCHEMA, ensure_ascii=False)}}}]}}{CACHE_BREAK}{chr(10).join(blocks)}"""
 
 
 _SECTION_ALIASES = {

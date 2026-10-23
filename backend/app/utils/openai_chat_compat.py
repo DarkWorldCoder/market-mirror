@@ -134,6 +134,11 @@ def create_chat_completion(
         else:
             kwargs["max_tokens"] = max_tokens
 
+    # the cache marker reaches only clients that cache on it (Claude's native API); a provider pool strips it per
+    # slot; every other client gets the plain prompt
+    if not getattr(client, "supports_cache_break", False) and not hasattr(client, "slots") and not hasattr(client, "pool"):
+        from .anthropic_native import strip_cache_break
+        kwargs["messages"] = strip_cache_break(kwargs.get("messages") or [])
     return client.chat.completions.create(**kwargs)
 
 

@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ..utils.anthropic_native import CACHE_BREAK
 from ..utils.logger import get_logger
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .persona_planner import parse_json_block
@@ -605,19 +606,21 @@ def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: 
         facts = (f"Your habits (facts, not suggestions): you ignore most ads (ad avoidance {h['ad_avoidance']} on a 0-1 scale); "
                  f"you comment on posts {h['comments']}; you {h['clicks_ads']} click on ads; you share things {h['shares']}. "
                  "You do not know typical prices or what other products cost unless the post says so.\n")
+    # shared by everyone on this platform first (cached on Claude's native API), the person and their feed after
     return (
-        f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n{facts}\n"
-        + (f"{person['history']}\n" if person.get("history") else "")
-        + f"It is {hour}:00 and you are scrolling {pb['label']} on your phone.\nHow people behave here: {pb['playbook']}\n\n"
-        "Your feed, top to bottom:\n\n" + "\n\n".join(feed) + "\n\n"
-        "For EVERY item say what you actually do. Your options, most common first: scroll past, glance, stop and read, "
-        "react, comment, share, click. Most items should be a quick scroll past with no action.\n"
+        f"You are scrolling {pb['label']} on your phone.\nHow people behave here: {pb['playbook']}\n\n"
+        "For EVERY item in your feed say what you actually do. Your options, most common first: scroll past, glance, "
+        "stop and read, react, comment, share, click. Most items should be a quick scroll past with no action.\n"
         "For the Sponsored/Promoted item also give your honest probabilities (0-1) of each action if you saw it on a "
         "normal day: p_click, p_react, p_comment, p_share, p_hide.\n"
         "Return JSON: {\"items\": [{\"id\": \"i1\", \"stopped\": false, \"dwell_seconds\": 0.5, \"watched_pct\": 0, "
         f"\"reaction\": \"{reactions}\", \"comment\": \"what you type, or empty\", \"share\": \"none|share|send\", "
         "\"save\": false, \"click\": false, \"hide\": false, \"thought\": \"your honest inner reaction in under 15 words\", "
         "\"p_click\": 0.0, \"p_react\": 0.0, \"p_comment\": 0.0, \"p_share\": 0.0, \"p_hide\": 0.0}]}"
+        + CACHE_BREAK
+        + f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n{facts}\n"
+        + (f"{person['history']}\n" if person.get("history") else "")
+        + f"It is {hour}:00.\n\nYour feed, top to bottom:\n\n" + "\n\n".join(feed)
     )
 
 

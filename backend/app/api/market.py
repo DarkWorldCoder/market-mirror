@@ -120,14 +120,14 @@ def holdout_backtest():
 
 
 def _client():
-    from openai import OpenAI
-    if Config.LLM_POOL:
-        pool = Config.get_model_pool()
-        if pool.slots:
-            return pool
-    if not Config.LLM_API_KEY:
+    """The configured model client: always the provider pool (one slot for a single provider), so Claude with an
+    API key goes through the native Messages API with prompt caching."""
+    if not Config.LLM_POOL and not Config.LLM_API_KEY:
         raise ValueError("LLM_API_KEY is not configured")
-    return OpenAI(api_key=Config.LLM_API_KEY, base_url=Config.LLM_BASE_URL)
+    pool = Config.get_model_pool()
+    if not pool.slots:
+        raise ValueError("no model provider is configured")
+    return pool
 
 
 def _client_for(people):

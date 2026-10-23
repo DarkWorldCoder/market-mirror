@@ -555,6 +555,9 @@ class MultiProviderPool:
                                          is_claude_target, is_gemini_target, is_gpt5_family, json_mode_by_prompt)
 
         adapted = dict(kwargs)
+        if not getattr(slot.client, "supports_cache_break", False):
+            from .anthropic_native import strip_cache_break
+            adapted["messages"] = strip_cache_break(adapted.get("messages") or [])
         req_model = str(adapted.get("model") or "").strip()
         # Use the slot's model when failing over, when no model was specified, or when the requested model
         # belongs to a different provider family than the slot.
@@ -724,8 +727,13 @@ class MultiProviderPool:
             def client_factory(api_key, base_url, **kw):
                 return OpenAI(api_key=api_key, base_url=base_url, **kw)
         factory = client_factory
+        default_factory = client_factory is None or getattr(client_factory, "__name__", "") == "client_factory"
 
         def build(key: str, base_url: str) -> Any:
+            # Claude with an API key: the native Messages API, so prompt caching works (anthropic_native.py)
+            from .anthropic_native import AnthropicChatClient, is_anthropic_api, native_claude_available
+            if default_factory and is_anthropic_api(base_url) and key and native_claude_available():
+                return AnthropicChatClient(api_key=key, base_url=base_url, max_retries=retries.get("max_retries"))
             if retries:
                 try:
                     return factory(api_key=key, base_url=base_url, **retries)
