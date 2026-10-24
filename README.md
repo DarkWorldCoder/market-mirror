@@ -17,7 +17,11 @@
 
 <sub>▶ <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch.mp4">Watch the 60-second launch film</a> (with captions) · <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch-vertical.mp4">vertical 9:16 cut</a> · made with HyperFrames from <a href="launch-video/">launch-video/</a></sub>
 
-[Meet the buyers](#meet-the-simulated-buyers) · [What you can test](#what-you-can-test) · [Screenshots](#the-dashboard) · [How it works](#the-process-at-a-glance) · [Example results](#real-results) · [Get started](#quick-start) · [Documentation](#documentation)
+**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
+
+If MarketMirror saves you one bad launch, a ⭐ helps other people find it.
+
+[Meet the buyers](#meet-the-simulated-buyers) · [What you can test](#what-you-can-test) · [Screenshots](#the-dashboard) · [How it works](#the-process-at-a-glance) · [Example results](#example-results-simulated-market-studies) · [Get started](#quick-start) · [Documentation](#documentation)
 
 </div>
 
@@ -761,6 +765,10 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 | Build an integration | [REST API](docs/API.md) · [OpenAPI schema](docs/openapi.json) · [Python SDK](sdk/README.md) |
 | Understand the research and proposed improvements | [Human-behavior research](docs/HUMAN_BEHAVIOR_RESEARCH.md) |
 | Contribute or report a problem | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) |
+
+## Support the project
+
+If MarketMirror was useful, ⭐ star the repo so other people find it, and [tell us what you tested](https://github.com/DarkWorldCoder/market-mirror/issues). Every issue gets an answer.
 
 ## Credits and license
 
