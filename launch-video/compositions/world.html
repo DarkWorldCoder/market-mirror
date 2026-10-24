@@ -1,0 +1,54 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #0d0d0c; color: #f2f2ee; font-family: "Outfit", sans-serif; }
+    #wld-title { position: absolute; left: 150px; top: 110px; font-size: 84px; font-weight: 800; letter-spacing: -2.5px; line-height: 1.05; width: 560px; }
+    #wld-title span { display: inline-block; margin-right: 16px; opacity: 0; }
+    #wld-title .acc { color: #f3d64b; }
+    .wld-label { opacity: 0; position: absolute; left: 150px; top: 620px; width: 520px; font-size: 58px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.08; color: #f2f2ee; }
+    .wld-label small { display: block; font-size: 30px; font-weight: 500; color: #85847c; letter-spacing: 0; margin-top: 14px; }
+    .wld-ui { opacity: 0; position: absolute; border-radius: 28px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.45); background-color: #fff; background-repeat: no-repeat; }
+    #wld-ad { left: 860px; top: 150px; width: 675px; height: 830px; background-image: url(assets/ui/ad.png); background-size: 675px auto; background-position: 0 0; }
+    #wld-post { left: 760px; top: 330px; width: 1043px; height: 374px; background-image: url(assets/ui/post.png); background-size: 100% 100%; }
+    #wld-survey { left: 720px; top: 255px; width: 1152px; height: 569px; background-image: url(assets/ui/survey.png); background-size: 100% 100%; background-color: #eeeeea; }
+    #wld-pitch { left: 740px; top: 388px; width: 1104px; height: 304px; background-image: url(assets/ui/pitch.png); background-size: 100% 100%; background-color: #eeeeea; }
+  </style>
+  <div data-hf-id="hf-1dtx" id="root" data-composition-id="world" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-2qbh" id="wld-title"><span data-hf-id="hf-ixae">Your</span><span data-hf-id="hf-zexc">work,</span><span data-hf-id="hf-ftaa">in</span><span data-hf-id="hf-g3ss">front</span><span data-hf-id="hf-ah8k">of</span><span data-hf-id="hf-ictw" class="acc">them.</span></div>
+    <div data-hf-id="hf-ny3f" class="wld-ui" id="wld-ad"></div>
+    <div data-hf-id="hf-lwgi" class="wld-ui" id="wld-post"></div>
+    <div data-hf-id="hf-ne32" class="wld-ui" id="wld-survey"></div>
+    <div data-hf-id="hf-twni" class="wld-ui" id="wld-pitch"></div>
+    <div data-hf-id="hf-2qk1" class="wld-label" id="wld-l1">Ads in real&#8209;looking feeds<small data-hf-id="hf-w3i0">Facebook, Instagram, TikTok, Reddit, LinkedIn, X</small></div>
+    <div data-hf-id="hf-i0vm" class="wld-label" id="wld-l2">Posts in social threads</div>
+    <div data-hf-id="hf-3y0o" class="wld-label" id="wld-l3">A survey</div>
+    <div data-hf-id="hf-9xl1" class="wld-label" id="wld-l4">A sales pitch</div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      const words = gsap.utils.toArray("#wld-title span");
+      tl.set(words, { filter: "blur(6px)" }, 0);
+      [0.19, 0.33, 0.6, 0.72, 0.93, 1.1].forEach((t, i) => tl.to(words[i], { opacity: 1, filter: "blur(0px)", duration: 0.13 }, t));
+      const ui = ["#wld-ad", "#wld-post", "#wld-survey", "#wld-pitch"];
+      const lb = ["#wld-l1", "#wld-l2", "#wld-l3", "#wld-l4"];
+      const at = [2.44, 4.26, 5.78, 6.58];
+      tl.set(ui, { opacity: 0, x: 320, filter: "blur(12px)" }, 0);
+      tl.set(lb, { opacity: 0, filter: "blur(8px)" }, 0);
+      at.forEach((t, i) => {
+        // whip in: lands blurred and sharpens
+        tl.to(ui[i], { opacity: 1, x: 0, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, t);
+        tl.to(lb[i], { opacity: 1, filter: "blur(0px)", duration: 0.16, ease: "power2.out" }, t + 0.05);
+        if (i > 0) {
+          // the previous piece whips out to the left as this one arrives
+          tl.to(ui[i - 1], { opacity: 0, x: -320, filter: "blur(12px)", duration: 0.24, ease: "power3.in" }, t - 0.16);
+          tl.to(lb[i - 1], { opacity: 0, filter: "blur(8px)", duration: 0.14, ease: "power3.in" }, t - 0.12);
+        }
+      });
+      // the ad is tall: the camera pans down it to the comments while it holds
+      tl.to("#wld-ad", { backgroundPosition: "0px -460px", duration: 1.2, ease: "power2.inOut" }, 2.95);
+      // hand-off: blur swap on the same dark ground
+      tl.to(["#wld-title", "#wld-pitch", "#wld-l4"], { opacity: 0, filter: "blur(8px)", duration: 0.2, ease: "power3.in" }, 7.22);
+      window.__timelines["world"] = tl;
+    })();
+  </script>
+</template>

@@ -13,6 +13,10 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Agent tools](https://img.shields.io/badge/Agent_tools-MCP-635bff.svg)](plugin/README.md)
 
+<a href="https://github.com/DarkWorldCoder/market-mirror/raw/main/docs/video/marketmirror-launch.mp4"><img src="docs/images/launch-video-poster.png" alt="Play the 60-second MarketMirror launch film" width="80%" /></a>
+
+<sub>▶ <a href="https://github.com/DarkWorldCoder/market-mirror/raw/main/docs/video/marketmirror-launch.mp4">Watch the 60-second launch film</a> (with captions) · <a href="https://github.com/DarkWorldCoder/market-mirror/raw/main/docs/video/marketmirror-launch-vertical.mp4">vertical 9:16 cut</a> · made with HyperFrames from <a href="launch-video/">launch-video/</a></sub>
+
 [Meet the buyers](#meet-the-simulated-buyers) · [What you can test](#what-you-can-test) · [Screenshots](#the-dashboard) · [How it works](#the-process-at-a-glance) · [Example results](#real-results) · [Get started](#quick-start) · [Documentation](#documentation)
 
 </div>

@@ -1,0 +1,4 @@
+# rendered files live in docs/video/; renders and preview caches are rebuilt by `npm run render`
+renders/
+.hyperframes/
+node_modules/

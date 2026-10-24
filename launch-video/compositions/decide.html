@@ -1,0 +1,45 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #0d0d0c; color: #f2f2ee; font-family: "Outfit", sans-serif; }
+    #dec-title { position: absolute; left: 150px; top: 110px; font-size: 84px; font-weight: 800; letter-spacing: -2.5px; line-height: 1.05; width: 700px; }
+    #dec-title span { display: inline-block; margin-right: 16px; opacity: 0; }
+    #dec-title .acc { color: #f3d64b; }
+    #dec-verdicts { position: absolute; left: 150px; top: 470px; }
+    #dec-verdicts > div { opacity: 0; font-size: 104px; font-weight: 800; letter-spacing: -3px; line-height: 1.12; color: #6b6a63; }
+    #dec-it { isolation: isolate; position: relative; display: inline-block; color: #2b2005 !important; }
+    #dec-itbg { position: absolute; left: -18px; right: -18px; top: 8px; bottom: 4px; background: #f3d64b; border-radius: 16px; z-index: -1; clip-path: inset(0 100% 0 0); }
+    #dec-card { position: absolute; left: 960px; top: 170px; width: 862px; height: 775px; transform-origin: 0 0; }
+    #dec-img { opacity: 0; position: absolute; inset: 0; border-radius: 28px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+      background: #121211 url(assets/ui/decision.png) 0 0 / 100% 100% no-repeat; border: 2px solid #2a2a27; }
+  </style>
+  <div data-hf-id="hf-5wf7" id="root" data-composition-id="decide" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-sotu" id="dec-title"><span data-hf-id="hf-vp7f">What</span><span data-hf-id="hf-j90o">happened,</span><span data-hf-id="hf-ftaa">in</span><span data-hf-id="hf-8ybo" class="acc">plain</span><span data-hf-id="hf-6dek" class="acc">language.</span></div>
+    <div data-hf-id="hf-wr7m" id="dec-verdicts"><div data-hf-id="hf-hfw0" id="dec-go">GO</div><div data-hf-id="hf-6drj" id="dec-it"><i data-hf-id="hf-cdsm" id="dec-itbg"></i>ITERATE</div><div data-hf-id="hf-4iaj" id="dec-no">NO-GO</div></div>
+    <div data-hf-id="hf-cfbe" id="dec-card"><div data-hf-id="hf-5531" id="dec-img"></div></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      const words = gsap.utils.toArray("#dec-title span");
+      tl.set(words, { filter: "blur(6px)" }, 0);
+      [0.17, 0.5, 1.62, 1.78, 2.02].forEach((t, i) => tl.to(words[i], { opacity: 1, filter: "blur(0px)", duration: 0.13 }, t));
+      // the real decision card rises in
+      tl.set("#dec-img", { opacity: 0, y: 90 }, 0).to("#dec-img", { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 0.95);
+      // the three verdicts land on the voice; ITERATE fills yellow
+      tl.set(["#dec-go", "#dec-it", "#dec-no"], { opacity: 0, filter: "blur(8px)" }, 0);
+      tl.to("#dec-go", { opacity: 1, filter: "blur(0px)", duration: 0.15 }, 2.99)
+        .to("#dec-it", { opacity: 1, filter: "blur(0px)", duration: 0.15 }, 3.62)
+        .to("#dec-no", { opacity: 1, filter: "blur(0px)", duration: 0.15 }, 4.21);
+      tl.to("#dec-itbg", { clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "expo.out" }, 3.72);
+      // the title has been read: it clears as the camera punches in
+      tl.to("#dec-title", { opacity: 0, filter: "blur(8px)", duration: 0.2, ease: "power3.in" }, 3.5);
+      // camera: punch into the card's own ITERATE, then pan down to FIX FIRST
+      tl.set("#dec-card", { x: 0, y: 0, scale: 1 }, 0)
+        .to("#dec-card", { x: -240, y: -25, scale: 1.3, duration: 0.55, ease: "power2.inOut" }, 3.65)
+        .to("#dec-card", { x: -240, y: -455, scale: 1.3, duration: 0.6, ease: "power2.inOut" }, 5.05);
+      // hand-off: blur swap on the same ground
+      tl.to(["#dec-verdicts", "#dec-card"], { opacity: 0, filter: "blur(8px)", duration: 0.2, ease: "power3.in" }, 6.8);
+      window.__timelines["decide"] = tl;
+    })();
+  </script>
+</template>

@@ -1,0 +1,51 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: var(--color-cream, #f4f1ea); color: #121211; font-family: "Outfit", sans-serif; }
+    #hook-head { position: absolute; left: 150px; top: 250px; font-size: 124px; font-weight: 800; letter-spacing: -3px; line-height: 1; white-space: nowrap; }
+    #hook-head span { display: inline-block; margin-right: 28px; position: relative; color: #cfcabe; }
+    #hook-bet { isolation: isolate; }
+    #hook-mark { position: absolute; left: -10px; right: -12px; bottom: 6px; height: 46px; background: #f3d64b; z-index: -1; clip-path: inset(0 100% 0 0); }
+    #hook-slot { opacity: 0; position: absolute; left: 150px; top: 470px; height: 120px; width: 1100px; overflow: hidden; }
+    #hook-roll { position: absolute; left: 0; top: 0; }
+    #hook-roll div { height: 120px; line-height: 120px; font-size: 92px; font-weight: 700; letter-spacing: -2px; color: #121211; white-space: nowrap; }
+    #hook-ad { opacity: 0; position: absolute; left: 1380px; top: 120px; width: 440px; height: 842px; border-radius: 28px; overflow: hidden;
+      box-shadow: 0 30px 80px rgba(18,18,17,.18); background: #fff url(assets/ui/ad.png) center / 100% 100% no-repeat; }
+    #hook-price { opacity: 0; position: absolute; left: 1290px; top: 470px; padding: 18px 30px; border-radius: 20px; background: #121211; color: #f4f1ea;
+      font-size: 46px; font-weight: 800; letter-spacing: -1px; }
+    #hook-price small { display: block; font-size: 28px; font-weight: 500; color: #b9b8ae; letter-spacing: 0; }
+    #hook-doubt { opacity: 0; position: absolute; left: 1230px; top: 760px; max-width: 560px; padding: 22px 30px; border-radius: 26px 26px 26px 6px;
+      background: #e66767; color: #fff; font-size: 34px; font-weight: 700; line-height: 1.2; }
+    #hook-doubt small { display: block; font-size: 28px; font-weight: 500; opacity: .85; margin-top: 6px; }
+  </style>
+  <div data-hf-id="hf-ktv8" id="root" data-composition-id="hook" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-vd0e" id="hook-ad"></div>
+    <div data-hf-id="hf-etg8" id="hook-price">$4.99<small data-hf-id="hf-tz0w">a month after the trial</small></div>
+    <div data-hf-id="hf-58ec" id="hook-doubt">Looks like a scam?<small data-hf-id="hf-719f">the top objection, 60% of buyers</small></div>
+    <h1 data-hf-id="hf-cjt9" id="hook-head"><span data-hf-id="hf-uhsw">Every</span><span data-hf-id="hf-8n8q">launch</span><span data-hf-id="hf-k6nl">is</span><span data-hf-id="hf-zhz4">a</span><span data-hf-id="hf-4i3a" id="hook-bet">bet.<i data-hf-id="hf-rxrm" id="hook-mark"></i></span></h1>
+    <div data-hf-id="hf-em2m" id="hook-slot" data-layout-allow-overflow><div data-hf-id="hf-9exc" id="hook-roll"><div data-hf-id="hf-tm0j">Which ad?</div><div data-hf-id="hf-jwi0">What price?</div><div data-hf-id="hf-l1bq">Will anyone trust it?</div></div></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      const words = gsap.utils.toArray("#hook-head span");
+      // per word from pale to ink on the voice, no movement: frame 0 already shows the line
+      [0.6, 0.95, 1.25, 1.45, 1.6].forEach((t, i) => tl.to(words[i], { color: "#121211", duration: 0.1, ease: "none" }, t));
+      tl.to("#hook-mark", { clipPath: "inset(0 0% 0 0)", duration: 0.45, ease: "expo.out" }, 1.75);
+      // the real ad rises in on the right while the first question lands
+      tl.set("#hook-ad", { y: 140, opacity: 0 }, 0).to("#hook-ad", { y: 0, opacity: 1, duration: 0.7, ease: "expo.out" }, 2.55);
+      // the question line rolls like a slot machine, one roll per question, on the voice
+      tl.set("#hook-slot", { opacity: 0, filter: "blur(8px)" }, 0).to("#hook-slot", { opacity: 1, filter: "blur(0px)", duration: 0.18, ease: "power4.out" }, 2.74);
+      tl.set("#hook-roll", { y: 0 }, 0)
+        .to("#hook-roll", { y: -120, duration: 0.28, ease: "power3.inOut" }, 3.5)
+        .to("#hook-roll", { y: -240, duration: 0.28, ease: "power3.inOut" }, 4.46);
+      tl.set("#hook-price", { scale: 0.6, opacity: 0, rotation: -8 }, 0)
+        .to("#hook-price", { scale: 1, opacity: 1, rotation: -4, duration: 0.5, ease: "back.out(1.4)" }, 3.66);
+      tl.set("#hook-doubt", { scale: 0.7, opacity: 0, y: 30 }, 0)
+        .to("#hook-doubt", { scale: 1, opacity: 1, y: 0, duration: 0.5, ease: "back.out(1.4)" }, 4.55);
+      // hand-off: everything clears quickly before the ground floods dark in the next scene
+      tl.to(["#hook-head", "#hook-slot"], { opacity: 0, filter: "blur(8px)", duration: 0.2, ease: "power3.in" }, 5.72);
+      tl.to(["#hook-ad", "#hook-price", "#hook-doubt"], { y: -60, opacity: 0, duration: 0.25, ease: "power3.in" }, 5.68);
+      window.__timelines["hook"] = tl;
+    })();
+  </script>
+</template>

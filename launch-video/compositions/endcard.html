@@ -1,0 +1,43 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #f4f1ea; color: #121211; font-family: "Outfit", sans-serif; }
+    #end-lock { position: absolute; left: 640px; top: 300px; width: 640px; height: 101px; }
+    #end-mark { opacity: 0; clip-path: inset(0% 84% 0% 0%); }
+    #end-word { clip-path: inset(0% 84% 0% 0%); }
+    #end-mark, #end-word { position: absolute; inset: 0; background: url(assets/brand/marketmirror-logo-light.png) left center / 100% 100% no-repeat; }
+    #end-line { position: absolute; left: 0; right: 0; top: 500px; text-align: center; font-size: 66px; font-weight: 800; letter-spacing: -2px; }
+    #end-line span { display: inline-block; margin: 0 9px; position: relative; opacity: 0; }
+    #end-b { isolation: isolate; }
+    #end-hl { position: absolute; left: -8px; right: -8px; bottom: 6px; height: 26px; background: #f3d64b; z-index: -1; clip-path: inset(0 100% 0 0); }
+    #end-cta { position: absolute; left: 0; right: 0; top: 680px; display: flex; justify-content: center; gap: 22px; align-items: center; }
+    #end-repo, #end-os, #end-note { opacity: 0; }
+    #end-note { position: absolute; left: 0; right: 0; top: 860px; text-align: center; font-size: 30px; color: #6b6a63; }
+    #end-repo { padding: 22px 38px; border-radius: 18px; background: #121211; color: #f4f1ea; font-family: "JetBrains Mono", monospace; font-size: 34px; }
+    #end-os { font-size: 36px; font-weight: 700; }
+    #end-os span { color: #6b6a63; font-weight: 500; }
+  </style>
+  <div data-hf-id="hf-32ii" id="root" data-composition-id="endcard" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-sd2c" id="end-lock"><div data-hf-id="hf-yghh" id="end-word"></div><div data-hf-id="hf-d956" id="end-mark"></div></div>
+    <div data-hf-id="hf-kbl7" id="end-line"><span data-hf-id="hf-rg1k">Rehearse</span><span data-hf-id="hf-ziue">your</span><span data-hf-id="hf-8n8q">launch</span><span data-hf-id="hf-wcck" id="end-b">before you spend on it.<i data-hf-id="hf-xzoh" id="end-hl"></i></span></div>
+    <div data-hf-id="hf-vhmj" id="end-note">Simulated buyers give directions, not measurements: confirm with real customers before you scale.</div>
+    <div data-hf-id="hf-cng5" id="end-cta"><div data-hf-id="hf-nd0g" id="end-repo">github.com/DarkWorldCoder/market-mirror</div><div data-hf-id="hf-x14s" id="end-os">Open source <span data-hf-id="hf-04t1">· built for AI agents</span></div></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // the mark springs in on "MarketMirror", then the wordmark wipes out beside it
+      tl.set("#end-mark", { clipPath: "inset(0% 84% 0% 0%)", scale: 0.4, opacity: 0, transformOrigin: "8% 50%" }, 0)
+        .to("#end-mark", { scale: 1, opacity: 1, duration: 0.55, ease: "back.out(1.4)" }, 0.17);
+      tl.set("#end-word", { clipPath: "inset(0% 84% 0% 0%)" }, 0)
+        .to("#end-word", { clipPath: "inset(0% 0% 0% 0%)", duration: 0.6, ease: "expo.out" }, 0.62);
+      const words = gsap.utils.toArray("#end-line span");
+      tl.set(words, { opacity: 0, filter: "blur(6px)" }, 0);
+      [1.27, 1.6, 1.86, 2.47].forEach((t, i) => tl.to(words[i], { opacity: 1, filter: "blur(0px)", duration: 0.13 }, t));
+      tl.to("#end-hl", { clipPath: "inset(0 0% 0 0)", duration: 0.5, ease: "expo.out" }, 2.75);
+      tl.set(["#end-repo", "#end-os"], { opacity: 0, y: 30 }, 0)
+        .to(["#end-repo", "#end-os"], { opacity: 1, y: 0, duration: 0.6, ease: "expo.out", stagger: 0.1 }, 3.15);
+      tl.to("#end-note", { opacity: 1, duration: 0.3 }, 3.6);
+      window.__timelines["endcard"] = tl;
+    })();
+  </script>
+</template>

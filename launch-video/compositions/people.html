@@ -1,0 +1,85 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #f4f1ea; color: #121211; font-family: "Outfit", sans-serif; }
+    #ppl-dark { position: absolute; inset: 0; background: #0d0d0c; clip-path: inset(100% 0 0 0); }
+    #ppl-dots { position: absolute; inset: 0; }
+    #ppl-hero { position: absolute; inset: 0; pointer-events: none; }
+    #ppl-heroimg { position: absolute; inset: 0; background: #f4f1ea url(assets/brand/hero.png) right 72% / auto 1500px no-repeat; }
+    #ppl-head { position: absolute; left: 150px; top: 130px; }
+    #ppl-count, #ppl-sub1, #ppl-sub2 { opacity: 0; }
+    #ppl-count { font-size: 210px; font-weight: 800; letter-spacing: -7px; line-height: .95; font-variant-numeric: tabular-nums; }
+    #ppl-sub1 { font-size: 64px; font-weight: 700; letter-spacing: -1.5px; margin-top: 10px; }
+    #ppl-sub2 { font-size: 64px; font-weight: 700; letter-spacing: -1.5px; color: #85847c; }
+    #ppl-card { opacity: 0; position: absolute; left: 470px; top: 170px; width: 1000px; padding: 56px 64px 60px; border-radius: 34px; background: #fff;
+      box-shadow: 0 30px 80px rgba(18,18,17,.18); }
+    #ppl-who { display: flex; align-items: center; gap: 28px; margin-bottom: 40px; }
+    #ppl-av { width: 104px; height: 104px; border-radius: 50%; background: #f3d64b; display: flex; align-items: center; justify-content: center; font-size: 52px; font-weight: 800; }
+    #ppl-name { font-size: 54px; font-weight: 800; letter-spacing: -1px; }
+    #ppl-role { font-size: 32px; color: #6b6a63; font-weight: 500; }
+    .ppl-row { opacity: 0; display: grid; grid-template-columns: 330px 1fr; font-size: 36px; padding: 16px 0; border-top: 2px solid #ece8de; }
+    .ppl-row b { color: #85847c; font-weight: 600; }
+    #ppl-r4 span { color: #c43c3c; font-weight: 700; }
+    #ppl-src { opacity: 0; position: absolute; left: 470px; top: 930px; font-size: 28px; color: #85847c; }
+  </style>
+  <div data-hf-id="hf-cryo" id="root" data-composition-id="people" data-width="1920" data-height="1080">
+    <canvas data-hf-id="hf-3ou5" id="ppl-dots" width="1920" height="1080"></canvas>
+    <div data-hf-id="hf-387m" id="ppl-head"><div data-hf-id="hf-c22r" id="ppl-count">0</div><div data-hf-id="hf-6jl3" id="ppl-sub1">people for your product,</div><div data-hf-id="hf-1hze" id="ppl-sub2">and every one is interviewed.</div></div>
+    <div data-hf-id="hf-a1v2" id="ppl-card">
+      <div data-hf-id="hf-bv44" id="ppl-who"><div data-hf-id="hf-3mzs" id="ppl-av">Y</div><div data-hf-id="hf-yeow"><div data-hf-id="hf-wzqm" id="ppl-name">Yash Malhotra, 42</div><div data-hf-id="hf-8in9" id="ppl-role">Owner-driver of an app cab · Pune, India</div></div></div>
+      <div data-hf-id="hf-j243" class="ppl-row" id="ppl-r1"><b data-hf-id="hf-xftw">Spare money</b><span data-hf-id="hf-gnp8">₹2,000–4,000 a month</span></div>
+      <div data-hf-id="hf-ae88" class="ppl-row" id="ppl-r2"><b data-hf-id="hf-quun">Phone</b><span data-hf-id="hf-lyzh">Realme 9 Pro · Jio prepaid, 2 GB a day</span></div>
+      <div data-hf-id="hf-b5w1" class="ppl-row" id="ppl-r3"><b data-hf-id="hf-j0y2">Asks before buying</b><span data-hf-id="hf-9iad">His wife Pooja and his mother</span></div>
+      <div data-hf-id="hf-0aee" class="ppl-row" id="ppl-r4"><b data-hf-id="hf-zri4">Walks away if</b><span data-hf-id="hf-0vkz">a card is needed upfront</span></div>
+    </div>
+    <div data-hf-id="hf-64pi" id="ppl-src">One of the 3,000 simulated buyers, from his 12-question interview.</div>
+    <div data-hf-id="hf-yksc" id="ppl-hero"><div data-hf-id="hf-e2ch" id="ppl-heroimg"></div></div>
+    <div data-hf-id="hf-png8" id="ppl-dark"></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // seeded dots: 3,000 people drawn as 900 marks (one in ten lit yellow), placed right of the headline
+      let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+      const dots = [];
+      for (let i = 0; i < 900; i++) dots.push({ x: 980 + rnd() * 860, y: 90 + rnd() * 900, r: 7 + rnd() * 8, d: rnd(), c: rnd() });
+      const cv = document.getElementById("ppl-dots"), g = cv.getContext("2d");
+      const st = { p: 0, dim: 1 };
+      const draw = () => {
+        g.clearRect(0, 0, 1920, 1080);
+        for (const d of dots) {
+          if (d.d > st.p) continue;
+          const k = Math.min(1, (st.p - d.d) * 8);
+          g.globalAlpha = k * st.dim;
+          g.fillStyle = d.c > 0.9 ? "#f3d64b" : d.c < 0.45 ? "#121211" : "#b9b8ae";
+          g.beginPath(); g.arc(d.x, d.y, d.r * (0.5 + 0.5 * k), 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+      };
+      tl.set(st, { p: 0, dim: 1, onUpdate: draw }, 0);
+      tl.to(st, { p: 1, duration: 2.7, ease: "power2.out", onUpdate: draw }, 0.25);
+      tl.to(st, { dim: 0.18, duration: 0.5, ease: "power2.inOut", onUpdate: draw }, 3.3);
+      // the clay studio dissolves into the dots
+      tl.fromTo("#ppl-heroimg", { opacity: 1, filter: "blur(0px)" }, { opacity: 0, filter: "blur(14px)", duration: 0.5, ease: "power2.in" }, 0.08);
+      // the count climbs on "thousands of people"
+      const n = { v: 0 };
+      tl.to(n, { v: 3000, duration: 2.4, ease: "power3.out", onUpdate: () => {
+        document.getElementById("ppl-count").textContent = Math.round(n.v).toLocaleString("en-US");
+      } }, 0.25);
+      tl.set(["#ppl-count", "#ppl-sub1", "#ppl-sub2"], { opacity: 0, filter: "blur(8px)" }, 0)
+        .to("#ppl-count", { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 0.22)
+        .to("#ppl-sub1", { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 0.9)
+        .to("#ppl-sub2", { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 1.85);
+      tl.to("#ppl-head", { opacity: 0, x: -60, duration: 0.25, ease: "power3.in" }, 3.4);
+      // one of them steps forward
+      tl.set("#ppl-card", { opacity: 0, y: 90, scale: 0.92 }, 0)
+        .to("#ppl-card", { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.4)" }, 3.55);
+      tl.set(["#ppl-r1", "#ppl-r2", "#ppl-r3", "#ppl-r4", "#ppl-src"], { opacity: 0, x: -24 }, 0);
+      [["#ppl-r1", 4.2], ["#ppl-r2", 5.02], ["#ppl-r3", 5.96], ["#ppl-r4", 7.35], ["#ppl-src", 4.6]].forEach(([id, t]) =>
+        tl.to(id, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out" }, t));
+      // hand-off: the card leaves and the dark ground floods up
+      tl.to(["#ppl-card", "#ppl-src"], { scale: 0.6, opacity: 0, y: -40, filter: "blur(6px)", duration: 0.4, ease: "power3.in" }, 8.72);
+      tl.to("#ppl-dark", { clipPath: "inset(0% 0 0 0)", duration: 0.42, ease: "power2.inOut" }, 8.82);
+      window.__timelines["people"] = tl;
+    })();
+  </script>
+</template>

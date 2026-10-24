@@ -1,0 +1,64 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #0d0d0c; color: #f2f2ee; font-family: "Outfit", sans-serif; }
+    #prf-pre { opacity: 0; position: absolute; left: 150px; top: 120px; font-size: 40px; font-weight: 500; color: #85847c; }
+    #prf-count { opacity: 0; position: absolute; left: 140px; top: 165px; font-size: 230px; font-weight: 800; letter-spacing: -8px; line-height: 1; font-variant-numeric: tabular-nums; }
+    #prf-what { position: absolute; left: 150px; top: 410px; font-size: 64px; font-weight: 700; letter-spacing: -1.5px; }
+    #prf-what span { display: inline-block; margin-right: 14px; opacity: 0; }
+    #prf-models { opacity: 0; position: absolute; left: 150px; top: 560px; width: 1620px; height: 300px; border-radius: 28px; overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0,0,0,.5); background: #fff url(assets/ui/models.png) 0 -300px / 1620px auto no-repeat; }
+    #prf-flood { position: absolute; inset: 0; background: #f3d64b; clip-path: inset(0 100% 0 0); }
+    #prf-pay { position: absolute; left: 150px; top: 150px; color: #2b2005; }
+    #prf-pay > div, #prf-note { opacity: 0; }
+    #prf-verdict-lbl { font-size: 44px; font-weight: 600; }
+    #prf-verdict { font-size: 270px; font-weight: 900; letter-spacing: -10px; line-height: .95; margin-top: 4px; transform-origin: left center; }
+    #prf-block { margin-top: 56px; font-size: 76px; font-weight: 800; letter-spacing: -2px; }
+    #prf-bar { margin-top: 26px; width: 1200px; height: 34px; border-radius: 18px; background: rgba(43,32,5,.16); overflow: hidden; }
+    #prf-fill { width: 60%; height: 100%; border-radius: 18px; background: #c43c3c; clip-path: inset(0 100% 0 0); }
+    #prf-blk-sub { margin-top: 16px; font-size: 34px; font-weight: 500; }
+    #prf-note { position: absolute; left: 150px; top: 975px; font-size: 28px; font-weight: 500; color: #5b4a12; }
+  </style>
+  <div data-hf-id="hf-s4mz" id="root" data-composition-id="proof" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-62ox" id="prf-pre">A fitness app, tested on</div>
+    <div data-hf-id="hf-unyr" id="prf-count">0</div>
+    <div data-hf-id="hf-aixe" id="prf-what"><span data-hf-id="hf-ng85">simulated</span><span data-hf-id="hf-evxf">buyers,</span><span data-hf-id="hf-gm7g">written</span><span data-hf-id="hf-66m8">by</span><span data-hf-id="hf-10ct">Claude,</span><span data-hf-id="hf-1vio">Codex</span><span data-hf-id="hf-kyh6">and</span><span data-hf-id="hf-81cc">Gemini.</span></div>
+    <div data-hf-id="hf-d396" id="prf-models"></div>
+    <div data-hf-id="hf-arxk" id="prf-flood"></div>
+    <div data-hf-id="hf-4ium" id="prf-pay">
+      <div data-hf-id="hf-c1oo" id="prf-verdict-lbl">The verdict</div>
+      <div data-hf-id="hf-8d5f" id="prf-verdict">ITERATE.</div>
+      <div data-hf-id="hf-3q2z" id="prf-block">Trust was the blocker <span data-hf-id="hf-22iz" style="font-weight:600;opacity:.75">· raised by 60%</span></div>
+      <div data-hf-id="hf-yn83" id="prf-bar"><div data-hf-id="hf-s8kv" id="prf-fill"></div></div>
+      
+    </div>
+    
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      tl.set(["#prf-pre", "#prf-count"], { opacity: 0, filter: "blur(8px)" }, 0)
+        .to(["#prf-pre", "#prf-count"], { opacity: 1, filter: "blur(0px)", duration: 0.18, stagger: 0.08 }, 0.17);
+      const n = { v: 0 };
+      tl.to(n, { v: 3000, duration: 2.2, ease: "power3.out", onUpdate: () => {
+        document.getElementById("prf-count").textContent = Math.round(n.v).toLocaleString("en-US");
+      } }, 0.3);
+      const words = gsap.utils.toArray("#prf-what span");
+      tl.set(words, { opacity: 0, filter: "blur(6px)" }, 0);
+      [2.6, 2.85, 3.96, 4.18, 4.32, 4.62, 4.84, 4.96].forEach((t, i) => tl.to(words[i], { opacity: 1, filter: "blur(0px)", duration: 0.13 }, t));
+      // the real per-model table rises under "written by"
+      tl.set("#prf-models", { opacity: 0, y: 110 }, 0).to("#prf-models", { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 3.95);
+      // payoff: hold, then a yellow flood carries the verdict in
+      tl.to("#prf-flood", { clipPath: "inset(0 0% 0 0)", duration: 0.42, ease: "power2.inOut" }, 5.6);
+      tl.set(["#prf-verdict-lbl", "#prf-verdict", "#prf-block", "#prf-bar"], { opacity: 0 }, 0);
+      tl.to("#prf-verdict-lbl", { opacity: 1, duration: 0.15 }, 5.95);
+      tl.set("#prf-verdict", { scale: 1.18, filter: "blur(10px)" }, 0)
+        .to("#prf-verdict", { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.55, ease: "back.out(1.4)" }, 6.26);
+      tl.to("#prf-block", { opacity: 1, duration: 0.16 }, 7.04);
+      tl.to("#prf-bar", { opacity: 1, duration: 0.16 }, 7.2);
+      tl.to("#prf-fill", { clipPath: "inset(0 0% 0 0)", duration: 0.7, ease: "expo.out" }, 7.25);
+      // what the flood covered leaves the page
+      tl.set(["#prf-pre", "#prf-count", "#prf-what", "#prf-models"], { opacity: 0 }, 6.05);
+      window.__timelines["proof"] = tl;
+    })();
+  </script>
+</template>

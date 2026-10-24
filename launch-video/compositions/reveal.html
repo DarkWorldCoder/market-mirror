@@ -1,0 +1,44 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #0d0d0c; color: #2b2005; font-family: "Outfit", sans-serif; }
+    #rev-world { position: absolute; inset: 0; background: #f3d64b; clip-path: circle(0px at 365px 630px); }
+    #rev-logo { clip-path: inset(0% 100% 0% 0%); position: absolute; left: 150px; top: 210px; width: 860px; height: 136px; background: url(assets/brand/marketmirror-logo-light.png) left center / contain no-repeat; }
+    #rev-line { position: absolute; left: 150px; top: 430px; font-size: 84px; font-weight: 700; letter-spacing: -2px; line-height: 1.1; width: 900px; color: #2b2005; }
+    #rev-line span { display: inline-block; margin-right: 18px; opacity: .18; }
+    #rev-tag { position: absolute; left: 150px; top: 760px; font-size: 44px; font-weight: 600; color: #2b2005; }
+    #rev-tag span { display: inline-block; margin-right: 12px; opacity: 0; }
+    #rev-tag b { background: #121211; color: #f3d64b; padding: 6px 18px; border-radius: 10px; font-weight: 700; }
+    #rev-hero { clip-path: inset(1080px 110px -400px 1130px round 32px); position: absolute; inset: 0; background: #f4f1ea url(assets/brand/hero.png) right 72% / auto 1500px no-repeat; }
+  </style>
+  <div data-hf-id="hf-yqoq" id="root" data-composition-id="reveal" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-l53z" id="rev-world">
+      <div data-hf-id="hf-d8zc" id="rev-logo"></div>
+      <div data-hf-id="hf-v6fz" id="rev-line"><span data-hf-id="hf-ms68">A</span><span data-hf-id="hf-nheh">test</span><span data-hf-id="hf-6jbp">market</span><span data-hf-id="hf-qb9o">made</span><span data-hf-id="hf-ah8k">of</span><span data-hf-id="hf-ng85">simulated</span><span data-hf-id="hf-e3bd">buyers.</span></div>
+      <div data-hf-id="hf-huvr" id="rev-tag"><span data-hf-id="hf-uckh"><b data-hf-id="hf-x91c">Open source.</b></span><span data-hf-id="hf-mbgv">Built</span><span data-hf-id="hf-p210">for</span><span data-hf-id="hf-ub7v">AI</span><span data-hf-id="hf-2xnj">agents.</span></div>
+      <div data-hf-id="hf-5gjt" id="rev-hero"></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // iris from the "0" of $0 onto the yellow world
+      tl.set("#rev-world", { clipPath: "circle(0px at 365px 630px)" }, 0)
+        .to("#rev-world", { clipPath: "circle(2300px at 365px 630px)", duration: 0.45, ease: "power3.in" }, 0);
+      // the logo wipes in on "Meet MarketMirror"
+      tl.set("#rev-logo", { clipPath: "inset(0% 100% 0% 0%)", scale: 1.06, transformOrigin: "left center" }, 0)
+        .to("#rev-logo", { clipPath: "inset(0% 0% 0% 0%)", scale: 1, duration: 0.7, ease: "expo.out" }, 0.32);
+      // the line goes from pale to ink word by word, no movement
+      const w = gsap.utils.toArray("#rev-line span");
+      tl.set(w, { opacity: 0.18 }, 0);
+      [1.62, 1.72, 1.86, 2.08, 2.24, 2.4, 2.86].forEach((t, i) => tl.to(w[i], { opacity: 1, duration: 0.1, ease: "none" }, t));
+      const tags = gsap.utils.toArray("#rev-tag span");
+      tl.set(tags, { opacity: 0, filter: "blur(6px)" }, 0);
+      [4.1, 4.95, 5.15, 5.32, 5.55].forEach((t, i) => tl.to(tags[i], { opacity: 1, filter: "blur(0px)", duration: 0.13 }, t));
+      // the clay studio card rises on the right, then grows past the frame into the next world
+      tl.set("#rev-hero", { clipPath: "inset(1080px 110px -400px 1130px round 32px)" }, 0)
+        .to("#rev-hero", { clipPath: "inset(250px 110px 130px 1130px round 32px)", duration: 0.8, ease: "expo.out" }, 3.55)
+        .to("#rev-hero", { clipPath: "inset(0px 0px 0px 0px round 0px)", duration: 0.62, ease: "power2.inOut" }, 6.0);
+      window.__timelines["reveal"] = tl;
+    })();
+  </script>
+</template>

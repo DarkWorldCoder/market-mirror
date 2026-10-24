@@ -1,0 +1,58 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; background: #f3d64b; color: #121211; font-family: "Outfit", sans-serif; }
+    #agt-ground { position: absolute; inset: 0; background: #f4f1ea; clip-path: inset(0 0 100% 0); }
+    #agt-win { opacity: 0; position: absolute; left: 190px; top: 120px; width: 1540px; height: 690px; border-radius: 28px; background: #121211; overflow: hidden;
+      box-shadow: 0 30px 80px rgba(18,18,17,.22); }
+    #agt-bar { height: 68px; background: #1b1b19; display: flex; align-items: center; gap: 14px; padding: 0 28px; border-bottom: 2px solid #2a2a27; }
+    #agt-bar i { width: 18px; height: 18px; border-radius: 50%; display: inline-block; }
+    #agt-bar span { margin-left: 18px; font-size: 28px; color: #85847c; font-weight: 500; }
+    #agt-body { padding: 40px 56px; font-family: "JetBrains Mono", monospace; font-size: 30px; line-height: 1.75; color: #f2f2ee; }
+    #agt-prompt { font-family: "Outfit", sans-serif; font-size: 42px; font-weight: 600; line-height: 1.3; margin-bottom: 26px; min-height: 110px; }
+    #agt-prompt b { color: #f3d64b; margin-right: 14px; }
+    .agt-ln { white-space: nowrap; opacity: 0; }
+    .agt-ln em { color: #85847c; font-style: normal; }
+    .agt-ok { color: #7fd89b; }
+    #agt-cmd { color: #f3d64b; }
+    #agt-who { opacity: 0; position: absolute; left: 190px; top: 860px; font-size: 40px; font-weight: 700; letter-spacing: -0.5px; }
+    #agt-who span { color: #85847c; font-weight: 500; }
+  </style>
+  <div data-hf-id="hf-ye2g" id="root" data-composition-id="agent" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-np7h" id="agt-ground"></div>
+    <div data-hf-id="hf-grzy" id="agt-win">
+      <div data-hf-id="hf-83bn" id="agt-bar"><i data-hf-id="hf-cy0p" style="background:#e66767"></i><i data-hf-id="hf-v8rt" style="background:#f3d64b"></i><i data-hf-id="hf-vnya" style="background:#7fd89b"></i><span data-hf-id="hf-c4o1">your AI agent</span></div>
+      <div data-hf-id="hf-iz3c" id="agt-body">
+        <div data-hf-id="hf-lsty" id="agt-prompt"><b data-hf-id="hf-niml">›</b><span data-hf-id="hf-jdsp" id="agt-typed"></span></div>
+        <div data-hf-id="hf-l0ob" class="agt-ln" id="agt-cmd">$ ./mm cli market-test scenarios/market3000/mixed/market_test.json</div>
+        <div data-hf-id="hf-t8in" class="agt-ln" id="agt-l1"><em data-hf-id="hf-p56n">[19:10:21]</em> start: runner running max_rounds=4</div>
+        <div data-hf-id="hf-e8sn" class="agt-ln" id="agt-l2"><em data-hf-id="hf-icut">[19:50:09]</em> survey: asking 2999 people, split test across 3 messages</div>
+        <div data-hf-id="hf-nh3g" class="agt-ln" id="agt-l3"><em data-hf-id="hf-9m5y">[20:50:24]</em> pitch: completed 100%</div>
+        <div data-hf-id="hf-fee8" class="agt-ln" id="agt-l4"><span data-hf-id="hf-3zjv" class="agt-ok">✓</span> <em data-hf-id="hf-ep6u">[20:52:04]</em> export: wrote dashboard.html</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-ix22" id="agt-who">Claude Code · Codex · Cursor · Gemini <span data-hf-id="hf-fdko">· or any MCP agent</span></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // colour flood: cream comes down over the yellow
+      tl.to("#agt-ground", { clipPath: "inset(0 0 0% 0)", duration: 0.38, ease: "power2.inOut" }, 0);
+      tl.set("#agt-win", { opacity: 0, y: 70 }, 0).to("#agt-win", { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, 0.18);
+      tl.set("#agt-who", { opacity: 0, filter: "blur(8px)" }, 0).to("#agt-who", { opacity: 1, filter: "blur(0px)", duration: 0.18 }, 0.4);
+      // the request types in, letter by letter
+      const text = "Test Fitloop's launch on 3,000 buyers in India, the Philippines and Kenya.";
+      const ty = { n: 0 };
+      tl.set(ty, { n: 0, onUpdate: () => { document.getElementById("agt-typed").textContent = ""; } }, 0);
+      tl.to(ty, { n: text.length, duration: 1.45, ease: "none", onUpdate: () => {
+        document.getElementById("agt-typed").textContent = text.slice(0, Math.round(ty.n));
+      } }, 0.45);
+      // the real command and the run's real log lines land line by line
+      const lines = ["#agt-cmd", "#agt-l1", "#agt-l2", "#agt-l3", "#agt-l4"];
+      tl.set(lines, { opacity: 0, x: -20 }, 0);
+      lines.forEach((id, i) => tl.to(id, { opacity: 1, x: 0, duration: 0.3, ease: "expo.out" }, 2.3 + i * 0.32));
+      // hand-off: the window carries away
+      tl.to(["#agt-win", "#agt-who"], { opacity: 0, scale: 0.92, filter: "blur(6px)", duration: 0.26, ease: "power3.in" }, 4.2);
+      window.__timelines["agent"] = tl;
+    })();
+  </script>
+</template>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"color-cream","type":"color","label":"Cream ground","default":"#f4f1ea"},
+  {"id":"color-dark","type":"color","label":"Dark ground","default":"#0d0d0c"},
+  {"id":"color-ink","type":"color","label":"Ink","default":"#121211"},
+  {"id":"color-accent","type":"color","label":"Accent","default":"#f3d64b"},
+  {"id":"font-display","type":"string","label":"Display font","default":"Outfit"}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --color-cream: #f4f1ea;
+        --color-dark: #0d0d0c;
+        --color-ink: #121211;
+        --color-accent: #f3d64b;
+        --font-display: "Outfit";
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--color-cream); }
+      #root { position: relative; width: 100%; height: 100%; font-family: var(--font-display), sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-4y2j" id="root" data-composition-id="main" data-start="0" data-duration="60.6" data-width="1920" data-height="1080" data-motion-blur="on">
+      <div data-hf-id="hf-mze2" id="hook" class="clip" data-composition-id="hook" data-composition-src="compositions/hook.html" data-start="0" data-duration="5.95" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-v92k" id="budget" class="clip" data-composition-id="budget" data-composition-src="compositions/budget.html" data-start="5.95" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-50s9" id="reveal" class="clip" data-composition-id="reveal" data-composition-src="compositions/reveal.html" data-start="9.95" data-duration="6.65" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-7qfi" id="people" class="clip" data-composition-id="people" data-composition-src="compositions/people.html" data-start="16.6" data-duration="9.25" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-sgb6" id="world" class="clip" data-composition-id="world" data-composition-src="compositions/world.html" data-start="25.85" data-duration="7.5" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-jzas" id="decide" class="clip" data-composition-id="decide" data-composition-src="compositions/decide.html" data-start="33.35" data-duration="7.05" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-g2cu" id="proof" class="clip" data-composition-id="proof" data-composition-src="compositions/proof.html" data-start="40.4" data-duration="8.35" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-n7ls" id="agent" class="clip" data-composition-id="agent" data-composition-src="compositions/agent.html" data-start="48.75" data-duration="4.5" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div data-hf-id="hf-2ltv" id="endcard" class="clip" data-composition-id="endcard" data-composition-src="compositions/endcard.html" data-start="53.25" data-duration="7.35" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <audio data-hf-id="hf-ko22" id="voice" class="clip" src="assets/audio/voice.mp3" data-start="0.6" data-track-index="2" data-volume="1"></audio>
+      <audio data-hf-id="hf-wp3f" id="music" class="clip" src="assets/audio/music.wav" data-start="0" data-duration="60.6" data-track-index="3" data-volume="0.38" data-fade-out="2.5"></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>
