@@ -1,0 +1,12 @@
+{
+  "name": "market-mirror",
+  "version": "0.4.1",
+  "description": "Test ads, prices, emails and sales pitches on simulated buyers and get a go / iterate / no-go report with an offline dashboard.",
+  "mcpServers": {
+    "market-mirror": {
+      "command": "python3",
+      "args": ["${extensionPath}${/}plugin${/}skills${/}market-mirror${/}scripts${/}mcp_server.py"]
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}

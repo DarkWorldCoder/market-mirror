@@ -569,6 +569,14 @@ claude plugin install market-mirror@market-mirror
 
 The plugin bundles the main workflow plus focused research, planning, testing, and evidence-review Agent Skills. They share one canonical source. Client plugin support and configuration locations vary; see the [plugin guide](plugin/README.md).
 
+### Gemini CLI extension
+
+```bash
+gemini extensions install https://github.com/DarkWorldCoder/market-mirror
+```
+
+The extension adds the MarketMirror MCP server and a short `GEMINI.md` guide. Install the engine with the quick start above, or ask Gemini to run `setup`.
+
 ### Any compatible MCP client
 
 Print configuration for your client without overwriting its settings:
