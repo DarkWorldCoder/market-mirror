@@ -16,5 +16,6 @@
       ]
     }
   },
-  "icon": ".claude-plugin/icon.png"
+  "icon": ".claude-plugin/icon.png",
+  "privacyPolicyUrl": "https://github.com/DarkWorldCoder/market-mirror/blob/main/PRIVACY.md"
 }
