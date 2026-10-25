@@ -10,11 +10,11 @@
   "license": "AGPL-3.0",
   "mcpServers": {
     "market-mirror": {
-      "command": "bash",
+      "command": "python3",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/skills/market-mirror/scripts/mm.sh",
-        "mcp"
+        "${CLAUDE_PLUGIN_ROOT}/skills/market-mirror/scripts/mcp_server.py"
       ]
     }
-  }
+  },
+  "icon": ".claude-plugin/icon.png"
 }
