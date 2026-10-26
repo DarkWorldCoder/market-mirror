@@ -6,6 +6,8 @@
 
 **Try your ads, prices, and sales pitch with simulated buyers before spending on a real campaign.**
 
+English · [简体中文](README.zh-CN.md)
+
 **Open source and built for AI agents.** Use it from Claude Code, Codex, Cursor, Gemini, or any MCP-compatible agent. Install the plugin, ask in plain words (*"test these three ads on young parents in India"*), and your agent builds the simulated buyers, runs the test, and shows you the dashboard. Self-hosted: it runs on your computer; only the model calls (to the provider you choose) and optional public research leave it.
 
 [![Open source](https://img.shields.io/badge/Open_source-yes-2ea44f.svg)](https://github.com/DarkWorldCoder/market-mirror)
