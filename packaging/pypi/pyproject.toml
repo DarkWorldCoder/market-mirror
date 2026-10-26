@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "marketmirror"
+version = "0.4.2"
+description = "MCP server that tests ads, prices, emails and sales pitches on simulated buyers and returns a go / iterate / no-go report."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "AGPL-3.0-only"
+authors = [{ name = "Ayush Niroula" }]
+keywords = ["mcp", "mcp-server", "marketing", "market-research", "synthetic-users", "simulation", "ad-testing", "llm", "agents"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Office/Business",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DarkWorldCoder/market-mirror"
+Demo = "https://darkworldcoder.github.io/market-mirror/demo/"
+Issues = "https://github.com/DarkWorldCoder/market-mirror/issues"
+
+[project.scripts]
+marketmirror = "marketmirror.cli:main"
+marketmirror-mcp = "marketmirror.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/marketmirror"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/marketmirror/_server" = "marketmirror/_server"
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/marketmirror/_server" = "src/marketmirror/_server"
