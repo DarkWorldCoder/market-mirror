@@ -34,6 +34,8 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packaging/pypi/dist/
+          # Trusted publishing is used when this secret is not set (the action falls back to OIDC on an empty password).
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Install mcp-publisher
         run: |
