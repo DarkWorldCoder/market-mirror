@@ -3,6 +3,17 @@
 These steps are for an agent (Cline, Codex, Claude Code, Cursor, Gemini CLI or another MCP client) setting up
 MarketMirror for its user. MarketMirror runs locally. Linux, macOS or WSL; native Windows has not been validated.
 
+## Quickest path
+
+If `uv` is installed, the MCP server is one entry (PyPI package `marketmirror`, MCP Registry `io.github.DarkWorldCoder/market-mirror`):
+
+```json
+{ "mcpServers": { "market-mirror": { "command": "uvx", "args": ["marketmirror"] } } }
+```
+
+Restart the client and call the `doctor` tool, then `setup` to install the engine, and continue with step 4 below.
+The steps that follow are the manual route with a local checkout.
+
 ## 1. Requirements
 
 Check that `git`, `bash`, `python3` and `uv` are installed (`uv --version`). If `uv` is missing, ask the user to install

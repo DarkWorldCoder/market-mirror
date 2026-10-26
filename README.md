@@ -579,7 +579,13 @@ The extension adds the MarketMirror MCP server and a short `GEMINI.md` guide. In
 
 ### Any compatible MCP client
 
-Print configuration for your client without overwriting its settings:
+The quickest way is the PyPI package (needs [uv](https://docs.astral.sh/uv/)); it is also listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`:
+
+```json
+{ "mcpServers": { "market-mirror": { "command": "uvx", "args": ["marketmirror"] } } }
+```
+
+Then ask your agent to run `doctor`, and `setup` if the engine is not installed yet. To use a checkout you already have instead, print configuration for your client without overwriting its settings:
 
 ```bash
 ./mm agent-config --client generic
