@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarketMirror: test ads, prices and sales pitches on simulated buyers</title>
+<meta name="description" content="MarketMirror is an open-source tool that tests ads, prices, emails and sales pitches on simulated buyers and returns a go / iterate / no-go report. Runs locally from Claude Code, Codex, Cursor, Gemini CLI or any MCP client.">
+<link rel="canonical" href="https://darkworldcoder.github.io/market-mirror/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MarketMirror">
+<meta property="og:title" content="MarketMirror: test ads, prices and pitches on simulated buyers">
+<meta property="og:description" content="Open source. Simulated buyers scroll your ads, argue in comments, answer a survey and hear your pitch. You get a go / iterate / no-go report and an offline dashboard.">
+<meta property="og:url" content="https://darkworldcoder.github.io/market-mirror/">
+<meta property="og:image" content="https://darkworldcoder.github.io/market-mirror/images/launch-video-poster.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="og:image:alt" content="MarketMirror launch film poster">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MarketMirror: test ads, prices and pitches on simulated buyers">
+<meta name="twitter:description" content="Open source. Simulated buyers react to your ads, prices and pitch before you spend on a real campaign.">
+<meta name="twitter:image" content="https://darkworldcoder.github.io/market-mirror/images/launch-video-poster.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 190' aria-hidden='true'%3E%3Cg stroke-linejoin='round' stroke-width='8'%3E%3Cpath fill='%23111' stroke='%23111' d='M14 14 95 62 58 99 95 127 14 176Z'/%3E%3Cpath fill='%23f3d64b' stroke='%23f3d64b' d='M107 70 186 16V72L146 96Z'/%3E%3Cpath fill='%23111' stroke='%23111' d='M146 99 186 75V176L108 128Z'/%3E%3C/g%3E%3C/svg%3E">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MarketMirror",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Linux, macOS",
+  "description": "Open-source tool that tests ads, prices, emails and sales pitches on simulated buyers and returns a go / iterate / no-go report with an offline dashboard. Runs as an MCP server from AI coding agents.",
+  "url": "https://darkworldcoder.github.io/market-mirror/",
+  "downloadUrl": "https://pypi.org/project/marketmirror/",
+  "softwareVersion": "0.4.2",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Ayush Niroula" },
+  "sameAs": ["https://github.com/DarkWorldCoder/market-mirror", "https://pypi.org/project/marketmirror/"]
+}
+</script>
+<style>
+:root{
+  --bg:#f4f1ea; --surface:#fffdf8; --text:#121211; --muted:#5f5e57; --line:#dedad0;
+  --accent:#f3d64b; --accent-ink:#121211; --link:#7a5d00; --code:#121211; --code-text:#f4f1ea; --chip:#ebe6d9;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d0d0c; --surface:#171715; --text:#f2f2ee; --muted:#a9a89f; --line:#2b2b28;
+    --accent:#f3d64b; --accent-ink:#121211; --link:#f3d64b; --code:#1f1f1c; --code-text:#f2f2ee; --chip:#22221f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d0d0c; --surface:#171715; --text:#f2f2ee; --muted:#a9a89f; --line:#2b2b28;
+  --accent:#f3d64b; --accent-ink:#121211; --link:#f3d64b; --code:#1f1f1c; --code-text:#f2f2ee; --chip:#22221f;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overflow-x:hidden}
+a{color:var(--link)}
+img,video{max-width:100%;display:block}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--text);text-decoration:none;letter-spacing:-.3px}
+.brand svg{width:30px;height:28px}
+nav{display:flex;gap:18px;flex-wrap:wrap;font-size:15px}
+nav a{color:var(--text);text-decoration:none;opacity:.85}
+nav a:hover{opacity:1;text-decoration:underline}
+.hero{padding:40px 0 28px;text-align:center}
+.eyebrow{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:var(--chip);padding:6px 12px;border-radius:999px}
+h1{font-size:clamp(34px,6vw,60px);line-height:1.05;letter-spacing:-1.5px;margin:18px auto 14px;max-width:860px}
+h1 mark{background:var(--accent);color:var(--accent-ink);padding:0 .12em;border-radius:6px}
+.lead{font-size:clamp(17px,2.2vw,20px);color:var(--muted);max-width:720px;margin:0 auto}
+.ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:26px 0 18px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 20px;border-radius:12px;font-weight:700;text-decoration:none;font-size:16px;border:2px solid var(--text)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.ghost{color:var(--text)}
+.install{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:var(--code-text);border-radius:12px;padding:10px 12px 10px 16px;font:15px/1.4 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;max-width:100%}
+.install button{font:inherit;font-size:13px;background:transparent;color:var(--code-text);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:4px 10px;cursor:pointer}
+.note{font-size:14px;color:var(--muted);margin-top:10px}
+.film{margin:34px auto 10px;max-width:900px;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#000}
+.film video{width:100%;aspect-ratio:16/9}
+.caption{text-align:center;font-size:14px;color:var(--muted)}
+section{padding:46px 0;border-top:1px solid var(--line)}
+h2{font-size:clamp(26px,3.6vw,36px);letter-spacing:-.8px;line-height:1.15;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 26px;max-width:720px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
+.card h3{margin:0 0 6px;font-size:18px}
+.card p{margin:0;color:var(--muted);font-size:15.5px}
+.num{font-size:40px;font-weight:800;letter-spacing:-1.5px;line-height:1.05}
+.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:3px 8px;background:var(--chip);margin-bottom:10px}
+.shots{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}
+.shots figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.shots img{width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top}
+.shots figcaption{padding:10px 14px;font-size:14px;color:var(--muted)}
+pre{background:var(--code);color:var(--code-text);border-radius:12px;padding:14px 16px;overflow-x:auto;font:14px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:8px 0 0}
+.steps{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+footer{border-top:1px solid var(--line);padding:30px 0 50px;font-size:14px;color:var(--muted)}
+footer .links{display:flex;flex-wrap:wrap;gap:8px 18px;margin-bottom:10px}
+@media (max-width:560px){ nav .hide-sm{display:none} .btn{width:100%;justify-content:center} .install{font-size:13.5px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="./" aria-label="MarketMirror home">
+      <svg viewBox="0 0 200 190" aria-hidden="true"><g stroke-linejoin="round" stroke-width="8"><path fill="currentColor" stroke="currentColor" d="M14 14 95 62 58 99 95 127 14 176Z"/><path fill="#f3d64b" stroke="#f3d64b" d="M107 70 186 16V72L146 96Z"/><path fill="currentColor" stroke="currentColor" d="M146 99 186 75V176L108 128Z"/></g></svg>
+      MarketMirror
+    </a>
+    <nav aria-label="Main">
+      <a href="demo/">Live demo</a>
+      <a class="hide-sm" href="#install">Install</a>
+      <a class="hide-sm" href="#honest">Results</a>
+      <a href="https://github.com/DarkWorldCoder/market-mirror">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <span class="eyebrow">Open source · built for AI agents</span>
+      <h1>Test your ads, prices and pitch on <mark>simulated buyers</mark> first</h1>
+      <p class="lead">MarketMirror builds a crowd of AI buyers from life interviews, lets them scroll your ads, argue in the comments, answer a survey and hear your sales pitch, then gives you a go / iterate / no-go report.</p>
+      <div class="ctas">
+        <a class="btn primary" href="demo/">Open the live demo</a>
+        <a class="btn ghost" href="https://github.com/DarkWorldCoder/market-mirror">★ Star on GitHub</a>
+      </div>
+      <div class="install"><span>uvx marketmirror</span><button type="button" data-copy="uvx marketmirror">Copy</button></div>
+      <p class="note">The demo is a real dashboard from a 2,999-buyer simulated run of an invented app, in your browser, no install.</p>
+      <div class="film">
+        <video controls preload="none" playsinline poster="images/launch-video-poster.png">
+          <source src="video/marketmirror-launch.mp4" type="video/mp4">
+        </video>
+      </div>
+      <p class="caption">The 60-second launch film, with captions. <a href="video/marketmirror-launch-vertical.mp4">Vertical cut</a>.</p>
+    </div>
+
+    <section aria-labelledby="what">
+      <h2 id="what">What you can test</h2>
+      <p class="sub">Describe your product and who you want to reach. Your coding agent does the rest and opens the dashboard.</p>
+      <div class="grid">
+        <div class="card"><h3>Ads in a real-looking feed</h3><p>Buyers scroll Facebook, Instagram, TikTok or Reddit-style feeds with your creatives mixed in, then click, skip, comment or share.</p></div>
+        <div class="card"><h3>Prices and offers</h3><p>A buyer survey with split tests and price questions, scored from free-text answers rather than forced numbers.</p></div>
+        <div class="card"><h3>Sales pitches</h3><p>Rehearse a pitch and your rebuttals, and see which objections each answer actually moves.</p></div>
+        <div class="card"><h3>Emails, launches and pages</h3><p>Email sequences, launch calendars and landing pages, with the objections that stop people listed in their own words.</p></div>
+      </div>
+    </section>
+
+    <section id="honest" aria-labelledby="honest-h">
+      <h2 id="honest-h">It tells you when it's wrong</h2>
+      <p class="sub">Simulated buyers are a rehearsal, not a measurement. MarketMirror reports ranges, compares models and checks itself against your real results.</p>
+      <div class="grid">
+        <div class="card">
+          <span class="tag">Simulated · 2,999 buyers</span>
+          <div class="num">75.6% maybe<br>94.3% no</div>
+          <p>Same buyers, same offer. When Claude played them, most said maybe. When Codex played them, 94.3% said no. The model doing the answering moved the result, so MarketMirror shows the range, not one AI's opinion.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Real ads · simulated buyers</span>
+          <div class="num">−0.84</div>
+          <p>On 8 real Facebook ads, the simulated click ranking came out almost backwards. But the buyers named the real leak: a long sign-up form for a free test, where real data showed about 1,500 visits and 16 sign-ups. Use it for the why, then test for real.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Built-in checks</span>
+          <div class="num">backtest · calibrate</div>
+          <p>Compare simulated results with your real ad exports, rerun the survey a simulated week later for test-retest agreement, and correct rates against real answers.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="see">
+      <h2 id="see">What you get back</h2>
+      <p class="sub">One self-contained HTML dashboard, plus a plain-language report and CSV / JSON downloads.</p>
+      <div class="shots">
+        <figure><img src="images/report.png" alt="MarketMirror report with the go / iterate / no-go decision" loading="lazy"><figcaption>The decision and a plain-language report</figcaption></figure>
+        <figure><img src="images/objections.png" alt="Objections ranked by share of simulated buyers" loading="lazy"><figcaption>What stops people, ranked</figcaption></figure>
+        <figure><img src="images/social-feed.png" alt="Simulated social feed with posts, likes and comments" loading="lazy"><figcaption>Every post and comment from the simulated feeds</figcaption></figure>
+        <figure><img src="images/models.png" alt="Results split by the model that played the buyers" loading="lazy"><figcaption>Every result split by model</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="install" aria-labelledby="install-h">
+      <h2 id="install-h">Install in your agent</h2>
+      <p class="sub">Runs on your computer. Only the model calls (to the provider you choose) and optional public research leave it.</p>
+      <div class="steps">
+        <div class="card"><h3>Any MCP client</h3><p>Claude Desktop, Cursor and others, via PyPI (needs uv):</p><pre>{ "mcpServers": { "market-mirror": {
+  "command": "uvx", "args": ["marketmirror"] } } }</pre></div>
+        <div class="card"><h3>Claude Code</h3><p>From a clone of the repository:</p><pre>claude plugin marketplace add "$PWD"
+claude plugin install market-mirror@market-mirror</pre></div>
+        <div class="card"><h3>Gemini CLI</h3><p>As an extension:</p><pre>gemini extensions install \
+  https://github.com/DarkWorldCoder/market-mirror</pre></div>
+        <div class="card"><h3>Codex</h3><p>From a clone of the repository:</p><pre>codex plugin marketplace add "$PWD"
+codex plugin add market-mirror@market-mirror-local</pre></div>
+      </div>
+      <p class="note">Then ask your agent to run <code>doctor</code>, and <code>setup</code> if the engine is not installed yet. Full guide in the <a href="https://github.com/DarkWorldCoder/market-mirror#quick-start">README</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="links">
+      <a href="https://github.com/DarkWorldCoder/market-mirror">GitHub</a>
+      <a href="demo/">Live demo</a>
+      <a href="https://pypi.org/project/marketmirror/">PyPI</a>
+      <a href="https://github.com/DarkWorldCoder/market-mirror/blob/main/README.zh-CN.md">简体中文</a>
+      <a href="https://github.com/DarkWorldCoder/market-mirror/blob/main/PRIVACY.md">Privacy</a>
+    </div>
+    <p>MarketMirror is AGPL-3.0, built on <a href="https://github.com/666ghj/MiroFish">MiroFish</a> and CAMEL-AI's <a href="https://github.com/camel-ai/oasis">OASIS</a>. Simulated buyers are generated by AI: use them to choose what to test, and confirm with real customers.</p>
+  </footer>
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function(b){
+  b.addEventListener('click',function(){
+    var t=b.getAttribute('data-copy');
+    try{navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)})}catch(e){}
+  });
+});
+</script>
+</body>
+</html>
