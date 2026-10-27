@@ -368,7 +368,7 @@ The feed test, five ads across 5,140 person-platform sessions:
 
 The pitch made things worse, not better: after hearing the rebuttals, about a fifth of the people moved from "maybe" to "no" (pitch score 23 of 100). The report's fix: rewrite the trust and price rebuttals to show the exact charge after day 7, the cancel steps and the local price instead of arguing, which matches the analysts' themes.
 
-**The models did not agree, and the answering model mattered most.** Split by the provider that wrote each person:
+**Responses differed across the writer/answerer cohorts.** Split by the provider that wrote each person:
 
 | People written by | Played in rounds, survey and pitch by | Would start: yes / maybe / no | Top objection |
 |---|---|---|---|
@@ -378,7 +378,7 @@ The pitch made things worse, not better: after hearing the rebuttals, about a fi
 
 ![Simulated trial-start responses by buyer writer and answering provider](docs/images/fitloop-model-responses.svg)
 
-Gemini's people, written by Gemini but played by Claude, answered like Claude's people, not like Codex's. So in this run the model that answers shapes the survey far more than the model that wrote the person, and Codex is much more negative than Claude. Read every rate above as a range between those two behaviours, not as one market's answer.
+The Gemini-written cohort, played by Claude, answered more like the Claude-written cohort than the Codex-written cohort. This suggests checking sensitivity to the answering model, but the cohorts contained different people and the writer/answerer combinations were not fully crossed. This run does not isolate a causal answering-model effect or prove it matters more than the writer. The rates describe these simulated cohorts; they are not forecasts of customer demand.
 
 **How the run went.** The population took 2 h 57 min to prepare (with one restart), and the feed test 62 min through the three login gateways. The social rounds then ran into usage limits: four times Gemini's or Claude's login hit its limit during the rounds, and each hit started the four rounds over, usually after waiting hours for the reset. Then Gemini's login ran out of quota for about four days (Flash and Argon alike). So the rest of the run moved to an Anthropic API key: Claude Sonnet 5.5 played the Claude-written people and, as a stand-in (`MM_PROVIDER_STANDIN=antigravity=claude`), the Gemini-written ones; Codex kept playing its own people through its login. From there it ran without a pause: four rounds in 40 minutes, the survey of 2,999 with its retest in 23 minutes, the pitch to 2,999 people in 37 minutes, then the panel and the report. The API spend for that part is on the Anthropic console; MarketMirror did not meter the tokens inside the rounds, survey and pitch.
 
