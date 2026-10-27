@@ -14,6 +14,7 @@ English · [简体中文](README.zh-CN.md)
 [![Tests](https://github.com/DarkWorldCoder/market-mirror/actions/workflows/tests.yml/badge.svg)](https://github.com/DarkWorldCoder/market-mirror/actions/workflows/tests.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Agent tools](https://img.shields.io/badge/Agent_tools-MCP-635bff.svg)](plugin/README.md)
+[![Website](https://img.shields.io/badge/Website-darkworldcoder.github.io-f3d64b.svg)](https://darkworldcoder.github.io/market-mirror/)
 
 <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch.mp4"><img src="docs/images/launch-video-poster.png" alt="Play the 60-second MarketMirror launch film" width="80%" /></a>
 
