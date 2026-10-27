@@ -490,6 +490,8 @@ class ParallelIPCHandler:
             out[f"{platform}_{agent_id}"] = result
         if failed:
             print(f"  {platform}: {failed}/{len(agent_ids)} interviews failed or timed out (no answer recorded)")
+        agent_context.record_cache_usage(self.simulation_dir, platform, f"interviews ({len(agent_ids)})",
+                                         lambda m: print(f"  [{platform}] {m}"))
         return out
 
     async def handle_batch_interview(self, command_id: str, interviews: List[Dict], platform: str = None) -> bool:
@@ -1122,6 +1124,12 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
 
     agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s (camel's own default is 180 s)
 
+    native = agent_context.claude_native_model(llm_model, os.environ.get('OPENAI_API_BASE_URL'),
+                                               os.environ.get('OPENAI_API_KEY'), _cfg)
+    if native is not None:
+        print(f"{config_label} Claude native Messages API with prompt caching")
+        return native
+
     return ModelFactory.create(
         model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _is_compat else ModelPlatformType.OPENAI,
         model_type=llm_model,
@@ -1240,6 +1248,7 @@ async def run_twitter_simulation(
     mixed = agent_context.assign_provider_models(result.agent_graph, config)
     if mixed:
         log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
+    agent_context.tag_cache_usage(result.agent_graph, "twitter")   # cache reads/writes per platform
     scheduled_by_round = events_by_round(config, "twitter")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1389,6 +1398,7 @@ async def run_twitter_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+        agent_context.record_cache_usage(simulation_dir, "twitter", f"round {round_num + 1}", log_info)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
@@ -1451,6 +1461,7 @@ async def run_reddit_simulation(
     mixed = agent_context.assign_provider_models(result.agent_graph, config)
     if mixed:
         log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
+    agent_context.tag_cache_usage(result.agent_graph, "reddit")   # cache reads/writes per platform
     scheduled_by_round = events_by_round(config, "reddit")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1608,6 +1619,7 @@ async def run_reddit_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+        agent_context.record_cache_usage(simulation_dir, "reddit", f"round {round_num + 1}", log_info)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100

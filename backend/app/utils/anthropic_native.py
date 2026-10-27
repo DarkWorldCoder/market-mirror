@@ -170,7 +170,7 @@ class AnthropicChatClient:
                                   "messages": native}
         if system:
             params["system"] = system
-        if self.effort in ("low", "medium", "high", "xhigh", "max"):
+        if self.effort in ("low", "medium", "high", "xhigh", "max") and effort_supported(model):
             params["output_config"] = {"effort": self.effort}
         msg = self._client.messages.create(**params)
         if getattr(msg, "stop_reason", None) == "refusal":
@@ -198,6 +198,14 @@ def native_claude_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+# models that reject output_config.effort (it arrived with Opus 4.5; Sonnet 4.5, Haiku 4.5 and older return a 400)
+_NO_EFFORT = re.compile(r"^claude-(3|instant|2|haiku-4|sonnet-4-5|sonnet-4(-\d{8})?$|opus-4(-\d{8})?$|opus-4-1)")
+
+
+def effort_supported(model: Optional[str]) -> bool:
+    return not _NO_EFFORT.match(str(model or "").strip().lower())
 
 
 def is_anthropic_api(base_url: Optional[str]) -> bool:
