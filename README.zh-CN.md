@@ -10,7 +10,7 @@
 
 **开源，为 AI Agent 而生。** 可在 Claude Code、Codex、Cursor、Gemini CLI 或任何支持 MCP 的 Agent 中使用。装好插件后用自然语言提问（例如“在印度的年轻父母中测试这三个广告”），Agent 会构建模拟买家、运行测试并打开结果仪表盘。完全自托管：只有模型调用（发往你选择的模型提供方）和可选的公开资料检索会离开你的电脑。
 
-**[打开在线演示](https://darkworldcoder.github.io/market-mirror/demo/)**：一次 2,999 名模拟买家运行的完整仪表盘，浏览器直接打开，无需安装。（Fitloop 是虚构的应用，所有数字均为模拟结果。）
+**[项目网站](https://darkworldcoder.github.io/market-mirror/)** · **[打开在线演示](https://darkworldcoder.github.io/market-mirror/demo/)**：一次 2,999 名模拟买家运行的完整仪表盘，浏览器直接打开，无需安装。（Fitloop 是虚构的应用，所有数字均为模拟结果。）
 
 如果 MarketMirror 帮你避免了一次失败的上线，点个 ⭐ 能让更多人发现它。
 
