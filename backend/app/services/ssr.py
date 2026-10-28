@@ -50,7 +50,7 @@ from . import jev
 logger = get_logger("mirofish.ssr")
 
 POINTS = 5
-ANCHORS_VERSION = "2026-10-ssr-v3-verdict-clause"
+ANCHORS_VERSION = "2026-10-ssr-v4-unicode-punctuation"
 
 # scale -> anchor sets; each set lists one statement per point, from 1 (lowest) to 5 (highest)
 ANCHORS: Dict[str, List[List[str]]] = {
@@ -95,8 +95,8 @@ ANCHORS: Dict[str, List[List[str]]] = {
 }
 SCALES = tuple(ANCHORS)
 
-# Latin sentence ends need a following space (keeps "4.5" whole); danda and CJK stops do not
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[\u0964\u0965\u3002\uff01\uff1f])\s*")
+# Latin sentence ends need a following space (keeps "4.5" whole); script-specific stops do not.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[\u0964\u0965\u3002\uff01\uff1f\u06d4\u061f\u104b])\s*")
 
 
 def lead_sentence(text: str) -> str:
@@ -107,7 +107,7 @@ def lead_sentence(text: str) -> str:
 
 
 # the verdict ends at the first colon, en/em dash or spaced hyphen ("20-30%" stays whole)
-_VERDICT_END = re.compile(r"\s*[:\u2013\u2014]\s*|\s+-\s+")
+_VERDICT_END = re.compile(r"\s*[:\uff1a\u2013\u2014]\s*|\s+-\s+")
 
 
 def verdict_clause(text: str) -> str:
