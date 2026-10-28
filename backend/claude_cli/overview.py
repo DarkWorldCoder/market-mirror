@@ -324,37 +324,54 @@ def funnel_waterfall_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
     )
 
 
+def _writer_and_player(label: str) -> Tuple[str, str]:
+    """"antigravity (played by claude)" -> ("antigravity", "claude"); a plain provider writes and plays its people."""
+    m = re.match(r"^(.*?)\s*\(played by (.+)\)$", label)
+    return (m.group(1).strip(), m.group(2).strip()) if m else (label, label)
+
+
 def ensemble_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
-    """Which LLM providers played the people and analysts, and where the people came from. Only what the run recorded:
-    without a recorded provider (older runs, single-model runs that do not tag people) there is no card."""
+    """Which LLM providers wrote and played the people (and analysts), and where the people came from. Only what the
+    run recorded: without a recorded provider (older runs, single-model runs that do not tag people) there is no card.
+    One row per writer: a stand-in ("antigravity (played by claude)") is the same people as the writer's feed-test and
+    analyst rows, so it is never counted twice."""
     index = _personas(bundle)
-    prov_counts: Dict[str, int] = {}
+    people: Dict[str, int] = {}
+    players: Dict[str, List[str]] = {}
     for r in index:
         p = ui.persona_provider(r)
-        if p:
-            prov_counts[p] = prov_counts.get(p, 0) + 1
+        if not p:
+            continue
+        writer, player = _writer_and_player(p)
+        people[writer] = people.get(writer, 0) + 1
+        if player not in players.setdefault(writer, []):
+            players[writer].append(player)
     ft_prov = ((bundle.get("feed_test") or {}).get("summary") or {}).get("by_provider") or {}
     ap_prov = (((bundle.get("analyst_panel") or {}).get("consensus") or {}).get("by_provider") or {})
-    ft_prov = ft_prov if isinstance(ft_prov, dict) else {}
-    ap_prov = ap_prov if isinstance(ap_prov, dict) else {}
-    all_provs = [p for p in dict.fromkeys(list(prov_counts) + [str(k).lower() for k in ft_prov] + [str(k).lower() for k in ap_prov])
-                 if p and p not in ("grounded", "real_intake")]
-    if not all_provs:
+    ft_prov = {_writer_and_player(str(k).lower())[0]: v for k, v in ft_prov.items()} if isinstance(ft_prov, dict) else {}
+    ap_prov = {_writer_and_player(str(k).lower())[0]: v for k, v in ap_prov.items()} if isinstance(ap_prov, dict) else {}
+    writers = [p for p in dict.fromkeys(list(people) + list(ft_prov) + list(ap_prov)) if p and p not in ("grounded", "real_intake")]
+    if not writers:
         return ""
     sources = {"grounded": 0, "synthetic": 0}
     for r in index:
         kind = ui.persona_provenance(r)
         if kind:
             sources[kind] += 1
-    rows = []
-    for p in all_provs:
-        ft = ft_prov.get(p) if isinstance(ft_prov.get(p), dict) else {}
-        ap = ap_prov.get(p) if isinstance(ap_prov.get(p), dict) else {}
-        badge = ui.Raw(f'<span class="mm-provider-badge" data-prov="{_e(p)}">{_e(p)}</span>')
-        n_pers = prov_counts.get(p) or ui.num(ft.get("personas"))
+
+    def badge(p: str) -> str:
+        return f'<span class="mm-provider-badge" data-prov="{_e(p)}">{_e(p)}</span>'
+
+    rows, answering = [], []
+    for w in writers:
+        ft = ft_prov.get(w) if isinstance(ft_prov.get(w), dict) else {}
+        ap = ap_prov.get(w) if isinstance(ap_prov.get(w), dict) else {}
+        played = players.get(w) or [w]
+        answering += [p for p in played if p not in answering]
+        n_pers = people.get(w) or ui.num(ft.get("personas"))
         ctr = ui.num(ft.get("expected_ctr")) if ui.num(ft.get("expected_ctr")) is not None else ui.num(ft.get("ctr"))
         sig = (f"CTR {ctr:g}%" if ctr is not None else f"Analysts: {ap['winner']}" if ap.get("winner") else "–")
-        rows.append([badge, _num(n_pers) if n_pers else "–", sig])
+        rows.append([ui.Raw(badge(w)), ui.Raw(" ".join(badge(p) for p in played)), _num(n_pers) if n_pers else "–", sig])
     known = sources["grounded"] + sources["synthetic"]
     prov_pills = "".join(
         f'<span class="pill {cls}">{n:,} {label}</span>'
@@ -362,10 +379,15 @@ def ensemble_card(bundle: Dict[str, Any], mk: Dict[str, Any]) -> str:
                               (sources["synthetic"], "model-written", "prov-pill-synth")) if n)
     if prov_pills and known < len(index):
         prov_pills += f'<span class="pill prov-pill-synth">{len(index) - known:,} not recorded</span>'
+    if answering == writers:
+        eyebrow = f'{len(writers)} provider{"s" if len(writers) != 1 else ""}'
+    else:
+        eyebrow = (f'{len(writers)} writer{"s" if len(writers) != 1 else ""} · '
+                   f'{len(answering)} answering model{"s" if len(answering) != 1 else ""}')
     return (
         '<div class="card ens-card"><div class="card-hd"><h3>Models and sources</h3>'
-        f'<span class="card-eyebrow">{len(all_provs)} provider{"s" if len(all_provs) != 1 else ""}</span></div>'
-        + ui.table(["Provider", "People", "Signal"], rows, sortable=False)
+        f'<span class="card-eyebrow">{_e(eyebrow)}</span></div>'
+        + ui.table(["Written by", "Played by", "People", "Signal"], rows, sortable=False)
         + (f'<div class="ens-pills">{prov_pills}</div>' if prov_pills else "") + "</div>"
     )
 

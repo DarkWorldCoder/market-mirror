@@ -175,6 +175,25 @@ class ModelsCardTests(unittest.TestCase):
         for filler in ("Active", "synthetic seeded", "claude"):
             self.assertNotIn(filler, card)
 
+    def test_stand_in_writer_is_one_row_not_two(self):
+        # 3,000-person run: Gemini (antigravity) wrote 1,000 people that Claude played; the feed test reports them
+        # as "antigravity". The card listed both rows ("4 providers", 3,999 people) before.
+        bundle = {"config": {"persona_index": [persona(1, model_provider="claude"), persona(2, model_provider="claude"),
+                                               persona(3, model_provider="antigravity"), persona(4, model_provider="codex")]},
+                  "feed_test": {"summary": {"by_provider": {"claude": {"personas": 2, "expected_ctr": 1.5},
+                                                            "antigravity": {"personas": 1, "expected_ctr": 1.2},
+                                                            "codex": {"personas": 1, "expected_ctr": 0.4}}}}}
+        with mock.patch.dict(os.environ, {"MM_PROVIDER_STANDIN": "antigravity=claude"}):
+            card = overview.ensemble_card(bundle, {})
+        self.assertEqual(card.count("<tr><td>"), 3)
+        self.assertIn("3 writers · 2 answering models", card)
+        self.assertIn("Written by", card)
+        self.assertIn("Played by", card)
+        self.assertNotIn("played by claude)", card)
+        self.assertIn("CTR 1.2%", card)
+        with mock.patch.dict(os.environ, {"MM_PROVIDER_STANDIN": ""}):
+            self.assertIn("3 providers", overview.ensemble_card(bundle, {}))
+
     def test_dashboard_without_providers_has_no_models_card(self):
         bundle = exporter.load_run_dir(FIXTURE)
         bundle["config"]["persona_index"] = [UNKNOWN]
