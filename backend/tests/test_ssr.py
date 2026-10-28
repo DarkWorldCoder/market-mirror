@@ -83,6 +83,9 @@ def test_lead_sentence_keeps_only_the_opening_verdict():
     assert ssr.lead_sentence("Yes, at 4.5 a month it is cheaper than a gym") == "Yes, at 4.5 a month it is cheaper than a gym"
     assert ssr.lead_sentence("नहीं। मुझे भरोसा नहीं है।") == "नहीं।"                      # Devanagari danda
     assert ssr.lead_sentence("不会。太贵了。") == "不会。"                                  # CJK full stop, no space
+    assert ssr.lead_sentence("نہیں۔ یہ مہنگا ہے۔") == "نہیں۔"                              # Urdu full stop
+    assert ssr.lead_sentence("نعم؟ لكنه مكلف.") == "نعم؟"                                  # Arabic question mark
+    assert ssr.lead_sentence("ဟုတ်ပါတယ်။ ဈေးကြီးပါတယ်။") == "ဟုတ်ပါတယ်။"                    # Myanmar full stop
     assert ssr.lead_sentence("Honestly? Maybe 20-30% likely.") == "Honestly?"         # joining scored worse
     assert ssr.lead_sentence("No") == "No" and ssr.lead_sentence("   ") == "" and ssr.lead_sentence(None) == ""
 
@@ -92,6 +95,7 @@ def test_verdict_clause_cuts_at_the_first_colon_or_dash():
     assert ssr.verdict_clause("Probably not \u2014 the card scares me") == "Probably not"
     assert ssr.verdict_clause("Maybe \u2013 gusto ko subukan") == "Maybe"
     assert ssr.verdict_clause("Yes, definitely - free week") == "Yes, definitely"
+    assert ssr.verdict_clause("Yes：only if it is free") == "Yes"                          # fullwidth colon
     assert ssr.verdict_clause("Unlikely, maybe 20-30% chance\u2014I'd rather check Reddit.") == "Unlikely, maybe 20-30% chance"
     assert ssr.verdict_clause("Probably yes. A free week is low risk.") == "Probably yes."   # no colon: first sentence
     assert ssr.verdict_clause(": no verdict") == ": no verdict" and ssr.verdict_clause("") == ""   # nothing before the cut
