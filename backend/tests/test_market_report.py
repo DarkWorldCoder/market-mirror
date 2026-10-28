@@ -214,6 +214,16 @@ def test_markdown_number_guard_keeps_structure():
     assert "- Keep 2 seeds." in out
 
 
+def test_markdown_number_guard_accepts_thousands_separators():
+    from app.services import market_report as mr
+
+    allowed = mr._fact_numbers({"people": 2999, "clicks": 4466})
+    sentence = "We simulated 2,999 buyers and recorded 4,466 clicks."
+
+    assert mr._check_numbers(sentence, allowed) == sentence
+    assert mr.check_numbers_markdown(sentence, allowed) == sentence
+
+
 def test_unwrap_markdown():
     from app.services import market_report as mr
     assert mr.unwrap_markdown('{"markdown": "# Hi"}') == "# Hi"
