@@ -49,6 +49,11 @@ ENGINE_LABELS = {
 # Shared helpers
 # --------------------------------------------------------------------------
 
+
+def _price_part(cur: str, price) -> str:
+    """The price shown in a listing line (currency, amount, space), or an empty string when there is no price."""
+    return "" if price is None else f"{cur} {price:g} "
+
 def wilson(k: int, n: int, z: float = 1.96) -> Dict[str, Any]:
     """Share in % with a 95% Wilson interval."""
     if not n:
@@ -687,7 +692,7 @@ def run_pricing_conjoint(client, model: str, people: List[Dict[str, Any]], tiers
     jobs = []
     for p in cohort:
         order = _pick(rng, opts)
-        listing = "\n".join(f"{x['id']}) {x['name']}: {'' if x['price'] is None else f'{cur} {x['price']:g} '}{x['billing']}. "
+        listing = "\n".join(f"{x['id']}) {x['name']}: {_price_part(cur, x['price'])}{x['billing']}. "
                             f"{x['includes']} {x['terms']}".strip() for x in order)
         jobs.append({"person": p, "prompt": (
             f"WHO YOU ARE\n{person_card(p)}\n\nTHE PRODUCT\n{offer_text(o)}\n\nYour options:\n{listing}\nNONE) none of these\n\n"

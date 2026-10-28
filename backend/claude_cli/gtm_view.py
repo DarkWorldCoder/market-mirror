@@ -52,6 +52,11 @@ GTM_CSS = """
 """
 
 
+
+def _ad_line(cls: str, value) -> str:
+    """One ad line (headline "h" or call to action "c"), or "" when the ad has none."""
+    return f'<div class={cls}>{_e(value)}</div>' if value else ""
+
 def _w(w: Optional[Dict[str, Any]]) -> str:
     """'34% (22–47)' from a wilson dict."""
     if not w or w.get("pct") is None:
@@ -153,8 +158,8 @@ def creative_card(res: Dict[str, Any]) -> str:
     body += ui.table(["Version", "Chance of tapping", "Stopped scrolling", "Would tap", "Versus the original (same people)"], rows,
                      sortable=False, num=[1])
     ads = "".join(f'<div class="lab-ad"><div class="muted small">Version {g.get("generation")} · {_e(g.get("change_summary"))}</div>'
-                  f'{f"<div class=h>{_e(g["ad"].get("headline"))}</div>" if (g.get("ad") or {}).get("headline") else ""}'
-                  f'{_e((g.get("ad") or {}).get("text"))}{f"<div class=c>{_e(g["ad"].get("cta"))}</div>" if (g.get("ad") or {}).get("cta") else ""}</div>'
+                  f'{_ad_line("h", (g.get("ad") or {}).get("headline"))}'
+                  f'{_e((g.get("ad") or {}).get("text"))}{_ad_line("c", (g.get("ad") or {}).get("cta"))}</div>'
                   for g in gens)
     body += f'<details><summary>See every version and what held people back</summary><div class="lab-grid" style="margin-top:10px">{ads}</div>'
     for g in gens:
@@ -334,7 +339,7 @@ def personalize_card(res: Dict[str, Any]) -> str:
             for x in s.get("segments") or []]
     body = ui.table(["Audience", "People", "Original: chance of tapping", "Tailored version", "Difference (same people)"], rows, sortable=False)
     body += "".join(f'<details><summary>{_e(x.get("segment"))}: {_e(x.get("angle"))}</summary><div class="lab-ad">'
-                    f'{f"<div class=h>{_e(x["variant"].get("headline"))}</div>" if (x.get("variant") or {}).get("headline") else ""}{_e((x.get("variant") or {}).get("text"))}</div></details>'
+                    f'{_ad_line("h", (x.get("variant") or {}).get("headline"))}{_e((x.get("variant") or {}).get("text"))}</div></details>'
                     for x in s.get("segments") or [])
     return _card("Ads tailored per audience", res, body)
 

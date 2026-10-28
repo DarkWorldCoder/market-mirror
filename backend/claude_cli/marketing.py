@@ -1182,9 +1182,10 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
                  + "</p>")
     st = a.get("settle")
     if st:
+        settle_cells = ", ".join(f"{k} n={v.get('n')}" for k, v in (st.get("cells") or {}).items())
         offer += (f'<p class="muted small">Asked {st.get("asked", 0):,} of {st.get("people", 0):,} simulated people: asking '
                   f'stopped in each group once its would-convert shares were within ±{st.get("margin", 5):g} points '
-                  f'({_e(", ".join(f"{k} n={v.get("n")}" for k, v in (st.get("cells") or {}).items()))}).</p>')
+                  f'({_e(settle_cells)}).</p>')
     sections.append(("results", "Results", shead("results", "Marketing results") + f'{offer}<div class="mm-top">{panel}{kpi_html}</div>'))
     rs = ssr_section(a, ins.get("ratings"))
     if rs:

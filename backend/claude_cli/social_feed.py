@@ -249,9 +249,10 @@ def feed_story_section(fs: Dict[str, Any], chart, insight: Optional[str] = None)
              f'{total_posts} posts across {len(order)} platform{"s" if len(order) != 1 else ""}'
              + (f', {n_brand} of them brand posts' if n_brand else '') + '. Sentiment labels come from a word list, not a model.')
     head = ui.section_head("Social feed", intro, insight)
+    index_json = json.dumps(index, ensure_ascii=False).replace("</", "<\\/")
     html_ = (head + _brand_strip((fs or {}).get("brand_posts") or [])
              + f'<div class="sf" data-sf-root data-filter-root data-filter-noun="posts">{bar}{"".join(panels)}'
-             f'<script type="application/json" data-sf-index>{json.dumps(index, ensure_ascii=False).replace("</", "<\\/")}</script></div>')
+             f'<script type="application/json" data-sf-index>{index_json}</script></div>')
     return (ANCHOR, "Social feed", html_)
 
 

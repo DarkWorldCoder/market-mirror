@@ -812,9 +812,10 @@ def generate_captions():
     platform = str(data.get("platform") or "instagram").lower()
     n = max(1, min(int(data.get("n") or 6), 12))
     objections = [str(x) for x in (data.get("objections") or [])][:8]
+    language = data.get("language") or "the audience's everyday mix"
     prompt = (
         f"Write {n} different {platform} posts/ad captions for this brief.\n\nBrief:\n{brief[:4000]}\n\n"
-        f"Audience: {data.get('audience') or 'see brief'}\nLanguage: {data.get('language') or 'the audience\'s everyday mix'}\n"
+        f"Audience: {data.get('audience') or 'see brief'}\nLanguage: {language}\n"
         f"Tone: {data.get('tone') or 'natural for the platform'}\n"
         + (f"Objections real people raised that the captions should pre-empt: {'; '.join(objections)}\n" if objections else "")
         + f"\nRules for {platform}: " + {
