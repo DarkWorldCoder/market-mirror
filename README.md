@@ -8,23 +8,40 @@
 
 English · [简体中文](README.zh-CN.md)
 
-**Open source and built for AI agents.** Use it from Claude Code, Codex, Cursor, Gemini, or any MCP-compatible agent. Install the plugin, ask in plain words (*"test these three ads on young parents in India"*), and your agent builds the simulated buyers, runs the test, and shows you the dashboard. Self-hosted: it runs on your computer; only the model calls (to the provider you choose) and optional public research leave it.
+**Open source and built for AI agents.** Interviewed LLM buyer personas scroll simulated ad feeds, argue in an [OASIS](https://github.com/camel-ai/oasis) social simulation, answer a survey and hear your sales pitch. Ask in plain words (*"test these three ads on young parents in India"*) from Claude Code, Codex, Gemini CLI, Cursor or any MCP client, and get a go / iterate / no-go report in one offline HTML dashboard. Self-hosted: only the model calls (to the provider you choose) and optional public research leave your computer.
 
 [![Open source](https://img.shields.io/badge/Open_source-yes-2ea44f.svg)](https://github.com/DarkWorldCoder/market-mirror)
 [![Tests](https://github.com/DarkWorldCoder/market-mirror/actions/workflows/tests.yml/badge.svg)](https://github.com/DarkWorldCoder/market-mirror/actions/workflows/tests.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Agent tools](https://img.shields.io/badge/Agent_tools-MCP-635bff.svg)](plugin/README.md)
+[![PyPI](https://img.shields.io/pypi/v/marketmirror.svg?label=uvx%20marketmirror)](https://pypi.org/project/marketmirror/)
 [![Website](https://img.shields.io/badge/Website-darkworldcoder.github.io-f3d64b.svg)](https://darkworldcoder.github.io/market-mirror/)
+
+Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](https://github.com/camel-ai/oasis) · listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`
+
+**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
+
+</div>
+
+**Try it** (Linux, macOS or WSL; needs Git, [uv](https://docs.astral.sh/uv/) and Python 3.12):
+
+```bash
+git clone https://github.com/DarkWorldCoder/market-mirror.git && cd market-mirror
+bash install.sh --configure      # installs the engine, then asks which model provider to use
+./mm start && ./mm cli quickstart --out scenarios/acme   # 9 questions; prepares a small simulated market, then stops for review
+```
+
+The last line already makes model calls on the provider you chose, so start with a small market. If you chose a Claude Code or Codex login, run `./mm gateway start claude` (or `codex`) before it. Already in an MCP client? Add the server with `claude mcp add market-mirror -- uvx marketmirror` (any client: command `uvx`, args `["marketmirror"]`), then ask your agent to run `doctor` and `setup`. [Full quick start](#quick-start).
+
+If MarketMirror saves you one bad launch, a ⭐ helps other people find it. To hear about new tests and releases, use **Watch → Custom → Releases**.
+
+<div align="center">
 
 <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch.mp4"><img src="docs/images/launch-video-poster.png" alt="Play the 60-second MarketMirror launch film" width="80%" /></a>
 
 <sub>▶ <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch.mp4">Watch the 60-second launch film</a> (with captions) · <a href="https://cdn.jsdelivr.net/gh/DarkWorldCoder/market-mirror@main/docs/video/marketmirror-launch-vertical.mp4">vertical 9:16 cut</a> · made with HyperFrames from <a href="launch-video/">launch-video/</a></sub>
 
-**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
-
-If MarketMirror saves you one bad launch, a ⭐ helps other people find it.
-
-[Meet the buyers](#meet-the-simulated-buyers) · [What you can test](#what-you-can-test) · [Screenshots](#the-dashboard) · [How it works](#the-process-at-a-glance) · [Example results](#example-results-simulated-market-studies) · [Get started](#quick-start) · [Documentation](#documentation)
+[Meet the buyers](#meet-the-simulated-buyers) · [What you can test](#what-you-can-test) · [Screenshots](#the-dashboard) · [How it works](#the-process-at-a-glance) · [Example results](#example-results-simulated-market-studies) · [Evidence and limits](#evidence-and-simulation-limits) · [Get started](#quick-start) · [Documentation](#documentation)
 
 </div>
 
