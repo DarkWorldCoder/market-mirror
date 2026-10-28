@@ -38,6 +38,54 @@
   "sameAs": ["https://github.com/DarkWorldCoder/market-mirror", "https://pypi.org/project/marketmirror/"]
 }
 </script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Are these real buyers or people I can contact?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "They are AI-generated characters inside the simulation. Their names, stories, responses and lead scores describe those characters. They are not a contact list of real prospects."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Will MarketMirror run my ads or send emails?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It simulates ads, inbox reactions and sales conversations. It does not publish ads, send outreach or change your ad account."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The source code is available under AGPL-3.0. Running it may consume paid AI usage, subscription allowances or local computing resources; audience size, interview depth, tests and repeats affect the work required."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need to write code?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You can request tests in plain language through a connected AI assistant. Installing MarketMirror, choosing a model and connecting that assistant require technical setup. The command-line tools are also available for direct use."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I bring real research and campaign data?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. You can supply product documents, linked feedback and campaign exports, and compare simulations with actual outcomes when you have suitable paired data. Importing an ad export alone does not create a complete validation study."
+      }
+    }
+  ]
+}
+</script>
 <style>
 :root{
   --bg:#f4f1ea; --surface:#fffdf8; --text:#121211; --muted:#5f5e57; --line:#dedad0;
@@ -192,6 +240,16 @@ claude plugin install market-mirror@market-mirror</pre></div>
 codex plugin add market-mirror@market-mirror-local</pre></div>
       </div>
       <p class="note">Then ask your agent to run <code>doctor</code>, and <code>setup</code> if the engine is not installed yet. Full guide in the <a href="https://github.com/DarkWorldCoder/market-mirror#quick-start">README</a>.</p>
+    </section>
+    <section id="faq" aria-labelledby="faq-h">
+      <h2 id="faq-h">Questions</h2>
+      <div class="steps">
+        <div class="card"><h3>Are these real buyers or people I can contact?</h3><p>They are AI-generated characters inside the simulation. Their names, stories, responses and lead scores describe those characters. They are not a contact list of real prospects.</p></div>
+        <div class="card"><h3>Will MarketMirror run my ads or send emails?</h3><p>It simulates ads, inbox reactions and sales conversations. It does not publish ads, send outreach or change your ad account.</p></div>
+        <div class="card"><h3>Is it free?</h3><p>The source code is available under AGPL-3.0. Running it may consume paid AI usage, subscription allowances or local computing resources; audience size, interview depth, tests and repeats affect the work required.</p></div>
+        <div class="card"><h3>Do I need to write code?</h3><p>You can request tests in plain language through a connected AI assistant. Installing MarketMirror, choosing a model and connecting that assistant require technical setup. The command-line tools are also available for direct use.</p></div>
+        <div class="card"><h3>Can I bring real research and campaign data?</h3><p>Yes. You can supply product documents, linked feedback and campaign exports, and compare simulations with actual outcomes when you have suitable paired data. Importing an ad export alone does not create a complete validation study.</p></div>
+      </div>
     </section>
   </main>
 

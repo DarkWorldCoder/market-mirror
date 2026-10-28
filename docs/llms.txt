@@ -1,0 +1,27 @@
+# MarketMirror
+
+> Open-source (AGPL-3.0) marketing simulation for AI agents. Interviewed LLM buyer personas scroll simulated ad feeds, argue in an OASIS social simulation, answer a survey and hear a sales pitch; the run ends in a go / iterate / no-go report and an offline HTML dashboard. It runs as an MCP server (`uvx marketmirror`) from Claude Code, Codex, Gemini CLI, Cursor or any MCP client. The buyers are simulated: use results to compare ideas, then confirm with real customers.
+
+MarketMirror is built on MiroFish (knowledge graph -> LLM agents -> report), which runs on CAMEL-AI's OASIS social simulator. It is self-hosted: only the model calls (to the provider you choose) and optional public research leave the machine. It is listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror` and on PyPI as `marketmirror`.
+
+## Start here
+
+- [README](https://github.com/DarkWorldCoder/market-mirror/blob/main/README.md): what it is, what you can test, quick start, limits
+- [Live demo](https://darkworldcoder.github.io/market-mirror/demo/): the dashboard of a 2,999-person simulated run for an invented app (Fitloop); every number is simulated
+- [Agent install guide](https://github.com/DarkWorldCoder/market-mirror/blob/main/llms-install.md): MCP server setup for agents (`uvx marketmirror`)
+- [Plugin and MCP tools](https://github.com/DarkWorldCoder/market-mirror/blob/main/plugin/README.md): the Claude Code plugin, the MCP server and its tools
+
+## Docs
+
+- [Technical guide](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/TECHNICAL_GUIDE.md): how a run works, measured runs, settings
+- [Providers and scale](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/PROVIDERS_AND_SCALE.md): model providers, several providers in one market, large markets
+- [Input formats](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/INPUT_FORMATS.md): briefs, personas, creatives, messages, ad exports
+- [Website testing](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/WEBSITE_TESTING.md): simulated visitors on real pages, supported actions
+- [API](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/API.md): REST endpoints of the local backend
+- [Privacy](https://github.com/DarkWorldCoder/market-mirror/blob/main/PRIVACY.md): what stays on the machine and what leaves it
+
+## Optional
+
+- [Evidence and simulation limits](https://github.com/DarkWorldCoder/market-mirror/blob/main/README.md#evidence-and-simulation-limits): what the simulation does and does not show
+- [MiroFish upstream](https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/MIROFISH-UPSTREAM.md): what MarketMirror adds to MiroFish and OASIS
+- [Changelog](https://github.com/DarkWorldCoder/market-mirror/blob/main/CHANGELOG.md)
