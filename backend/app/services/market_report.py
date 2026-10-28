@@ -351,7 +351,7 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
             "evidence_status": "exploratory_simulation"}
 
 
-_NUM = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])")
+_NUM = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w.])")
 
 
 _FACT_NUM = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)(?!\d)")   # looser: also numbers inside names such as no_card_4.99
@@ -375,7 +375,7 @@ def _check_numbers(text: str, allowed: set) -> str:
     """Drop sentences that quote numbers absent from the facts (keeps small counting numbers 0-12 and years)."""
     out = []
     for sent in re.split(r"(?<=[.!?])\s+", text or ""):
-        nums = _NUM.findall(sent)
+        nums = [n.replace(",", "") for n in _NUM.findall(sent)]
         bad = [n for n in nums if n not in allowed and not (n.isdigit() and (int(n) <= 12 or 1990 <= int(n) <= 2100))]
         if not bad:
             out.append(sent)

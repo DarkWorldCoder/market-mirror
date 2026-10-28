@@ -151,6 +151,14 @@ def test_number_guard_drops_invented_numbers():
     assert "437%" not in out["markdown"] and "28 simulated people" in out["markdown"] and "64.3%" in out["markdown"]
 
 
+def test_number_guard_accepts_thousands_separators():
+    allowed = mr._fact_numbers({"people": 2999, "clicks": 4466})
+    assert mr._check_numbers("We simulated 2,999 buyers.", allowed) == "We simulated 2,999 buyers."
+    assert mr._check_numbers("The ads got 4,466 clicks.", allowed) == "The ads got 4,466 clicks."
+    # a grouped number absent from the facts is still dropped
+    assert mr._check_numbers("Trust rose 12,345%.", allowed) == ""
+
+
 def test_fallback_on_bad_json():
     out = mr.generate(FakeClient("not json at all"), "m", mr.compact_material(BUNDLE))
     assert out["method"] == "fallback"
