@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/marketmirror-hero-v2.png" alt="MarketMirror: rehearse your next market move. Illustration of campaign ideas presented to groups of simulated buyers." width="100%" />
+<img src="docs/images/marketmirror-loop.svg" width="100%" alt="MarketMirror: rehearse your launch on simulated buyers before you spend a cent. In one loop, a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, Taipei and Milan. They stop, scroll past, click, save or hide it, two of them argue about the free trial, the survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. Illustration with simulated numbers." />
 
 # MarketMirror: AI Market Research & Marketing Simulation
 
@@ -20,8 +20,6 @@ English · [简体中文](README.zh-CN.md)
 Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](https://github.com/camel-ai/oasis) · listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`
 
 **[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
-
-<img src="docs/images/marketmirror-loop.svg" width="100%" alt="MarketMirror in one loop: a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, Taipei and Milan. They stop, scroll past, click, save or hide it, two of them argue about the free trial, the survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. Illustration with simulated numbers." />
 
 </div>
 
@@ -69,6 +67,8 @@ For example: you are launching a fitness app. Should the ad lead with “15 minu
 
 ## Meet the simulated buyers
 
+<img src="docs/images/marketmirror-buyers.svg" width="100%" alt="Meet the simulated buyers: Yash Malhotra, 42, an app-cab owner-driver in Pune and one simulated person from the 3,000-person run, answers his life interview (Realme 9 Pro on Jio prepaid at 349 rupees, lost 6,000 rupees to a crypto course, asks his wife, his mother and a stall partner before buying). His persona fills in, then his decision card: says yes to a free trial, cheap price, family plan and a Hindi coach; walks away from a card needed upfront, hidden charges and over-promising ads; trusts 4+ star reviews, clear prices and family opinion; says he would exercise in waiting time but long shifts make it unlikely. The stereotype guard checks that no two people in an audience share a job and a city, and the next buyers appear." />
+
 A simulated buyer is an AI-generated character representing someone in your intended audience. The character has a background and practical reasons for accepting, questioning, or rejecting an offer.
 
 You choose the groups you want to explore—for example, students, working parents, and young professionals in selected countries. MarketMirror creates different people within those groups and can ask them about their lives before showing them your marketing.
@@ -91,6 +91,8 @@ Detailed characters help you explore different viewpoints. They do not make the 
 <a id="key-features"></a>
 
 ## What you can test
+
+<img src="docs/images/marketmirror-tests.svg" width="100%" alt="What you can test, ticked off one by one along a path: ads in simulated Facebook, Instagram, Reddit, TikTok, LinkedIn or X feeds; headlines and messages; price and offer; the conversation around a launch; emails in simulated inboxes, with none sent; a sales pitch; your real website; which audience to study first; the next test to run; and simulated versus real results. Repeat a comparison or swap providers to see how much a result moves." />
 
 | Your question | What MarketMirror does | What you can learn from the simulation |
 |---|---|---|
@@ -197,7 +199,7 @@ Fitloop, its audiences and its pilot figures are invented; every number in these
 
 ## How it works
 
-![Technical workflow: understand the product, build simulated buyers, run tests, decide, and validate against real outcomes](docs/images/marketmirror-workflow.svg)
+<img src="docs/images/marketmirror-pipeline.svg" width="100%" alt="How it works, as a moving pipeline: your product brief, documents or website become a product profile and a local knowledge graph; simulated buyers are interviewed and given decision cards; they see your ads in six feeds and talk in OASIS social rounds; a survey turns their free text into 1-5 ratings with semantic similarity rating and a pitch collects objections; the report gives go, iterate or no-go with an offline dashboard. Real results then come back for backtests and calibration, and feed the next experiment. One command, market-test, runs the stages from one config." />
 
 | Stage | Input → output |
 |---|---|
@@ -484,6 +486,8 @@ The 60- and 3,000-person runs used Sonnet, gpt-6-luna and gemini-3.8-flash-low. 
 The 3,000-person times are not a clean single pass. At 14:34, after 1,865 of 3,000 people, the backend was restarted to apply a lane fix (hung calls had cut the Gemini lane from 10 to 2; now only a rate limit halves a lane). The new prepare task replayed 1,043 finished answers from the population cache and wrote the rest; that second part alone took 1h 54m 39s. After the people were written, the 3,011 agent profiles took about 7.5 minutes and the simulation config about 9.5 minutes.
 
 ## Quick start
+
+<img src="docs/images/marketmirror-quickstart.svg" width="100%" alt="Quick start typed in a terminal: git clone https://github.com/DarkWorldCoder/market-mirror.git and cd market-mirror; bash install.sh --configure, which installs the engine and asks which model provider to use; ./mm start and ./mm cli quickstart --out scenarios/acme, which asks 9 questions, prepares a small simulated market and stops for review. For an existing agent: claude mcp add market-mirror -- uvx marketmirror, then ask the agent to run doctor and setup. An offline dashboard.html then opens with a decision, survey bars with illustrative numbers, and its sections: Decision, Report, Feed test, Social feed, Audiences, Objections, Pricing and People." />
 
 Requires Git, Bash, Python 3, and [uv](https://docs.astral.sh/uv/). The installer provisions the Python 3.12 environment. Use Linux, macOS, or WSL; native Windows has not been validated.
 
@@ -803,6 +807,8 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 | Contribute or report a problem | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) |
 
 ## Support the project
+
+<img src="docs/images/marketmirror-star.svg" width="100%" alt="Support the project: a star outline draws itself and fills yellow, a cursor presses the Star button and it turns to Starred. If MarketMirror saves you one bad launch, a star helps other people find it; tell us what you tested, every issue gets an answer." />
 
 If MarketMirror was useful, ⭐ star the repo so other people find it, and [tell us what you tested](https://github.com/DarkWorldCoder/market-mirror/issues). Every issue gets an answer.
 

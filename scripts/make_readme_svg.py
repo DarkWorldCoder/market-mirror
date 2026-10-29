@@ -1,4 +1,4 @@
-"""Write docs/images/marketmirror-loop.svg: the animated README banner.
+"""Write the animated README scenes in docs/images (marketmirror-loop.svg banner plus one scene per section).
 
 One 14-second loop, CSS keyframes only (GitHub shows SVG through <img>, which runs CSS animation but no scripts):
 your ad -> six simulated buyers scroll and react -> two of them argue -> survey bars -> a verdict with the fix.
@@ -23,6 +23,22 @@ css: List[str] = []
 _n = [0]
 
 
+def begin(loop: float) -> None:
+    """Start a new scene: fresh keyframes, its own loop length; everything holds until 0.8 s before the end."""
+    global LOOP, END, OUT
+    LOOP, END, OUT = loop, loop - 0.8, loop - 0.3
+    css.clear()
+    _n[0] = 0
+
+
+def finish(body: List[str], label: str, w: int = W, h: int = H) -> str:
+    style = "<style>" + "".join(css) + "@media (prefers-reduced-motion:reduce){*{animation:none!important}.rm{display:none}}</style>"
+    defs = (f'<defs>{style}<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">'
+            f'<circle cx="2" cy="2" r="1" fill="#1d1d1a"/></pattern></defs>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" '
+            f'aria-label="{esc(label)}"><title>{esc(label)}</title>{defs}{"".join(body)}</svg>\n')
+
+
 def p(t: float) -> str:
     return f"{max(0.0, min(100.0, 100 * t / LOOP)):.2f}%"
 
@@ -37,7 +53,8 @@ def anim(stops: List[Tuple[float, str]], extra: str = "") -> str:
 
 
 def show(t0: float, frm: str = "translateY(6px)", rise: float = 0.35, overshoot: Optional[str] = None,
-         end: float = END) -> str:
+         end: Optional[float] = None) -> str:
+    end = END if end is None else end
     stops = [(0, f"opacity:0;transform:{frm}"), (t0, f"opacity:0;transform:{frm}")]
     if overshoot:
         stops.append((t0 + rise * 0.65, f"opacity:1;transform:{overshoot}"))
@@ -93,6 +110,7 @@ def panel(x: float, title: str, step: str, w: float) -> str:
 
 
 def build() -> str:
+    begin(14.0)
     out: List[str] = []
     # backdrop and header
     out.append(f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/>')
@@ -139,10 +157,10 @@ def build() -> str:
                    + text(cx, cy + 5, ini, 13, INK, 700, anchor="middle")
                    + text(cx, cy + 38, name, 13, CREAM, 600, anchor="middle")
                    + text(cx, cy + 53, where, 11, MUTED, anchor="middle") + "</g>")
-        out.append(f'<circle cx="{cx}" cy="{cy}" r="20" fill="none" stroke="{YELLOW}" stroke-width="2" class="{pulse(t + 0.5)}"/>')
+        out.append(f'<circle cx="{cx}" cy="{cy}" r="20" fill="none" stroke="{YELLOW}" stroke-width="2" class="rm {pulse(t + 0.5)}"/>')
         # the ad flies from panel 1 to this person
         out.append(f'<rect x="{cx - 9}" y="{cy - 12}" width="18" height="24" rx="3" fill="{CREAM}" stroke="{YELLOW}" '
-                   f'class="{flight(t, 300 - cx, 230 - cy)}"/>')
+                   f'class="rm {flight(t, 300 - cx, 230 - cy)}"/>')
         bw = 8 + 6.4 * len(react)
         out.append(f'<g class="{show(t + 0.55, "scale(.3)", rise=0.3, overshoot="scale(1.12)")}">'
                    f'<rect x="{cx + 14}" y="{cy - 34}" width="{bw:.0f}" height="20" rx="10" fill="{INK}" stroke="{rcol}"/>'
@@ -175,20 +193,391 @@ def build() -> str:
     out.append(text(W - 40, 406, "Illustration. Fitloop is an invented app; the numbers are simulated.", 11, MUTED,
                     anchor="end", mono=True))
 
-    style = ("<style>" + "".join(css) +
-             "@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>")
-    defs = (f'<defs>{style}<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">'
-            f'<circle cx="2" cy="2" r="1" fill="#1d1d1a"/></pattern></defs>')
     label = ("MarketMirror in one loop: a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, "
              "Taipei and Milan. They scroll, stop, click, save or hide it, two of them argue about the free trial, the "
              "survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. "
              "Illustration with simulated numbers.")
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" '
-            f'aria-label="{esc(label)}"><title>{esc(label)}</title>{defs}{"".join(out)}</svg>\n')
+    return finish(out, label)
+
+# --------------------------------------------------------------------------
+# Section scenes (one per README section). Same palette and helpers; facts and commands come from the README.
+# --------------------------------------------------------------------------
+
+def header(title: str, subtitle: str, chip: str = "", w: int = W) -> str:
+    out = (f'<path d="M40 30 h22 v22 h-22z" fill="{YELLOW}"/><path d="M51 30 v22" stroke="{INK}" stroke-width="2"/>'
+           f'<path d="M44 46 l7-11 l7 11" fill="none" stroke="{INK}" stroke-width="2"/>'
+           + text(74, 47, title, 13, YELLOW, 700, mono=True) + text(74, 66, subtitle, 13, MUTED))
+    if chip:
+        cw = 16 + 6.7 * len(chip)
+        out += (f'<rect x="{w - 40 - cw:.0f}" y="30" width="{cw:.0f}" height="24" rx="12" fill="none" stroke="{YELLOW}"/>'
+                + text(w - 40 - cw / 2, 46, chip, 11, YELLOW, 600, mono=True, anchor="middle"))
+    return out
+
+
+def wrap(s: str, n: int) -> List[str]:
+    lines, cur = [], ""
+    for word in s.split():
+        if cur and len(cur) + 1 + len(word) > n:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}".strip()
+    return lines + ([cur] if cur else [])
+
+
+def lines(x: float, y: float, rows: List[str], size: int = 12, fill: str = CREAM, weight: int = 400, gap: float = 16,
+          mono: bool = False) -> str:
+    return "".join(text(x, y + i * gap, r, size, fill, weight, mono=mono) for i, r in enumerate(rows))
+
+
+def draw(t0: float, dur: float, length: float) -> str:
+    """Stroke drawn from nothing to whole (stroke-dasharray set on the element)."""
+    return anim([(0, f"stroke-dashoffset:{length:.0f}"), (t0, f"stroke-dashoffset:{length:.0f}"),
+                 (t0 + dur, "stroke-dashoffset:0"), (END, "stroke-dashoffset:0;opacity:1"),
+                 (OUT, "stroke-dashoffset:0;opacity:0"), (LOOP, f"stroke-dashoffset:{length:.0f};opacity:0")])
+
+
+def light(t0: float, off: str, on: str) -> str:
+    """Outline colour switches on at t0 and stays until the loop fades."""
+    return anim([(0, f"stroke:{off}"), (t0, f"stroke:{off}"), (t0 + 0.3, f"stroke:{on}"), (OUT, f"stroke:{on}"),
+                 (LOOP, f"stroke:{off}")])
+
+
+def flow() -> str:
+    """Dashes that keep moving along a connector."""
+    css.append("@keyframes flow{to{stroke-dashoffset:-20}}.flow{animation:flow 1s linear infinite}")
+    return "flow"
+
+
+def card(x: float, y: float, w: float, h: float, title: str, step: str = "") -> str:
+    out = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="14" fill="{SURFACE}" stroke="{LINE}"/>'
+    if step:
+        out += (f'<circle cx="{x + 24}" cy="{y + 24}" r="10" fill="{YELLOW}"/>'
+                + text(x + 24, y + 28, step, 12, INK, 700, anchor="middle"))
+    return out + text(x + (42 if step else 20), y + 28, title, 11, MUTED, 600, mono=True)
+
+
+def scene_buyers() -> str:
+    """Meet the simulated buyers: Yash's life interview fills his persona and decision card (README example)."""
+    begin(17.0)
+    out = [f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/><rect width="{W}" height="{H}" rx="20" fill="url(#dots)"/>',
+           header("MEET THE SIMULATED BUYERS", "Every person is written, interviewed and given a decision card before any test.",
+                  "simulated person, not a customer")]
+    out.append(card(40, 84, 360, 280, "LIFE INTERVIEW · 12 QUESTIONS", "1"))
+    qa = [("What phone do you use, and what is your data plan like?", "Realme 9 Pro, Jio prepaid ₹349, 2 GB a day."),
+          ("Tell me about a time you got scammed.", "₹6,000 went on a crypto course. Now I read reviews."),
+          ("Who do you ask before spending real money?", "Pooja, my wife, my mother, and Santosh at the stall."),
+          ("What annoys you most in ads?", "Over-promising, long unskippable ads, card upfront.")]
+    for i, (q, a) in enumerate(qa):
+        y, t = 128 + 58 * i, 0.6 + 1.9 * i
+        out.append(f'<g class="{show(t)}">' + text(60, y, q, 11, MUTED, 500) + "</g>")
+        out.append(f'<g class="{show(t + 0.8, "translateX(-8px)")}"><rect x="60" y="{y + 8}" width="322" height="26" rx="13" '
+                   f'fill="#22221f" stroke="{LINE}"/>' + text(74, y + 25, a, 12, CREAM, 500) + "</g>")
+
+    out.append(card(420, 84, 360, 280, "PERSONA", "2"))
+    out.append(f'<g class="{show(0.3, "scale(.7)", overshoot="scale(1.06)")}"><circle cx="464" cy="146" r="22" fill="#c792ea"/>'
+               + text(464, 151, "YM", 13, INK, 700, anchor="middle") + text(498, 141, "Yash Malhotra, 42, Pune", 15, CREAM, 700)
+               + text(498, 160, "App-cab owner-driver · weekend accessories stall", 11, MUTED) + "</g>")
+    rows = [("Income", "Lower-middle", 0.6), ("Phone", "Realme 9 Pro · Jio prepaid ₹349", 1.4),
+            ("Scam history", "Lost ₹6,000 to a crypto course", 3.3), ("Asks first", "Pooja (wife), his mother, Santosh", 5.2),
+            ("Community", "Working Moms & Dads India", 6.4)]
+    for i, (k, v, t) in enumerate(rows):
+        y = 200 + 30 * i
+        out.append(f'<g class="{show(t + 0.9, "translateX(-10px)")}">' + text(440, y, k, 11, MUTED, 600, mono=True)
+                   + text(540, y, v, 12, CREAM, 500) + "</g>")
+    out.append(f'<circle cx="464" cy="146" r="22" fill="none" stroke="{YELLOW}" stroke-width="2" class="rm {pulse(7.6)}"/>')
+
+    out.append(card(800, 84, 360, 280, "DECISION CARD", "3"))
+    dec = [("Says yes to", "free trial, cheap price, family plan, a Hindi coach", YES),
+           ("Walks away from", "card needed upfront, hidden charges, over-promising ads", NO),
+           ("Trusts", "reviews with 4+ stars, clear prices, family opinion", CREAM),
+           ("Says vs does", "says 15 minutes in waiting time; long shifts make it unlikely", YELLOW)]
+    for i, (k, v, col) in enumerate(dec):
+        y, t = 128 + 58 * i, 8.4 + 0.8 * i
+        out.append(f'<g class="{show(t, "translateY(8px)")}"><rect x="818" y="{y - 14}" width="4" height="40" rx="2" fill="{col}"/>'
+                   + text(832, y, k, 11, col, 700, mono=True) + lines(832, y + 18, wrap(v, 44), 12, CREAM, gap=15) + "</g>")
+
+    guard = show(12.0, "translateY(6px)")
+    out.append(f'<g class="{guard}"><circle cx="52" cy="384" r="9" fill="{YES}"/><path d="M47 384 l4 4 l7-8" fill="none" '
+               f'stroke="{INK}" stroke-width="2"/>' + text(70, 389, "Stereotype guard: no two people in an audience share both a "
+                                                            "job and a city.", 12, CREAM, 500) + "</g>")
+    for i in range(8):
+        cx = 640 + 26 * i
+        col = ("#82aaff", "#ffcb6b", "#89ddff", "#f78c6c", "#c3e88d", "#c792ea", "#ff9cac", "#b2ccd6")[i]
+        out.append(f'<circle cx="{cx}" cy="384" r="10" fill="{col}" class="{show(12.5 + 0.15 * i, "scale(.2)", overshoot="scale(1.2)")}"/>')
+    out.append(f'<g class="{show(13.8)}">' + text(860, 389, "next buyers, each interviewed", 12, MUTED) + "</g>")
+    out.append(text(W - 40, 410, "Yash is one simulated person from the README's 3,000-person run, abridged.", 11, MUTED,
+                    anchor="end", mono=True))
+    label = ("Meet the simulated buyers: Yash Malhotra, 42, an app-cab owner-driver in Pune and one simulated person from the "
+             "3,000-person run, answers his life interview (Realme 9 Pro on Jio prepaid at 349 rupees, lost 6,000 rupees to a "
+             "crypto course, asks his wife, his mother and a stall partner before buying). His persona fills in, then his "
+             "decision card: says yes to a free trial, cheap price, family plan and a Hindi coach; walks away from a card "
+             "needed upfront, hidden charges and over-promising ads; trusts 4+ star reviews, clear prices and family opinion; "
+             "says he would exercise in waiting time but long shifts make it unlikely. The stereotype guard checks that no two "
+             "people in an audience share a job and a city, and the next buyers appear.")
+    return finish(out, label)
+
+
+def scene_tests() -> str:
+    """What you can test: ten test types ticked off along a path."""
+    begin(16.0)
+    out = [f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/><rect width="{W}" height="{H}" rx="20" fill="url(#dots)"/>',
+           header("WHAT YOU CAN TEST", "Ten questions, one simulated market. Check what matters with a small real test.",
+                  "results are simulated")]
+    stops = [("Ads in feeds", "stop, ignore, click, hide"), ("Headlines", "which wording is clearer"),
+             ("Price and offer", "where price worries start"), ("Launch talk", "objections in social rounds"),
+             ("Emails", "inbox choices; none sent"), ("Sales pitch", "which concerns persist"),
+             ("Your website", "where visitors leave"), ("Audiences", "which group to study first"),
+             ("Next test", "from the run and your data"), ("Sim vs real", "backtest on real results")]
+    xs = [130, 365, 600, 835, 1070]
+    pts = [(x, 176) for x in xs] + [(x, 290) for x in reversed(xs)]
+    d = "M" + " L".join(f"{x} {y}" for x, y in pts)
+    seg = [abs(pts[i + 1][0] - pts[i][0]) + abs(pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+    total = sum(seg)
+    out.append(f'<path d="{d}" fill="none" stroke="{LINE}" stroke-width="4" stroke-linejoin="round"/>')
+    times = [1.0 + 1.15 * i for i in range(len(pts))]
+    stops_css = [(0, f"stroke-dashoffset:{total:.0f};opacity:1"), (times[0], f"stroke-dashoffset:{total:.0f};opacity:1")]
+    move = [(0, f"opacity:0;transform:translate({pts[0][0]}px,{pts[0][1]}px)"),
+            (times[0] - 0.4, f"opacity:1;transform:translate({pts[0][0]}px,{pts[0][1]}px)")]
+    done = 0.0
+    for i in range(1, len(pts)):
+        done += seg[i - 1]
+        stops_css.append((times[i], f"stroke-dashoffset:{total - done:.0f};opacity:1"))
+        move.append((times[i] - 0.35, f"opacity:1;transform:translate({pts[i][0]}px,{pts[i][1]}px)"))
+        move.append((times[i], f"opacity:1;transform:translate({pts[i][0]}px,{pts[i][1]}px)"))
+    stops_css += [(END, "stroke-dashoffset:0;opacity:1"), (OUT, "stroke-dashoffset:0;opacity:0"), (LOOP, f"stroke-dashoffset:{total:.0f};opacity:0")]
+    move += [(times[-1] + 0.3, f"opacity:0;transform:translate({pts[-1][0]}px,{pts[-1][1]}px)"),
+             (LOOP, f"opacity:0;transform:translate({pts[0][0]}px,{pts[0][1]}px)")]
+    out.append(f'<path d="{d}" fill="none" stroke="{YELLOW}" stroke-width="4" stroke-linejoin="round" '
+               f'stroke-dasharray="{total:.0f}" class="{anim(stops_css)}"/>')
+    for i, ((x, y), (title, learn)) in enumerate(zip(pts, stops)):
+        t = times[i]
+        out.append(f'<circle cx="{x}" cy="{y}" r="17" fill="{SURFACE}" stroke="{LINE}" stroke-width="3"/>')
+        out.append(f'<g class="{show(t, "scale(.3)", rise=0.3, overshoot="scale(1.2)")}"><circle cx="{x}" cy="{y}" r="17" '
+                   f'fill="{YELLOW}"/><path d="M{x - 7} {y} l5 5 l9-10" fill="none" stroke="{INK}" stroke-width="3" '
+                   f'stroke-linecap="round" stroke-linejoin="round"/></g>')
+        out.append(text(x, y + 6, str(i + 1), 12, MUTED, 700, anchor="middle", cls="rm " + anim(
+            [(0, "opacity:1"), (t, "opacity:1"), (t + 0.1, "opacity:0"), (OUT, "opacity:0"), (LOOP, "opacity:1")])))
+        ty1, ty2 = (y - 50, y - 32) if i < 5 else (y + 42, y + 60)       # row one labels above, row two below
+        out.append(f'<g class="{show(t + 0.15)}">' + text(x, ty1, title, 14, CREAM, 700, anchor="middle")
+                   + text(x, ty2, learn, 12, MUTED, anchor="middle") + "</g>")
+    out.append(f'<circle cx="0" cy="0" r="7" fill="{CREAM}" stroke="{YELLOW}" stroke-width="3" class="rm {anim(move)}"/>')
+    out.append(f'<g class="{show(times[-1] + 0.6)}">' + text(600, 392, "Repeat a comparison or swap model providers to see "
+                                                            "how much a result moves between runs.", 13, CREAM, 500,
+                                                            anchor="middle") + "</g>")
+    label = ("What you can test, ticked off one by one along a path: ads in simulated Facebook, Instagram, Reddit, TikTok, "
+             "LinkedIn or X feeds; headlines and messages; price and offer; the conversation around a launch; emails in "
+             "simulated inboxes, with none sent; a sales pitch; your real website; which audience to study first; the next "
+             "test to run; and simulated versus real results. Repeat a comparison or swap providers to see how much a "
+             "result moves.")
+    return finish(out, label)
+
+
+def scene_pipeline() -> str:
+    """How it works: six stages light up in turn; real results feed the next experiment."""
+    begin(15.0)
+    out = [f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/><rect width="{W}" height="{H}" rx="20" fill="url(#dots)"/>',
+           header("HOW IT WORKS", "One command, market-test, runs the stages from one config. Every output is saved in the run folder.",
+                  "./mm cli market-test")]
+    stages = [("Your product", ["brief, documents", "or website"]),
+              ("Profile + graph", ["product profile,", "local knowledge graph"]),
+              ("Simulated buyers", ["interviews and", "decision cards"]),
+              ("Feeds + rounds", ["ads in six feeds,", "OASIS social rounds"]),
+              ("Survey + pitch", ["free text to 1-5", "(SSR), objections"]),
+              ("Report", ["go · iterate · no-go,", "offline dashboard"])]
+    bw, gap, y0, bh = 164, 25, 92, 210
+    fl = flow()
+    for i, (title, sub) in enumerate(stages):
+        x = 40 + i * (bw + gap)
+        t = 0.6 + 1.5 * i
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="{bh}" rx="14" fill="{SURFACE}" stroke-width="2" '
+                   f'class="{light(t, LINE, YELLOW)}"/>')
+        out.append(f'<circle cx="{x + 22}" cy="{y0 + 22}" r="10" fill="{YELLOW}"/>' + text(x + 22, y0 + 26, str(i + 1), 12, INK, 700, anchor="middle"))
+        out.append(text(x + 40, y0 + 27, title, 13, CREAM, 700))
+        out.append(lines(x + 16, y0 + 172, sub, 11, MUTED, gap=15))
+        cx, cy = x + bw / 2, y0 + 100
+        g = show(t + 0.2, "scale(.8)")
+        if i == 0:
+            icon = (f'<rect x="{cx - 34}" y="{cy - 44}" width="68" height="84" rx="6" fill="{CREAM}"/>'
+                    + "".join(f'<rect x="{cx - 24}" y="{cy - 30 + 12 * k}" width="{48 - 10 * (k % 2)}" height="5" rx="2" fill="#8a887f"/>' for k in range(5)))
+        elif i == 1:
+            nodes = [(-40, -26), (0, -40), (38, -20), (-28, 20), (16, 12), (42, 34), (-6, 42)]
+            edges = [(0, 1), (1, 2), (0, 3), (1, 4), (4, 2), (4, 5), (3, 6), (4, 6)]
+            icon = "".join(f'<line x1="{cx + nodes[a][0]}" y1="{cy + nodes[a][1]}" x2="{cx + nodes[b][0]}" y2="{cy + nodes[b][1]}" '
+                           f'stroke="#5c5a52" stroke-width="2"/>' for a, b in edges)
+            icon += "".join(f'<circle cx="{cx + nx}" cy="{cy + ny}" r="7" fill="{("#82aaff", YELLOW, "#c3e88d")[k % 3]}" '
+                            f'class="{show(t + 0.3 + 0.12 * k, "scale(.2)")}"/>' for k, (nx, ny) in enumerate(nodes))
+        elif i == 2:
+            cols = ("#c792ea", "#82aaff", "#ffcb6b", "#89ddff", "#f78c6c", "#c3e88d")
+            icon = "".join(f'<circle cx="{cx - 40 + 40 * (k % 3)}" cy="{cy - 20 + 44 * (k // 3)}" r="15" fill="{cols[k]}" '
+                           f'class="{show(t + 0.3 + 0.15 * k, "scale(.2)", overshoot="scale(1.15)")}"/>' for k in range(6))
+        elif i == 3:
+            icon = "".join(f'<g class="{show(t + 0.3 + 0.25 * k, "translateY(14px)")}"><rect x="{cx - 50}" y="{cy - 46 + 32 * k}" '
+                           f'width="100" height="26" rx="5" fill="{"#f4f1ea" if k == 1 else "#22221f"}"/>'
+                           f'<circle cx="{cx - 38}" cy="{cy - 33 + 32 * k}" r="6" fill="{("#82aaff", YELLOW, "#c3e88d")[k]}"/>'
+                           f'<rect x="{cx - 26}" y="{cy - 36 + 32 * k}" width="{60 - 12 * k}" height="5" rx="2" fill="#8a887f"/></g>'
+                           for k in range(3))
+        elif i == 4:
+            icon = "".join(f'<rect x="{cx - 48 + 20 * k}" y="{cy + 40 - hgt}" width="14" height="{hgt}" rx="3" '
+                           f'fill="{YELLOW if k == 3 else "#5c5a52"}" class="{anim([(0, "transform:scaleY(0)"), (t + 0.3 + 0.1 * k, "transform:scaleY(0)"), (t + 0.9 + 0.1 * k, "transform:scaleY(1)"), (OUT, "transform:scaleY(1)"), (LOOP, "transform:scaleY(0)")], "transform-box:fill-box;transform-origin:50% 100%")}"/>'
+                           for k, hgt in enumerate((14, 30, 46, 70, 38)))
+        else:
+            icon = "".join(f'<g class="{show(t + 0.3 + 0.3 * k, "scale(.4)", overshoot="scale(1.1)")}"><rect x="{cx - 52}" y="{cy - 40 + 30 * k}" '
+                           f'width="104" height="22" rx="11" fill="none" stroke="{col}" stroke-width="2"/>'
+                           + text(cx, cy - 25 + 30 * k, lab, 12, col, 700, anchor="middle") + "</g>"
+                           for k, (lab, col) in enumerate((("go", YES), ("iterate", YELLOW), ("no-go", NO))))
+        out.append(f'<g class="{g}">{icon}</g>' if i in (0,) else icon)
+        if i < len(stages) - 1:
+            xa = x + bw + 2
+            out.append(f'<line x1="{xa}" y1="{y0 + 100}" x2="{xa + gap - 4}" y2="{y0 + 100}" stroke="{YELLOW}" stroke-width="3" '
+                       f'stroke-dasharray="4 6" class="{fl}"/>')
+            out.append(f'<circle cx="{xa + gap / 2}" cy="{y0 + 100}" r="5" fill="{CREAM}" class="rm {pulse(t + 1.2)}"/>')
+    # check against reality: loop back
+    loop_d = f"M{40 + 5 * (bw + gap) + bw / 2} {y0 + bh + 2} V352 H{40 + bw / 2} V{y0 + bh + 6}"
+    out.append(f'<path d="{loop_d}" fill="none" stroke="{LINE}" stroke-width="3"/>')
+    length = 5 * (bw + gap) + 2 * (352 - y0 - bh)
+    out.append(f'<path d="{loop_d}" fill="none" stroke="{YES}" stroke-width="3" stroke-dasharray="{length:.0f}" class="{draw(10.0, 1.6, length)}"/>')
+    out.append(f'<path d="M{40 + bw / 2 - 7} {y0 + bh + 16} l7 -10 l7 10" fill="none" stroke="{YES}" stroke-width="3" class="{show(11.5, "none")}"/>')
+    out.append(f'<g class="{show(10.4)}"><rect x="360" y="338" width="480" height="28" rx="14" fill="{BG}" stroke="{YES}"/>'
+               + text(600, 357, "6. Check against reality: backtest, calibrate, next experiment", 12, YES, 600, anchor="middle") + "</g>")
+    out.append(text(W - 40, 404, "A go is a simulation signal, not a sales guarantee.", 11, MUTED, anchor="end", mono=True))
+    label = ("How it works, as a moving pipeline: your product brief, documents or website become a product profile and a "
+             "local knowledge graph; simulated buyers are interviewed and given decision cards; they see your ads in six "
+             "feeds and talk in OASIS social rounds; a survey turns their free text into 1-5 ratings with semantic similarity "
+             "rating and a pitch collects objections; the report gives go, iterate or no-go with an offline dashboard. Real "
+             "results then come back for backtests and calibration, and feed the next experiment. One command, market-test, "
+             "runs the stages from one config.")
+    return finish(out, label)
+
+
+def scene_quickstart() -> str:
+    """Quick start: the README's install and agent commands typed, then the dashboard window opens."""
+    begin(18.0)
+    out = [f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/><rect width="{W}" height="{H}" rx="20" fill="url(#dots)"/>',
+           header("QUICK START", "Clone, install, answer nine questions. Or add the MCP server to the agent you already use.",
+                  "Linux, macOS or WSL")]
+    tx, ty, tw, th = 40, 84, 720, 300
+    out.append(f'<rect x="{tx}" y="{ty}" width="{tw}" height="{th}" rx="12" fill="{INK}" stroke="{LINE}"/>'
+               f'<path d="M{tx} {ty + 30} H{tx + tw}" stroke="{LINE}"/>'
+               + "".join(f'<circle cx="{tx + 20 + 16 * k}" cy="{ty + 15}" r="5" fill="{c}"/>' for k, c in enumerate((NO, YELLOW, YES)))
+               + text(tx + tw / 2, ty + 19, "market-mirror", 11, MUTED, 600, mono=True, anchor="middle"))
+    steps = [("$ git clone https://github.com/DarkWorldCoder/market-mirror.git && cd market-mirror", 0.6, True),
+             ("$ bash install.sh --configure", 3.0, True),
+             ("# installs the engine, then asks which model provider to use", 4.4, False),
+             ("$ ./mm start && ./mm cli quickstart --out scenarios/acme", 5.2, True),
+             ("# 9 questions; prepares a small simulated market, then stops for review", 7.4, False),
+             ("# already in Claude Code, Codex, Gemini CLI or Cursor?", 8.6, False),
+             ("$ claude mcp add market-mirror -- uvx marketmirror", 9.2, True),
+             ("# then ask your agent to run doctor and setup", 11.2, False)]
+    y = ty + 58
+    for k, (line, t, typed) in enumerate(steps):
+        if k == 5:
+            y += 12
+        size = 12.5
+        width = 0.6 * size * len(line) + 6
+        col = YELLOW if typed else MUTED
+        if typed:
+            dur = max(0.8, len(line) / 40)
+            out.append(f'<clipPath id="t{k}"><rect x="{tx + 18}" y="{y - 14}" width="{width:.0f}" height="20" '
+                       f'class="{typing(t, dur, len(line))}"/></clipPath>')
+            out.append(f'<g clip-path="url(#t{k})" class="{show(t, "none", rise=0.01)}">'
+                       + text(tx + 20, y, line, size, CREAM, 500, mono=True).replace(">$ ", f'><tspan fill="{YELLOW}">$</tspan> ', 1) + "</g>")
+        else:
+            out.append(f'<g class="{show(t, "none", rise=0.2)}">' + text(tx + 20, y, line, size, col, 400, mono=True) + "</g>")
+        y += 30
+    # the dashboard opens
+    dx, dy, dw, dh = 790, 84, 370, 300
+    win = show(12.2, "translateY(24px) scale(.96)", rise=0.5)
+    secs = ["Decision", "Report", "Feed test", "Social feed", "Audiences", "Objections", "Pricing", "People"]
+    chips, cx_, cy_ = [], dx + 18, dy + 214
+    for k, sname in enumerate(secs):
+        cw = 16 + 7 * len(sname)
+        if cx_ + cw > dx + dw - 16:
+            cx_, cy_ = dx + 18, cy_ + 30
+        chips.append(f'<g class="{show(13.0 + 0.15 * k, "scale(.4)", overshoot="scale(1.1)")}"><rect x="{cx_}" y="{cy_}" '
+                     f'width="{cw:.0f}" height="22" rx="11" fill="#22221f" stroke="{LINE}"/>'
+                     + text(cx_ + cw / 2, cy_ + 15, sname, 11, CREAM, 500, anchor="middle") + "</g>")
+        cx_ += cw + 8
+    bars = "".join(f'<rect x="{dx + 88}" y="{dy + 116 + 22 * k}" width="200" height="12" rx="6" fill="#22221f"/>'
+                   f'<rect x="{dx + 88}" y="{dy + 116 + 22 * k}" width="{2 * pct}" height="12" rx="6" fill="{col}" class="{grow(12.8 + 0.2 * k, 0.7)}"/>'
+                   + text(dx + 20, dy + 126 + 22 * k, lab, 11, CREAM, 600) + text(dx + 300, dy + 126 + 22 * k, f"{pct}%", 11, col, 700)
+                   for k, (lab, pct, col) in enumerate((("Yes", 31, YES), ("Maybe", 46, YELLOW), ("No", 23, NO))))
+    out.append(f'<g class="{win}"><rect x="{dx}" y="{dy}" width="{dw}" height="{dh}" rx="12" fill="{SURFACE}" stroke="{YELLOW}"/>'
+               f'<path d="M{dx} {dy + 30} H{dx + dw}" stroke="{LINE}"/>'
+               + text(dx + 16, dy + 19, "dashboard.html · opens offline", 11, MUTED, 600, mono=True)
+               + text(dx + 20, dy + 62, "Decision", 11, MUTED, 600, mono=True)
+               + f'<rect x="{dx + 20}" y="{dy + 70}" width="110" height="28" rx="6" fill="none" stroke="{YELLOW}" stroke-width="2"/>'
+               + text(dx + 75, dy + 89, "ITERATE", 14, YELLOW, 800, anchor="middle")
+               + text(dx + 146, dy + 89, "illustrative numbers", 11, MUTED, mono=True)
+               + bars + "".join(chips) + "</g>")
+    out.append(text(W - 40, 406, "Commands from this README. The dashboard numbers are illustrative.", 11, MUTED, anchor="end", mono=True))
+    label = ("Quick start typed in a terminal: git clone https://github.com/DarkWorldCoder/market-mirror.git and cd "
+             "market-mirror; bash install.sh --configure, which installs the engine and asks which model provider to use; "
+             "./mm start and ./mm cli quickstart --out scenarios/acme, which asks 9 questions, prepares a small simulated "
+             "market and stops for review. For an existing agent: claude mcp add market-mirror -- uvx marketmirror, then ask "
+             "the agent to run doctor and setup. An offline dashboard.html then opens with a decision, survey bars with "
+             "illustrative numbers, and its sections: Decision, Report, Feed test, Social feed, Audiences, Objections, "
+             "Pricing and People.")
+    return finish(out, label)
+
+
+def scene_star() -> str:
+    """Support the project: a star button gets pressed."""
+    w, h = W, 260
+    begin(10.0)
+    out = [f'<rect width="{w}" height="{h}" rx="20" fill="{BG}"/><rect width="{w}" height="{h}" rx="20" fill="url(#dots)"/>']
+    cx, cy, r1, r2 = 190, 130, 78, 34
+    import math
+    pts = []
+    for k in range(10):
+        a = -math.pi / 2 + k * math.pi / 5
+        r = r1 if k % 2 == 0 else r2
+        pts.append(f"{cx + r * math.cos(a):.1f} {cy + r * math.sin(a):.1f}")
+    star = "M" + " L".join(pts) + "Z"
+    per = 10 * math.dist((cx + r1 * math.cos(-math.pi / 2), cy + r1 * math.sin(-math.pi / 2)),
+                         (cx + r2 * math.cos(-math.pi / 2 + math.pi / 5), cy + r2 * math.sin(-math.pi / 2 + math.pi / 5)))
+    out.append(f'<path d="{star}" fill="none" stroke="{LINE}" stroke-width="4" stroke-linejoin="round"/>')
+    out.append(f'<path d="{star}" fill="none" stroke="{YELLOW}" stroke-width="4" stroke-linejoin="round" '
+               f'stroke-dasharray="{per:.0f}" class="{draw(0.4, 1.6, per)}"/>')
+    out.append(f'<path d="{star}" fill="{YELLOW}" class="{show(4.3, "scale(.5)", overshoot="scale(1.12)")}"/>')
+    for k in range(8):
+        a = k * math.pi / 4
+        x1, y1 = cx + 96 * math.cos(a), cy + 96 * math.sin(a)
+        x2, y2 = cx + 116 * math.cos(a), cy + 116 * math.sin(a)
+        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="{YELLOW}" stroke-width="3" '
+                   f'stroke-linecap="round" class="rm {anim([(0, "opacity:0"), (4.4, "opacity:0"), (4.6, "opacity:1"), (5.4, "opacity:0"), (LOOP, "opacity:0")])}"/>')
+    out.append(text(340, 104, "If MarketMirror saves you one bad launch,", 24, CREAM, 700))
+    out.append(text(340, 136, "a star helps other people find it.", 24, CREAM, 700))
+    out.append(text(340, 172, "And tell us what you tested: every issue gets an answer.", 15, MUTED))
+    bx, by = 960, 104
+    out.append(f'<rect x="{bx}" y="{by}" width="170" height="44" rx="10" fill="#22221f" stroke="{LINE}"/>'
+               f'<path d="M{bx + 30} {by + 12} l4 8 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6 9 -1z" fill="none" stroke="{CREAM}" stroke-width="1.6"/>'
+               + text(bx + 56, by + 28, "Star", 16, CREAM, 600))
+    out.append(f'<g class="{show(4.2, "scale(.9)", rise=0.25, overshoot="scale(1.05)")}"><rect x="{bx}" y="{by}" width="170" height="44" '
+               f'rx="10" fill="{YELLOW}"/><path d="M{bx + 30} {by + 12} l4 8 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6 9 -1z" fill="{INK}"/>'
+               + text(bx + 56, by + 28, "Starred", 16, INK, 700) + "</g>")
+    cursor = anim([(0, "opacity:0;transform:translate(120px,90px)"), (2.2, "opacity:1;transform:translate(120px,90px)"),
+                   (3.8, "opacity:1;transform:translate(0,0)"), (4.0, "opacity:1;transform:translate(0,0) scale(.85)"),
+                   (4.25, "opacity:1;transform:translate(0,0) scale(1)"), (END, "opacity:1;transform:translate(0,0)"),
+                   (OUT, "opacity:0;transform:translate(0,0)"), (LOOP, "opacity:0;transform:translate(120px,90px)")],
+                  "transform-box:fill-box;transform-origin:0 0")
+    out.append(f'<path d="M{bx + 120} {by + 24} l0 22 6 -6 5 10 4 -2 -5 -10 8 0z" fill="{CREAM}" stroke="{INK}" stroke-width="1.5" class="{cursor}"/>')
+    out.append(text(bx + 85, by + 76, "github.com/DarkWorldCoder/market-mirror", 11, MUTED, mono=True, anchor="middle"))
+    label = ("Support the project: a star outline draws itself and fills yellow, a cursor presses the Star button and it "
+             "turns to Starred. If MarketMirror saves you one bad launch, a star helps other people find it; tell us what "
+             "you tested, every issue gets an answer.")
+    return finish(out, label, w, h)
+
+
+SCENES = {"marketmirror-loop.svg": build, "marketmirror-buyers.svg": scene_buyers, "marketmirror-tests.svg": scene_tests,
+          "marketmirror-pipeline.svg": scene_pipeline, "marketmirror-quickstart.svg": scene_quickstart,
+          "marketmirror-star.svg": scene_star}
 
 
 if __name__ == "__main__":
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "images", "marketmirror-loop.svg")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(build())
-    print(path, os.path.getsize(path), "bytes")
+    folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "images")
+    for name, make in SCENES.items():
+        path = os.path.join(folder, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(make())
+        print(f"{name}: {os.path.getsize(path):,} bytes")
