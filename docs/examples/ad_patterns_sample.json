@@ -1,0 +1,1468 @@
+{
+ "note": "Fictional ads with ready-made labels for trying `mirofish.py ad-patterns --engine supplied` without a key or a backend. Brands, copy, dates and labels are invented; they describe no real advertiser.",
+ "ads": [
+  {
+   "id": "demo-001",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-09-01",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-002",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. Limited spots.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-04-19",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-003",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. Link below.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-04-18",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-004",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. Cancel anytime.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-10-14",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-005",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. No equipment.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-08-04",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-006",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. Starts today.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-09-15",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-007",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. Takes 2 minutes.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-09-27",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-008",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. See the plan.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-10-15",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-009",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "No time for the gym?",
+   "text": "Most people quit by week three because the plan does not fit their day. Here is a 12-minute routine you can do before work. Try it free for 7 days. For beginners.",
+   "visual_notes": "A coach talks to camera in a living room.",
+   "start_date": "2026-10-21",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "talking_head",
+    "hook": "frustration",
+    "angle": "convenience",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effort",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-010",
+   "brand": "Pocketgym (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-09-17",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-011",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. Limited spots.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-05-07",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-012",
+   "brand": "Pocketgym (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. Link below.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-06-29",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-013",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. Cancel anytime.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-03-11",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-014",
+   "brand": "Pocketgym (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. No equipment.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-09-29",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-015",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. Starts today.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-09-02",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-016",
+   "brand": "Pocketgym (fictional)",
+   "headline": "The warm-up mistake",
+   "text": "Stop stretching cold. A physiotherapist explains the 3-move warm-up that protects your knees. Get the free guide. Takes 2 minutes.",
+   "visual_notes": "A physiotherapist speaks to camera beside a mat.",
+   "start_date": "2026-06-30",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "mistake",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "source",
+    "objection": "effectiveness",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-017",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-07-31",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-018",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week. Limited spots.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-10-01",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-019",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week. Link below.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-03-05",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-020",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week. Cancel anytime.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-08-14",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-021",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week. No equipment.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-09-30",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-022",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Stronger in 30 days",
+   "text": "Watch Priya track her first month: from 2 to 12 push-ups. Start your free week. Starts today.",
+   "visual_notes": "A creator films her workout and her progress screen.",
+   "start_date": "2026-10-13",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "creator_demo",
+    "hook": "result",
+    "angle": "performance",
+    "offer": "trial",
+    "proof": "demo",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-023",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-06-09",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-024",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. Limited spots.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-09-07",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-025",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. Link below.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-08-02",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-026",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. Cancel anytime.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-09-24",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-027",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. No equipment.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-09-27",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-028",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. Starts today.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-09-06",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-029",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. Takes 2 minutes.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-10-18",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-030",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "\"I finally stuck with it\"",
+   "text": "\"I tried five apps. This is the first one I opened every morning.\" Join 40,000 members. See the plan.",
+   "visual_notes": "A member speaks on a park bench.",
+   "start_date": "2026-10-25",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "testimonial",
+    "hook": "result",
+    "angle": "identity",
+    "offer": "subscription",
+    "proof": "testimonial",
+    "objection": "trust",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-031",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-10-24",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-032",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. Limited spots.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-09-01",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-033",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. Link below.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-10-23",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-034",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. Cancel anytime.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-10-09",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-035",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. No equipment.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-09-02",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-036",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. Starts today.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-10-20",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-037",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. Takes 2 minutes.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-10-25",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-038",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Meet the band",
+   "text": "The adjustable resistance band, now 30% off this week only. See the plan.",
+   "visual_notes": "Product photo of a resistance band on white.",
+   "start_date": "2026-09-26",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "product",
+    "hook": "direct",
+    "angle": "performance",
+    "offer": "discount",
+    "proof": "none",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-039",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-10-17",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-040",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. Limited spots.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-10-16",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-041",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. Link below.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-09-16",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-042",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. Cancel anytime.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-09-08",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-043",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. No equipment.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-09-12",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-044",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. Starts today.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-09-17",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-045",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. Takes 2 minutes.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-07-31",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-046",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. See the plan.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-10-10",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-047",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "50% off annual",
+   "text": "Half price on the annual plan until Sunday. Code SPRING50. For beginners.",
+   "visual_notes": "Bold text graphic with a price tag.",
+   "start_date": "2026-09-29",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "offer",
+    "angle": "price",
+    "offer": "discount",
+    "proof": "numbers",
+    "objection": "price",
+    "cta": "buy"
+   }
+  },
+  {
+   "id": "demo-048",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-10-14",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-049",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. Limited spots.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-10-17",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-050",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. Link below.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-09-01",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-051",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. Cancel anytime.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-07-04",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-052",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. No equipment.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-08-23",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-053",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. Starts today.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-10-10",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-054",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. Takes 2 minutes.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-05-25",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-055",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. See the plan.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-10-20",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-056",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Gym vs 12 minutes at home",
+   "text": "You do not need an hour. Same heart-rate zone, a fifth of the time. See how. For beginners.",
+   "visual_notes": "Split screen: gym on the left, living room on the right.",
+   "start_date": "2026-10-04",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "comparison",
+    "hook": "contradiction",
+    "angle": "convenience",
+    "offer": "none",
+    "proof": "comparison",
+    "objection": "effort",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-057",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-10-24",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-058",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. Limited spots.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-10-06",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-059",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. Link below.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-03-18",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-060",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. Cancel anytime.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-06-09",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-061",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. No equipment.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-10-21",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-062",
+   "brand": "Fieldnote Studio (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. Starts today.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-10-23",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-063",
+   "brand": "Brightpath Coaching (fictional)",
+   "headline": "Why I built this",
+   "text": "I am a nurse who could not fit workouts around night shifts. So I built one that fits in a break. Takes 2 minutes.",
+   "visual_notes": "The founder in scrubs speaks to camera.",
+   "start_date": "2026-09-10",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "founder",
+    "hook": "curiosity",
+    "angle": "trust",
+    "offer": "none",
+    "proof": "source",
+    "objection": "trust",
+    "cta": "learn"
+   }
+  },
+  {
+   "id": "demo-064",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-09-12",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-065",
+   "brand": "Pocketgym (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. Limited spots.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-05-13",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-066",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. Link below.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-04-22",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-067",
+   "brand": "Pocketgym (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. Cancel anytime.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-10-01",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-068",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. No equipment.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-08-09",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-069",
+   "brand": "Pocketgym (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. Starts today.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-10-09",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-070",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. Takes 2 minutes.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-10-01",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-071",
+   "brand": "Pocketgym (fictional)",
+   "headline": "3 numbers to check",
+   "text": "Your resting heart rate, sleep hours and step count tell you more than your weight. Download the free tracker. See the plan.",
+   "visual_notes": "Infographic with three numbers.",
+   "start_date": "2026-09-26",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "graphic",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "free_resource",
+    "proof": "numbers",
+    "objection": "effectiveness",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-072",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-09-23",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-073",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm. Limited spots.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-09-25",
+   "collected_at": "2026-10-27",
+   "active": false,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-074",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm. Link below.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-10-18",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-075",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm. Cancel anytime.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-09-24",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-076",
+   "brand": "Northwind Fitness (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm. No equipment.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-06-11",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  },
+  {
+   "id": "demo-077",
+   "brand": "Pocketgym (fictional)",
+   "headline": "Is strength training for over-50s?",
+   "text": "A trainer answers the question we get most. Free live class Thursday 7 pm. Starts today.",
+   "visual_notes": "A trainer speaks to camera in a studio.",
+   "start_date": "2026-09-22",
+   "collected_at": "2026-10-27",
+   "active": true,
+   "labels": {
+    "format": "talking_head",
+    "hook": "curiosity",
+    "angle": "education",
+    "offer": "workshop",
+    "proof": "source",
+    "objection": "suitability",
+    "cta": "signup"
+   }
+  }
+ ]
+}

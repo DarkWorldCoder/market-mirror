@@ -594,6 +594,57 @@ def generate_ideas():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@simulation_bp.route('/ad-patterns', methods=['POST'])
+def ad_patterns():
+    """POST {ads: [rows: Meta Ad Library / scraper JSON, an ad-account export or a sheet], creatives?: feed-test
+    creatives (or feed_test?: a run's feed_test.json), engine?: auto|llm|jev|supplied, brand?, now?: collection date,
+    max_ads?} -> ad_patterns payload (synchronous). Labels each ad on seven creative dimensions and reports
+    real-ad longevity, real results (when rows carry metrics) and the simulated creatives on the same labels."""
+    from ..services import ad_patterns as ap
+    from ..services import jev
+    data = request.get_json() or {}
+    try:
+        ads = ap.normalize_ads(data.get("ads") or [], now=data.get("now"),
+                               limit=max(1, min(int(data.get("max_ads") or ap.MAX_ADS), ap.MAX_ADS)))
+        feed = data.get("feed_test") if isinstance(data.get("feed_test"), dict) else None
+        if not feed and isinstance(data.get("creatives"), list):
+            feed = {"creatives": data["creatives"]}
+        ads += ap.creatives_from_feed_test(feed or {})
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not any(a["source"] == "real" for a in ads):
+        return jsonify({"success": False, "error": "no ads with words to label: pass ads rows with text, headline or visual_notes"}), 400
+    engine = str(data.get("engine") or "auto").lower()
+    if engine not in ("auto", "llm", "jev", "supplied"):
+        return jsonify({"success": False, "error": "engine must be auto, llm, jev or supplied"}), 400
+    pending = [a for a in ads if a["status"] == "pending"]
+    if engine == "auto":
+        engine = "supplied" if not pending else ("jev" if jev.available() else "llm")
+    meta = {"brand": str(data.get("brand") or "")[:120]}
+    try:
+        if engine == "jev" and pending:
+            meta["usage"] = ap.label_jev(ads, jev)
+        elif engine == "llm" and pending:
+            client = _client()
+
+            def complete(system: str, user: str):
+                from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+                resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=4000,
+                                              messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+                u = getattr(resp, "usage", None)
+                return extract_chat_completion_text(resp), {
+                    "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+
+            meta["usage"] = ap.label_llm(ads, complete)
+            meta["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": ap.analyse(ads, engine, meta)})
+    except jev.JevUnavailable as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"ad patterns failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/market-report', methods=['POST'])
 def start_market_report():
     """POST {simulation_id, material, brand?} -> background job writing market_report.json (plain-language report)."""

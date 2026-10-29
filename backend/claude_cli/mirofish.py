@@ -1634,6 +1634,21 @@ def cmd_ideas(c: Client, a) -> Any:
     return res
 
 
+def cmd_ad_patterns(c: Optional[Client], a) -> Any:
+    try:
+        rows = market_cli._load_json_arg(a.rows) if a.rows else None
+        if isinstance(rows, dict):
+            rows = rows.get("ads") or rows.get("rows") or rows
+        if rows is not None and not isinstance(rows, list):
+            raise ValueError("--rows must be a JSON list of ad objects (or @file with one)")
+        res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
+        res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
+    return res
+
+
 def cmd_quickstart(c: Optional[Client], a) -> Any:
     import quickstart
     try:
@@ -2397,6 +2412,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--out", help="ideas.json path (default: <run-dir>/ideas.json)")
 
+    s = sub.add_parser("ad-patterns", help="label real ads (yours or competitors') on 7 creative dimensions; find the patterns that last")
+    s.add_argument("--ads", help="CSV/JSON of ads: Meta Ad Library / scraper JSON, an ad-account export or a sheet")
+    s.add_argument("--rows", help="@file.json or inline JSON list of ad rows (e.g. fetched by an agent)")
+    s.add_argument("--run-dir", help="run folder: its feed-test creatives get the same labels (simulated, shown apart); "
+                                     "ad_patterns.json lands here and the dashboard is refreshed")
+    s.add_argument("--engine", default="auto", choices=["auto", "llm", "jev", "supplied"],
+                   help="auto = Jev when configured, else the chat model; supplied = labels already in the rows (offline)")
+    s.add_argument("--brand")
+    s.add_argument("--now", help="collection date (YYYY-MM-DD) for rows without collected_at (default today)")
+    s.add_argument("--max-ads", type=int, default=300)
+    s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
+
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
     s.add_argument("--text", help="the update, or @file")
@@ -2755,7 +2782,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -2770,7 +2797,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
         offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
-            (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run)
+            (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
+            (a.cmd == "ad-patterns" and a.engine == "supplied")
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")
