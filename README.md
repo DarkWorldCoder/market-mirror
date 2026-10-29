@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/marketmirror-hero-v2.png" alt="MarketMirror: rehearse your next market move. Illustration of campaign ideas presented to groups of simulated buyers." width="100%" />
+<img src="docs/images/marketmirror-loop.svg" width="100%" alt="MarketMirror: rehearse your launch on simulated buyers before you spend a cent. In one loop, a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, Taipei and Milan. They stop, scroll past, click, save or hide it, two of them argue about the free trial, the survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. Illustration with simulated numbers." />
 
 # MarketMirror: AI Market Research & Marketing Simulation
 
@@ -20,8 +20,6 @@ English · [简体中文](README.zh-CN.md)
 Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](https://github.com/camel-ai/oasis) · listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`
 
 **[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
-
-<img src="docs/images/marketmirror-loop.svg" width="100%" alt="MarketMirror in one loop: a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, Taipei and Milan. They stop, scroll past, click, save or hide it, two of them argue about the free trial, the survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. Illustration with simulated numbers." />
 
 </div>
 
