@@ -253,6 +253,8 @@ The people keep a memory for the whole run: someone who hid your ad or ignored y
 
 ### 3. Put them in the world
 
+<img src="docs/images/marketmirror-market-map.svg" width="100%" alt="Social rounds as a market map: scattered simulated buyers drift into three communities (Working Moms &amp; Dads India, a WhatsApp running group and a subreddit) and follow each other. Live news is pushed in, “a competitor just cut its price”, lands on one person, and spreads as a wave through each community and across the bridges between them, while people reply: still not paying upfront, mine just got cheaper, price war incoming. Replies are illustrative." />
+
 **Ads in realistic feeds (the feed test).** Each person scrolls a feed for each platform you test (Facebook, Instagram, Reddit, TikTok, LinkedIn, X): a handful of local organic posts with one of your ads placed where that platform puts its sponsored posts. When you test several ads, each person sees exactly one, assigned at random, so the comparison is a split test. For every post they report what they did: scrolled past, stopped and for how long, watched, reacted, commented, shared, saved, clicked or hid it, plus a one-line thought. Platform playbooks hold typical base rates (most people scroll past most ads), which keeps simulated people from being unrealistically positive. You get ads-manager numbers per ad and per audience (thumb-stop rate, CTR, what happened after the click), and with `--seeds 3` a range instead of one number.
 
 **Social rounds.** The people then live on Reddit- and X-like platforms for a few rounds, powered by the [OASIS](https://github.com/camel-ai/oasis) engine with its recommendation feed. Your brand posts and your launch calendar (a price drop on day 3, an influencer post on day 5) arrive in the round you schedule them, and you can push live news into a running simulation ("a competitor just cut its price"). People post, reply, like, follow and argue in their own voices. The dashboard's **Social feed** shows every post by round, audience and country, with the replies to your brand posts and their sentiment.
@@ -266,11 +268,15 @@ The people keep a memory for the whole run: someone who hid your ad or ignored y
 - re-ask a sample "a simulated week later" and report how many gave the same verdict (test-retest);
 - stop early once every audience's answer shares are within a margin you set.
 
+<img src="docs/images/marketmirror-sales-call.svg" width="100%" alt="Sales rehearsal as a live call: your pitch, “12-minute workouts at home, try 7 days free”, gets the buyer’s trust objection, “will it charge me after day 7?”. An arguing rebuttal, “it’s worth it, our members love it”, backfires and the buyer moves from maybe to no. The report’s fix from the README’s Fitloop run appears: show the exact charge after day 7, the cancel steps and the local price instead of arguing, and the call is rehearsed again. Call lines are illustrative." />
+
 **The sales rehearsal.** Your pitch goes to every buyer. They answer with their objection, your rebuttals answer back, and they decide again. You get the objections ranked, which rebuttals worked, and a lead score per person ("who to call first").
 
 **The analyst panel.** Five analysts read the whole run independently and each recommends go, iterate or no-go. Their agreement is a check on the report, not a vote that decides it.
 
 ### 5. Decide
+
+<img src="docs/images/marketmirror-gauge.svg" width="100%" alt="The decision as a dial: survey purchase intent, the feed test's best ad, the top objection and the analyst panel flow into a 1 to 5 gauge with the README's thresholds, no-go below 3.1, iterate from 3.1 and go from 3.75. The needle hunts back and forth and settles in iterate (an illustrative position). Five analysts each give their own read, a check on the report rather than a vote, and the decision card stamps iterate: change the weak parts and test again. A go does not guarantee sales." />
 
 The **decision card** puts go, iterate or no-go at the top, with the signals behind it: the survey's purchase intent (go needs a mean of 3.75 on the 1-5 scale, iterate 3.1), the feed test's best ad, the analysts, the top objection. The **report** explains it in plain language: who was simulated, what they said, what stopped them, what to change, an action plan and the limits. Every number in it is checked against the run's fact sheet; if the writing model fails, a data-only report is produced instead.
 

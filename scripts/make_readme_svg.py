@@ -569,9 +569,250 @@ def scene_star() -> str:
     return finish(out, label, w, h)
 
 
+def backdrop() -> str:
+    return f'<rect width="{W}" height="{H}" rx="20" fill="{BG}"/><rect width="{W}" height="{H}" rx="20" fill="url(#dots)"/>'
+
+
+def scene_market_map() -> str:
+    """Put them in the world: scattered buyers cluster into communities, then pushed-in news spreads as a wave."""
+    import math
+    import random
+    begin(16.0)
+    rng = random.Random(7)
+    out = [backdrop(), header("SOCIAL ROUNDS", "People join communities, follow each other, then react to what you push in.",
+                              "OASIS social simulation")]
+    groups = [("Working Moms & Dads India", 230, 236, "#c792ea"), ("a WhatsApp running group", 600, 236, "#82aaff"),
+              ("a subreddit", 970, 236, "#c3e88d")]
+    per = 22
+    dots: List[Tuple[float, float, str, int]] = []
+    for g, (_, gx, gy, col) in enumerate(groups):
+        for k in range(per):
+            a = k * 2.399963                       # golden-angle spiral: an even, natural-looking cluster
+            r = 12.5 * math.sqrt(k + 0.6)
+            dots.append((gx + 1.15 * r * math.cos(a), gy + 0.85 * r * math.sin(a), col, g))
+    # community halos and names
+    for g, (name, gx, gy, col) in enumerate(groups):
+        out.append(f'<ellipse cx="{gx}" cy="{gy}" rx="98" ry="74" fill="{col}" fill-opacity=".07" stroke="{col}" '
+                   f'stroke-opacity=".5" stroke-dasharray="3 5" class="{show(2.6 + 0.2 * g, "scale(.6)")}"/>')
+        out.append(f'<g class="{show(2.9 + 0.2 * g)}">' + text(gx, gy + 100, name, 13, col, 600, anchor="middle") + "</g>")
+    # follows inside each community, and bridges between neighbouring communities (their facing edges)
+    edges = []
+    members = {g: [i for i, d in enumerate(dots) if d[3] == g] for g in range(3)}
+    for g in range(3):
+        idx = members[g]
+        for i in idx[1:]:
+            j = min((j for j in idx if j < i), key=lambda j: math.dist(dots[i][:2], dots[j][:2]))
+            edges.append((i, j))
+    bridges = []
+    for g in (0, 1):
+        right = sorted(members[g], key=lambda i: -dots[i][0])[:2]
+        left = sorted(members[g + 1], key=lambda i: dots[i][0])[:2]
+        bridges += list(zip(right, left))
+    out.append(f'<g stroke="#3a3934" stroke-width="1.2" class="{show(3.2, "none", rise=0.6)}">'
+               + "".join(f'<line x1="{dots[i][0]:.0f}" y1="{dots[i][1]:.0f}" x2="{dots[j][0]:.0f}" y2="{dots[j][1]:.0f}"/>'
+                         for i, j in edges) + "</g>")
+    for i, j in bridges:
+        (x1, y1), (x2, y2) = dots[i][:2], dots[j][:2]
+        length = math.dist((x1, y1), (x2, y2))
+        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#8a887f" stroke-width="2" '
+                   f'stroke-dasharray="{length:.0f}" class="{draw(3.8, 0.6, length)}"/>')
+    # the news drops in and lands on one person near the top of the first community
+    seed = min(members[0], key=lambda i: dots[i][1] - 0.3 * dots[i][0])
+    entry = {0: seed, 1: bridges[0][1], 2: bridges[2][1]}
+    sx, sy = dots[seed][:2]
+    news = anim([(0, "opacity:0;transform:translateY(-30px)"), (4.4, "opacity:0;transform:translateY(-30px)"),
+                 (4.9, "opacity:1;transform:none"), (END, "opacity:1;transform:none"), (OUT, "opacity:0;transform:none"),
+                 (LOOP, "opacity:0;transform:none")], "transform-box:fill-box;transform-origin:50% 50%")
+    out.append(f'<g class="{news}"><rect x="420" y="84" width="360" height="34" rx="17" fill="{INK}" stroke="{YELLOW}"/>'
+               + text(600, 106, "Live news pushed in: “a competitor just cut its price”", 12, YELLOW, 600, anchor="middle") + "</g>")
+    out.append(f'<path d="M420 101 Q{(420 + sx) / 2:.0f} 96 {sx:.0f} {sy - 10:.0f}" fill="none" stroke="{YELLOW}" stroke-width="2" '
+               f'stroke-dasharray="4 4" class="rm {anim([(0, "opacity:0"), (5.0, "opacity:0"), (5.2, "opacity:1"), (6.2, "opacity:1"), (6.7, "opacity:0"), (LOOP, "opacity:0")])}"/>')
+    hops = {0: 0.0, 1: 1.6, 2: 2.9}                # the news reaches each community through a bridge
+    # ripples of conversation
+    for g in range(3):
+        ex, ey = dots[entry[g]][:2]
+        for k in range(2):
+            t = 5.3 + hops[g] + 0.6 * k
+            out.append(f'<circle cx="{ex:.0f}" cy="{ey:.0f}" r="26" fill="none" stroke="{YELLOW}" stroke-width="2" '
+                       f'class="rm {anim([(0, "opacity:0;transform:scale(.2)"), (t, "opacity:.9;transform:scale(.2)"), (t + 1.4, "opacity:0;transform:scale(4)"), (LOOP, "opacity:0;transform:scale(4)")], "transform-box:fill-box;transform-origin:50% 50%")}"/>')
+    # the people: scattered -> clustered, then the wave turns them to 'talking about it'
+    for i, (x, y, col, g) in enumerate(dots):
+        x0, y0 = rng.uniform(70, 1130), rng.uniform(120, 360)
+        t_in = 0.3 + 0.02 * i
+        move = anim([(0, f"transform:translate({x0 - x:.0f}px,{y0 - y:.0f}px)"), (t_in, f"transform:translate({x0 - x:.0f}px,{y0 - y:.0f}px)"),
+                     (t_in + 1.6, "transform:none"), (LOOP, "transform:none")])
+        t_w = 5.3 + hops[g] + math.dist((x, y), dots[entry[g]][:2]) / 120
+        wave = anim([(0, f"fill:{col}"), (t_w, f"fill:{col}"), (t_w + 0.25, f"fill:{YELLOW}"), (OUT, f"fill:{YELLOW}"), (LOOP, f"fill:{col}")])
+        out.append(f'<g class="{move}"><circle cx="{x:.0f}" cy="{y:.0f}" r="7" fill="{YELLOW}" class="{wave}"/></g>')
+    # what they say
+    tops = [min(members[g], key=lambda i: dots[i][1]) for g in range(3)]
+    says = [(tops[0], "“still not paying upfront”", 6.2), (tops[1], "“mine just got cheaper”", 7.6), (tops[2], "“price war incoming?”", 8.9)]
+    for i, line, t in says:
+        x, y = dots[i][:2]
+        y -= 8
+        bw = 16 + 6.6 * len(line)
+        out.append(f'<g class="{show(t, "translateY(8px) scale(.8)", overshoot="scale(1.05)")}"><rect x="{x - bw / 2:.0f}" y="{y - 64:.0f}" '
+                   f'width="{bw:.0f}" height="26" rx="13" fill="#22221f" stroke="{LINE}"/>'
+                   f'<path d="M{x - 5:.0f} {y - 38:.0f} l5 7 l5 -7z" fill="#22221f"/>'
+                   + text(x, y - 46, line, 12, CREAM, 500, anchor="middle") + "</g>")
+    out.append(f'<g class="{show(10.2)}"><circle cx="52" cy="390" r="6" fill="{YELLOW}"/>' + text(66, 394, "talking about the news", 12, CREAM)
+               + "".join(f'<circle cx="{246 + 22 * k}" cy="390" r="6" fill="{c}"/>' for k, c in enumerate(g[3] for g in groups))
+               + text(316, 394, "not yet", 12, MUTED) + "</g>")
+    out.append(text(W - 40, 404, "Community names and the news line are the README's examples; replies illustrative.", 11, MUTED,
+                    anchor="end", mono=True))
+    label = ("Social rounds as a market map: scattered simulated buyers drift into three communities (Working Moms & Dads "
+             "India, a WhatsApp running group and a subreddit) and follow each other. Live news is pushed in, “a competitor "
+             "just cut its price”, lands on one person, and spreads as a wave through each community and across the bridges "
+             "between them, while people reply: still not paying upfront, mine just got cheaper, price war incoming. "
+             "Replies are illustrative.")
+    return finish(out, label)
+
+
+def scene_sales_call() -> str:
+    """The sales rehearsal: a call with live waveforms; the arguing rebuttal backfires, then the report's fix."""
+    import random
+    begin(19.0)
+    rng = random.Random(3)
+    out = [backdrop(), header("SALES REHEARSAL", "Your pitch goes to every buyer. They object, your rebuttal answers, they decide again.",
+                              "dialogue illustrative")]
+    css.append("@keyframes wig{0%,100%{transform:scaleY(.18)}50%{transform:scaleY(1)}}"
+               ".w{animation:wig .9s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 50%}")
+    out.append(card(40, 84, 760, 296, "THE CALL"))
+    lanes = [("You", 150, YELLOW, [(0.4, 2.6), (5.4, 7.6), (12.6, 15.0)]),
+             ("Buyer", 262, "#82aaff", [(2.9, 5.1), (7.9, 10.0), (15.3, 16.8)])]
+    for name, y, col, turns in lanes:
+        out.append(text(60, y + 5, name, 12, col, 700, mono=True))
+        stops = [(0, "opacity:.25")]
+        for a, b in turns:
+            stops += [(a, "opacity:.25"), (a + 0.2, "opacity:1"), (b, "opacity:1"), (b + 0.2, "opacity:.25")]
+        stops += [(LOOP, "opacity:.25")]
+        bars = "".join(f'<rect x="{120 + 9 * k}" y="{y - 22}" width="5" height="44" rx="2.5" fill="{col}" class="w" '
+                       f'style="animation-duration:{rng.uniform(.5, 1.2):.2f}s;animation-delay:-{rng.uniform(0, 1):.2f}s"/>'
+                       for k in range(72))
+        out.append(f'<g class="{anim(stops)}">{bars}</g>')
+    says = [(0.5, 150, YELLOW, "“12-minute workouts at home. Try 7 days free.”"),
+            (3.0, 262, "#82aaff", "“Will it charge me after day 7?”"),
+            (5.5, 150, YELLOW, "“It’s worth it, our members love it.”"),
+            (8.0, 262, "#82aaff", "“That sounds like a sales line.”"),
+            (12.7, 150, YELLOW, "“After day 7: the exact charge, the cancel steps, your local price.”"),
+            (15.4, 262, "#82aaff", "“OK. That I can check.”")]
+    for k, (t, y, col, line) in enumerate(says):
+        t1 = says[k + 2][0] - 0.35 if k + 2 < len(says) else END        # each line gives way to its lane's next line
+        cls = anim([(0, "opacity:0;transform:translateY(6px)"), (t, "opacity:0;transform:translateY(6px)"),
+                    (t + 0.3, "opacity:1;transform:none"), (t1, "opacity:1;transform:none"), (t1 + 0.25, "opacity:0;transform:none"),
+                    (LOOP, "opacity:0;transform:none")], "transform-box:fill-box")
+        rm = "rm " if k + 2 < len(says) else ""                         # reduced motion keeps only the last exchange
+        out.append(f'<g class="{rm}{cls}">' + text(120, y + 44, line, 13, CREAM, 500) + "</g>")
+    # objection and verdict chips
+    out.append(f'<g class="{show(3.3, "scale(.3)", overshoot="scale(1.15)")}"><rect x="620" y="218" width="160" height="26" rx="13" '
+               f'fill="{INK}" stroke="{NO}"/>' + text(700, 235, "objection: trust", 12, NO, 700, anchor="middle") + "</g>")
+    flip = anim([(0, f"opacity:0;fill:{YELLOW}"), (8.5, f"opacity:0;fill:{YELLOW}"), (8.8, f"opacity:1;fill:{YELLOW}"),
+                 (9.4, f"opacity:1;fill:{YELLOW}"), (9.8, f"opacity:1;fill:{NO}"), (END, f"opacity:1;fill:{NO}"),
+                 (OUT, f"opacity:0;fill:{NO}"), (LOOP, f"opacity:0;fill:{NO}")])
+    out.append(f'<rect x="620" y="300" width="160" height="28" rx="14" class="{flip}" fill="{NO}"/>')
+    out.append(f'<g class="{anim([(0, "opacity:0"), (8.8, "opacity:0"), (9.0, "opacity:1"), (9.5, "opacity:1"), (9.7, "opacity:0"), (LOOP, "opacity:0")])}">'
+               + text(700, 319, "maybe", 13, INK, 800, anchor="middle") + "</g>")
+    out.append(f'<g class="{show(9.7, "scale(.5)", overshoot="scale(1.2)", rise=0.25)}">' + text(700, 319, "maybe → no", 13, INK, 800, anchor="middle") + "</g>")
+    out.append(f'<rect x="616" y="296" width="168" height="36" rx="18" fill="{SURFACE}" class="{show(12.4, "none", rise=0.3)}"/>')
+    out.append(f'<g class="{show(16.0, "scale(.5)", overshoot="scale(1.1)", rise=0.3)}"><rect x="620" y="300" width="160" height="28" '
+               f'rx="14" fill="none" stroke="{MUTED}"/>' + text(700, 319, "decides again", 13, CREAM, 700, anchor="middle") + "</g>")
+    # the report's fix (README wording)
+    out.append(card(820, 84, 340, 296, "WHAT THE REPORT SAID"))
+    out.append(f'<g class="{show(10.4, "translateX(16px)")}">' + lines(840, 140, wrap("In the README’s Fitloop run the pitch made things worse: "
+                                                                                    "after the rebuttals, about a fifth of the people moved from maybe to no.", 38), 13, CREAM, 500, gap=19) + "</g>")
+    out.append(f'<g class="{show(11.4, "translateX(16px)")}"><rect x="840" y="226" width="300" height="104" rx="10" fill="{INK}" stroke="{YELLOW}"/>'
+               + text(856, 248, "THE FIX", 11, YELLOW, 700, mono=True)
+               + lines(856, 270, wrap("Show the exact charge after day 7, the cancel steps and the local price instead of arguing.", 36), 13, CREAM, 500, gap=18)
+               + "</g>")
+    out.append(f'<g class="{show(16.9)}">' + text(840, 358, "Then rehearse again with the new rebuttal.", 12, MUTED) + "</g>")
+    out.append(text(W - 40, 404, "Result and fix from the README's 3,000-person run; the call lines are illustrative.", 11, MUTED,
+                    anchor="end", mono=True))
+    label = ("Sales rehearsal as a live call: your pitch, “12-minute workouts at home, try 7 days free”, gets the buyer’s trust "
+             "objection, “will it charge me after day 7?”. An arguing rebuttal, “it’s worth it, our members love it”, backfires "
+             "and the buyer moves from maybe to no. The report’s fix from the README’s Fitloop run appears: show the exact "
+             "charge after day 7, the cancel steps and the local price instead of arguing, and the call is rehearsed again. "
+             "Call lines are illustrative.")
+    return finish(out, label)
+
+
+def scene_gauge() -> str:
+    """Decide: signals fly into a 1-5 purchase-intent dial with the README's thresholds; the needle settles."""
+    import math
+    begin(15.0)
+    out = [backdrop(), header("THE DECISION", "The decision card puts go, iterate or no-go at the top, with the signals behind it.",
+                              "needle position illustrative")]
+    cx, cy, r = 600, 316, 190
+
+    def pt(v: float, rad: float) -> Tuple[float, float]:
+        th = math.pi * (1 - (v - 1) / 4)
+        return cx + rad * math.cos(th), cy - rad * math.sin(th)
+
+    def arc(v1: float, v2: float, rad: float) -> str:
+        (x1, y1), (x2, y2) = pt(v1, rad), pt(v2, rad)
+        return f"M{x1:.1f} {y1:.1f} A{rad} {rad} 0 0 1 {x2:.1f} {y2:.1f}"
+    for v1, v2, col in ((1, 3.1, NO), (3.1, 3.75, YELLOW), (3.75, 5, YES)):
+        length = math.pi * r * (v2 - v1) / 4
+        out.append(f'<path d="{arc(v1, v2, r)}" fill="none" stroke="#22221f" stroke-width="26"/>')
+        out.append(f'<path d="{arc(v1, v2, r)}" fill="none" stroke="{col}" stroke-width="26" stroke-dasharray="{length:.0f}" '
+                   f'class="{draw(0.3 + (v1 - 1) * 0.25, 0.6, length)}"/>')
+    for v in (1, 2, 3, 4, 5):
+        (x1, y1), (x2, y2) = pt(v, r - 20), pt(v, r - 30)
+        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="{MUTED}" stroke-width="2"/>')
+        tx, ty = pt(v, r - 46)
+        out.append(text(tx, ty + 5, str(v), 13, MUTED, 600, anchor="middle"))
+    for v, lab in ((3.1, "3.1"), (3.75, "3.75")):
+        tx, ty = pt(v, r + 26)
+        out.append(text(tx, ty, lab, 12, CREAM, 700, mono=True, anchor="middle"))
+    for v, lab, col in ((2.05, "no-go", NO), (3.52, "iterate", YELLOW), (4.38, "go", YES)):
+        tx, ty = pt(v, r + 0)
+        out.append(text(tx, ty + 4, lab, 11, INK, 800, anchor="middle"))
+    out.append(text(cx, cy + 36, "survey purchase intent, mean on 1-5", 12, MUTED, anchor="middle"))
+    # needle: drawn pointing at 1, rotated clockwise to the value
+    deg = lambda v: 180 * (v - 1) / 4
+    swing = [(0, deg(1)), (2.0, deg(1)), (3.2, deg(4.6)), (4.2, deg(2.2)), (5.1, deg(4.0)), (5.9, deg(2.9)), (6.6, deg(3.55)),
+             (7.1, deg(3.4)), (7.5, deg(3.25))]
+    stops = [(t, f"transform:rotate({a:.1f}deg)") for t, a in swing] + [(OUT, f"transform:rotate({deg(3.25):.1f}deg)"),
+                                                                       (LOOP, f"transform:rotate({deg(1):.1f}deg)")]
+    needle = anim(stops, f"transform-origin:{cx}px {cy}px")
+    out.append(f'<g class="{needle}" style="transform:rotate({deg(3.25):.1f}deg);transform-origin:{cx}px {cy}px">'
+               f'<path d="M{cx} {cy - 5} L{cx - r - 6} {cy} L{cx} {cy + 5}z" fill="{CREAM}" stroke="{INK}" stroke-width="1.5"/></g>')
+    out.append(f'<circle cx="{cx}" cy="{cy}" r="13" fill="{CREAM}"/><circle cx="{cx}" cy="{cy}" r="5" fill="{INK}"/>')
+    # signals flowing in
+    sig = [("Survey: purchase intent", 150), ("Feed test: best ad", 196), ("Top objection", 242), ("Analyst panel", 288)]
+    for k, (name, y) in enumerate(sig):
+        t = 0.6 + 0.5 * k
+        out.append(f'<g class="{show(t, "translateX(-14px)")}"><rect x="40" y="{y - 18}" width="220" height="30" rx="15" '
+                   f'fill="{SURFACE}" stroke="{LINE}"/><circle cx="58" cy="{y - 3}" r="5" fill="{YELLOW}"/>'
+                   + text(72, y + 1, name, 12, CREAM, 600) + "</g>")
+        out.append(f'<circle cx="{cx}" cy="{cy}" r="5" fill="{YELLOW}" class="rm {flight(t + 0.6, 262 - cx, y - 3 - cy)}"/>')
+    # five analysts, a check not a vote
+    acols = (YELLOW, YELLOW, YES, YELLOW, NO)
+    for k, col in enumerate(acols):
+        ax = 76 + 40 * k
+        out.append(f'<circle cx="{ax}" cy="348" r="13" fill="#22221f" stroke="{LINE}"/>')
+        out.append(f'<circle cx="{ax}" cy="348" r="13" fill="{col}" class="{show(8.3 + 0.25 * k, "scale(.2)", overshoot="scale(1.2)")}"/>')
+    out.append(text(40, 384, "Five analysts read the run on their own:", 12, CREAM, 600))
+    out.append(text(40, 401, "a check on the report, not a vote.", 12, MUTED))
+    # the verdict
+    out.append(card(900, 120, 260, 220, "DECISION CARD"))
+    stamp = show(9.8, "scale(1.7) rotate(-12deg)", rise=0.4, overshoot="scale(.95) rotate(-3deg)")
+    out.append(f'<g class="{stamp}"><g transform="rotate(-4 1030 200)"><rect x="950" y="176" width="160" height="46" rx="8" fill="none" '
+               f'stroke="{YELLOW}" stroke-width="3"/>' + text(1030, 208, "ITERATE", 24, YELLOW, 800, anchor="middle") + "</g></g>")
+    out.append(f'<g class="{show(10.6)}">' + lines(920, 256, ["Change the weak parts", "and test again."], 14, CREAM, 600, gap=20)
+               + text(920, 314, "A go does not guarantee sales.", 11, MUTED) + "</g>")
+    out.append(text(W - 40, 404, "Thresholds from the README: go needs a mean of 3.75, iterate 3.1.", 11, MUTED, anchor="end", mono=True))
+    label = ("The decision as a dial: survey purchase intent, the feed test's best ad, the top objection and the analyst panel "
+             "flow into a 1 to 5 gauge with the README's thresholds, no-go below 3.1, iterate from 3.1 and go from 3.75. The "
+             "needle hunts back and forth and settles in iterate (an illustrative position). Five analysts each give their own "
+             "read, a check on the report rather than a vote, and the decision card stamps iterate: change the weak parts and "
+             "test again. A go does not guarantee sales.")
+    return finish(out, label)
+
+
 SCENES = {"marketmirror-loop.svg": build, "marketmirror-buyers.svg": scene_buyers, "marketmirror-tests.svg": scene_tests,
           "marketmirror-pipeline.svg": scene_pipeline, "marketmirror-quickstart.svg": scene_quickstart,
-          "marketmirror-star.svg": scene_star}
+          "marketmirror-star.svg": scene_star, "marketmirror-market-map.svg": scene_market_map,
+          "marketmirror-sales-call.svg": scene_sales_call, "marketmirror-gauge.svg": scene_gauge}
 
 
 if __name__ == "__main__":
