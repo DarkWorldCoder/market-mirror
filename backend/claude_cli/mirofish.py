@@ -1638,7 +1638,7 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
     try:
         rows = market_cli._load_json_arg(a.rows) if a.rows else None
         if isinstance(rows, dict):
-            rows = rows.get("ads") or rows.get("rows")
+            rows = rows.get("ads") or rows.get("rows") or rows
         if rows is not None and not isinstance(rows, list):
             raise ValueError("--rows must be a JSON list of ad objects (or @file with one)")
         res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now)

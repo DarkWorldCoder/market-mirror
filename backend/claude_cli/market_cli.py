@@ -693,9 +693,16 @@ def ad_patterns(c, log, ads_path: Optional[str] = None, ads_rows: Optional[List[
     log(f"ad-patterns: {len(rows)} rows, engine {engine}" + (f", {len(feed['creatives'])} simulated creatives" if feed else ""))
     if engine == "supplied":
         ap = load_service("ad_patterns")
-        ads = ap.normalize_ads(rows, now=now, limit=max_ads) + ap.creatives_from_feed_test(feed or {})
-        if not any(a["source"] == "real" for a in ads):
+        ads = ap.normalize_ads(rows, now=now, limit=max_ads)
+        if not ads:
             raise ValueError("ad-patterns: no ads with text, headline or visual_notes")
+        sims = ap.creatives_from_feed_test(feed or {})
+        if sims:                                     # feed-test creatives carry no labels; skip them offline
+            log(f"ad-patterns: skipping {len(sims)} simulated creatives: --engine supplied cannot label them "
+                "(use --engine llm or jev with the backend running)")
+        unlabelled = sum(1 for a in ads if a["status"] == "pending")
+        if unlabelled:
+            log(f"ad-patterns: {unlabelled} rows have no labels and are left out (--engine supplied)")
         data = ap.analyse(ads, "supplied", {"brand": brand})
         csv_text = ap.to_csv(data)
     else:

@@ -158,6 +158,13 @@ def results(run: str) -> Dict[str, Any]:
         it = json.load(open(ij, encoding="utf-8"))
         out["ideas"] = [{k: i.get(k) for k in ("title", "type", "priority", "hypothesis", "metric", "how_to_test")} for i in it.get("ideas") or []]
         out["ideas_md"] = os.path.join(run_dir, "ideas.md")
+    apj = os.path.join(run_dir, "ad_patterns.json")
+    if os.path.exists(apj):
+        apd = json.load(open(apj, encoding="utf-8"))
+        out["ad_patterns"] = {"counts": apd.get("counts"), "engine": apd.get("engine"),
+                              "findings": [{k: f.get(k) for k in ("kind", "dimension", "value", "heading", "observation", "simulated_note", "next_test")}
+                                           for f in apd.get("findings") or []],
+                              "note": "real_longevity is observational (still running after 60+ days), not performance; simulated is simulated."}
     return out
 
 
@@ -288,6 +295,19 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object"}}, "ads_file": {"type": "string"},
                                                       "run": {"type": "string"}, "brand": {"type": "string"}, "brief": {"type": "string"},
                                                       "n": {"type": "integer"}}}},
+    {"name": "ad_patterns", "description": (
+        "Label a library of real ads (yours or competitors': Meta Ad Library / scraper JSON, an ad-account export, a sheet, "
+        "or rows you fetched) on seven creative dimensions (format, hook, angle, offer, proof, objection, CTA) and find "
+        "the patterns: which labels stay in market 60+ days (observational, NOT performance), real CTR/CPA per label when "
+        "the rows carry metrics, and, with a run, the run's feed-test creatives on the same labels (marked simulated). "
+        "engine: auto (Jev when configured, else the chat model), llm, jev, or supplied (labels already in the rows; "
+        "offline, no backend). Writes ad_patterns.json/.md/.csv and adds an 'Ad patterns' dashboard section. Background job. "
+        "Use real ad data only with the owner's permission."),
+     "inputSchema": {"type": "object", "properties": {"ads_file": {"type": "string", "description": "absolute path to CSV/JSON of ads"},
+                                                      "rows": {"type": "array", "items": {"type": "object"}},
+                                                      "run": {"type": "string"}, "engine": {"type": "string", "enum": ["auto", "llm", "jev", "supplied"]},
+                                                      "brand": {"type": "string"}, "now": {"type": "string", "description": "collection date YYYY-MM-DD"},
+                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"}}}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -505,6 +525,30 @@ def call(name: str, a: Dict[str, Any]) -> Any:
             args += ["--n", str(int(a["n"]))]
         r = sh(args, timeout=400)
         return _cli_result(r)
+    if name == "ad_patterns":
+        if not (a.get("rows") or a.get("ads_file")):
+            raise ValueError("ads_file or rows is required")
+        run_dir = a.get("run")
+        run_dir = (run_dir if os.path.isabs(run_dir) else os.path.join("mirofish_runs", run_dir)) if run_dir else None
+        args = ["cli", "ad-patterns", "--engine", str(a.get("engine") or "auto")]
+        if a.get("rows"):
+            d = os.path.join(home(), "scenarios", "_ad_patterns")
+            os.makedirs(d, exist_ok=True)
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            json.dump(a["rows"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        if a.get("ads_file"):
+            args += ["--ads", a["ads_file"]]
+        if run_dir:
+            args += ["--run-dir", run_dir]
+        elif not a.get("out"):
+            args += ["--out", os.path.join(home(), "scenarios", "_ad_patterns", f"ad_patterns_{uuid.uuid4().hex[:6]}.json")]
+        for k in ("brand", "now", "out"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("max_ads"):
+            args += ["--max-ads", str(int(a["max_ads"]))]
+        return job(args, "ad_patterns")
     if name == "push_context":
         args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
         if a.get("round") is not None:
