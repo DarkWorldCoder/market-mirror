@@ -86,7 +86,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
     "geo_visibility", "voc_grounding", "dark_social", "search_index",
@@ -1129,7 +1129,10 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
     ideas = (bundle.get("ideas") or {}).get("ideas") or []
     if ideas:
         ins["ideas"] = f'{len(ideas)} tests proposed; first: {trunc(ideas[0].get("title"), 90)}.'
-    pc = (bundle.get("analyst_panel") or {}).get("consensus") or {}
+    apf = [f for f in ((bundle.get("ad_patterns") or {}).get("findings") or []) if isinstance(f, dict)]
+    if apf:
+        ins["adpatterns"] = f'Real ads: {trunc(apf[0].get("heading"), 90)} (observational, not performance).'
+    pc =(bundle.get("analyst_panel") or {}).get("consensus") or {}
     if pc.get("consensus"):
         ins["analysts"] = (f'Consensus is {pc["consensus"]}'
                            + (f'; best audience {pc["best_audience"]["winner"]}' if (pc.get("best_audience") or {}).get("winner") else "")
@@ -1254,6 +1257,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                          ("marketing lab", lambda: gtm_view.lab_section(bundle, insights.get("gtm"))),
                          ("agent thoughts", lambda: gtm_view.thoughts_section(bundle, insights.get("thoughts"))),
                          ("test ideas", lambda: report_view.ideas_section(bundle.get("ideas"), insights.get("ideas"))),
+                         ("ad patterns", lambda: report_view.ad_patterns_section(bundle.get("ad_patterns"), insights.get("adpatterns"))),
                          ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
         extra = _safe(label, build)                          # pitch ends up first
         if extra:
@@ -1275,6 +1279,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         files["feed_story.json"] = json.dumps(bundle["feed_story"], ensure_ascii=False, default=str)
     if pitch.get("answered"):
         files["pitch.json"] = json.dumps(pitch, ensure_ascii=False, indent=2, default=str)
+    if isinstance(bundle.get("ad_patterns"), dict) and bundle["ad_patterns"].get("longevity"):
+        files["ad_patterns.md"] = bundle["ad_patterns"].get("markdown") or ""
     if (bundle.get("ideas") or {}).get("ideas"):
         files["ideas.md"] = bundle["ideas"].get("markdown") or ""
         files["ideas.json"] = json.dumps(bundle["ideas"], ensure_ascii=False, indent=2, default=str)

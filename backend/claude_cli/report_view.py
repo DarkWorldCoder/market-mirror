@@ -518,6 +518,81 @@ def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None
     return ("ideas", "Test ideas", html)
 
 
+def ad_patterns_section(ap: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Ad patterns': real ads labelled on seven creative dimensions, which labels stay in market 60+ days, real
+    results when the rows had metrics, and the run's simulated creatives on the same labels (kept apart)."""
+    if not isinstance(ap, dict) or not isinstance(ap.get("longevity"), dict):
+        return None
+    lon, c = ap["longevity"], ap.get("counts") or {}
+    sim = ap.get("simulated") if isinstance(ap.get("simulated"), dict) else None
+    pct = lambda v: "–" if ui.num(v) is None else f"{round(100 * float(v))}%"
+    ads = {a.get("id"): a for a in ap.get("ads") or [] if isinstance(a, dict)}
+    tiles = [("Real ads labelled", f'{c.get("labelled", 0)} / {c.get("ads", 0)}', ap.get("engine")),
+             ("Dated active ads", lon.get("dated_active"), "have a start date and are still running"),
+             (f'Running {lon.get("min_age_days", 60)}+ days', pct(lon.get("baseline_share")), "library baseline"),
+             ("Your simulated creatives", c.get("simulated_creatives") or "–", "same labels, simulated CTR")]
+    tiles_html = "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles)
+    cards = []
+    for f in ap.get("findings") or []:
+        if not isinstance(f, dict):
+            continue
+        tag = "Real ads · longevity" if f.get("kind") == "real_longevity" else "Real ads · your account's results"
+        ex = "".join(
+            f'<li>{_e(ads[i].get("brand"))}: {_e(_t(ads[i].get("headline") or ads[i].get("text"), 120))}'
+            + (f' <a href="{_e(ads[i]["url"])}" rel="noopener noreferrer" target="_blank">source</a>' if ads[i].get("url") else "")
+            + "</li>" for i in f.get("example_ids") or [] if i in ads)
+        cards.append(
+            f'<div class="play idea"><div class="play-h"><strong>{_e(f.get("heading"))}</strong>{_pill(tag, "sky")}</div>'
+            f'<p>{_e(f.get("observation"))}</p><dl>'
+            + (f'<dt>Simulated</dt><dd>{_pill("Simulated", "orchid")} {_e(f["simulated_note"])}</dd>' if f.get("simulated_note") else "")
+            + f'<dt>Next test</dt><dd>{_e(f.get("next_test"))}</dd>'
+            + (f'<dt>Examples</dt><dd><ul class="small">{ex}</ul></dd>' if ex else "")
+            + '</dl></div>')
+    tables = []
+    for dim in ("format", "hook", "angle", "offer", "proof", "objection", "cta"):
+        rows = (lon.get("by_dimension") or {}).get(dim) or []
+        if not rows:
+            continue
+        srows = {r.get("value"): r for r in ((sim or {}).get("by_dimension") or {}).get(dim) or []}
+        body = "".join(
+            f'<tr><td><b>{_e(str(r.get("value")).replace("_", " "))}</b>'
+            + ("" if r.get("enough") else ' <span class="small muted">(small)</span>') + "</td>"
+            f'<td class="num">{_e(ui.fnum(r.get("ads")))}</td><td class="num">{_e(ui.fnum(r.get("families")))}</td>'
+            f'<td class="num">{_e(ui.fnum(r.get("dated_active")))}</td><td class="num">{_e(pct(r.get("share")))}</td>'
+            f'<td class="num">{_e(r.get("ratio_to_baseline") if r.get("ratio_to_baseline") is not None else "–")}</td>'
+            f'<td class="num">{_e(ui.fnum(r.get("median_age_days")))}</td>'
+            + (f'<td class="small">{_e(", ".join(srows[r["value"]]["creatives"]) + (" · " + ui.rawnum(srows[r["value"]].get("expected_ctr"), "%") if srows[r["value"]].get("expected_ctr") is not None else ""))}</td>'
+               if sim and r.get("value") in srows else ("<td>–</td>" if sim else ""))
+            + "</tr>" for r in rows)
+        only_sim = [v for v in srows if v not in {r.get("value") for r in rows}]
+        if only_sim:
+            body += "".join(f'<tr><td><b>{_e(v.replace("_", " "))}</b> <span class="small muted">(no real ads)</span></td>'
+                            + '<td class="num">0</td>' * 2 + '<td class="num">0</td><td>–</td><td>–</td><td>–</td>'
+                            f'<td class="small">{_e(", ".join(srows[v]["creatives"]))}</td></tr>' for v in only_sim)
+        tables.append(
+            f'<div class="card"><h3>{_e(dim.capitalize())}</h3><div class="tbl"><table class="sortable"><thead><tr>'
+            f'<th>Label</th><th class="num">Ads</th><th class="num">Families</th><th class="num">Dated active</th>'
+            f'<th class="num">{_e(lon.get("min_age_days", 60))}+ days</th><th class="num">× library</th><th class="num">Median age</th>'
+            + ('<th>Your creatives (simulated CTR)</th>' if sim else "") + f'</tr></thead><tbody>{body}</tbody></table></div></div>')
+    res = ap.get("results") if isinstance(ap.get("results"), dict) else None
+    if res:
+        rr = "".join(f'<tr><td><b>{_e(str(r.get("value")).replace("_", " "))}</b></td><td class="num">{_e(ui.fnum(r.get("ads")))}</td>'
+                     f'<td class="num">{_e(ui.fnum(r.get("impressions")))}</td><td class="num">{_e(ui.rawnum(r.get("ctr"), "%"))}</td>'
+                     f'<td class="num">{_e(ui.fnum(r.get("cpa")))}</td></tr>' for r in (res.get("by_dimension") or {}).get("hook") or [])
+        tables.append(f'<div class="card"><h3>Hook · real results in your account</h3><div class="tbl"><table class="sortable"><thead><tr>'
+                      f'<th>Hook</th><th class="num">Ads</th><th class="num">Impressions</th><th class="num">CTR</th>'
+                      f'<th class="num">CPA</th></tr></thead><tbody>{rr}</tbody></table></div></div>')
+    caveats = "".join(f"<li>{_e(x)}</li>" for x in ap.get("caveats") or [])
+    intro = (f'Real ads labelled on seven creative dimensions. Real-ad patterns are observational: an ad still running after '
+             f'{lon.get("min_age_days", 60)} days is not proven profitable. Groups need {lon.get("min_group")}+ dated ads to count.'
+             + (" Your simulated creatives carry the same labels and are marked Simulated." if sim else ""))
+    html = (ui.section_head("Ad patterns", intro, insight) + f'<div class="kpis auto">{tiles_html}</div>'
+            + (f'<div class="plays">{"".join(cards)}</div>' if cards else "") + "".join(tables)
+            + (f'<details class="small muted"><summary>How to read this</summary><ul>{caveats}</ul>'
+               f'<p>{_e(ap.get("credit"))}</p></details>' if caveats else ""))
+    return ("adpatterns", "Ad patterns", html)
+
+
 REPORT_CSS += """
 .mixbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0}
 .mixbar span{display:block;height:100%}.mixbar .yes{background:var(--mm-yes)}.mixbar .maybe{background:var(--mm-maybe)}.mixbar .no{background:var(--mm-no)}

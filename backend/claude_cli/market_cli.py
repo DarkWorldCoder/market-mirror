@@ -407,13 +407,14 @@ def _canon(row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def read_ads(path: str) -> List[Dict[str, Any]]:
+def read_rows(path: str) -> List[Dict[str, Any]]:
+    """Raw rows of a CSV / TSV / JSON export (a list, or {ad_entities|data|rows|ads: [...]})."""
     with open(path, encoding="utf-8-sig") as f:
         text = f.read()
     if path.lower().endswith(".json") or text.lstrip().startswith(("[", "{")):
         data = json.loads(text)
         if isinstance(data, dict):
-            data = data.get("ad_entities") or data.get("data") or data.get("rows") or []
+            data = data.get("ad_entities") or data.get("data") or data.get("rows") or data.get("ads") or []
             if isinstance(data, str):
                 data = json.loads(data)
         rows = data
@@ -424,7 +425,11 @@ def read_ads(path: str) -> List[Dict[str, Any]]:
         except csv.Error:
             dialect = csv.excel
         rows = list(csv.DictReader(io.StringIO(text), dialect=dialect))
-    out = [_canon(r) for r in rows if isinstance(r, dict)]
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def read_ads(path: str) -> List[Dict[str, Any]]:
+    out = [_canon(r) for r in read_rows(path)]
     return [r for r in out if r["impressions"] or r["spend"] or r["clicks"]]
 
 
@@ -648,6 +653,74 @@ def ideas(c, run_dir: Optional[str], log, ads_path: Optional[str] = None, ads_ro
     return {"ideas": os.path.abspath(out_json), "markdown": os.path.abspath(out_md), "method": data.get("method"),
             "count": len(data.get("ideas") or []),
             "titles": [f"{i.get('title')} ({i.get('type')}, {i.get('priority')})" for i in data.get("ideas") or []]}
+
+
+# --------------------------------------------------------------------------
+# ad patterns
+# --------------------------------------------------------------------------
+
+def load_service(name: str):
+    """backend/app/services/<name>.py by path, for the stdlib-only services (jev, ad_patterns), so a command works
+    without the backend's packages."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", f"{name}.py")
+    spec = importlib.util.spec_from_file_location(f"mm_{name}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def ad_patterns(c, log, ads_path: Optional[str] = None, ads_rows: Optional[List[Dict[str, Any]]] = None,
+                run_dir: Optional[str] = None, out: Optional[str] = None, engine: str = "auto", brand: str = "",
+                max_ads: int = 300, now: Optional[str] = None) -> Dict[str, Any]:
+    """Label a library of real ads on seven creative dimensions and find the patterns (ad_patterns.json/.md/.csv).
+    engine 'supplied' uses labels already in the rows and runs offline; the others call the backend."""
+    rows = list(ads_rows or [])
+    if ads_path:
+        rows += read_rows(ads_path)
+    if not rows:
+        raise ValueError("ad-patterns: give --ads (CSV/JSON of ads) or --rows (JSON list)")
+    feed = None
+    if run_dir:
+        try:
+            with open(os.path.join(run_dir, "feed_test.json"), encoding="utf-8") as f:
+                ft = json.load(f)
+            feed = {"creatives": [{k: cr.get(k) for k in ("id", "page", "text", "headline", "cta", "media", "platform")}
+                                  for cr in ft.get("creatives") or [] if isinstance(cr, dict)],
+                    "summary": {"per_creative": (ft.get("summary") or {}).get("per_creative") or {}}}
+        except (OSError, ValueError):
+            log(f"ad-patterns: no feed_test.json in {run_dir}; real ads only")
+    log(f"ad-patterns: {len(rows)} rows, engine {engine}" + (f", {len(feed['creatives'])} simulated creatives" if feed else ""))
+    if engine == "supplied":
+        ap = load_service("ad_patterns")
+        ads = ap.normalize_ads(rows, now=now, limit=max_ads) + ap.creatives_from_feed_test(feed or {})
+        if not any(a["source"] == "real" for a in ads):
+            raise ValueError("ad-patterns: no ads with text, headline or visual_notes")
+        data = ap.analyse(ads, "supplied", {"brand": brand})
+        csv_text = ap.to_csv(data)
+    else:
+        if c is None:
+            raise ValueError("ad-patterns: labelling needs the backend (start_server.sh), or use --engine supplied "
+                             "with rows that already carry labels")
+        data = c.data("POST", "/api/simulation/ad-patterns",
+                      json={"ads": rows[:max_ads], "feed_test": feed, "engine": engine, "brand": brand, "now": now,
+                            "max_ads": max_ads}, timeout=1800)
+        csv_text = load_service("ad_patterns").to_csv(data)
+    out_json = out or os.path.join(run_dir or ".", "ad_patterns.json")
+    os.makedirs(os.path.dirname(os.path.abspath(out_json)), exist_ok=True)
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    base = os.path.splitext(out_json)[0]
+    with open(base + ".md", "w", encoding="utf-8") as f:
+        f.write(data.get("markdown") or "")
+    with open(base + ".csv", "w", encoding="utf-8", newline="") as f:
+        f.write(csv_text)
+    counts = data.get("counts") or {}
+    log(f"ad-patterns: {counts.get('labelled')} of {counts.get('ads')} ads labelled, {counts.get('failed')} failed")
+    return {"ad_patterns": os.path.abspath(out_json), "markdown": os.path.abspath(base + ".md"),
+            "csv": os.path.abspath(base + ".csv"), "engine": data.get("engine"), "counts": counts,
+            "findings": [f"{f.get('heading')} [{f.get('kind')}]" for f in data.get("findings") or []],
+            "usage": data.get("usage")}
 
 
 # --------------------------------------------------------------------------
