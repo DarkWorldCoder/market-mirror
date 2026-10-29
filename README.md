@@ -21,6 +21,8 @@ Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](h
 
 **[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
 
+<img src="docs/images/marketmirror-loop.svg" width="100%" alt="MarketMirror in one loop: a Fitloop ad is tested on six simulated buyers in Pune, Nairobi, Manila, Austin, Taipei and Milan. They stop, scroll past, click, save or hide it, two of them argue about the free trial, the survey shows 31% yes, 46% maybe and 23% no, and the verdict is iterate: say no card needed in line one. Illustration with simulated numbers." />
+
 </div>
 
 **Try it** (Linux, macOS or WSL; needs Git, [uv](https://docs.astral.sh/uv/) and Python 3.12):
