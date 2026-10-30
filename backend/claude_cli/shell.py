@@ -76,7 +76,7 @@ ICON_OF = {"kpis": "grid", "decision": "target", "worldmap": "globe", "report": 
            "pricing": "tag", "voices": "quote", "models": "layers", "thoughts": "bulb", "gtm": "rocket", "competitors": "target", "cro-lab": "pulse", "search-geo": "search", "feedtest": "image", "socialfeed": "feed", "posts": "feed", "email": "mail",
            "emailtest": "mail", "pitch": "phone", "website": "globe", "playbook": "play", "ideas": "bulb", "scenarios": "layers",
            "study": "layers", "campaign": "rocket", "research": "search", "evidence": "search", "predictions": "trend",
-           "prediction": "trend", "analysts": "check", "backtest": "rewind", "run-health": "pulse", "agents": "user",
+           "prediction": "trend", "analysts": "check", "backtest": "rewind", "choice": "bars", "run-health": "pulse", "agents": "user",
            "timeline": "clock", "graph": "nodes", "overview": "gear", "engine-report": "doc"}
 
 

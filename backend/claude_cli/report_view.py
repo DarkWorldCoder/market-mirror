@@ -518,6 +518,46 @@ def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None
     return ("ideas", "Test ideas", html)
 
 
+def choice_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Choice tests': MaxDiff ranking, conjoint importance and part-worths, Gabor-Granger demand curve."""
+    md, cj, gg = (bundle.get(k) if isinstance(bundle.get(k), dict) else None
+                  for k in ("choice_maxdiff", "choice_conjoint", "choice_gabor_granger"))
+    if not (md or cj or gg):
+        return None
+    pct = lambda v: "–" if ui.num(v) is None else f"{100 * float(v):.0f}%"
+    parts = []
+    if md and md.get("ranking"):
+        rows = [[r["item"], f'{100 * r["score"]:+.0f}',
+                 f'{100 * r["ci"][0]:+.0f} to {100 * r["ci"][1]:+.0f}' if r.get("ci") else "–", r.get("best"), r.get("worst")]
+                for r in md["ranking"]]
+        parts.append(f'<div class="card"><h3>What matters most (MaxDiff, {md.get("answered")} people)</h3>'
+                     + ui.table(["Item", "Best − worst", "95% interval", "Picked most", "Picked least"], rows, sortable=True)
+                     + "</div>")
+    if cj and cj.get("fit"):
+        fit = cj["fit"]
+        imp = [[a, pct(v)] for a, v in (fit.get("importance") or {}).items()]
+        pw = [[a, lv, f"{u:+.2f}"] for a, lv_u in (fit.get("part_worths") or {}).items() for lv, u in lv_u.items()]
+        wtp = cj.get("wtp") or {}
+        wtp_txt = ""
+        if wtp:
+            wtp_txt = (f'<p class="small">Price direction: {"utility falls as price rises (expected)" if wtp.get("sign_ok") else "<b>utility does not fall with price: treat price results as unreliable</b>"}. '
+                       f'{_e(wtp.get("note") or "")}</p>')
+        parts.append(f'<div class="card"><h3>What drives the choice (conjoint, {cj.get("answered")} people, '
+                     f'none chosen {pct(cj.get("none_share"))})</h3>' + ui.table(["Attribute", "Importance"], imp, sortable=True)
+                     + wtp_txt + f'<details class="tv"><summary>Part-worths</summary>{ui.table(["Attribute", "Level", "Part-worth"], pw)}</details></div>')
+    if gg and gg.get("curve"):
+        rows = [[r["price"], r.get("n"), pct(r.get("share_buy")), r.get("revenue_index") if r.get("revenue_index") is not None else "–"]
+                for r in gg["curve"]]
+        parts.append(f'<div class="card"><h3>Demand at each price (Gabor-Granger, {gg.get("answered")} people)</h3>'
+                     + ui.table(["Price", "People", "Would buy", "Revenue index"], rows)
+                     + f'<p class="small">Highest revenue on this curve: <b>{_e(gg.get("revenue_max_price") or "–")}</b>.'
+                     + (f' {gg["inconsistent_people"]} people said yes to a higher price after no to a lower one.' if gg.get("inconsistent_people") else "")
+                     + f' {_e(gg.get("note") or "")}</p></div>')
+    head = ui.section_head("Choice tests", "Ranking, trade-offs and price response from the simulated people: directions to "
+                           "test with real buyers, not measured shares.", insight)
+    return ("choice", "Choice tests", head + "".join(parts))
+
+
 def ad_patterns_section(ap: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Ad patterns': real ads labelled on seven creative dimensions, which labels stay in market 60+ days, real
     results when the rows had metrics, and the run's simulated creatives on the same labels (kept apart)."""

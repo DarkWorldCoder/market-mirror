@@ -339,7 +339,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"spec": {"type": "object"}, "out": {"type": "string"}}, "required": ["spec"]}},
     {"name": "run_test", "description": (
         "Test anything from one spec on a prepared simulation: type = ad | message | price | offer | positioning | naming | landing | "
-        "launch | pitch | email | creator_post | channel_mix; variants = the things to compare (ad creatives, message lines, prices, "
+        "launch | pitch | email | creator_post | channel_mix | maxdiff (variants = claims or features to rank) | conjoint "
+        "(attributes {name: [levels]}, price_attribute?, held_fixed?) | gabor_granger (variants = prices); variants = the things to compare (ad creatives, message lines, prices, "
         "offer wordings, names, landing pages, launch posts with rounds, pitch scripts, emails); audience {segments, countries}; "
         "metric (default per type); budget {amount, cpm, currency}; rounds (launch). Returns one result shape for every type: each "
         "variant's metric with a 95% margin, the winner, the lift, whether it is clear or a tie, and how to read it. Background job."),
