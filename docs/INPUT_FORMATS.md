@@ -25,6 +25,37 @@ All brands, audiences, pilot notes, and benchmark values below are illustrative.
 
 Up to 500 people per segment and 2,000 in total. `run --auto-personas N` plans segments and communities for you. Optional keys: `"probes": false` skips the second interview call (adaptive follow-ups, product questions, BDE card); `"population": {"India": {"age": {"18-24": 0.32, "25-34": 0.28, ...}, "gender": {"female": 0.49, "male": 0.51}}}` rakes each person's `weight` to the census-like shares you give, so weighted rates reflect the supplied marginal shares; this does not establish joint representativeness or predictive accuracy (bring the shares from your census or ad-platform reach data; none are shipped).
 
+**Grounded personas from your own customers (`real_profiles`)**
+
+Add real customers next to the planned segments. Each record becomes one persona marked *Grounded* in the dashboard; the planner never invents what a record leaves out.
+
+```json
+{
+  "segments": [{"label": "Teams", "count": 20, "country": "United States"}],
+  "real_profiles": [
+    {"name": "Customer 1", "segment": "Pro", "country": "India",
+     "excerpts": ["The app kept charging me after I cancelled", "I only pay for tools my manager approves."],
+     "past_purchases": ["Pro plan"],
+     "bde": {"decision_procedure": {"who_they_ask": "my manager", "stoppers": ["charges after cancelling"]}}}
+  ]
+}
+```
+
+You rarely write these by hand. `intake` builds them from the material you already have: call or interview transcripts (`.txt`, `.md`, `.vtt`, `.srt`, one person per file), review exports, NPS or survey verbatims and CRM notes (`.csv`, `.tsv`, `.json`, `.jsonl`):
+
+```bash
+python backend/claude_cli/mirofish.py intake --files reviews.csv calls/*.txt --segment-field plan \
+       --base scenarios/x/personas.json --out scenarios/x/personas.json          # model-written records (backend)
+python backend/claude_cli/mirofish.py intake --files reviews.csv --engine supplied --out scenarios/x/personas.json   # offline
+```
+
+- **Contact details are removed first, on your machine:** emails, phone and card-like numbers, links, @handles, and the names found in name or author columns (replaced by initials). Names that appear only inside free text are not detected, so read `intake.md` before sharing anything.
+- **Quotes are verbatim.** A quote the model returns that is not in that person's own material is dropped.
+- **Nothing is invented.** Age, country, city and gender are kept only when a column or the text states them. Decision-card fields stay empty unless the person said so.
+- **The output** is the persona spec (`real_profiles` added, or replacing earlier intake records with `--replace`), plus `intake.json` and `intake.md` next to it. In `market_test.json`, use `"intake": {"files": ["reviews.csv"], "segment_field": "plan"}`.
+
+Grounded people are a small, self-selected sample: the customers who wrote a review or took a call. Synthetic people fill the rest of the audience. Use `calibrate` to check coverage before treating results as representative.
+
 **creatives.json**
 
 ```json

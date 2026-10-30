@@ -645,6 +645,43 @@ def ad_patterns():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@simulation_bp.route('/intake', methods=['POST'])
+def customer_intake():
+    """POST {rows: [raw rows from transcripts, reviews, NPS/survey verbatims or CRM notes], engine?: llm|supplied,
+    context?, id_field?, segment_field?, text_field?, segment?, max_people?} -> {records: real_profiles records,
+    counts, usage, note} (synchronous). Contact details are scrubbed before the model call; quotes are verbatim."""
+    from ..services import intake
+    data = request.get_json() or {}
+    rows = data.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"success": False, "error": "rows must be a non-empty list"}), 400
+    engine = str(data.get("engine") or "llm").lower()
+    complete = None
+    if engine == "llm":
+        client = _client()
+
+        def complete(system: str, user: str):
+            from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+            resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=6000,
+                                          messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+            u = getattr(resp, "usage", None)
+            return extract_chat_completion_text(resp), {
+                "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = intake.run(rows, engine=engine, complete=complete, context=str(data.get("context") or "")[:2000],
+                         id_field=str(data.get("id_field") or ""), segment_field=str(data.get("segment_field") or ""),
+                         text_field=str(data.get("text_field") or ""), segment=str(data.get("segment") or ""),
+                         max_people=max(1, min(int(data.get("max_people") or intake.MAX_PEOPLE), intake.MAX_PEOPLE)))
+        if engine == "llm":
+            out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"intake failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/market-report', methods=['POST'])
 def start_market_report():
     """POST {simulation_id, material, brand?} -> background job writing market_report.json (plain-language report)."""

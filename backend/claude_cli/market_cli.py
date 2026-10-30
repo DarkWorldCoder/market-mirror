@@ -731,6 +731,61 @@ def ad_patterns(c, log, ads_path: Optional[str] = None, ads_rows: Optional[List[
 
 
 # --------------------------------------------------------------------------
+# customer intake
+# --------------------------------------------------------------------------
+
+def intake(c, log, files: Optional[List[str]] = None, rows: Optional[List[Dict[str, Any]]] = None,
+           out: Optional[str] = None, base: Optional[str] = None, engine: str = "llm", context: str = "",
+           id_field: str = "", segment_field: str = "", text_field: str = "", segment: str = "",
+           max_people: int = 200, replace: bool = False) -> Dict[str, Any]:
+    """Customer material (transcripts, reviews, NPS/survey verbatims, CRM notes) -> grounded personas in a persona
+    spec (real_profiles), plus intake.json / intake.md next to it. 'supplied' runs offline without a model."""
+    svc = load_service("intake")
+    raw = list(rows or [])
+    if files:
+        raw += svc.read_sources(files)
+    if not raw:
+        raise ValueError("intake: give --files (CSV/JSON exports, txt/md/vtt transcripts) or --rows")
+    log(f"intake: {len(raw)} rows from {len(files or [])} files, engine {engine}")
+    kw = {"id_field": id_field, "segment_field": segment_field, "text_field": text_field, "segment": segment,
+          "max_people": max_people}
+    if engine == "supplied":
+        data = svc.run(raw, engine="supplied", **kw)
+    else:
+        if c is None:
+            raise ValueError("intake: engine llm needs the backend (start_server.sh), or use --engine supplied")
+        people, local = svc.prepare(raw, **kw)     # scrub here, so contact details never leave this process
+        scrubbed_rows = [{"id": f"p{p['n']}", "text": p["material"], "_source": ", ".join(p["sources"]), **p["meta"]}
+                         for p in people]
+        data = c.data("POST", "/api/simulation/intake",
+                      json={"rows": scrubbed_rows, "engine": "llm", "context": context, "id_field": "id",
+                            "max_people": max_people}, timeout=1800)
+        data.setdefault("counts", {}).update({k: local[k] for k in ("rows", "rows_with_text", "scrubbed")})
+    out_spec = out or "personas.json"
+    spec: Dict[str, Any] = {}
+    for path in (base, out_spec):
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+            break
+    spec = svc.merge_into_spec(data.get("records") or [], spec, replace=replace)
+    os.makedirs(os.path.dirname(os.path.abspath(out_spec)), exist_ok=True)
+    with open(out_spec, "w", encoding="utf-8") as f:
+        json.dump(spec, f, ensure_ascii=False, indent=2)
+    report = os.path.join(os.path.dirname(os.path.abspath(out_spec)), "intake.json")
+    with open(report, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(os.path.splitext(report)[0] + ".md", "w", encoding="utf-8") as f:
+        f.write(svc.render_markdown(data))
+    counts = data.get("counts") or {}
+    log(f"intake: {counts.get('records')} grounded records from {counts.get('people')} people; "
+        f"{counts.get('excerpts_dropped', 0)} quotes dropped (not in the source); personas -> {out_spec}")
+    return {"personas": os.path.abspath(out_spec), "intake": report, "markdown": os.path.splitext(report)[0] + ".md",
+            "engine": data.get("engine"), "counts": counts, "usage": data.get("usage"),
+            "real_profiles": len(spec.get("real_profiles") or []), "note": data.get("note")}
+
+
+# --------------------------------------------------------------------------
 # emailtest
 # --------------------------------------------------------------------------
 

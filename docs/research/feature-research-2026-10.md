@@ -24,7 +24,7 @@ Confirmed gaps, which the shortlist below draws on:
 - **Pricing and choice methods are incomplete.** `conjoint` raises "not available yet" (`claude_cli/experiments.py:343`), and there is no MaxDiff or Gabor-Granger.
 - **No PPI, conformal intervals or effective sample size.** Intervals in `predict.py` are ratio spreads.
 - **No population-level distribution estimator.** There is no option-order or paraphrase perturbation, and no shrinkage of simulated lifts.
-- **Personas cannot be built from real customer data.** Real quotes are only prompt grounding (`persona_planner.py:658`).
+- **No intake from raw customer material.** Structured real records already become grounded personas (`PersonaSpec.real_profiles`, `persona_planner.py:1572`, with a Grounded badge in the dashboard), but nothing turns transcripts, reviews or CRM exports into those records, and the input was undocumented. Research voices are only prompt grounding (`persona_planner.py:658`).
 - **Personas can't be talked to after a run.** Interviews need a live OASIS environment, and there is no moderated focus group.
 - **No public accuracy record.** There is no human-accuracy benchmark anywhere in the repo (`benchmarks/` holds speed and website fixtures only).
 - **The MCP server is tools-only.** It has no UI resources, tasks, elicitation, prompts or resources, and no recipes for the ad, analytics or CRM MCP servers marketers already connect.
@@ -108,8 +108,8 @@ Scores run 1–5:
 
 | # | Feature | Impact | Stars | Evidence | Effort | Score |
 |---|---|---|---|---|---|---|
-| 1 | Buyers see the real ad: image and video creatives | 5 | 5 | 3 | 2 | 7.5 |
-| 2 | Twins grounded in real customer material | 5 | 4 | 5 | 3 | 7.5 |
+| 1 | Customer intake into grounded twins (the persona side exists) | 5 | 4 | 4 | 2 | 9.0 |
+| 2 | Buyers see the real ad: image and video creatives | 5 | 5 | 3 | 2 | 7.5 |
 | 3 | Valid intervals from a small real sample (PPI++, effective sample size, sample planner) | 4 | 2 | 5 | 2 | 7.5 |
 | 4 | MarketMirror-Bench: a public accuracy record on open human data | 5 | 5 | 4 | 3 | 6.7 |
 | 5 | Distribution-accurate survey (describe estimator, perturbation, dispersion, shrinkage) | 4 | 2 | 4 | 2 | 6.0 |
@@ -119,7 +119,19 @@ Scores run 1–5:
 | 9 | Archetype or hybrid scaling to 10k–100k weighted buyers | 3 | 3 | 3 | 4 | 2.25 |
 | 10 | Counterfactual branch from round N | 4 | 4 | 2 | 4 | 2.0 |
 
-### 1. Buyers see the real ad: image and video creatives
+### 1. Customer intake into grounded twins
+
+- **Who has it:** Electric Twin, Ask Rally ("clone from transcripts"), Simile (bring your own data), Native AI, Delve AI (HubSpot), Brox (real recontactable twins).
+- **Why it matters:** a founder's best evidence is their own calls, reviews, support tickets, NPS verbatims and CRM notes. This is also the largest accuracy lever in the literature: Park et al.'s gain comes from real interviews, and MarketMirror's interviews are currently synthetic.
+- **Evidence:** strong. The 1,000-person study gives +14–15 normalized points. Deng et al. 2026 found real interviews beat demographic profiles on held-out marketing responses. Twin mega-study caveat: richer data improves correlation, but levels stay off.
+- **Fit:** the grounded-persona side already exists (`real_profiles`). Missing is the intake:
+  - A new `intake` step reads transcripts, review exports, NPS CSVs or CRM notes and scrubs PII locally (emails, phone numbers, names → initials) before any model call.
+  - It clusters people into *source records* and writes `personas.json` entries whose interview answers are **quoted from the source** with `provenance: "real"`; unknown fields stay unknown.
+  - The planner fills the remaining slots synthetically, labelled `provenance: "synthetic"`.
+  - The dashboard's people cards show the provenance badge. `calibrate` can then compare real-grounded and synthetic personas on the same outcomes.
+  - This implements "First: grounding" in HUMAN_BEHAVIOR_RESEARCH.md.
+
+### 2. Buyers see the real ad: image and video creatives
 
 - **Who has it:** Kantar LINK AI, Yabble Vision, Ask Rally, DAIVID, Neurons; TinyTroupe 0.7 added vision.
 - **Why it matters:** the visual decides the scroll on Instagram, TikTok and Facebook. Today a persona reacts to "(image: a woman running at sunrise)", which tests the copywriter's description rather than the creative. This is the most visible gap a marketer would notice.
@@ -130,18 +142,6 @@ Scores run 1–5:
   - With `vision: "direct"`, each persona's scroll prompt also carries the image as an OpenAI `image_url` part. `anthropic_native._to_native` translates that part into a native image block. The image sits in the cached shared prefix, so the crowd pays for it about once.
   - A brand-recall question ("which brand was the ad about?") in the follow-up survey uses behavior-state memories, giving a simple brand-linkage score in the spirit of System1 Fluency.
   - Ad patterns get a vision labelling option (`docs/ad-patterns.md:109`).
-
-### 2. Twins grounded in real customer material
-
-- **Who has it:** Electric Twin, Ask Rally ("clone from transcripts"), Simile (bring your own data), Native AI, Delve AI (HubSpot), Brox (real recontactable twins).
-- **Why it matters:** a founder's best evidence is their own calls, reviews, support tickets, NPS verbatims and CRM notes. This is also the largest accuracy lever in the literature: Park et al.'s gain comes from real interviews, and MarketMirror's interviews are currently synthetic.
-- **Evidence:** strong. The 1,000-person study gives +14–15 normalized points. Deng et al. 2026 found real interviews beat demographic profiles on held-out marketing responses. Twin mega-study caveat: richer data improves correlation, but levels stay off.
-- **Fit:**
-  - A new `intake` step reads transcripts, review exports, NPS CSVs or CRM notes and scrubs PII locally (emails, phone numbers, names → initials) before any model call.
-  - It clusters people into *source records* and writes `personas.json` entries whose interview answers are **quoted from the source** with `provenance: "real"`; unknown fields stay unknown.
-  - The planner fills the remaining slots synthetically, labelled `provenance: "synthetic"`.
-  - The dashboard's people cards show the provenance badge. `calibrate` can then compare real-grounded and synthetic personas on the same outcomes.
-  - This implements "First: grounding" in HUMAN_BEHAVIOR_RESEARCH.md.
 
 ### 3. Valid intervals from a small real sample
 

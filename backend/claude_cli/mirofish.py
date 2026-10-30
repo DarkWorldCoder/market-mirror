@@ -1383,6 +1383,20 @@ def cmd_market_test(c: Client, a) -> Any:
     if isinstance(persona_spec, str):
         with open(_cfg_path(base, persona_spec), encoding="utf-8") as f:
             persona_spec = json.load(f)
+    intake_cfg = cfg.get("intake")
+    if isinstance(intake_cfg, dict) and intake_cfg.get("files") and not state.get("intake"):
+        files = [p if os.path.isabs(p) else os.path.join(base, p.lstrip("@")) for p in intake_cfg["files"]]
+        res = market_cli.intake(c, log, files, None, os.path.join(out_dir, "personas_intake.json"), None,
+                                str(intake_cfg.get("engine") or "llm"), str(intake_cfg.get("context") or ""),
+                                str(intake_cfg.get("id_field") or ""), str(intake_cfg.get("segment_field") or ""),
+                                str(intake_cfg.get("text_field") or ""), str(intake_cfg.get("segment") or ""),
+                                int(intake_cfg.get("max_people") or 200))
+        state["intake"] = {k: res[k] for k in ("intake", "counts", "real_profiles")}
+        checkpoint()
+    if state.get("intake"):
+        with open(os.path.join(out_dir, "personas_intake.json"), encoding="utf-8") as f:
+            grounded = json.load(f).get("real_profiles") or []
+        persona_spec = {**(persona_spec or {}), "real_profiles": (persona_spec or {}).get("real_profiles", []) + grounded}
     if cfg.get("auto_personas"):
         persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
     if cfg.get("personas_lite") and persona_spec is not None:
@@ -1647,6 +1661,20 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
     if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
         res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
     return res
+
+
+def cmd_intake(c: Optional[Client], a) -> Any:
+    try:
+        rows = market_cli._load_json_arg(a.rows) if a.rows else None
+        if isinstance(rows, dict):
+            rows = rows.get("rows") or rows.get("data") or [rows]
+        if rows is not None and not isinstance(rows, list):
+            raise ValueError("--rows must be a JSON list of rows (or @file with one)")
+        context = read_text_arg(a.context) if a.context else ""
+        return market_cli.intake(c, log, a.files, rows, a.out, a.base, a.engine, context, a.id_field or "",
+                                 a.segment_field or "", a.text_field or "", a.segment or "", a.max_people, a.replace)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_quickstart(c: Optional[Client], a) -> Any:
@@ -2424,6 +2452,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-ads", type=int, default=300)
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
 
+    s = sub.add_parser("intake", help="turn your customer material (call transcripts, reviews, NPS/survey verbatims, CRM notes) "
+                                      "into grounded personas (personas.json real_profiles); contact details are removed first")
+    s.add_argument("--files", nargs="+", help="CSV/TSV/JSON/JSONL exports and txt/md/vtt/srt transcripts (one person per transcript)")
+    s.add_argument("--rows", help="@file.json or inline JSON list of rows (e.g. fetched by an agent from a CRM)")
+    s.add_argument("--out", help="persona spec to write (default ./personas.json; records are added to it when it exists)")
+    s.add_argument("--base", help="persona spec to start from (segments, communities); --out is written")
+    s.add_argument("--engine", default="llm", choices=["llm", "supplied"],
+                   help="llm = the chat model writes structured records from the words (backend); "
+                        "supplied = columns + the person's own sentences, no model (offline)")
+    s.add_argument("--context", help="product context for the model, text or @file")
+    s.add_argument("--id-field", help="column that identifies a customer (default: customer_id, author, email, name ...)")
+    s.add_argument("--segment-field", help="column to use as the audience segment (e.g. plan)")
+    s.add_argument("--text-field", help="column with the customer's words (default: text, review, transcript, notes ...)")
+    s.add_argument("--segment", help="segment label for rows without one")
+    s.add_argument("--max-people", type=int, default=200)
+    s.add_argument("--replace", action="store_true", help="replace earlier intake records in the spec instead of adding")
+
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
     s.add_argument("--text", help="the update, or @file")
@@ -2782,7 +2827,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "intake": cmd_intake, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -2798,7 +2843,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
         offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
-            (a.cmd == "ad-patterns" and a.engine == "supplied")
+            (a.cmd == "ad-patterns" and a.engine == "supplied") or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")
