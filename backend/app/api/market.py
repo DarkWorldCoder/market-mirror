@@ -305,6 +305,42 @@ def start_feed_test():
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
 
 
+@simulation_bp.route('/survey-estimate', methods=['POST'])
+def survey_estimate():
+    """POST {simulation_id, offer, goal, message?} -> per segment, how its answers would spread over the five
+    verdicts on interest, trust, purchase and recommend (two calls per segment, both verdict orders averaged)."""
+    from ..services import survey_estimate as se
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    segments: Dict[str, List[Dict[str, Any]]] = {}
+    for p in people:
+        segments.setdefault(str(p.get("segment") or "Everyone"), []).append(p)
+    if not segments:
+        return jsonify({"success": False, "error": "no personas yet: prepare the simulation first"}), 400
+    client = _client()
+
+    def complete(system, user):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=1200,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = se.run(segments, str(data.get("offer") or "")[:1500], str(data.get("goal") or "")[:300], complete,
+                     str(data.get("message") or "")[:1000])
+        out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"survey estimate failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/ssr', methods=['POST'])
 def semantic_similarity_rating():
     """Map free-text survey answers to 5-point rating distributions (arXiv 2510.08338)."""

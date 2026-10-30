@@ -408,8 +408,10 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                 platform: Optional[str] = None, batch: int = INTERVIEW_BATCH, wait_s: int = INTERVIEW_WAIT_S,
                 limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
                 seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False,
-                settle: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                settle: Optional[Dict[str, Any]] = None, estimate: bool = True) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
+    estimate: also ask, per segment, how its answers would spread (two calls per segment, survey_estimate.py), shown
+    next to the per-person distribution as a second method and a margin.
 
     settle: {"margin": 5, "min_n": 60, "cells": "provider"|"segment"|"segment,provider"|"all"}: ask in random
     batches interleaved across cells and stop asking a cell once its would-convert shares are settled (settle.py).
@@ -464,7 +466,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
     def ask(chunk):
         quota.wait_if_paused(log)          # don't spend batches while a model account is paused
         interviews = [{"agent_id": aid, "platform": platform,
-                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
+                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency, variant=aid)}
                       for aid in chunk]
         try:
             scope = getattr(c, "memory_scope", None)
@@ -518,7 +520,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         again = [{"agent_id": r["agent_id"], "platform": platform,
                   "prompt": "A week has passed since a researcher last asked you about this. They ask again; answer afresh "
                             "as you feel today, without trying to remember what you said.\n\n"
-                            + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency)} for r in sample]
+                            + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency,
+                                                      variant=r["agent_id"] + 1)} for r in sample]
         agree = interest_close = 0
         if again:
             try:
@@ -539,6 +542,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         retest_info = {"n": len(sample), "agreement_pct": round(100.0 * agree / len(sample), 1) if sample else None,
                        "interest_within_2_pct": round(100.0 * interest_close / len(sample), 1) if sample else None}
         log(f"survey: retest of {len(sample)} people: {retest_info['agreement_pct']}% gave the same verdict")
+    estimate_info = None
+    if estimate and any(r.get("answer") for r in responses):
+        estimate_info = _try("segment estimate", lambda: c.data(
+            "POST", "/api/simulation/survey-estimate",
+            json={"simulation_id": simulation_id, "offer": offer, "goal": goal,
+                  "message": messages[0] if messages and not split and len(messages) == 1 else ""}, timeout=900))
+        if estimate_info:
+            log(f"survey: segment estimate for {len(estimate_info.get('by_segment') or {})} segments "
+                f"({(estimate_info.get('usage') or {}).get('calls', 0)} calls)")
     scope = getattr(c, "memory_scope", None)
     if scope and scope != "off":
         _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
@@ -549,7 +561,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
               **({"settle": settler.summary(len(people))} if settler is not None else {}),
-              **({"objection_check": obj_check} if obj_check else {}), "responses": responses}
+              **({"objection_check": obj_check} if obj_check else {}),
+              **({"estimate": estimate_info} if estimate_info else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     if responses and not answered:
@@ -1205,7 +1218,8 @@ def cmd_survey(c: Client, a) -> Any:
                       a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr,
                       retest=a.retest, seed=a.assignment_seed, ssr_engine=a.ssr_engine,
                       objection_check=a.objection_check,
-                      settle={"margin": a.settle_margin, "min_n": a.settle_min, "cells": a.settle_cells} if a.settle else None)
+                      settle={"margin": a.settle_margin, "min_n": a.settle_min, "cells": a.settle_cells} if a.settle else None,
+                      estimate=not a.no_estimate)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -1508,7 +1522,8 @@ def cmd_market_test(c: Client, a) -> Any:
                 survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
                 seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
                 objection_check=bool(survey.get("objection_check")),
-                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None)), log)
+                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
+                estimate=survey.get("estimate", True) is not False), log)
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -2277,6 +2292,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--settle-cells", default="provider", help="settle: provider, segment, segment,provider or all")
     s.add_argument("--assignment-seed", type=int, default=11,
                    help="reproducible split-message assignment and retest sample (default %(default)s)")
+    s.add_argument("--no-estimate", action="store_true",
+                   help="skip the segment-level described distributions (two calls per segment) shown next to SSR")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
     s.add_argument("--ssr-engine", choices=["embeddings", "jev", "auto"],
