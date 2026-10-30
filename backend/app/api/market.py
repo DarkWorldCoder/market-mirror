@@ -37,7 +37,8 @@ logger = get_logger('mirofish.api.market')
 
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
                 "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json",
-                "website-test": "website_test.json", "thought-stream": "thought_stream.json"}
+                "website-test": "website_test.json", "thought-stream": "thought_stream.json",
+                "focus-group": "focus_group.json"}
 
 
 @simulation_bp.route('/website-test', methods=['POST'])
@@ -303,6 +304,98 @@ def start_feed_test():
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
+
+
+def _plain_complete(temperature: float = 0.8, max_tokens: int = 600):
+    client = _client()
+
+    def complete(system, user):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=temperature, max_tokens=max_tokens,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    return complete
+
+
+def pick_group(people: List[Dict[str, Any]], n: int, segment: str = "", ids: Any = None) -> List[Dict[str, Any]]:
+    """Explicit agent ids, else up to n people taken in turn from each segment (in agent-id order)."""
+    if isinstance(ids, list) and ids:
+        want = {int(i) for i in ids if str(i).lstrip("-").isdigit()}
+        return [p for p in people if p["agent_id"] in want]
+    pool = [p for p in people if not segment or str(p.get("segment") or "").lower() == segment.lower()]
+    by_seg: Dict[str, List[Dict[str, Any]]] = {}
+    for p in sorted(pool, key=lambda p: p["agent_id"]):
+        by_seg.setdefault(str(p.get("segment") or ""), []).append(p)
+    out: List[Dict[str, Any]] = []
+    while len(out) < n and any(by_seg.values()):
+        for seg in sorted(by_seg):
+            if by_seg[seg] and len(out) < n:
+                out.append(by_seg[seg].pop(0))
+    return out
+
+
+@simulation_bp.route('/ask', methods=['POST'])
+def ask_person():
+    """POST {simulation_id, agent_id, message, history?: [{role: user|person, text}]} -> {reply} (synchronous).
+    Talks to a saved persona after the run: no live simulation environment needed."""
+    from ..services import focus_group
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if not str(data.get("message") or "").strip():
+        return jsonify({"success": False, "error": "message is required"}), 400
+    try:
+        person = next(p for p in _with_history(people, sid, _memory_scope(data)) if p["agent_id"] == int(data.get("agent_id")))
+    except (StopIteration, TypeError, ValueError):
+        return jsonify({"success": False, "error": "agent_id is not one of this simulation's people"}), 404
+    try:
+        reply = focus_group.chat(person, str(data["message"])[:2000], _plain_complete(),
+                                 [t for t in data.get("history") or [] if isinstance(t, dict)])
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"ask failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "data": {"agent_id": person["agent_id"], "name": person.get("name"),
+                                              "segment": person.get("segment"), "reply": reply,
+                                              "note": "A simulated person's answer, not a real buyer's."}})
+
+
+@simulation_bp.route('/focus-group', methods=['POST'])
+def start_focus_group():
+    """POST {simulation_id, guide: [questions], people?: 6, segment?, agent_ids?, offer?, goal?, rounds?: 1}
+    -> background task writing focus_group.json (private verdict, moderated discussion, private verdict, themes)."""
+    from ..services import focus_group
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    guide = data.get("guide")
+    if isinstance(guide, str):
+        guide = [q for q in guide.splitlines() if q.strip()]
+    if not isinstance(guide, list) or not any(str(q).strip() for q in guide):
+        return jsonify({"success": False, "error": "guide must be a list of questions"}), 400
+    n = max(2, min(int(data.get("people") or 6), focus_group.MAX_PEOPLE))
+    scope = _memory_scope(data)
+    group = pick_group(_with_history(people, sid, scope), n, str(data.get("segment") or ""), data.get("agent_ids"))
+    if len(group) < 2:
+        return jsonify({"success": False, "error": "fewer than 2 matching people"}), 400
+    complete = _plain_complete()
+
+    def work(progress):
+        return focus_group.run_group(group, guide, complete, str(data.get("offer") or "")[:600],
+                                     str(data.get("goal") or "")[:200], int(data.get("rounds") or 1))
+
+    task_id = _start("focus-group", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(group),
+                                              "questions": len([q for q in guide if str(q).strip()])}})
 
 
 @simulation_bp.route('/ssr', methods=['POST'])
@@ -694,6 +787,7 @@ def market_task_status():
 @simulation_bp.route('/<simulation_id>/analyst-panel', methods=['GET'], defaults={"kind": "analyst-panel"})
 @simulation_bp.route('/<simulation_id>/pitch', methods=['GET'], defaults={"kind": "pitch"})
 @simulation_bp.route('/<simulation_id>/email-test', methods=['GET'], defaults={"kind": "email-test"})
+@simulation_bp.route('/<simulation_id>/focus-group', methods=['GET'], defaults={"kind": "focus-group"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
         return jsonify({"success": False, "error": "not found"}), 404
