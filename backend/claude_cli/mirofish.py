@@ -1649,6 +1649,65 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
     return res
 
 
+def _bench_complete():
+    """complete(system, user) on the configured model, in this process (no backend server needed)."""
+    from app.config import Config
+    from app.utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+    pool = Config.get_model_pool()
+
+    def complete(system, user):
+        resp = create_chat_completion(pool, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=2000,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {"input_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                                                    "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    complete.model = Config.LLM_MODEL_NAME
+    return complete
+
+
+def cmd_bench(c: Optional[Client], a) -> Any:
+    import bench
+    out_dir = a.out or os.path.join("benchmarks", "bench", "results")
+    cache = a.cache or os.path.join("benchmarks", "bench", "cache")
+    complete = _bench_complete() if a.approve_spend else None
+    try:
+        if a.suite == "upworthy":
+            if not a.data or not os.path.isfile(a.data):
+                raise ValueError("bench upworthy: --data <packages CSV from https://osf.io/jd64p/> is required")
+            people = []
+            if a.run_dir:
+                people = [p for p in marketing._profiles(exporter.load_run_dir(a.run_dir)) if p.get("persona") or p.get("bio")]
+            methods = a.methods or ["generic_reader", "persona_panel"]
+            res = bench.run_upworthy(a.data, a.n, complete, methods, people, a.panel_size, a.approve_spend)
+        else:
+            files = [os.path.join(cache, f) for f in sorted(os.listdir(cache))] if os.path.isdir(cache) else []
+            files = [f for f in files if os.path.basename(f).startswith("twin_")]
+            if a.fetch and len(files) < a.pool:
+                files = bench.fetch_twin(cache, a.pool, log)
+            if not files:
+                raise ValueError(f"bench twin2k: no rows in {cache}; add --fetch to download them (public, no key)")
+            rows = []
+            for f in files:
+                with open(f, encoding="utf-8") as fh:
+                    rows.append(json.load(fh))
+            methods = a.methods or ["no_persona", "twin"]
+            res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
+    res.update({"version": bench.VERSION, "model": getattr(complete, "model", None),
+                "at": datetime.now().isoformat(timespec="seconds")})
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.join(out_dir, f"bench_{a.suite}")
+    with open(stem + ".json", "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    with open(stem + ".md", "w", encoding="utf-8") as f:
+        f.write(bench.render_markdown(res))
+    log(("bench: dry run, nothing spent; " if res.get("dry_run") else "bench: ")
+        + f"estimate {res.get('estimate')} -> {stem}.json")
+    return {"bench": os.path.abspath(stem + ".json"), "markdown": os.path.abspath(stem + ".md"),
+            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods")}
+
+
 def cmd_quickstart(c: Optional[Client], a) -> Any:
     import quickstart
     try:
@@ -2424,6 +2483,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-ads", type=int, default=300)
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
 
+    s = sub.add_parser("bench", help="MarketMirror-Bench: score simulated answers against open human data (Upworthy "
+                                     "headline tests, Twin-2K-500) next to simpler comparators; dry run unless --approve-spend")
+    s.add_argument("--suite", required=True, choices=["upworthy", "twin2k"])
+    s.add_argument("--data", help="upworthy: the packages CSV from https://osf.io/jd64p/")
+    s.add_argument("--run-dir", help="upworthy persona_panel: a prepared run whose people vote")
+    s.add_argument("--panel-size", type=int, default=10)
+    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel; twin2k: no_persona twin")
+    s.add_argument("--n", type=int, default=50, help="tests (upworthy) or people (twin2k) in the fixed sample")
+    s.add_argument("--items", type=int, default=20, help="twin2k: questions per person")
+    s.add_argument("--blocks", default="pricing", choices=["pricing", "all"], help="twin2k: which questions")
+    s.add_argument("--fetch", action="store_true", help="twin2k: download rows from Hugging Face into --cache")
+    s.add_argument("--pool", type=int, default=200, help="twin2k: rows to download and sample from")
+    s.add_argument("--cache", help="twin2k cache folder (default benchmarks/bench/cache, gitignored)")
+    s.add_argument("--out", help="results folder (default benchmarks/bench/results)")
+    s.add_argument("--approve-spend", action="store_true", help="call the configured model; without it only an estimate")
+
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
     s.add_argument("--text", help="the update, or @file")
@@ -2782,7 +2857,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "bench": cmd_bench, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -2796,7 +2871,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied")
         if a.cmd == "backtest":
