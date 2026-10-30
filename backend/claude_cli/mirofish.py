@@ -1810,7 +1810,8 @@ def cmd_calibrate(c: Client, a) -> Any:
         y = {"yes": 1.0, "maybe": 0.5, "no": 0.0}.get(v) if isinstance(v, str) else (float(v) / 10 if isinstance(v, (int, float)) else None)
         if y is None:
             continue
-        synthetic.append({"segment": m.get("segment"), "country": m.get("country"), "gender": m.get("gender"), "age": m.get("age"), "y": y})
+        synthetic.append({"segment": m.get("segment"), "country": m.get("country"), "gender": m.get("gender"), "age": m.get("age"),
+                          "weight": m.get("weight") or 1.0, "y": y})
     mapping = dict(x.split("=", 1) for x in (a.map or []) if "=" in x)
     real = []
     try:
@@ -1832,10 +1833,18 @@ def cmd_calibrate(c: Client, a) -> Any:
     if not synthetic or not real:
         raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
     log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
-    res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field}, timeout=300)
+    res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field,
+                                                             "halfwidth": a.halfwidth}, timeout=300)
     save_json(out_dir, "calibration", res)
+    ppi = res.get("ppi") or {}
+    if ppi.get("reading"):
+        log("calibrate: " + ppi["reading"])
+    if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
+        _try("dashboard", lambda: do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None))
     return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
+            "ppi": {k: (ppi.get("overall") or {}).get(k) for k in ("estimate", "ci", "lambda", "effective_n", "worth_extra_real")},
+            "plan": ppi.get("plan"), "ppi_reading": ppi.get("reading"),
             "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
 
 
@@ -2479,6 +2488,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--map", nargs="*", help="column mapping, e.g. segment=Audience y=Converted")
     s.add_argument("--field", default="would_convert", help="survey field to compare (default %(default)s)")
     s.add_argument("--by", default="segment", help="subgroup key for the per-group verdicts (segment|country)")
+    s.add_argument("--halfwidth", type=float, default=0.05,
+                   help="target interval half-width for the sample planner (0.05 = +-5 points)")
 
     s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
     s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
