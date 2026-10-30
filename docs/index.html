@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MarketMirror: test ads and pitches on simulated buyers</title>
-<meta name="description" content="Test ads, prices and sales pitches on simulated buyers and get a go / iterate / no-go report. Open source, runs from Claude Code, Codex or any MCP client.">
+<title>MarketMirror — rehearse your next move</title>
+<meta name="description" content="Rehearse ads, pricing, emails and sales pitches with AI-simulated buyers. Explore the objections, compare your options and decide what to test with real people. Open source and self-hosted.">
 <link rel="canonical" href="https://darkworldcoder.github.io/market-mirror/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MarketMirror">
@@ -86,191 +86,62 @@
   ]
 }
 </script>
-<style>
-:root{
-  --bg:#f4f1ea; --surface:#fffdf8; --text:#121211; --muted:#5f5e57; --line:#dedad0;
-  --accent:#f3d64b; --accent-ink:#121211; --link:#7a5d00; --code:#121211; --code-text:#f4f1ea; --chip:#ebe6d9;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0d0d0c; --surface:#171715; --text:#f2f2ee; --muted:#a9a89f; --line:#2b2b28;
-    --accent:#f3d64b; --accent-ink:#121211; --link:#f3d64b; --code:#1f1f1c; --code-text:#f2f2ee; --chip:#22221f;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0d0d0c; --surface:#171715; --text:#f2f2ee; --muted:#a9a89f; --line:#2b2b28;
-  --accent:#f3d64b; --accent-ink:#121211; --link:#f3d64b; --code:#1f1f1c; --code-text:#f2f2ee; --chip:#22221f;
-}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overflow-x:hidden}
-a{color:var(--link)}
-img,video{max-width:100%;height:auto;display:block}
-.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0}
-.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--text);text-decoration:none;letter-spacing:-.3px}
-.brand svg{width:30px;height:28px}
-nav{display:flex;gap:18px;flex-wrap:wrap;font-size:15px}
-nav a{color:var(--text);text-decoration:none;opacity:.85}
-nav a:hover{opacity:1;text-decoration:underline}
-.hero{padding:40px 0 28px;text-align:center}
-.eyebrow{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:var(--chip);padding:6px 12px;border-radius:999px}
-h1{font-size:clamp(34px,6vw,60px);line-height:1.05;letter-spacing:-1.5px;margin:18px auto 14px;max-width:860px}
-h1 mark{background:var(--accent);color:var(--accent-ink);padding:0 .12em;border-radius:6px}
-.lead{font-size:clamp(17px,2.2vw,20px);color:var(--muted);max-width:720px;margin:0 auto}
-.ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:26px 0 18px}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 20px;border-radius:12px;font-weight:700;text-decoration:none;font-size:16px;border:2px solid var(--text)}
-.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.btn.ghost{color:var(--text)}
-.install{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:var(--code-text);border-radius:12px;padding:10px 12px 10px 16px;font:15px/1.4 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;max-width:100%}
-.install button{font:inherit;font-size:13px;background:transparent;color:var(--code-text);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:4px 10px;cursor:pointer}
-.note{font-size:14px;color:var(--muted);margin-top:10px}
-.film{margin:34px auto 10px;max-width:900px;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#000}
-.film video{width:100%;aspect-ratio:16/9}
-.caption{text-align:center;font-size:14px;color:var(--muted)}
-section{padding:46px 0;border-top:1px solid var(--line)}
-h2{font-size:clamp(26px,3.6vw,36px);letter-spacing:-.8px;line-height:1.15;margin:0 0 10px}
-.sub{color:var(--muted);margin:0 0 26px;max-width:720px}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
-.card h3{margin:0 0 6px;font-size:18px}
-.card p{margin:0;color:var(--muted);font-size:15.5px}
-.num{font-size:40px;font-weight:800;letter-spacing:-1.5px;line-height:1.05}
-.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:3px 8px;background:var(--chip);margin-bottom:10px}
-.shots{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}
-.shots figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.shots img{width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top}
-.shots figcaption{padding:10px 14px;font-size:14px;color:var(--muted)}
-pre{background:var(--code);color:var(--code-text);border-radius:12px;padding:14px 16px;overflow-x:auto;font:14px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:8px 0 0}
-.steps{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-footer{border-top:1px solid var(--line);padding:30px 0 50px;font-size:14px;color:var(--muted)}
-footer .links{display:flex;flex-wrap:wrap;gap:8px 18px;margin-bottom:10px}
-@media (max-width:560px){ nav .hide-sm{display:none} .btn{width:100%;justify-content:center} .install{font-size:13.5px} }
-</style>
+<link rel="stylesheet" href="landing.css">
+<script src="landing.js" defer></script>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <a class="brand" href="./" aria-label="MarketMirror home">
-      <svg viewBox="0 0 200 190" aria-hidden="true"><g stroke-linejoin="round" stroke-width="8"><path fill="currentColor" stroke="currentColor" d="M14 14 95 62 58 99 95 127 14 176Z"/><path fill="#f3d64b" stroke="#f3d64b" d="M107 70 186 16V72L146 96Z"/><path fill="currentColor" stroke="currentColor" d="M146 99 186 75V176L108 128Z"/></g></svg>
-      MarketMirror
-    </a>
-    <nav aria-label="Main">
-      <a href="demo/">Live demo</a>
-      <a class="hide-sm" href="#install">Install</a>
-      <a class="hide-sm" href="#honest">Results</a>
-      <a href="https://github.com/DarkWorldCoder/market-mirror">GitHub</a>
-    </nav>
-  </header>
-
-  <main>
-    <div class="hero">
-      <span class="eyebrow">Open source · built for AI agents</span>
-      <h1>Test your ads, prices and pitch on <mark>simulated buyers</mark> first</h1>
-      <p class="lead">MarketMirror builds a crowd of AI buyers from life interviews, lets them scroll your ads, argue in the comments, answer a survey and hear your sales pitch, then gives you a go / iterate / no-go report.</p>
-      <div class="ctas">
-        <a class="btn primary" href="demo/">Open the live demo</a>
-        <a class="btn ghost" href="https://github.com/DarkWorldCoder/market-mirror">★ Star on GitHub</a>
-      </div>
-      <div class="install"><span>uvx marketmirror</span><button type="button" data-copy="uvx marketmirror">Copy</button></div>
-      <p class="note">The demo is a real dashboard from a 2,999-buyer simulated run of an invented app, in your browser, no install.</p>
-      <div class="film">
-        <video controls preload="none" playsinline poster="images/launch-video-poster.png">
-          <source src="video/marketmirror-launch.mp4" type="video/mp4">
-        </video>
-      </div>
-      <p class="caption">The 60-second launch film, with captions. <a href="video/marketmirror-launch-vertical.mp4">Vertical cut</a>.</p>
-    </div>
-
-    <section aria-labelledby="what">
-      <h2 id="what">What you can test</h2>
-      <p class="sub">Describe your product and who you want to reach. Your coding agent does the rest and opens the dashboard.</p>
-      <div class="grid">
-        <div class="card"><h3>Ads in a real-looking feed</h3><p>Buyers scroll Facebook, Instagram, TikTok or Reddit-style feeds with your creatives mixed in, then click, skip, comment or share.</p></div>
-        <div class="card"><h3>Prices and offers</h3><p>A buyer survey with split tests and price questions, scored from free-text answers rather than forced numbers.</p></div>
-        <div class="card"><h3>Sales pitches</h3><p>Rehearse a pitch and your rebuttals, and see which objections each answer actually moves.</p></div>
-        <div class="card"><h3>Emails, launches and pages</h3><p>Email sequences, launch calendars and landing pages, with the objections that stop people listed in their own words.</p></div>
-      </div>
-    </section>
-
-    <section id="honest" aria-labelledby="honest-h">
-      <h2 id="honest-h">It tells you when it's wrong</h2>
-      <p class="sub">Simulated buyers are a rehearsal, not a measurement. MarketMirror reports ranges, compares models and checks itself against your real results.</p>
-      <div class="grid">
-        <div class="card">
-          <span class="tag">Simulated · 2,999 buyers</span>
-          <div class="num">75.6% maybe<br>94.3% no</div>
-          <p>Same offer, different simulated buyer cohorts: 1,000 Claude-written buyers played by Claude answered 75.6% maybe; 999 Codex-written buyers played by Codex answered 94.3% no. This was not a controlled comparison of answering models. These are simulated reactions, not forecasts of customer demand.</p>
-        </div>
-        <div class="card">
-          <span class="tag">Real ads · simulated buyers</span>
-          <div class="num">−0.84</div>
-          <p>On 8 real Facebook ads, the simulated click ranking came out almost backwards. Generated objections pointed to the long sign-up form for a free test. The recorded funnel had about 1,500 visits and 16 sign-ups, but that does not establish why visitors left. Test the objections with real people.</p>
-        </div>
-        <div class="card">
-          <span class="tag">Built-in checks</span>
-          <div class="num">backtest · calibrate</div>
-          <p>Compare simulated results with your real ad exports, rerun the survey a simulated week later for test-retest agreement, and correct rates against real answers.</p>
-        </div>
-      </div>
-    </section>
-
-    <section aria-labelledby="see">
-      <h2 id="see">What you get back</h2>
-      <p class="sub">One self-contained HTML dashboard, plus a plain-language report and CSV / JSON downloads.</p>
-      <div class="shots">
-        <figure><img src="images/report.png" width="1200" height="2125" alt="MarketMirror report with the go / iterate / no-go decision" loading="lazy"><figcaption>The decision and a plain-language report</figcaption></figure>
-        <figure><img src="images/objections.png" width="1200" height="1888" alt="Objections ranked by share of simulated buyers" loading="lazy"><figcaption>What stops people, ranked</figcaption></figure>
-        <figure><img src="images/social-feed.png" width="1200" height="2125" alt="Simulated social feed with posts, likes and comments" loading="lazy"><figcaption>Every post and comment from the simulated feeds</figcaption></figure>
-        <figure><img src="images/models.png" width="1200" height="440" alt="Results split by the model that played the buyers" loading="lazy"><figcaption>Every result split by model</figcaption></figure>
-      </div>
-    </section>
-
-    <section id="install" aria-labelledby="install-h">
-      <h2 id="install-h">Install in your agent</h2>
-      <p class="sub">Runs on your computer. Only the model calls (to the provider you choose) and optional public research leave it.</p>
-      <div class="steps">
-        <div class="card"><h3>Any MCP client</h3><p>Claude Desktop, Cursor and others, via PyPI (needs uv):</p><pre>{ "mcpServers": { "market-mirror": {
-  "command": "uvx", "args": ["marketmirror"] } } }</pre></div>
-        <div class="card"><h3>Claude Code</h3><p>From a clone of the repository:</p><pre>claude plugin marketplace add "$PWD"
-claude plugin install market-mirror@market-mirror</pre></div>
-        <div class="card"><h3>Gemini CLI</h3><p>As an extension:</p><pre>gemini extensions install \
-  https://github.com/DarkWorldCoder/market-mirror</pre></div>
-        <div class="card"><h3>Codex</h3><p>From a clone of the repository:</p><pre>codex plugin marketplace add "$PWD"
-codex plugin add market-mirror@market-mirror-local</pre></div>
-      </div>
-      <p class="note">Then ask your agent to run <code>doctor</code>, and <code>setup</code> if the engine is not installed yet. Full guide in the <a href="https://github.com/DarkWorldCoder/market-mirror#quick-start">README</a>.</p>
-    </section>
-    <section id="faq" aria-labelledby="faq-h">
-      <h2 id="faq-h">Questions</h2>
-      <div class="steps">
-        <div class="card"><h3>Are these real buyers or people I can contact?</h3><p>They are AI-generated characters inside the simulation. Their names, stories, responses and lead scores describe those characters. They are not a contact list of real prospects.</p></div>
-        <div class="card"><h3>Will MarketMirror run my ads or send emails?</h3><p>It simulates ads, inbox reactions and sales conversations. It does not publish ads, send outreach or change your ad account.</p></div>
-        <div class="card"><h3>Is it free?</h3><p>The source code is available under AGPL-3.0. Running it may consume paid AI usage, subscription allowances or local computing resources; audience size, interview depth, tests and repeats affect the work required.</p></div>
-        <div class="card"><h3>Do I need to write code?</h3><p>You can request tests in plain language through a connected AI assistant. Installing MarketMirror, choosing a model and connecting that assistant require technical setup. The command-line tools are also available for direct use.</p></div>
-        <div class="card"><h3>Can I bring real research and campaign data?</h3><p>Yes. You can supply product documents, linked feedback and campaign exports, and compare simulations with actual outcomes when you have suitable paired data. Importing an ad export alone does not create a complete validation study.</p></div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="links">
-      <a href="https://github.com/DarkWorldCoder/market-mirror">GitHub</a>
-      <a href="demo/">Live demo</a>
-      <a href="https://pypi.org/project/marketmirror/">PyPI</a>
-      <a href="https://github.com/DarkWorldCoder/market-mirror/blob/main/README.zh-CN.md">简体中文</a>
-      <a href="https://github.com/DarkWorldCoder/market-mirror/blob/main/PRIVACY.md">Privacy</a>
-    </div>
-    <p>MarketMirror is AGPL-3.0, built on <a href="https://github.com/666ghj/MiroFish">MiroFish</a> and CAMEL-AI's <a href="https://github.com/camel-ai/oasis">OASIS</a>. Simulated buyers are generated by AI: use them to choose what to test, and confirm with real customers.</p>
-  </footer>
-</div>
-<script>
-document.querySelectorAll('[data-copy]').forEach(function(b){
-  b.addEventListener('click',function(){
-    var t=b.getAttribute('data-copy');
-    try{navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)})}catch(e){}
-  });
-});
-</script>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="./" aria-label="MarketMirror home"><svg viewBox="0 0 200 190" aria-hidden="true"><path d="M14 14 95 62 58 99 95 127 14 176Z"/><path fill="#f3d64b" d="M107 70 186 16V72L146 96Z"/><path d="M146 99 186 75V176L108 128Z"/></svg><span>MarketMirror</span></a>
+  <nav class="desktop-nav" aria-label="Main navigation"><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#evidence">The evidence</a><a href="#faq">FAQ</a></nav>
+  <div class="header-actions"><a class="github-link" href="https://github.com/DarkWorldCoder/market-mirror"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1a11 11 0 0 0-3.48 21.44c.55.1.75-.24.75-.53v-2.05c-3.06.66-3.7-1.3-3.7-1.3-.5-1.27-1.22-1.6-1.22-1.6-1-.68.08-.67.08-.67 1.1.08 1.68 1.13 1.68 1.13.98 1.68 2.57 1.2 3.2.92.1-.71.38-1.2.7-1.48-2.44-.28-5.01-1.22-5.01-5.44 0-1.2.43-2.18 1.13-2.95-.12-.28-.5-1.4.1-2.9 0 0 .92-.3 3.02 1.13a10.5 10.5 0 0 1 5.5 0c2.1-1.43 3.02-1.13 3.02-1.13.6 1.5.22 2.62.1 2.9.7.77 1.13 1.75 1.13 2.95 0 4.23-2.58 5.16-5.03 5.43.4.35.75 1.01.75 2.04v3.02c0 .3.2.64.76.53A11 11 0 0 0 12 1Z"/></svg><span>GitHub</span></a><a class="button small dark" href="#install">Get started <span aria-hidden="true">↗</span></a><button class="menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-nav"><span></span><span></span></button></div>
+</header>
+<nav id="mobile-nav" class="mobile-nav wrap" aria-label="Mobile navigation" hidden><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#evidence">The evidence</a><a href="#faq">FAQ</a></nav>
+<main id="main">
+<section class="hero wrap" aria-labelledby="hero-title">
+  <div class="hero-copy"><a class="open-badge" href="https://github.com/DarkWorldCoder/market-mirror"><span class="spark" aria-hidden="true">✳</span> Open source. Built for your next move.<span aria-hidden="true">↗</span></a>
+  <h1 id="hero-title">Rehearse your next move.<br><span class="gradient-text">Before you go to market.</span></h1>
+  <p class="hero-description">Test ads, pricing and pitches with AI-simulated buyers. Explore their objections and decide what to test with real people.</p>
+  <div class="hero-actions"><a class="button dark" href="demo/">Explore the demo <span aria-hidden="true">↗</span></a><a class="button film-trigger" href="#launch-film"><span class="play-icon" aria-hidden="true">▶</span> Watch the 60-sec film</a></div>
+  <p class="hero-note">Self-hosted. AGPL-3.0. Your choice of model.</p></div>
+  <div class="hero-preview"><a class="product-window" href="demo/" aria-label="Explore the saved Fitloop simulation dashboard"><div class="window-bar"><div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>MarketMirror / Fitloop market rehearsal</span><span class="window-status"><i></i> Saved run</span></div><img src="images/glance.png" alt="Actual MarketMirror dashboard from the Fitloop example: 2,999 simulated buyers, survey results, and an iterate decision." width="1200" height="2125" fetchpriority="high"></a></div>
+  <div class="preview-caption"><span><i class="tiny-dot"></i> Actual dashboard excerpt. Fictional product. Simulated buyers.</span><a href="demo/">Explore the saved run <span aria-hidden="true">↗</span></a></div>
+</section>
+<div class="agent-strip wrap"><p>Works where you already think.</p><div class="agent-names"><span><b class="agent-icon claude-icon" aria-hidden="true">✳</b> Claude Code</span><span><b class="agent-icon" aria-hidden="true">◎</b> Codex</span><span><b class="agent-icon gemini-icon" aria-hidden="true">✦</b> Gemini</span><span><b class="agent-icon" aria-hidden="true">⌘</b> Cursor</span><span><b class="agent-icon" aria-hidden="true">⋈</b> Any MCP client</span></div></div>
+<section id="features" class="features wrap section-space" aria-labelledby="features-title">
+ <div class="section-intro"><div><span class="section-label"><i></i> A clearer next move</span><h2 id="features-title">Less guessing.<br><span class="muted">More questions worth testing.</span></h2></div><p>You have a message in mind. See how simulated buyers react before you put it in front of real ones.</p></div>
+ <div class="feature-grid">
+ <article class="feature"><div class="feature-visual creative-visual" aria-hidden="true"><div class="mini-toolbar"><i></i> Message test <span>Fitloop example</span></div><div class="message-options"><div><span class="variant-letter">A</span> A routine that fits your day.<span class="mini-tag">Convenience</span></div><div><span class="variant-letter">B</span> Your first week, on us.<span class="mini-tag peach">Offer</span></div></div><div class="reaction-note"><span>✳</span> What happens after the free trial?</div></div><div class="feature-copy"><h3>Find the message that lands.</h3><p>Test ads, offers and emails. Read the simulated reactions behind every score.</p><a href="demo/#messages">Explore message testing <span aria-hidden="true">↗</span></a></div></article>
+ <article class="feature"><div class="feature-visual objection-visual" aria-hidden="true"><div class="mini-toolbar"><i></i> Buyer objections <span>Simulated</span></div><div class="objection-bars"><div><span>Trust & proof</span><i style="--bar:89%;--color:#dfb6dd"></i></div><div><span>Price & billing</span><i style="--bar:61%;--color:#efbd9d"></i></div><div><span>Clarity</span><i style="--bar:38%;--color:#c2c0e3"></i></div></div><div class="visual-footnote">Illustrative categories. Inspect the actual run below.</div></div><div class="feature-copy"><h3>Hear the hesitation.</h3><p>Explore the trust, pricing and product questions that hold a simulated buyer back.</p><a href="demo/#objections">See the objections <span aria-hidden="true">↗</span></a></div></article>
+ <article class="feature"><div class="feature-visual decision-visual" aria-hidden="true"><div class="mini-toolbar"><i></i> Your next experiment <span>Fitloop example</span></div><div class="decision-mini"><div><span class="decision-badge">Iterate</span><span>Review before scaling</span></div><strong>Fix the blockers.<br>Then test in the real world.</strong><div class="mini-check"><i>✓</i> Clarify trial and billing terms</div><div class="mini-check"><i>✓</i> Show verifiable product proof</div></div></div><div class="feature-copy"><h3>Leave with a better next test.</h3><p>Get a go, iterate or no-go direction, the reasons behind it, and a saved report.</p><a href="demo/#decision">Read the decision <span aria-hidden="true">↗</span></a></div></article>
+ </div>
+</section>
+<section class="story-section wrap" aria-label="A closer look at MarketMirror">
+ <article class="story-row"><a class="story-image" href="demo/#objections" aria-label="Open the actual buyer objections in the demo"><div class="image-frame"><div class="image-topline"><span>Inside the saved run</span><span>↗</span></div><img src="images/objections.png" alt="Actual Fitloop simulation results showing trust, cost and clarity objections, alongside AI-generated buyer responses." width="1200" height="1888" loading="lazy"></div><span class="image-caption">Actual output · AI-generated buyer reactions</span></a><div class="story-copy"><span class="section-label"><i></i> Go beyond the score</span><h2>A number tells you what.<br><span class="muted">The objection tells you why.</span></h2><p>Open the responses behind the result. Follow the questions about pricing, proof and friction, then turn them into a change you can test.</p><ul class="check-list"><li>Buyer responses in their own generated words</li><li>Objections grouped into themes</li><li>The original results stay available to inspect</li></ul><a class="text-link" href="demo/#objections">Look inside the example <span aria-hidden="true">↗</span></a></div></article>
+ <article class="story-row reversed"><div class="story-copy"><span class="section-label"><i></i> Rehearse the hard questions</span><h2>Your pitch.<br><span class="muted">A different point of view.</span></h2><p>Practice your sales pitch against simulated buyers. Explore what changes when you answer a concern, change the offer, or try another message.</p><ul class="check-list"><li>Rehearse pitches and rebuttals</li><li>Compare offers on the same audience</li><li>Save the conversation and review the feedback</li></ul><a class="text-link" href="demo/#pitch">Explore the sales rehearsal <span aria-hidden="true">↗</span></a></div><div class="conversation-visual"><div class="conversation-top"><span class="little-logo">⋈</span><span>Sales rehearsal</span><span class="soft-tag">Illustrative exchange</span></div><div class="chat-bubble seller"><span>You · opening pitch</span><p>Short workouts that fit around a busy day. Try Fitloop free for seven days.</p></div><div class="chat-bubble buyer"><span><i class="buyer-avatar">S</i> Simulated buyer</span><p>What happens after day seven? Can I cancel without being charged?</p></div><div class="reply-prompt"><span class="spark">✳</span><div><strong>A question worth answering.</strong><p>Make the trial and renewal terms clear.</p></div></div><p class="visual-disclosure">Fictional product and AI-simulated buyer. Not a customer testimonial.</p></div></article>
+</section>
+<section id="how-it-works" class="workflow-section section-space" aria-labelledby="workflow-title"><div class="wrap"><div class="center-intro"><span class="section-label"><i></i> From question to experiment</span><h2 id="workflow-title">Your next move.<br><span class="muted">Three steps closer.</span></h2><p>Bring the product. Choose the audience.<br>Let the questions change what you test.</p></div>
+ <div class="workflow-tabs" role="tablist" aria-label="Simulation workflow"><button id="step-tab-1" role="tab" aria-selected="true" aria-controls="step-1" tabindex="0"><span>01</span> Bring your context</button><button id="step-tab-2" role="tab" aria-selected="false" aria-controls="step-2" tabindex="-1"><span>02</span> Run the rehearsal</button><button id="step-tab-3" role="tab" aria-selected="false" aria-controls="step-3" tabindex="-1"><span>03</span> Choose your next test</button></div>
+ <div class="workflow-panel" id="step-1" role="tabpanel" aria-labelledby="step-tab-1"><div class="workflow-copy"><span class="step-number">Step 01 / Context</span><h3>Start with what<br>you're working on.</h3><p>Bring your product brief, a link, or existing research. Tell your connected agent who you want to reach and what you want to learn.</p><a class="button dark small" href="#install">Connect your agent <span aria-hidden="true">↗</span></a></div><div class="workflow-art context-art" role="img" aria-label="Product brief and research connected to MarketMirror"><div class="art-grid"></div><div class="source-tile tile-brief"><span>▤</span><small>Product brief</small></div><div class="source-tile tile-link"><span>↗</span><small>Website</small></div><div class="source-tile tile-research"><span>⌕</span><small>Research</small></div><svg class="connection-lines" viewBox="0 0 500 340" aria-hidden="true"><path d="M125 92 250 185 385 104M250 185 325 280"/></svg><div class="mirror-tile"><svg viewBox="0 0 200 190" aria-hidden="true"><path d="M14 14 95 62 58 99 95 127 14 176Z"/><path fill="#f3d64b" d="M107 70 186 16V72L146 96Z"/><path d="M146 99 186 75V176L108 128Z"/></svg></div><span class="art-caption">Your context, connected.</span></div></div>
+ <div class="workflow-panel" id="step-2" role="tabpanel" aria-labelledby="step-tab-2" hidden><div class="workflow-copy"><span class="step-number">Step 02 / Rehearse</span><h3>One question.<br>Different perspectives.</h3><p>Build a simulated audience and test the message, price or pitch. Inspect individual responses and see where the model-written buyers disagree.</p><a class="button dark small" href="demo/#agents">Meet the simulated buyers <span aria-hidden="true">↗</span></a></div><div class="workflow-art audience-art"><div class="art-grid"></div><div class="audience-orbit" aria-hidden="true"><span>A</span><span>N</span><span>K</span><span>R</span><span>S</span><span>M</span></div><div class="audience-question"><i class="spark">✳</i><strong>What would stop you<br>from trying this?</strong><small>Ask your simulated audience</small></div><span class="art-caption">Generated perspectives, ready to inspect.</span></div></div>
+ <div class="workflow-panel" id="step-3" role="tabpanel" aria-labelledby="step-tab-3" hidden><div class="workflow-copy"><span class="step-number">Step 03 / Learn</span><h3>Turn the rehearsal<br>into a real experiment.</h3><p>Review the objections and report. Choose a change, test it with real people, and bring actual outcomes back to check the simulation.</p><a class="button dark small" href="demo/#decision">Open the example report <span aria-hidden="true">↗</span></a></div><div class="workflow-art report-art"><div class="art-grid"></div><div class="report-paper"><span class="step-number">MarketMirror / Next experiment</span><h4>Make the terms clear.</h4><div class="report-rule"></div><p><i>✓</i> Clarify what happens after the trial.</p><p><i>✓</i> Keep the audience and creative constant.</p><p><i>✓</i> Measure real trial starts.</p><span class="soft-tag">Validate with real people</span></div><span class="art-caption">A hypothesis. A change. A test.</span></div></div>
+</div></section>
+<section id="evidence" class="evidence wrap section-space" aria-labelledby="evidence-title"><div class="section-intro"><div><span class="section-label"><i></i> An honest mirror</span><h2 id="evidence-title">Useful questions.<br><span class="muted">No crystal ball.</span></h2></div><p>Simulation helps you explore a decision. Real customers and real experiments tell you whether it works.</p></div><div class="evidence-grid"><article><span class="evidence-icon" aria-hidden="true">◎</span><h3>Reactions, not forecasts.</h3><p>The buyers are AI-generated. Their intent, reactions and projected rates are hypotheses to investigate, not established customer demand.</p></article><article><span class="evidence-icon" aria-hidden="true">≠</span><h3>Disagreement stays visible.</h3><p>Inspect results by model and audience. In the Fitloop run, the providers wrote and answered for different cohorts; it was not a controlled model comparison.</p></article><article><span class="evidence-icon" aria-hidden="true">↗</span><h3>Check it against reality.</h3><p>In a retrospective on eight real ads, the simulated click ranking was almost backwards (−0.84 correlation). That failed ranking stays in the evidence.</p><a href="https://github.com/DarkWorldCoder/market-mirror#6-check-against-reality">Read the evidence in the README <span aria-hidden="true">↗</span></a></article></div></section>
+<section id="install" class="install-section wrap section-space" aria-labelledby="install-title"><div class="section-intro"><div><span class="section-label"><i></i> Make it yours</span><h2 id="install-title">Your machine.<br><span class="muted">Your agent. Your market.</span></h2></div><p>Open source and self-hosted. Connect your preferred agent, choose a model provider, and start with a small test.</p></div><div class="install-box"><div class="install-tabs" role="tablist" aria-label="Installation method"><button id="install-tab-mcp" role="tab" aria-selected="true" aria-controls="install-mcp" tabindex="0">Any MCP client</button><button id="install-tab-claude" role="tab" aria-selected="false" aria-controls="install-claude" tabindex="-1">Claude Code</button><button id="install-tab-codex" role="tab" aria-selected="false" aria-controls="install-codex" tabindex="-1">Codex</button><button id="install-tab-gemini" role="tab" aria-selected="false" aria-controls="install-gemini" tabindex="-1">Gemini CLI</button></div><div class="install-panel" id="install-mcp" role="tabpanel" aria-labelledby="install-tab-mcp"><div class="code-heading"><span>Add to your client's MCP configuration. Requires uv.</span><button class="copy-button" data-copy-target="code-mcp">Copy config</button></div><pre><code id="code-mcp">{
+  "mcpServers": {
+    "market-mirror": {
+      "command": "uvx",
+      "args": ["--from", "marketmirror==0.4.2", "marketmirror"]
+    }
+  }
+}</code></pre></div><div class="install-panel" id="install-claude" role="tabpanel" aria-labelledby="install-tab-claude" hidden><div class="code-heading"><span>From a local clone of the MarketMirror repository.</span><button class="copy-button" data-copy-target="code-claude">Copy commands</button></div><pre><code id="code-claude">claude plugin marketplace add "$PWD"
+claude plugin install market-mirror@market-mirror</code></pre></div><div class="install-panel" id="install-codex" role="tabpanel" aria-labelledby="install-tab-codex" hidden><div class="code-heading"><span>From a local clone of the MarketMirror repository.</span><button class="copy-button" data-copy-target="code-codex">Copy commands</button></div><pre><code id="code-codex">codex plugin marketplace add "$PWD"
+codex plugin add market-mirror@market-mirror-local</code></pre></div><div class="install-panel" id="install-gemini" role="tabpanel" aria-labelledby="install-tab-gemini" hidden><div class="code-heading"><span>Install the extension from GitHub.</span><button class="copy-button" data-copy-target="code-gemini">Copy command</button></div><pre><code id="code-gemini">gemini extensions install https://github.com/DarkWorldCoder/market-mirror</code></pre></div><div class="install-footnote"><span>Then ask your agent to run <code>doctor</code> and, if needed, <code>setup</code>.</span><a href="https://github.com/DarkWorldCoder/market-mirror#quick-start">Full setup guide <span aria-hidden="true">↗</span></a></div></div><p class="cost-note">The code is free under AGPL-3.0. Model usage, subscription allowances or local compute can cost money. Requests go to the model provider you configure; optional research accesses public sources.</p><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></section>
+<section id="faq" class="faq-section wrap section-space" aria-labelledby="faq-title"><div><span class="section-label"><i></i> A few things to know</span><h2 id="faq-title">Good questions.</h2><p>Still curious? <a href="https://github.com/DarkWorldCoder/market-mirror#readme">Read the documentation <span aria-hidden="true">↗</span></a></p></div><div class="faq-list"><details><summary>Are these real buyers or people I can contact?</summary><p>They are AI-generated characters inside the simulation. Their names, stories, responses and lead scores describe those characters. They are not a contact list of real prospects.</p></details><details><summary>Will MarketMirror run my ads or send emails?</summary><p>It simulates ads, inbox reactions and sales conversations. It does not publish ads, send outreach or change your ad account.</p></details><details><summary>Is it free?</summary><p>The source code is available under AGPL-3.0. Running it may consume paid AI usage, subscription allowances or local computing resources; audience size, interview depth, tests and repeats affect the work required.</p></details><details><summary>Do I need to write code?</summary><p>You can request tests in plain language through a connected AI assistant. Installing MarketMirror, choosing a model and connecting that assistant require technical setup. The command-line tools are also available for direct use.</p></details><details><summary>Can I bring real research and campaign data?</summary><p>Yes. You can supply product documents, linked feedback and campaign exports, and compare simulations with actual outcomes when you have suitable paired data. Importing an ad export alone does not create a complete validation study.</p></details></div></section>
+<section class="closing wrap"><div class="closing-panel"><div class="closing-mark" aria-hidden="true">⋈</div><h2>Make your next move<br>a more considered one.</h2><p>A market rehearsal. A clearer question. A better experiment.</p><a class="button light" href="demo/">Explore MarketMirror <span aria-hidden="true">↗</span></a><span class="closing-note">No sign-up needed to explore the saved demo.</span></div></section>
+<section id="launch-film" class="film-section wrap" aria-labelledby="film-title"><div class="film-heading"><h2 id="film-title">The 60-second introduction.</h2><a href="video/marketmirror-launch-vertical.mp4">Get the vertical cut <span aria-hidden="true">↗</span></a></div><video controls preload="none" playsinline poster="images/launch-video-poster.png" aria-label="MarketMirror launch film with burned-in captions"><source src="video/marketmirror-launch.mp4" type="video/mp4">Your browser cannot play this video. <a href="video/marketmirror-launch.mp4">Download the launch film</a>.</video></section>
+</main>
+<footer class="site-footer wrap"><div class="footer-top"><a class="brand" href="./"><svg viewBox="0 0 200 190" aria-hidden="true"><path d="M14 14 95 62 58 99 95 127 14 176Z"/><path fill="#f3d64b" d="M107 70 186 16V72L146 96Z"/><path d="M146 99 186 75V176L108 128Z"/></svg><span>MarketMirror</span></a><nav aria-label="Footer navigation"><a href="https://github.com/DarkWorldCoder/market-mirror">GitHub</a><a href="demo/">Demo</a><a href="https://pypi.org/project/marketmirror/">PyPI</a><a href="https://github.com/DarkWorldCoder/market-mirror/blob/main/PRIVACY.md">Privacy</a></nav></div><div class="footer-bottom"><p>Open source under AGPL-3.0. Built on <a href="https://github.com/666ghj/MiroFish">MiroFish</a> and <a href="https://github.com/camel-ai/oasis">OASIS</a>.</p><span>Rehearse. Learn. Test with real people.</span></div></footer>
+<dialog id="film-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title">Meet MarketMirror</h2><button class="dialog-close" aria-label="Close video">✕</button></div><video controls preload="none" playsinline poster="images/launch-video-poster.png" aria-label="MarketMirror launch film with burned-in captions"><source src="video/marketmirror-launch.mp4" type="video/mp4"></video><p>The launch film. Simulated buyers and results are hypotheses to validate.</p></dialog>
 </body>
 </html>
