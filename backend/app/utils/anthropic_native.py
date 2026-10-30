@@ -22,6 +22,7 @@ A refusal (stop_reason "refusal") is raised as an error, so the caller counts th
 from __future__ import annotations
 
 import os
+import re
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,14 +33,64 @@ CACHE_TTL = (os.environ.get("MM_CACHE_TTL") or "").strip()          # "" = 5 min
 
 
 def strip_cache_break(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """The messages without the marker, for providers that do not cache this way."""
+    """The messages without the marker, for providers that do not cache this way (text and multi-part content)."""
     out = []
     for m in messages or []:
         c = m.get("content")
         if isinstance(c, str) and CACHE_BREAK in c:
             m = {**m, "content": c.replace(CACHE_BREAK, "\n")}
+        elif isinstance(c, list) and any(isinstance(p, dict) and CACHE_BREAK in str(p.get("text") or "") for p in c):
+            m = {**m, "content": [{**p, "text": p["text"].replace(CACHE_BREAK, "\n")}
+                                  if isinstance(p, dict) and isinstance(p.get("text"), str) else p for p in c]}
         out.append(m)
     return out
+
+
+_DATA_URI = re.compile(r"^data:(image/[\w.+-]+);base64,(.+)$", re.S)
+
+
+def _image_block(part: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """An OpenAI image_url part -> a native image block (base64 data URI or https URL)."""
+    iu = part.get("image_url")
+    url = iu.get("url") if isinstance(iu, dict) else iu
+    if not isinstance(url, str):
+        return None
+    m = _DATA_URI.match(url)
+    if m:
+        return {"type": "image", "source": {"type": "base64", "media_type": m.group(1), "data": m.group(2)}}
+    if url.startswith("https://"):
+        return {"type": "image", "source": {"type": "url", "url": url}}
+    return None
+
+
+def _parts_to_native(parts: List[Any]) -> Tuple[List[Dict[str, Any]], bool]:
+    """Multi-part user content -> native blocks. A text part that starts with the cache marker puts the breakpoint
+    on the block before it (e.g. shared instructions + an ad image, then the per-person part). Returns
+    (blocks, marked)."""
+    blocks: List[Dict[str, Any]] = []
+    marked = False
+    for p in parts or []:
+        if isinstance(p, str):
+            p = {"type": "text", "text": p}
+        if not isinstance(p, dict):
+            continue
+        if p.get("type") == "image_url":
+            b = _image_block(p)
+            if b:
+                blocks.append(b)
+            continue
+        text = str(p.get("text") or "")
+        if CACHE_BREAK in text:
+            head, _, tail = text.partition(CACHE_BREAK)
+            if head.strip():
+                blocks.append({"type": "text", "text": head})
+            if blocks and not marked:
+                blocks[-1]["cache_control"] = _cache_control()
+                marked = True
+            text = tail.replace(CACHE_BREAK, "\n")
+        if text.strip():
+            blocks.append({"type": "text", "text": text})
+    return blocks, marked
 
 
 def _cache_control() -> Dict[str, Any]:
@@ -52,6 +103,11 @@ def _to_native(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Li
     native: List[Dict[str, Any]] = []
     for m in messages or []:
         role, content = m.get("role"), m.get("content")
+        if role == "user" and isinstance(content, list) and any(
+                isinstance(p, dict) and p.get("type") == "image_url" for p in content):
+            blocks, _ = _parts_to_native(content)
+            native.append({"role": "user", "content": blocks})
+            continue
         text = content if isinstance(content, str) else "".join(
             p.get("text", "") for p in content or [] if isinstance(p, dict))
         if role == "system":

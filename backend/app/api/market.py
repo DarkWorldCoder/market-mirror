@@ -26,6 +26,7 @@ from flask import jsonify, request
 
 from claude_cli import actuals
 from ..services import predict as prediction
+from ..services import creative_vision, feed_test
 
 from . import simulation_bp
 from ..config import Config
@@ -137,6 +138,33 @@ def _client_for(people):
     if getattr(client, "is_multi", False) and hasattr(client, "with_people"):
         return client.with_people(people)
     return client
+
+
+def _local_gateway() -> bool:
+    """True when a provider slot is a local login gateway (it passes text only)."""
+    try:
+        pool = Config.get_model_pool()
+    except Exception:  # noqa: BLE001
+        return False
+    for slot in getattr(pool, "slots", []) or []:
+        url = str(getattr(slot, "base_url", "") or getattr(getattr(slot, "client", None), "base_url", "") or "")
+        if "127.0.0.1" in url or "localhost" in url:
+            return True
+    return False
+
+
+def _vision_complete():
+    """complete(system, parts) -> (text, usage) on the configured model, for creative_vision."""
+    client = _client()
+
+    def complete(system, parts):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=1500,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": parts}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    return complete
 
 
 def _sim_dir(simulation_id: str) -> str:
@@ -288,8 +316,21 @@ def start_feed_test():
     scope = _memory_scope(data)
     people = _with_history(people, sid, scope)
 
+    vision = str(data.get("vision") or "describe").lower()
+    if vision not in ("describe", "direct", "off"):
+        return jsonify({"success": False, "error": "vision must be describe, direct or off"}), 400
+    if vision == "direct" and _local_gateway():
+        logger.info("feed test: vision direct needs an API provider; the local login gateway gets the described image")
+        vision = "describe"
+    sim_dir = _sim_dir(sid)
+
     def work(progress):
-        return feed_test.run_multi_seed(_client_for(people), Config.LLM_MODEL_NAME, creatives, people,
+        nonlocal creatives
+        vision_info = None
+        if vision != "off" and any(creative_vision.has_visual(c) for c in creatives):
+            creatives, vision_info = creative_vision.prepare(creatives, _vision_complete(),
+                                                             os.path.join(sim_dir, "creative_vision"), logger.warning)
+        result = feed_test.run_multi_seed(_client_for(people), Config.LLM_MODEL_NAME, creatives, people,
                                         seeds=feed_test.seed_list(seed, n_seeds), context=context, voices=voices,
                                         organic_per_feed=organic, parallel=parallel, progress=progress,
                                         waves=int(data.get("waves") or 3), landing=landing,
@@ -297,12 +338,40 @@ def start_feed_test():
                                         attention_gate=data.get("attention_gate", True) is not False,
                                         benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None,
                                         competitor=competitor,
-                                        include_generic_baseline=bool(data.get("include_generic_baseline")))
+                                        include_generic_baseline=bool(data.get("include_generic_baseline")),
+                                        vision=vision)
+        if vision_info:
+            result["vision_pass"] = vision_info
+        return result
 
     task_id = _start("feed-test", sid, work, **({"memory_scope": scope} if scope else {}))
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
+
+
+@simulation_bp.route('/creative-check', methods=['POST'])
+def creative_check():
+    """POST {creatives: [{id, platform, image (data URI / https) or frames, text?, headline?, cta?, page?}]} ->
+    {creatives: [{id, platform, visual: {description, on_image_text, brand_visible, first_glance, checks}}], usage}
+    (synchronous). A pre-flight look at the real creative before any simulated buyer sees it; no simulation needed."""
+    data = request.get_json() or {}
+    try:
+        creatives = feed_test.normalize_creatives(data.get("creatives"))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not any(creative_vision.has_visual(c) for c in creatives):
+        return jsonify({"success": False, "error": "no creative has an image or frames"}), 400
+    try:
+        described, info = creative_vision.prepare(creatives, _vision_complete(), os.path.join(Config.UPLOAD_FOLDER, "creative_vision"),
+                                                  logger.warning)
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    out = [{k: c.get(k) for k in ("id", "platform", "name", "visual", "media_brief") if c.get(k) is not None}
+           for c in described]
+    return jsonify({"success": True, "data": {"creatives": out, **info, "model": Config.LLM_MODEL_NAME,
+                                              "note": "A model's reading of the creative plus measured aspect ratio: a "
+                                                      "pre-flight check, not a measured attention or recall score."}})
 
 
 @simulation_bp.route('/ssr', methods=['POST'])

@@ -307,7 +307,17 @@ TOOLS = [
                                                       "rows": {"type": "array", "items": {"type": "object"}},
                                                       "run": {"type": "string"}, "engine": {"type": "string", "enum": ["auto", "llm", "jev", "supplied"]},
                                                       "brand": {"type": "string"}, "now": {"type": "string", "description": "collection date YYYY-MM-DD"},
-                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"}}}},
+                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"},
+                                                      "vision": {"type": "boolean", "description": "describe rows' image/video first (backend)"}}}},
+    {"name": "creative_check", "description": (
+        "Pre-flight look at real ad creatives before any simulated buyer sees them: what each image or video (keyframes via "
+        "ffmpeg) shows, the words on it, whether brand and call to action are visible, what a one-second scroller takes away, "
+        "platform checks (text density, brand early, legibility, safe zones, captions) and the measured aspect ratio. "
+        "creatives: [{id, platform, image|video (absolute path or https URL), text?, headline?, cta?}]. Needs the backend and a "
+        "vision-capable model. A model's reading plus measured facts, not an attention or recall score. In market_test, "
+        "creatives with image/video are seen by the buyers too ('vision': describe|direct|off). Background job."),
+     "inputSchema": {"type": "object", "properties": {"creatives": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string"}}, "required": ["creatives"]}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -548,7 +558,17 @@ def call(name: str, a: Dict[str, Any]) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("max_ads"):
             args += ["--max-ads", str(int(a["max_ads"]))]
+        if a.get("vision"):
+            args.append("--vision")
         return job(args, "ad_patterns")
+    if name == "creative_check":
+        d = os.path.join(home(), "scenarios", "_creative_check")
+        os.makedirs(d, exist_ok=True)
+        tag = uuid.uuid4().hex[:6]
+        cp = os.path.join(d, f"creatives_{tag}.json")
+        json.dump({"creatives": a["creatives"]}, open(cp, "w", encoding="utf-8"), ensure_ascii=False)
+        return job(["cli", "creative-check", "--creatives", "@" + cp,
+                    "--out", a.get("out") or os.path.join(d, f"creative_check_{tag}.json")], "creative_check")
     if name == "push_context":
         args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
         if a.get("round") is not None:
