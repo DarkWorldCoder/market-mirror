@@ -1,0 +1,74 @@
+name: First-run help
+description: Get help with installation, connecting an MCP client, or your first run.
+title: "[First run]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us where you got stuck. Only your operating system and the failing step are required.
+        This report is public: remove API keys, tokens, cookies, private URLs, personal paths,
+        customer data, and product details you cannot share. Never attach `.env` files.
+        You do not need to rerun a simulation or make paid model calls to report a problem.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows with WSL
+        - Windows without WSL
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: failing-step
+    attributes:
+      label: Where did you get stuck?
+      description: Include the command or MCP tool, what you expected, and the error or behavior you saw. Use a small fictional example if needed.
+      placeholder: "Example: I added the MCP server, but my client cannot list its tools."
+    validations:
+      required: true
+  - type: dropdown
+    id: install-path
+    attributes:
+      label: How did you install or connect?
+      options:
+        - uvx marketmirror / PyPI launcher
+        - Git checkout / install.sh
+        - Claude Code plugin
+        - Codex
+        - Gemini CLI extension
+        - Cursor or another MCP client
+        - Other / not sure
+    validations:
+      required: false
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Model provider setup
+      description: Choose the setup type only; do not include credentials or account details.
+      options:
+        - API provider
+        - CLI login gateway
+        - Local model
+        - Not configured yet
+        - Other / not sure
+    validations:
+      required: false
+  - type: input
+    id: versions
+    attributes:
+      label: Versions, if known
+      description: Package version or Git commit, Python version, and MCP client name/version.
+      placeholder: "Example: marketmirror 0.4.2, Python 3.12, client name and version"
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics, if available
+      description: Paste the relevant error or output of ./mm doctor (checkout) or the doctor MCP tool. If doctor cannot run, just describe that above. Review and redact the output before sharing.
+      render: text
+    validations:
+      required: false
