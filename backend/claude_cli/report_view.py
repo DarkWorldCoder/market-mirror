@@ -174,6 +174,52 @@ def _feeling_rows(state: Dict[str, Any], trajectory: List[Dict[str, Any]]) -> Li
     return out
 
 
+_SERVICES: Dict[str, Any] = {}
+
+
+def _service(name: str):
+    """A stdlib-only backend service (backend/app/services/<name>.py) by path, or None when it cannot load."""
+    if name not in _SERVICES:
+        try:
+            import importlib.util
+            import os
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", f"{name}.py")
+            spec = importlib.util.spec_from_file_location(f"mm_{name}_view", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            _SERVICES[name] = mod
+        except Exception:  # noqa: BLE001 - the dashboard renders without it
+            _SERVICES[name] = None
+    return _SERVICES[name]
+
+
+def evidence_section(bundle: Dict[str, Any], states: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str, str]]:
+    """'How sure is this': the run's A-D evidence grade with its reasons, and stated yeses next to what is left after
+    the say-do rules (survey and pitch)."""
+    ev_mod, emo = _service("evidence"), _emotion()
+    if not ev_mod or not isinstance(bundle, dict):
+        return None
+    flags = (emo.summarize(states) or {}).get("flags") if emo and isinstance(states, dict) and states.get("scopes") else None
+    ev = ev_mod.grade(bundle, flags)
+    if not ev.get("reasons"):
+        return None
+    tone = {"A": "pos", "B": "mint", "C": "neu", "D": "neg"}.get(ev["grade"], "")
+    rows = [[name, sd.get("n"), f'{sd.get("stated_yes_pct")}%', f'{sd.get("after_rules_yes_pct")}%',
+             ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in (sd.get("dropped") or {}).items()) or "–"]
+            for name, sd in (("Survey", (bundle.get("survey") or {}).get("say_do")), ("Sales pitch", (bundle.get("pitch") or {}).get("say_do")))
+            if isinstance(sd, dict) and sd.get("n")]
+    body = (f'<p>{_pill("Evidence " + ev["grade"], tone)} {_e(ev["meaning"])}.</p>'
+            + "<ul>" + "".join(f"<li>{_e(r)}</li>" for r in ev["reasons"]) + "</ul>"
+            + (ui.table(["Test", "People", "Said yes", "After say-do rules", "Removed by"], rows) if rows else "")
+            + ('<p class="muted small">"After say-do rules" applies fixed rules from each person\'s decision card (budget, '
+               "dealbreakers, polite yes-sayers backing out at payment). It is an assumption, not a measurement.</p>" if rows else "")
+            + '<p class="muted small">The grade adds up what this run can show (people, seeds, retest, real-data check, '
+              "providers, feelings flags). A or B needs more than a simulation can give on its own.</p>")
+    head = ui.section_head("How sure is this", "How much this run can carry, and what people said next to what they would "
+                           "likely do.")
+    return ("evidence", "How sure is this", head + body)
+
+
 def _couplings_moved(tests: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[List[Any]]:
     """Rows of the tests where emotions were "on": which couplings moved how many sessions, and by how much."""
     rows = []

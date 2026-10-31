@@ -1267,8 +1267,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                                                                           email=bundle.get("email_test"),
                                                                           focus_group=bundle.get("focus_group"),
                                                                           survey=bundle.get("survey"))),
-                         ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
-        extra = _safe(label, build)                          # pitch ends up first
+                         ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))),
+                         ("how sure", lambda: report_view.evidence_section(bundle, {"scopes": {"default": behavior_states(bundle)}}))):
+        extra = _safe(label, build)                          # the last one ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)
