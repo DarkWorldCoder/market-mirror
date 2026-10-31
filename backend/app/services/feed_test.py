@@ -176,14 +176,18 @@ def normalize_competitor(raw: Any) -> Optional[Dict[str, Any]]:
     }
 
 
-def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: random.Random) -> Optional[Tuple[str, str]]:
+def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: random.Random,
+                          fx: Optional[Dict[str, float]] = None) -> Optional[Tuple[str, str]]:
     """
     Evaluate research-backed Say-vs-Do friction gates from the persona's BDE card and wallet state:
     1. Discretionary wallet limit vs landing price
     2. Explicit BDE dealbreakers / stoppers triggered by landing page
     3. High-acquiescence polite clickers hesitating on paid/card steps
+    fx: emotion couplings for this person (emotion.effects); "wallet" scales the spend threshold and "backout" the
+    back-out chance, both 1.0 unless emotions are "on". The random draw is the same either way.
     Returns (gate_kind, drop_reason) if the person drops off, else None.
     """
+    fx = fx or {}
     from .persona_planner import parse_discretionary_amount
 
     bde = person.get("bde") if isinstance(person.get("bde"), dict) else {}
@@ -203,6 +207,7 @@ def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: 
         # Compare only when both numbers are in the same currency order-of-magnitude
         if 0.15 <= ratio <= 25.0:
             threshold = 0.55 if payday == "end_of_month_tight" else (0.95 if payday == "just_paid" else 0.80)
+            threshold *= fx.get("wallet", 1.0)
             if ratio > threshold:
                 disc_label = b_ev.get("monthly_discretionary") or str(budget_num)
                 return ("wallet_limit", f"price ({price_str}) exceeds comfortable discretionary budget ({disc_label})")
@@ -224,7 +229,7 @@ def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: 
     has_commitment = (price_num and price_num > 0) or any(
         k in page_blob for k in ("card", "credit", "payment", "subscribe", "auto-renew", "phone")
     )
-    if acq == "high" and has_commitment and rng.random() < 0.45:
+    if acq == "high" and has_commitment and rng.random() < min(0.9, 0.45 * fx.get("backout", 1.0)):
         detail = f" ({says_do[:90]})" if says_do else ""
         return ("say_vs_do_gap", f"polite interest, but backed out at commitment step{detail}")
 
@@ -777,6 +782,8 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     pools = organic_pools(client, model, [(platform, by_id[aid].get("country", "")) for (aid, platform) in plan],
                           context, parallel, pools, voices=voices)
     traits = {p["agent_id"]: person_habits(p) for p in people}       # the person's own habits, the same in every seed
+    emo_w = emotion.weights()
+    fx = {p["agent_id"]: emotion.effects(p.get("affect_now"), emo_mode, emo_w) for p in people}   # all 1.0 unless "on"
     exposures = max(1, min(exposures, 6))
     jobs = []
     for (aid, platform), creative in sorted(plan.items(), key=lambda kv: (kv[0][1], kv[0][0])):
@@ -796,7 +803,8 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 comp_pos = min(len(items), pos + 2)
                 items.insert(comp_pos, ("comp", comp_post, True))
             items = [(f"i{j + 1}", post, ad) for j, (_, post, ad) in enumerate(items)]
-            notice = NOTICE_RATE.get(platform, 0.3) * (1 - 0.6 * traits[aid]["ad_avoidance"]) * WEAR_OUT ** (k - 1)
+            notice = min(1.0, NOTICE_RATE.get(platform, 0.3) * (1 - 0.6 * traits[aid]["ad_avoidance"])
+                         * WEAR_OUT ** ((k - 1) * fx[aid]["wear_out"]) * fx[aid]["notice"])
             jobs.append({"person": person, "platform": platform, "creative": creative, "items": items, "k": k,
                          "hour": rng.choice([7, 9, 12, 13, 18, 20, 21, 22, 23]),
                          "noticed": (rng.random() < notice) if attention_gate else True,
@@ -888,6 +896,9 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 sess_row["persona_provider"] = person.get("model_provider")
             if comp_act is not None:
                 sess_row["competitor_ad"] = comp_act
+            moved = emotion.applied(fx[person["agent_id"]], "notice", "wear_out" if job["k"] > 1 else "notice")
+            if moved:
+                sess_row["emotion_effects"] = moved
             sessions.append(sess_row)
             pr = proof[creative["id"]]
             pr["reactions"] += 1 if ad_act["reaction"] not in ("none", "downvote") else 0
@@ -895,7 +906,8 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             if ad_act["comment"]:
                 pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
     if landing:
-        run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel, feel=want_feel)
+        run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel, feel=want_feel,
+                    fx=fx)
     failed = sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))
     if llm_calls and failed == llm_calls:
         raise RuntimeError("No usable model decisions: all noticed exposures failed. Check provider authentication and availability before retrying.")
@@ -914,7 +926,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
                         "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls, "emotions": emo_mode},
-            "emotion": {"mode": emo_mode, "version": emotion.VERSION},
+            "emotion": emotion.run_info(emo_mode, emo_w, sessions),
             "summary": summ,
             "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total,
             "completion_status": "partial" if failed else "complete", "failed": failed}
@@ -922,7 +934,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
 
 def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[int, Dict[str, Any]],
                 creatives: Dict[str, Dict[str, Any]], landing: Dict[str, Any], rng: random.Random, parallel: int,
-                feel: bool = False) -> None:
+                feel: bool = False, fx: Optional[Dict[Any, Dict[str, float]]] = None) -> None:
     """Clickers: page load on their network vs their patience, then an in-character finish-or-leave decision
     combined with the research-backed Say-vs-Do friction gate (wallet limit, dealbreakers, acquiescence)."""
     todo = []
@@ -932,8 +944,12 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
         person = by_id[s["agent_id"]]
         net = network_for(person, rng)
         load = round(landing["load_seconds"] * NETWORKS[net], 1)
-        patience = patience_for(person, rng)
+        pfx = (fx or {}).get(s["agent_id"]) or {}
+        patience = round(patience_for(person, rng) * pfx.get("patience", 1.0), 1)
         loaded = load <= patience
+        moved = emotion.applied(pfx, "patience")
+        if moved:
+            s.setdefault("emotion_effects", {}).update(moved)
         s["landing"] = {"network": net, "load_seconds": load, "patience": patience, "loaded": loaded,
                         "read": False, "started_form": False, "completed": False,
                         "friction_gate": "" if loaded else "network_timeout",
@@ -964,7 +980,11 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
                 gate = "form_abandon"
                 d["drop_reason"] = "gave up when the form showed an error or asked for a code"
             if completed:
-                friction = check_say_do_friction(person, landing, rng)
+                pfx = (fx or {}).get(s["agent_id"]) or {}
+                friction = check_say_do_friction(person, landing, rng, pfx)
+                moved = emotion.applied(pfx, "wallet", "backout")
+                if moved:
+                    s.setdefault("emotion_effects", {}).update(moved)
                 if friction:
                     completed = False
                     gate, reason = friction

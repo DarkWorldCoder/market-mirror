@@ -1263,7 +1263,10 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                          ("real-sample check", lambda: report_view.calibration_section(bundle.get("calibration"))),
                          ("feelings", lambda: report_view.emotion_section({"scopes": {"default": behavior_states(bundle)}},
                                                                           bundle.get("feed_test"), pitch,
-                                                                          insights.get("feelings"))),
+                                                                          insights.get("feelings"),
+                                                                          email=bundle.get("email_test"),
+                                                                          focus_group=bundle.get("focus_group"),
+                                                                          survey=bundle.get("survey"))),
                          ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
         extra = _safe(label, build)                          # pitch ends up first
         if extra:

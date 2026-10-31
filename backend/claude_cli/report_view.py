@@ -174,16 +174,45 @@ def _feeling_rows(state: Dict[str, Any], trajectory: List[Dict[str, Any]]) -> Li
     return out
 
 
+def _couplings_moved(tests: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[List[Any]]:
+    """Rows of the tests where emotions were "on": which couplings moved how many sessions, and by how much."""
+    rows = []
+    for name, t in tests:
+        if not isinstance(t, dict) or (t.get("emotion") or {}).get("mode") != "on":
+            continue
+        moved: Dict[str, List[float]] = {}
+        for srow in t.get("sessions") or []:
+            for k, v in ((srow or {}).get("emotion_effects") or {}).items():
+                if ui.num(v) is not None:
+                    moved.setdefault(k, []).append(float(v))
+        for k, vs in sorted(moved.items()):
+            rows.append([name, k.replace("_", " "), len(vs), f"x{min(vs):.2f} to x{max(vs):.2f}"])
+        if not moved:
+            rows.append([name, "none", 0, "no stored mood yet (first test, or everyone near neutral)"])
+    return rows
+
+
 def emotion_section(states: Optional[Dict[str, Any]], feed_test: Optional[Dict[str, Any]] = None,
-                    pitch: Optional[Dict[str, Any]] = None, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+                    pitch: Optional[Dict[str, Any]] = None, insight: Optional[str] = None,
+                    email: Optional[Dict[str, Any]] = None, focus_group: Optional[Dict[str, Any]] = None,
+                    survey: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str, str]]:
     """'How people felt (simulated)': emotion shares, pleasantness on the 1-9 SAM scale, feelings per ad, pitch
-    resistance, and quality flags for the known ways simulated feelings go wrong."""
+    resistance, quality flags for the known ways simulated feelings go wrong, whether the feelings' words agree with
+    the stated pleasantness, the focus group's private vs in-the-room feelings, and (mode "on") what the couplings
+    moved."""
     emo = _emotion()
     summ = emo.summarize(states) if emo and isinstance(states, dict) and states.get("scopes") else {}
     per = ((feed_test or {}).get("summary") or {}).get("per_creative") or {}
     ads = [(cid, m.get("feelings")) for cid, m in per.items() if isinstance(m, dict) and (m.get("feelings") or {}).get("n")]
     res = (pitch or {}).get("resistance") or {}
-    if not summ.get("feelings") and not ads and not res:
+    fg = (focus_group or {}).get("affect") if isinstance(focus_group, dict) else None
+    checks = [(name, ((t or {}).get("emotion") or {}).get("words_check") if isinstance(t, dict) else None)
+              for name, t in (("Feed test", feed_test), ("Email", email), ("Pitch", pitch))]
+    checks.append(("Survey", (((survey or {}).get("ssr") or {}).get("feelings") or {}).get("words_check")
+                   if isinstance(survey, dict) else None))
+    checks = [(n, c) for n, c in checks if isinstance(c, dict) and c.get("n")]
+    moved = _couplings_moved([("Feed test", feed_test), ("Email", email)])
+    if not summ.get("feelings") and not ads and not res and not fg and not checks:
         return None
     pct = lambda x: "–" if ui.num(x) is None else f"{100 * float(x):.0f}%"
     shares = summ.get("emotions") or {}
@@ -205,7 +234,16 @@ def emotion_section(states: Optional[Dict[str, Any]], feed_test: Optional[Dict[s
             pills.append(_pill(text, "orchid"))
     if summ.get("mismatch_rate") is not None:
         pills.append(_pill(f'Label mismatch {pct(summ["mismatch_rate"])}', ""))
-    pills.append(_pill("Behavioural effect: configured, not validated", ""))
+    if moved:
+        pills.append(_pill("Feelings steered behaviour (mode on): assumed sizes, not validated", "orchid"))
+    else:
+        pills.append(_pill("Behavioural effect: configured, not validated", ""))
+    if any(c.get("low_agreement_flag") for _, c in checks):
+        pills.append(_pill("Stated feelings disagree with their own words", "orchid"))
+    if isinstance(fg, dict) and fg.get("masking_flag"):
+        pills.append(_pill("Focus group: warmer in the room than in private", "orchid"))
+    if isinstance(fg, dict) and fg.get("over_convergence_flag"):
+        pills.append(_pill("Focus group: the room flattened their feelings", "orchid"))
     rows = [[cid, f.get("n"), pct(f.get("neutral_share")),
              ", ".join(f"{k} {pct(v)}" for k, v in list((f.get("emotions") or {}).items())[:3] if k != "neutral") or "–",
              "; ".join(f.get("words") or [])[:140]] for cid, f in ads]
@@ -216,6 +254,14 @@ def emotion_section(states: Optional[Dict[str, Any]], feed_test: Optional[Dict[s
             + f'<p>{" ".join(pills)}</p>'
             + (ui.table(["Ad", "Felt something", "Nothing much", "Top feelings", "In their words"], rows, sortable=True) if rows else "")
             + (ui.table(["Test", "Reactions", "Feelings"], trows, sortable=True) if trows else "")
+            + (ui.table(["Test", "Feelings with words", "Words agree with stated pleasantness", "Correlation"],
+                        [[n, c.get("n"), pct(c.get("sign_agreement")), c.get("corr") if c.get("corr") is not None else "–"]
+                         for n, c in checks]) if checks else "")
+            + (ui.table(["Focus group", "Value"],
+                        [["In the room minus in private (valence, -1..1)", fg.get("mean_room_minus_private", "–")],
+                         ["Spread in private / in the room", f'{fg.get("sd_private", "–")} / {fg.get("sd_in_the_room", "–")}']])
+               if isinstance(fg, dict) and fg else "")
+            + (ui.table(["Test", "What moved", "Sessions", "Range"], moved) if moved else "")
             + '<p class="muted small">Simulated feelings: the model appraised each ad, email, page and pitch, and fixed rules '
               'turned that into one feeling. They are not measured emotion. Use them to choose what to test with real people.</p>')
     head = ui.section_head("How people felt", "What the simulated people felt when they saw each ad, page, email and pitch, "

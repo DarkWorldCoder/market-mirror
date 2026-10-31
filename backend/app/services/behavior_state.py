@@ -207,7 +207,9 @@ def prompt_block(sim_dir: str, agent_id: Any, scope: str = "default", n: int = 5
             "you have seen this brand a few times now" if st.get("familiarity", 0) >= 0.3 else "")
     mood = ""
     if emotion.mode(mode) == "on" and st.get("affect"):
-        mood = emotion.prompt_line(st["affect"], a.get("affect_traits"), None, brand=brand)
+        aff = st["affect"]                    # as it stands when the next test reaches them: faded by the usual gap
+        now = float(aff.get("t_h") or 0.0) + emotion.TEST_GAP_H if isinstance(aff, dict) else None
+        mood = emotion.prompt_line(aff, a.get("affect_traits"), now, brand=brand)
     return ("What already happened to you with this brand (in order, most recent last):\n" + "\n".join(f"- {x}" for x in lines)
             + (f"\n({feel}.)" if feel else "") + "\nStay consistent with that.\n" + (mood + "\n" if mood else ""))
 

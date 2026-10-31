@@ -358,6 +358,143 @@ def sam9(v: float) -> float:
 
 
 # ----------------------------------------------------------------------------------------------------------------
+# couplings: how a feeling nudges what the code already decides (mode "on" only)
+#
+# Each coupling is a bounded multiplier on a probability or threshold the code already holds. None of them draws a
+# new random number, so off / observe / on runs see the same random stream and stay comparable. The directions come
+# from published work; the sizes are assumptions, kept small, and the bench decides whether they help.
+
+COUPLING: Dict[str, Dict[str, Any]] = {
+    "notice": {"lo": 0.75, "hi": 1.25, "where": "feed: chance the ad is noticed",
+               "why": "aroused people attend more; a brand you dislike is screened out (affect-as-information)"},
+    "wear_out": {"lo": 1.0, "hi": 1.5, "where": "feed: repeat exposures fade faster",
+                 "why": "irritation with a brand speeds ad wear-out"},
+    "patience": {"lo": 0.8, "hi": 1.15, "where": "landing: seconds they will wait",
+                 "why": "tense, unhappy people give a slow page less time"},
+    "wallet": {"lo": 0.85, "hi": 1.15, "where": "landing: share of budget they will spend",
+               "why": "fear makes people risk-averse, confidence and FOMO the opposite (Lerner & Keltner 2001)"},
+    "backout": {"lo": 0.8, "hi": 1.3, "where": "landing: polite yes-sayers backing out at payment",
+                "why": "anticipated regret raises backing out, trust lowers it (Zeelenberg & Pieters 2007)"},
+    "email_open": {"lo": 0.8, "hi": 1.2, "where": "email: chance the mail is opened",
+                   "why": "liking a sender raises opens, irritation lowers them"},
+    "actions": {"lo": 0.8, "hi": 1.2, "where": "social rounds: how much they do",
+                "why": "high arousal drives sharing, sadness lowers it (Berger & Milkman 2012)"},
+}
+DEFAULT_WEIGHT = 1.0
+
+
+def weights(value: Any = None, env: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+    """MM_EMOTION_WEIGHT: one number for every coupling ("0.5"), optionally with per-coupling overrides
+    ("0.5,notice=0,wallet=1.2"). 0 switches a coupling off; weights are capped at 2."""
+    env = os.environ if env is None else env
+    raw = value if value is not None else env.get("MM_EMOTION_WEIGHT")
+    out = {k: DEFAULT_WEIGHT for k in COUPLING}
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return {k: _clamp(float(raw), 0.0, 2.0) for k in COUPLING}
+    if isinstance(raw, dict):
+        parts = [f"{k}={v}" for k, v in raw.items()]
+    else:
+        parts = [x.strip() for x in str(raw or "").split(",") if x.strip()]
+    for part in parts:
+        key, _, val = part.partition("=") if "=" in part else ("", "", part)
+        try:
+            w = _clamp(float(val), 0.0, 2.0)
+        except ValueError:
+            continue
+        if not key or key.strip() in ("all", "*"):
+            out = {k: w for k in out}
+        elif key.strip() in out:
+            out[key.strip()] = w
+    return out
+
+
+def at_next_test(state: Optional[Dict[str, Any]], traits: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """How someone feels when the next test reaches them: the stored mood faded by the usual gap between tests."""
+    aff = (state or {}).get("affect") if isinstance(state, dict) else None
+    if not isinstance(aff, dict):
+        return {}
+    return snapshot(state, traits, float(aff.get("t_h") or 0.0) + TEST_GAP_H)
+
+
+def _raw_effect(name: str, s: Dict[str, Any]) -> float:
+    v, a, d, bv = (float(s.get(k) or 0.0) for k in ("v", "a", "d", "brand_v"))
+    last = str(s.get("last_emotion") or "neutral")
+    li = float(s.get("last_intensity") or 0.0)
+    if name == "notice":
+        return 0.3 * a - 0.35 * max(0.0, -bv)
+    if name == "wear_out":
+        return 0.6 * max(0.0, -bv)
+    if name == "patience":
+        return 0.15 * v - (0.2 * a if v < 0 < a else 0.0)                 # tense and unhappy: least patience
+    if name == "wallet":
+        return 0.15 * v + 0.12 * d + (0.1 * li if last == "fomo" else -0.1 * li if last == "anxiety" else 0.0)
+    if name == "backout":
+        return (0.4 * li if last in ("regret", "anxiety", "pressured") else -0.3 * li if last == "trust" else 0.0) - 0.1 * v
+    if name == "email_open":
+        return 0.3 * bv
+    if name == "actions":
+        return 0.25 * a - (0.2 * li if last == "sadness" else 0.0)
+    return 0.0
+
+
+def multiplier(name: str, snap: Optional[Dict[str, Any]], weight: float = DEFAULT_WEIGHT) -> float:
+    """1.0, or a small bounded nudge from how the person feels now (snapshot / at_next_test)."""
+    c = COUPLING.get(name)
+    if not c or not snap or weight <= 0:
+        return 1.0
+    return round(_clamp(1.0 + weight * _raw_effect(name, snap), c["lo"], c["hi"]), 4)
+
+
+def effects(snap: Optional[Dict[str, Any]], mode_value: Any = None,
+            weight_map: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    """Every coupling's multiplier for one person; all 1.0 unless the mode is "on" and there is a mood to use."""
+    if mode(mode_value) != "on" or not snap:
+        return {k: 1.0 for k in COUPLING}
+    w = weight_map if weight_map is not None else weights()
+    return {k: multiplier(k, snap, w.get(k, DEFAULT_WEIGHT)) for k in COUPLING}
+
+
+def applied(fx: Optional[Dict[str, float]], *names: str) -> Dict[str, float]:
+    """The multipliers that actually moved something, for the session row (empty when nothing changed)."""
+    return {k: fx[k] for k in (names or tuple(fx or {})) if fx and fx.get(k, 1.0) != 1.0}
+
+
+def run_info(mode_value: Any = None, weight_map: Optional[Dict[str, float]] = None,
+             rows: Iterable[Dict[str, Any]] = ()) -> Dict[str, Any]:
+    """What a test records about the emotion layer: mode, version and, when "on", the weights and how many rows a
+    coupling moved (each moved row carries its own "emotion_effects")."""
+    m = mode(mode_value)
+    info: Dict[str, Any] = {"mode": m, "version": VERSION}
+    if m == "on":
+        info["weights"] = dict(weight_map if weight_map is not None else weights())
+        info["rows_moved"] = sum(1 for r in rows if isinstance(r, dict) and r.get("emotion_effects"))
+        info["note"] = "Coupling sizes are assumptions, not validated; see emotion.COUPLING."
+    return info
+
+
+def feel_pairs(result: Any, depth: int = 0) -> List[Any]:
+    """(pleasant, words) for every recorded feeling in a test result (feed ad and page, email reads, pitch turns), for
+    checking the self-reported pleasantness against the person's own words (ssr.affect_agreement)."""
+    out: List[Any] = []
+    if depth > 6:
+        return out
+    if isinstance(result, dict):
+        f = result.get("feel")
+        if isinstance(f, dict) and f.get("words") and f.get("pleasant") is not None:
+            try:
+                out.append((float(f["pleasant"]), str(f["words"])))
+            except (TypeError, ValueError):
+                pass
+        for k, v in result.items():
+            if k != "feel" and isinstance(v, (dict, list)):
+                out.extend(feel_pairs(v, depth + 1))
+    elif isinstance(result, list):
+        for v in result:
+            out.extend(feel_pairs(v, depth + 1))
+    return out
+
+
+# ----------------------------------------------------------------------------------------------------------------
 # summaries for reports
 
 def _stats(xs: List[float]) -> Dict[str, Any]:

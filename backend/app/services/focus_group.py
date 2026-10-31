@@ -175,6 +175,46 @@ def run_group(people: List[Dict[str, Any]], guide: Sequence[str], complete: Comp
                      "group moved them.")}
 
 
+def affect_split(result: Dict[str, Any], rater: Callable[[List[str]], List[Optional[Dict[str, Any]]]]) -> Dict[str, Any]:
+    """How each person felt in private (their verdicts before and after) next to how they sounded in the room, rated
+    from their own words by rater (ssr.rate_affect: local embeddings, no model call). Two flags:
+    masking: people sound warmer in the room than in private (they hide doubts in public);
+    over_convergence: the room's feelings are much more alike than the private ones (the group flattened them).
+    Simulated people in a simulated room: a check on the simulation, not a reading of real buyers."""
+    parts = result.get("participants") or []
+    if len(parts) < 2:
+        return {}
+    said: Dict[str, List[str]] = {}
+    for t in result.get("transcript") or []:
+        if t.get("speaker") and t["speaker"] != "Moderator":
+            said.setdefault(t["speaker"], []).append(str(t.get("text") or ""))
+    texts: List[str] = []
+    for p in parts:
+        texts += [p.get("pre_text") or "", p.get("post_text") or "", " ".join(said.get(p["id"], []))]
+    rated = rater(texts)
+
+    def val(r: Optional[Dict[str, Any]]) -> Optional[float]:
+        v = (r or {}).get("valence") if isinstance(r, dict) else None
+        return float(v["signed"]) if isinstance(v, dict) and v.get("signed") is not None else None
+    rows = []
+    for i, p in enumerate(parts):
+        pre, post, room = (val(rated[3 * i + k]) for k in range(3))
+        rows.append({"id": p["id"], "private_before": pre, "private_after": post, "in_the_room": room,
+                     "gap": round(room - post, 3) if room is not None and post is not None else None})
+    gaps = [r["gap"] for r in rows if r["gap"] is not None]
+    room = [r["in_the_room"] for r in rows if r["in_the_room"] is not None]
+    priv = [r["private_after"] for r in rows if r["private_after"] is not None]
+    mean_gap = round(sum(gaps) / len(gaps), 3) if gaps else None
+    sd_room = round(_sd(room), 3) if len(room) > 1 else None
+    sd_priv = round(_sd(priv), 3) if len(priv) > 1 else None
+    return {"people": rows, "mean_room_minus_private": mean_gap,
+            "sd_in_the_room": sd_room, "sd_private": sd_priv,
+            "masking_flag": bool(mean_gap is not None and len(gaps) >= 3 and mean_gap > 0.25),
+            "over_convergence_flag": bool(sd_room is not None and sd_priv and len(room) >= 4 and sd_room < 0.5 * sd_priv),
+            "scale": "valence -1..1 from the person's own words (SSR anchors)",
+            "note": "Simulated feelings, rated from simulated words; not measured emotion."}
+
+
 def _themes(transcript: List[Dict[str, Any]], ask: Meter, offer: str) -> List[Dict[str, Any]]:
     lines = "\n".join(f"{t['speaker']}: {t['text']}" for t in transcript if t["speaker"] != "Moderator")
     if not lines:

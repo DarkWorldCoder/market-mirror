@@ -243,6 +243,8 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
     by_id = {p["agent_id"]: p for p in people}
     by_email = {e["id"]: e for e in emails}
     traits = {aid: person_habits(by_id[aid]) for aid in plan}         # stable per person, not per seed
+    emo_w = emotion.weights()
+    fx = {aid: emotion.effects(by_id[aid].get("affect_now"), emo_mode, emo_w) for aid in plan}   # 1.0 unless "on"
     keys = sorted({(str(by_id[a].get("country") or ""), str(by_id[a].get("segment") or "")) for a in plan})
     pools: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     lock = threading.Lock()
@@ -266,10 +268,14 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
         inbox = pools.get(key) or FALLBACK_FILLER
         inbox_n = len(inbox) + 1
         p_open = open_probability({**email, **step_mail}, person, tr, inbox_n, familiarity, step)
+        if fx[aid]["email_open"] != 1.0:
+            p_open = max(0.02, min(0.9, p_open * fx[aid]["email_open"]))
         r = random.Random(seed * 104729 + aid * 31 + step)
         rec: Dict[str, Any] = {"agent_id": aid, "name": person.get("name"), "segment": person.get("segment"), "country": person.get("country"),
                                "email_id": email["id"], "step": step, "day": day, "subject": step_mail.get("subject") or email["subject"],
                                "p_open": round(p_open, 3), "inbox_size": inbox_n}
+        if fx[aid]["email_open"] != 1.0:
+            rec["emotion_effects"] = {"email_open": fx[aid]["email_open"]}
         if aid in unsubscribed:
             rec.update({"opened": False, "action": "unsubscribed_earlier"})
             return rec
@@ -330,7 +336,7 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
             summary["feelings"] = feelings
     return {"emails": emails, "plan": {str(k): v for k, v in plan.items()}, "sessions": sessions, "summary": summary,
             "usage": usage, "seed": seed, "list_size": list_size, "benchmarks": benchmarks, "familiarity": familiarity,
-            "emotion": {"mode": emo_mode, "version": emotion.VERSION}}
+            "emotion": emotion.run_info(emo_mode, emo_w, sessions)}
 
 
 # --------------------------------------------------------------------------

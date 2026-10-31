@@ -239,8 +239,26 @@ def _emotion_facts(bundle: Dict[str, Any], ads: List[Dict[str, Any]]) -> Dict[st
         out["pitch_feelings_pct"] = {k: round(100 * v, 1) for k, v in list((p["feelings"]["after_pitch"].get("emotions") or {}).items())[:4]}
         if p.get("backfire_pct") is not None:
             out["rebuttal_backfire_pct"] = p.get("backfire_pct")
+    modes = {(bundle.get(k) or {}).get("emotion", {}).get("mode") for k in ("feed_test", "email_test", "pitch")
+             if isinstance(bundle.get(k), dict) and isinstance(bundle[k].get("emotion"), dict)}
+    if "on" in modes:
+        out["feelings_steered_behaviour"] = True
+    checks = {}
+    for key, name in (("feed_test", "feed"), ("email_test", "email"), ("pitch", "pitch")):
+        wc = ((bundle.get(key) or {}).get("emotion") or {}).get("words_check") if isinstance(bundle.get(key), dict) else None
+        if isinstance(wc, dict) and wc.get("n"):
+            checks[name] = {"n": wc["n"], "words_agree_pct": round(100 * (wc.get("sign_agreement") or 0), 1),
+                            "low_agreement_flag": bool(wc.get("low_agreement_flag"))}
+    if checks:
+        out["words_check"] = checks
+    fg = (bundle.get("focus_group") or {}).get("affect") if isinstance(bundle.get("focus_group"), dict) else None
+    if isinstance(fg, dict) and fg:
+        out["focus_group_feelings"] = {"room_minus_private_valence": fg.get("mean_room_minus_private"),
+                                       "masking_flag": bool(fg.get("masking_flag")),
+                                       "over_convergence_flag": bool(fg.get("over_convergence_flag"))}
     if out:
-        out["basis"] = "simulated appraisal, not measured emotion; behavioural effect not validated"
+        out["basis"] = ("simulated appraisal, not measured emotion; behavioural effect "
+                        + ("applied with assumed sizes (mode on), " if "on" in modes else "") + "not validated")
     return out
 
 
@@ -555,9 +573,17 @@ def _fallback_emotions(e: Dict[str, Any]) -> Dict[str, Any]:
     top = ", ".join(f"{k} {v}%" for k, v in list(shares.items())[:3])
     lines = [f"{a['id']}: " + ", ".join(f"{k} {v}%" for k, v in (a.get("top_feelings_pct") or {}).items()) for a in e.get("per_ad") or []]
     res = e.get("pitch_resistance") or {}
-    watch = ""
+    watch = []
     if res.get("low_resistance_flag"):
-        watch = f"Only {res.get('resistance_pct')}% of simulated buyers pushed back on the pitch; real buyers usually resist more."
+        watch.append(f"Only {res.get('resistance_pct')}% of simulated buyers pushed back on the pitch; real buyers usually resist more.")
+    if any(c.get("low_agreement_flag") for c in (e.get("words_check") or {}).values()):
+        watch.append("The stated feelings often disagree with the people's own words; treat them with extra caution.")
+    fg = e.get("focus_group_feelings") or {}
+    if fg.get("masking_flag"):
+        watch.append("In the focus group people sounded warmer than they felt in private.")
+    if e.get("feelings_steered_behaviour"):
+        watch.append("Feelings were allowed to nudge behaviour (mode on) with assumed, unvalidated sizes.")
+    watch = " ".join(watch)
     return {"summary": (f"Simulated feelings recorded: {top}." if top else "Simulated feelings were recorded per ad."),
             "by_ad": lines, "watch_out": watch, "so_what": "", "confidence": "low"}
 
