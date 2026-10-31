@@ -763,7 +763,7 @@ MarketMirror's source code is available under [AGPL-3.0](LICENSE). Running it ma
 
 ### Can I bring real research and campaign data?
 
-Yes. You can supply product documents, linked feedback, and campaign exports. MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
+Yes. You can supply product documents, linked feedback, and campaign exports. `intake` turns your own call transcripts, reviews, NPS verbatims and CRM notes into grounded personas that quote your customers word for word. Contact details are removed on your machine first ([formats](docs/INPUT_FORMATS.md)). MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
 
 ### What do the technical terms mean?
 

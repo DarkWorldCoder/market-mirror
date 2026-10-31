@@ -374,6 +374,42 @@ def creative_check():
                                                       "pre-flight check, not a measured attention or recall score."}})
 
 
+@simulation_bp.route('/survey-estimate', methods=['POST'])
+def survey_estimate():
+    """POST {simulation_id, offer, goal, message?} -> per segment, how its answers would spread over the five
+    verdicts on interest, trust, purchase and recommend (two calls per segment, both verdict orders averaged)."""
+    from ..services import survey_estimate as se
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    segments: Dict[str, List[Dict[str, Any]]] = {}
+    for p in people:
+        segments.setdefault(str(p.get("segment") or "Everyone"), []).append(p)
+    if not segments:
+        return jsonify({"success": False, "error": "no personas yet: prepare the simulation first"}), 400
+    client = _client()
+
+    def complete(system, user):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=1200,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = se.run(segments, str(data.get("offer") or "")[:1500], str(data.get("goal") or "")[:300], complete,
+                     str(data.get("message") or "")[:1000])
+        out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"survey estimate failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/ssr', methods=['POST'])
 def semantic_similarity_rating():
     """Map free-text survey answers to 5-point rating distributions (arXiv 2510.08338)."""
@@ -625,7 +661,8 @@ def calibrate_panel():
         return jsonify({"success": False, "error": "synthetic and real rows are required"}), 400
     try:
         out = calibration.diagnose([r for r in syn if isinstance(r, dict) and "y" in r],
-                                   [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"))
+                                   [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"),
+                                   halfwidth=max(0.005, min(0.5, float(data.get("halfwidth") or 0.05))))
         out["field"] = data.get("field")
         corr = out.get("corrected") or {}
         if corr.get("estimate") is not None and corr.get("naive_syn"):
@@ -711,6 +748,43 @@ def ad_patterns():
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:  # noqa: BLE001
         logger.error(f"ad patterns failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route('/intake', methods=['POST'])
+def customer_intake():
+    """POST {rows: [raw rows from transcripts, reviews, NPS/survey verbatims or CRM notes], engine?: llm|supplied,
+    context?, id_field?, segment_field?, text_field?, segment?, max_people?} -> {records: real_profiles records,
+    counts, usage, note} (synchronous). Contact details are scrubbed before the model call; quotes are verbatim."""
+    from ..services import intake
+    data = request.get_json() or {}
+    rows = data.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"success": False, "error": "rows must be a non-empty list"}), 400
+    engine = str(data.get("engine") or "llm").lower()
+    complete = None
+    if engine == "llm":
+        client = _client()
+
+        def complete(system: str, user: str):
+            from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+            resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=6000,
+                                          messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+            u = getattr(resp, "usage", None)
+            return extract_chat_completion_text(resp), {
+                "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = intake.run(rows, engine=engine, complete=complete, context=str(data.get("context") or "")[:2000],
+                         id_field=str(data.get("id_field") or ""), segment_field=str(data.get("segment_field") or ""),
+                         text_field=str(data.get("text_field") or ""), segment=str(data.get("segment") or ""),
+                         max_people=max(1, min(int(data.get("max_people") or intake.MAX_PEOPLE), intake.MAX_PEOPLE)))
+        if engine == "llm":
+            out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"intake failed: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
