@@ -59,3 +59,5 @@ jobs:
       - name: Skill front matter present
         run: |
           head -3 plugin/skills/market-mirror/SKILL.md | grep -q '^name: market-mirror'
+      - name: Manifest versions stay on the release version
+        run: python3 tests/test_manifest_versions.py -v

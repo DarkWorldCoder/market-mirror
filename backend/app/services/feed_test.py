@@ -31,6 +31,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.anthropic_native import CACHE_BREAK
+from . import creative_vision
 from ..utils.logger import get_logger
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .persona_planner import parse_json_block
@@ -262,6 +263,29 @@ def landing_prompt(person: Dict[str, Any], creative: Dict[str, Any], landing: Di
 # Inputs
 # --------------------------------------------------------------------------
 
+MAX_IMAGE_CHARS = 5_600_000      # a 4 MB image as base64
+
+
+def _visual_sources(c: Dict[str, Any], i: int) -> Dict[str, Any]:
+    """The creative's image (data URI or https URL) and video keyframes, when given."""
+    out: Dict[str, Any] = {}
+    img = c.get("image")
+    if isinstance(img, str) and img.strip():
+        img = img.strip()
+        if not (img.startswith("data:image/") or img.startswith("https://")):
+            raise ValueError(f"creative {i + 1}: image must be a data:image/... URI or an https URL "
+                             "(the CLI turns a local file into a data URI)")
+        if len(img) > MAX_IMAGE_CHARS:
+            raise ValueError(f"creative {i + 1}: image is larger than 4 MB")
+        out["image"] = img
+    frames = [f.strip() for f in (c.get("frames") or []) if isinstance(f, str) and f.strip()]
+    if frames:
+        if any(not f.startswith("data:image/") or len(f) > MAX_IMAGE_CHARS for f in frames):
+            raise ValueError(f"creative {i + 1}: frames must be data:image/... URIs under 4 MB each")
+        out["frames"] = frames[:4]
+    return out
+
+
 def normalize_creatives(raw: Any) -> List[Dict[str, Any]]:
     """Validate the creatives list; returns cleaned dicts with ids."""
     if not isinstance(raw, list) or not raw:
@@ -291,6 +315,7 @@ def normalize_creatives(raw: Any) -> List[Dict[str, Any]]:
             "link": str(c.get("link") or "").strip(),
             "segments": [str(x) for x in (c.get("segments") or [])],
             "countries": [str(x) for x in (c.get("countries") or [])],
+            **_visual_sources(c, i),
         })
     ids = [c["id"] for c in out]
     if len(set(ids)) != len(ids):
@@ -485,15 +510,22 @@ def _llm_json(
     max_tokens: int = 3000,
     agent_id: Optional[Any] = None,
     return_meta: bool = False,
+    images: Optional[List[Dict[str, Any]]] = None,
 ) -> Any:
     last: Optional[Exception] = None
+    user: Any = prompt
+    if images:      # shared part + the ad's picture (cached together), then the per-person part
+        shared, mark, rest = prompt.partition(CACHE_BREAK)
+        user = ([{"type": "text", "text": shared + "\n\nThe Sponsored/Promoted item's picture (what it looks like in "
+                                                     "your feed) is attached here."}] + list(images)
+                + [{"type": "text", "text": (CACHE_BREAK + rest) if mark else ""}])
     for attempt in range(3):
         try:
             call_kw: Dict[str, Any] = {
                 "model": model,
                 "temperature": max(0.3, temperature - 0.2 * attempt),
                 "max_tokens": max_tokens,
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             }
             if agent_id is not None:
                 call_kw["agent_id"] = agent_id
@@ -697,8 +729,10 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                   pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
                   voices: Optional[List[Dict[str, Any]]] = None,
                   competitor: Optional[Dict[str, Any]] = None,
-                  include_generic_baseline: bool = False) -> Dict[str, Any]:
-    """waves: later waves see earlier reaction counts (and, if they open them, comments).
+                  include_generic_baseline: bool = False, vision: str = "describe") -> Dict[str, Any]:
+    """vision: "direct" also sends each creative's image with every scroll call (the image sits in the cached shared
+    part); "describe" / "off" leave the scroll calls text-only (describe runs once per creative before the test).
+    waves: later waves see earlier reaction counts (and, if they open them, comments).
     exposures: how many times each person scrolls past the ad (frequency, with wear-out).
     attention_gate: decide in code whether the ad is noticed at all; unnoticed ads are a quick scroll past.
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
@@ -758,6 +792,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                 client, model, SYSTEM_PROMPT,
                 scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]]),
                 agent_id=person["agent_id"], return_meta=True,
+                images=creative_vision.image_parts(creative) if vision == "direct" else None,
             )
             if isinstance(res_tuple, tuple) and len(res_tuple) == 3:
                 data, prov, mod = res_tuple
@@ -845,8 +880,9 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             logger.warning(f"generic_reader_baseline failed: {e}")
     end_usage = meter.snapshot()
     usage = {k: end_usage[k] - start_usage[k] for k in end_usage}
-    return {"creatives": creatives, "sessions": sessions, "landing": landing, "competitor": comp, "waves": waves,
-            "exposures": exposures, "seed": seed, "usage": usage,
+    return {"creatives": [creative_vision.strip_sources(c) for c in creatives], "sessions": sessions, "landing": landing,
+            "competitor": comp, "waves": waves, "exposures": exposures, "seed": seed, "usage": usage,
+            "vision": vision if any(creative_vision.has_visual(c) for c in creatives) else "none",
             "usage_by_provider": provider_diff(meter.provider_snapshot(), start_by_provider),
             "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,

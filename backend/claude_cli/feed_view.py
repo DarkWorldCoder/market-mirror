@@ -279,6 +279,29 @@ def _baseline_html(gb: Optional[Dict[str, Any]]) -> str:
     )
 
 
+def _visual_html(cr: Dict[str, Any]) -> str:
+    """What the image or video keyframes show, and the pre-flight checklist (model reading + measured aspect)."""
+    v = cr.get("visual")
+    if not isinstance(v, dict) or not v.get("description"):
+        return ""
+    marks = {True: ('mint', 'pass'), False: ('orchid', 'fix'), None: ('', 'unclear')}
+    rows = "".join(
+        f'<li><span class="pill {marks[c.get("pass")][0]}">{marks[c.get("pass")][1]}</span> {_e(c.get("label") or c.get("check"))}'
+        + (f' <span class="muted">· {_e(c.get("note"))}</span>' if c.get("note") else "")
+        + (' <span class="muted">(measured)</span>' if c.get("source") == "measured" else "") + "</li>"
+        for c in v.get("checks") or [])
+    frames = f" ({v['frames']} video keyframes)" if (v.get("frames") or 0) > 1 else ""
+    brief = (f'<p class="muted small">The brief described it as: {_e(_t(cr.get("media_brief"), 200))}</p>'
+             if cr.get("media_brief") else "")
+    return (f'<details class="tv"><summary>What the buyers saw{_e(frames)} · '
+            f'{v.get("passed", 0)} of {len(v.get("checks") or [])} checks pass</summary>'
+            f'<p class="small"><b>At a glance:</b> {_e(v.get("first_glance") or "")}</p>'
+            f'<p class="small">{_e(v.get("description"))}'
+            + (f' Words on it: “{_e(v.get("on_image_text"))}”.' if v.get("on_image_text") else "") + "</p>" + brief
+            + f'<ul class="small">{rows}</ul><p class="muted small">A model\'s reading of the creative plus the measured '
+              'aspect ratio: a pre-flight check, not a measured attention or recall score.</p></details>')
+
+
 def _provider_breakdown_html(by_prov: Optional[Dict[str, Any]]) -> str:
     """Cross-model provider breakdown table when multiple providers or non-default providers run."""
     if not isinstance(by_prov, dict) or len(by_prov) < 2:     # one provider: nothing to compare
@@ -375,7 +398,7 @@ def feed_section(ft: Dict[str, Any], chart, insight: Optional[str] = None) -> Op
             f'<p class="muted small">Shown to {n // n_seeds} simulated people in their own feed among organic posts'
             + (f', in each of {n_seeds} seeded runs ({n} impressions).' if n_seeds > 1 else '.') + '</p>'
             f'<table class="kv-t"><tbody>{_metric_rows(m, base.get(cr.get("platform")), (ms.get("spread") or {}).get(cid), n_seeds)}</tbody></table>'
-            f'{_landing_html(m.get("landing"))}{_projection_html(m.get("projection"))}{proof}'
+            f'{_visual_html(cr)}{_landing_html(m.get("landing"))}{_projection_html(m.get("projection"))}{proof}'
             + (f'<details class="tv"><summary>By audience</summary><div class="tbl"><table class="sortable"><thead><tr><th>Audience</th><th class="num">Saw it</th>'
                f'<th class="num">Thumb-stop</th><th class="num">CTR</th><th class="num">Engagement</th></tr></thead><tbody>{seg_rows}</tbody></table></div></details>'
                if seg_rows else "")
