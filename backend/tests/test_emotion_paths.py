@@ -87,6 +87,8 @@ def test_pitch_walk_away_and_resistance():
     assert on["emotion"]["mode"] == "on"
     off = pitch.run(batch, ppl, "Buy now", {}, emotions="off")
     assert "walk_away" not in pitch.pitch_prompt("Buy now")
+    plain = pitch.resistance_and_feelings([{"turn1": {"verdict": "no"}}, {"turn1": {"verdict": "maybe"}}])
+    assert "resistance" not in plain                     # never asked about walking away: no resistance claim
 
 
 def test_email_reads_carry_feelings():

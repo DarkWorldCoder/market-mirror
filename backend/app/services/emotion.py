@@ -393,9 +393,15 @@ def quality_flags(feelings: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
             "caricature": bool(n >= 10 and (neutral_share < 0.25 or mean_i > 0.6))}
 
 
-def summarize(data: Dict[str, Any], scope: str = "default") -> Dict[str, Any]:
-    """Population view of simulated feelings from a behavior_state document."""
-    agents = ((data or {}).get("scopes") or {}).get(scope or "default") or {}
+def summarize(data: Dict[str, Any], scope: Optional[str] = None) -> Dict[str, Any]:
+    """Population view of simulated feelings from a behavior_state document. Without a scope it reads "default",
+    or the largest scope when there is none (a study writes one scope per cell), like the dashboard does."""
+    scopes = (data or {}).get("scopes") if isinstance(data, dict) else None
+    scopes = scopes if isinstance(scopes, dict) else {}
+    agents = scopes.get(scope or "default")
+    if scope is None and not (isinstance(agents, dict) and agents):
+        agents = max((v for v in scopes.values() if isinstance(v, dict)), key=len, default={})
+    agents = agents or {}
     if not isinstance(agents, dict) or not agents:
         return {"people": 0}
     feelings, by_test, mismatches, n_judged = [], {}, 0, 0

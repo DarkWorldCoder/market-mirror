@@ -298,6 +298,8 @@ def resistance_and_feelings(answered: List[Dict[str, Any]]) -> Dict[str, Any]:
         "no_pct": round(100.0 * no / n, 1), "resistance_pct": round(100.0 * rate, 1),
         "low_resistance_flag": rate < 0.20,
         "note": "Simulated buyers rarely walk away; real sales conversations show more resistance (Chen 2026)."}}
+    if not asked:                      # walk-away was not asked (emotions off): make no resistance claim
+        out.pop("resistance")
     t1 = [r["turn1"]["feel"] for r in answered if r["turn1"].get("feel")]
     t2 = [r["turn2"]["feel"] for r in answered if (r.get("turn2") or {}).get("feel")]
     if t1 or t2:

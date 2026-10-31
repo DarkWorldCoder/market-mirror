@@ -132,3 +132,6 @@ def test_summary_flags_uniform_positive_and_caricature():
     assert not m["flags"]["caricature"] and not m["flags"]["positive_skew"] and not m["flags"]["uniform"]
     assert m["emotions"]["neutral"] == 0.6 and m["by_test"]["feed_test"]["n"] == 20
     assert emo.summarize({"scopes": {}}) == {"people": 0}
+    cell = {"version": 2, "scopes": {"study_cell_a": _doc(mixed)["scopes"]["default"]}}
+    assert emo.summarize(cell)["feelings"] == 20          # a study cell's scope is found without naming it
+    assert emo.summarize(cell, "default") == {"people": 0}
