@@ -13,12 +13,14 @@ body:
     id: os
     attributes:
       label: Operating system
+      description: Choose your operating system; leave Other / not sure if you do not know.
       options:
         - Linux
         - macOS
         - Windows with WSL
         - Windows without WSL
         - Other / not sure
+      default: 4
     validations:
       required: true
   - type: textarea
