@@ -882,6 +882,27 @@ def intake(c, log, files: Optional[List[str]] = None, rows: Optional[List[Dict[s
 # emailtest
 # --------------------------------------------------------------------------
 
+def focus_group(c, simulation_id: str, guide: List[str], out_dir: str, log, people: int = 6, segment: str = "",
+                offer: str = "", goal: str = "", rounds: int = 1, agent_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+    """A moderated focus group of saved personas: private verdict, discussion, private verdict, themes."""
+    body = {"simulation_id": simulation_id, "guide": guide, "people": people, "segment": segment, "offer": offer,
+            "goal": goal, "rounds": rounds, **({"agent_ids": agent_ids} if agent_ids else {})}
+    started = c.data("POST", "/api/simulation/focus-group", json={**body, **_scope(c)}, timeout=120)
+    log(f"focus-group: {started.get('people')} people, {started.get('questions')} questions "
+        f"(about {started.get('people', 0) * (started.get('questions', 0) * max(1, rounds) + 2) + 1} calls)")
+    wait_task(c, started["task_id"], "focus-group", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/focus-group")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "focus_group.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    sh = result.get("shift") or {}
+    log(f"focus-group: private verdict mean {sh.get('mean_pre')} -> {sh.get('mean_post')} "
+        f"({sh.get('changed')} of {sh.get('n')} changed{'; opinions converged' if sh.get('conformity_flag') else ''})")
+    return {"focus_group": os.path.abspath(path), "shift": sh, "themes": [t.get("title") for t in result.get("themes") or []],
+            "usage": result.get("usage")}
+
+
 def _describe_ad_rows(c, log, rows: List[Dict[str, Any]], base_dir: str, batch: int = 8) -> None:
     """Fill visual_notes from the picture for rows that carry image / image_url / video (in place)."""
     todo = []

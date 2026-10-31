@@ -1510,6 +1510,16 @@ def cmd_market_test(c: Client, a) -> Any:
                 int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
         steps.append("feed_test")
         checkpoint()
+    fg = cfg.get("focus_group")
+    if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
+        guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
+        survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
+        state["focus_group"] = _try("focus group", lambda: market_cli.focus_group(
+            c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
+            str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
+            int(fg.get("rounds") or 1)))
+        steps.append("focus_group")
+        checkpoint()
     emails = cfg.get("emails")
     if emails:
         epath = _cfg_path(base, emails)
@@ -1691,6 +1701,32 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
         raise CLIError(str(e))
     if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
         res["export"] = do_export(a.run_dir, os.path.join(a.run_dir, "dashboard.html"), None)
+    return res
+
+
+def cmd_ask(c: Client, a) -> Any:
+    history = market_cli._load_json_arg(a.history) if a.history else []
+    res = c.data("POST", "/api/simulation/ask", json={"simulation_id": a.simulation, "agent_id": a.person,
+                                                       "message": read_text_arg(a.message), "history": history}, timeout=300)
+    if a.history and a.history.startswith("@"):       # keep the conversation going with the same file
+        path = a.history[1:]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(list(history) + [{"role": "user", "text": read_text_arg(a.message)},
+                                       {"role": "person", "text": res.get("reply")}], f, ensure_ascii=False, indent=2)
+    return res
+
+
+def cmd_focus_group(c: Client, a) -> Any:
+    out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
+    guide = [q for q in read_text_arg(a.guide).splitlines() if q.strip().strip("-* ")]
+    guide = [q.strip().lstrip("-* ").strip() for q in guide]
+    try:
+        res = market_cli.focus_group(c, a.simulation, guide, out_dir, log, a.people, a.segment or "", a.offer or "",
+                                     a.goal or "", a.rounds, a.agents)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
+        res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
 
 
@@ -2559,6 +2595,24 @@ def build_parser() -> argparse.ArgumentParser:
                                                          "thumbnail_url or video) first, so labels read the picture (backend)")
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
 
+    s = sub.add_parser("ask", help="talk to one saved simulated person after the run (no live environment needed)")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--person", type=int, required=True, help="agent id (see `profiles --brief`)")
+    s.add_argument("message", help="what to ask, or @file")
+    s.add_argument("--history", help="@chat.json: earlier turns; the reply is appended so the next ask continues")
+
+    s = sub.add_parser("focus-group", help="moderated focus group of saved personas: private verdict, discussion, "
+                                           "private verdict, themes, and how much the group moved them")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--guide", required=True, help="questions, one per line: text or @guide.md")
+    s.add_argument("--people", type=int, default=6, help="2-8 participants, taken in turn from each segment")
+    s.add_argument("--segment", help="only this segment")
+    s.add_argument("--agents", type=int, nargs="+", help="explicit agent ids instead")
+    s.add_argument("--offer")
+    s.add_argument("--goal")
+    s.add_argument("--rounds", type=int, default=1, help="passes per question (2 adds 'did anything change your mind?')")
+    s.add_argument("--run-dir", help="where focus_group.json lands (default mirofish_runs/<simulation>)")
+
     s = sub.add_parser("bench", help="MarketMirror-Bench: score simulated answers against open human data (Upworthy "
                                      "headline tests, Twin-2K-500) next to simpler comparators; dry run unless --approve-spend")
     s.add_argument("--suite", required=True, choices=["upworthy", "twin2k"])
@@ -2957,7 +3011,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,

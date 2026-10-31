@@ -334,6 +334,22 @@ TOOLS = [
                                                       "context": {"type": "string"}, "segment_field": {"type": "string"},
                                                       "id_field": {"type": "string"}, "text_field": {"type": "string"},
                                                       "segment": {"type": "string"}, "max_people": {"type": "integer"}}}},
+    {"name": "ask_buyers", "description": (
+        "Talk to the simulated buyers after a run, no live simulation needed. action 'ask': one person (agent_id from "
+        "results/profiles) answers a message, with optional history. action 'focus_group': 2-8 saved people (taken in turn "
+        "from each segment, or one segment, or agent_ids) give a private verdict, discuss the guide questions with a "
+        "moderator, then give a private verdict again; returns themes with checked quotes, the before/after shift and a "
+        "conformity flag, saves focus_group.json and adds a dashboard section (background job). Simulated people: "
+        "qualitative exploration, not real buyers."),
+     "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["ask", "focus_group"]},
+                                                      "simulation_id": {"type": "string"}, "agent_id": {"type": "integer"},
+                                                      "message": {"type": "string"},
+                                                      "history": {"type": "array", "items": {"type": "object"}},
+                                                      "guide": {"type": "array", "items": {"type": "string"}},
+                                                      "people": {"type": "integer"}, "segment": {"type": "string"},
+                                                      "offer": {"type": "string"}, "goal": {"type": "string"},
+                                                      "run": {"type": "string"}},
+                     "required": ["action", "simulation_id"]}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -577,6 +593,36 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         if a.get("vision"):
             args.append("--vision")
         return job(args, "ad_patterns")
+    if name == "ask_buyers":
+        if a.get("action") == "ask":
+            if a.get("agent_id") is None or not a.get("message"):
+                raise ValueError("ask needs agent_id and message")
+            d = os.path.join(home(), "scenarios", "_ask")
+            os.makedirs(d, exist_ok=True)
+            hp = os.path.join(d, f"chat_{a['simulation_id']}_{int(a['agent_id'])}.json")
+            if a.get("history") is not None:
+                json.dump(a["history"], open(hp, "w", encoding="utf-8"), ensure_ascii=False)
+            elif not os.path.exists(hp):
+                json.dump([], open(hp, "w", encoding="utf-8"))
+            return _cli_result(sh(["cli", "ask", "--simulation", a["simulation_id"], "--person", str(int(a["agent_id"])),
+                                   "--history", "@" + hp, a["message"]], timeout=400))
+        if not a.get("guide"):
+            raise ValueError("focus_group needs guide (a list of questions)")
+        d = os.path.join(home(), "scenarios", "_focus_groups")
+        os.makedirs(d, exist_ok=True)
+        gp = os.path.join(d, f"guide_{uuid.uuid4().hex[:6]}.md")
+        open(gp, "w", encoding="utf-8").write("\n".join(str(q) for q in a["guide"]))
+        args = ["cli", "focus-group", "--simulation", a["simulation_id"], "--guide", "@" + gp]
+        for k in ("people",):
+            if a.get(k):
+                args += ["--" + k, str(int(a[k]))]
+        for k in ("segment", "offer", "goal"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("run"):
+            run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
+            args += ["--run-dir", run_dir]
+        return job(args, "focus_group")
     if name == "creative_check":
         d = os.path.join(home(), "scenarios", "_creative_check")
         os.makedirs(d, exist_ok=True)

@@ -518,6 +518,40 @@ def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None
     return ("ideas", "Test ideas", html)
 
 
+def focus_group_section(fg: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Focus group': private verdicts before and after a moderated discussion, themes, and the transcript."""
+    if not isinstance(fg, dict) or not fg.get("transcript"):
+        return None
+    scale = fg.get("verdict_scale") or ["No", "Probably not", "Maybe", "Probably yes", "Yes, definitely"]
+    name = lambda v: scale[v - 1] if isinstance(v, int) and 1 <= v <= len(scale) else "–"
+    sh = fg.get("shift") or {}
+    tiles = [("People", len(fg.get("participants") or []), ", ".join(sorted({p.get("segment") or "" for p in fg.get("participants") or []}))[:80]),
+             ("Private verdict before", sh.get("mean_pre") if sh.get("mean_pre") is not None else "–", "1 = No, 5 = Yes, definitely"),
+             ("After the discussion", sh.get("mean_post") if sh.get("mean_post") is not None else "–",
+              f'{sh.get("changed", 0)} of {sh.get("n", 0)} changed'),
+             ("Group pull", "converged" if sh.get("conformity_flag") else "no convergence", sh.get("reading") or "")]
+    rows = [[p.get("id"), p.get("segment"), name(p.get("pre")), name(p.get("post")), _t(p.get("post_text"), 140)]
+            for p in fg.get("participants") or []]
+    themes = "".join(
+        f'<li><b>{_e(t.get("title"))}</b> {_pill(t.get("tone"), "mint" if t.get("tone") == "positive" else "orchid" if t.get("tone") == "negative" else "")}'
+        f' <span class="muted small">{_e(", ".join(t.get("who") or []))}</span>'
+        + (f'<br><span class="small">“{_e(t.get("quote"))}”</span>' if t.get("quote") else "") + "</li>"
+        for t in fg.get("themes") or [])
+    guide = fg.get("guide") or []
+    lines = "".join(
+        f'<p class="small"><b>{_e(t.get("speaker"))}</b>'
+        + (f' <span class="muted">({_e(t.get("segment"))})</span>' if t.get("segment") else "") + f': {_e(t.get("text"))}</p>'
+        for t in fg["transcript"])
+    body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + (f'<div class="card"><h3>Themes</h3><ul>{themes}</ul></div>' if themes else "")
+            + ui.table(["Who", "Segment", "Private before", "Private after", "Why, after"], rows, sortable=True)
+            + f'<details class="tv"><summary>Transcript ({len(guide)} questions)</summary>{lines}</details>'
+            + f'<p class="muted small">{_e(fg.get("note") or "")}</p>')
+    head = ui.section_head("Focus group", "Saved simulated people in a moderated discussion. Each gave a private verdict "
+                           "before and after, so you can see how much the group moved them.", insight)
+    return ("focusgroup", "Focus group", head + body)
+
+
 def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Real-sample check': the calibrate verdict, the AIPW-corrected rate, and the PPI++ interval with the
     effective sample size and how many more real answers a target precision needs."""

@@ -86,7 +86,7 @@ RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
     "posts_twitter", "posts_reddit", "comments_twitter", "comments_reddit",
-    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "calibration", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
+    "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "focus_group", "calibration", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
     "geo_visibility", "voc_grounding", "dark_social", "search_index",
@@ -1258,6 +1258,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                          ("agent thoughts", lambda: gtm_view.thoughts_section(bundle, insights.get("thoughts"))),
                          ("test ideas", lambda: report_view.ideas_section(bundle.get("ideas"), insights.get("ideas"))),
                          ("ad patterns", lambda: report_view.ad_patterns_section(bundle.get("ad_patterns"), insights.get("adpatterns"))),
+                         ("focus group", lambda: report_view.focus_group_section(bundle.get("focus_group"))),
                          ("real-sample check", lambda: report_view.calibration_section(bundle.get("calibration"))),
                          ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
         extra = _safe(label, build)                          # pitch ends up first
