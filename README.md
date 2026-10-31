@@ -195,7 +195,7 @@ Each run produces one self-contained HTML dashboard: no server, no external requ
 </tr>
 </table>
 
-Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy.
+Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy. The report JSON includes a `number_guard` list of removed sentences (or study-report table cells), each with `text` and `unknown_numbers`, so you can inspect what the guard dropped. These entries are unverified model output, not report evidence; logs record only the removal count.
 
 ## How it works
 

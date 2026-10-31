@@ -325,6 +325,7 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
               f"Return JSON exactly in this shape:\n{SCHEMA}")
     usage = {}
     sections, method = None, "fallback"
+    number_guard = []
     for attempt in range(2):
         extra = "" if attempt == 0 else ("\n\nYour previous answer was cut off. Be shorter: at most 3 bullets per list, "
                                          "2 sentences per summary, 5 objections, 4 ICP rows, 3 ads in the plan.")
@@ -339,15 +340,19 @@ def generate(client, model: str, material: Dict[str, Any], brand: Optional[str] 
             data = parse_json_block(text)
             if not isinstance(data, dict) or "executive_summary" not in data:
                 raise ValueError("report JSON missing executive_summary")
-            sections, method = clean_sections(data, material), "llm"
+            number_guard = []
+            sections, method = clean_sections(data, material, number_guard), "llm"
             break
         except Exception as e:  # noqa: BLE001 - retry once shorter, then fall back to a data-only report
             logger.warning(f"market report generation failed (attempt {attempt + 1}): {e}")
     if sections is None:
+        number_guard = []
         sections = fallback_sections(material)
     md = render_markdown(sections, material)
+    logger.info("Number guard removed %d sentence(s) or table cell(s)", len(number_guard))
     return {"sections": sections, "action_plan": sections.get("action_plan") or {}, "markdown": md,
             "method": method, "usage": usage, "brand": brand or material.get("brand"),
+            "number_guard": number_guard,
             "evidence_status": "exploratory_simulation"}
 
 
@@ -371,7 +376,7 @@ def _fact_numbers(material: Dict[str, Any]) -> set:
     return found
 
 
-def _check_numbers(text: str, allowed: set) -> str:
+def _check_numbers(text: str, allowed: set, removed: Optional[List[Dict[str, Any]]] = None) -> str:
     """Drop sentences that quote numbers absent from the facts (keeps small counting numbers 0-12 and years)."""
     out = []
     for sent in re.split(r"(?<=[.!?])\s+", text or ""):
@@ -379,10 +384,12 @@ def _check_numbers(text: str, allowed: set) -> str:
         bad = [n for n in nums if n not in allowed and not (n.isdigit() and (int(n) <= 12 or 1990 <= int(n) <= 2100))]
         if not bad:
             out.append(sent)
+        elif removed is not None:
+            removed.append({"text": sent, "unknown_numbers": list(dict.fromkeys(bad))})
     return " ".join(out).strip()
 
 
-def check_numbers_markdown(md: str, allowed: set) -> str:
+def check_numbers_markdown(md: str, allowed: set, removed: Optional[List[Dict[str, Any]]] = None) -> str:
     """Number guard that keeps Markdown intact: line by line, a table cell with an unknown number becomes "–",
     and in prose only the sentence with an unknown number is dropped (headings and blank lines stay)."""
     lines = []
@@ -393,7 +400,18 @@ def check_numbers_markdown(md: str, allowed: set) -> str:
             if all(set(c.strip()) <= set("-: ") for c in cells):       # the |---|---| separator row
                 lines.append(line)
                 continue
-            cells = [c if _check_numbers(c.strip(), allowed) == c.strip() else " – " for c in cells]
+            cleaned_cells = []
+            for cell in cells:
+                dropped = []
+                if _check_numbers(cell.strip(), allowed, dropped) == cell.strip():
+                    cleaned_cells.append(cell)
+                else:
+                    cleaned_cells.append(" – ")
+                    if removed is not None:
+                        # The guard replaces the whole cell, not just its bad sentence.
+                        unknown = [n for entry in dropped for n in entry["unknown_numbers"]]
+                        removed.append({"text": cell.strip(), "unknown_numbers": list(dict.fromkeys(unknown))})
+            cells = cleaned_cells
             lines.append("|" + "|".join(cells) + "|")
             continue
         if not st or st.startswith("#") and not _NUM.findall(st):
@@ -405,7 +423,7 @@ def check_numbers_markdown(md: str, allowed: set) -> str:
             if st.startswith(m):
                 marker, st = m, st[len(m):]
                 break
-        kept = _check_numbers(st, allowed)
+        kept = _check_numbers(st, allowed, removed)
         if kept:
             lines.append(indent + marker + kept)
     return "\n".join(lines).strip()
@@ -429,12 +447,13 @@ def unwrap_markdown(text: str) -> str:
     return t
 
 
-def clean_sections(data: Dict[str, Any], material: Dict[str, Any]) -> Dict[str, Any]:
+def clean_sections(data: Dict[str, Any], material: Dict[str, Any],
+                   removed: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     allowed = _fact_numbers(material)
 
     def walk(v):
         if isinstance(v, str):
-            return _check_numbers(v, allowed)
+            return _check_numbers(v, allowed, removed)
         if isinstance(v, list):
             return [walk(x) for x in v]
         if isinstance(v, dict):
