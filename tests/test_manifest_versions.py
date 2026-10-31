@@ -24,7 +24,8 @@ def _mcp_server_version():
     text = (ROOT / "plugin/skills/market-mirror/scripts/mcp_server.py").read_text(
         encoding="utf-8"
     )
-    match = re.search(r'"serverInfo":\s*\{[^}]*"version":\s*"([^"]+)"', text)
+    # the literal in initialize, or the SERVER_INFO constant it uses
+    match = re.search(r'(?:"serverInfo":|SERVER_INFO\s*=)\s*\{[^}]*"version":\s*"([^"]+)"', text)
     if not match:
         raise AssertionError("mcp_server.py has no serverInfo version")
     return match.group(1)
