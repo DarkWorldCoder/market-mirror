@@ -11,7 +11,7 @@
     {
       "name": "market-mirror",
       "description": "Analyze real ad data, research markets, survey simulated buyers, and test marketing, sales, and product journeys through your agent.",
-      "version": "0.4.0",
+      "version": "0.4.2",
       "author": {
         "name": "DarkWorldCoder"
       },

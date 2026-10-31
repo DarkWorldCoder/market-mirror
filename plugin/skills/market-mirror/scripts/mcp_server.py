@@ -686,7 +686,7 @@ def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         requested = (msg.get("params") or {}).get("protocolVersion")
         result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "market-mirror", "version": "0.4.0"},
+                    "serverInfo": {"name": "market-mirror", "version": "0.4.2"},
                     "instructions": "MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; "
                                     "run setup if the engine is missing; use market_test for everything; show the user the "
                                     "personas before approving spend; report results as simulated directions with their margins."}
