@@ -408,8 +408,10 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                 platform: Optional[str] = None, batch: int = INTERVIEW_BATCH, wait_s: int = INTERVIEW_WAIT_S,
                 limit: Optional[int] = None, ssr: bool = True, retest: int = 0,
                 seed: int = 11, ssr_engine: Optional[str] = None, objection_check: bool = False,
-                settle: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                settle: Optional[Dict[str, Any]] = None, estimate: bool = True) -> Dict[str, Any]:
     """Ask every simulated person the buyer survey through the interview API; save survey.json.
+    estimate: also ask, per segment, how its answers would spread (two calls per segment, survey_estimate.py), shown
+    next to the per-person distribution as a second method and a margin.
 
     settle: {"margin": 5, "min_n": 60, "cells": "provider"|"segment"|"segment,provider"|"all"}: ask in random
     batches interleaved across cells and stop asking a cell once its would-convert shares are settled (settle.py).
@@ -464,7 +466,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
     def ask(chunk):
         quota.wait_if_paused(log)          # don't spend batches while a model account is paused
         interviews = [{"agent_id": aid, "platform": platform,
-                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency)}
+                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency, variant=aid)}
                       for aid in chunk]
         try:
             scope = getattr(c, "memory_scope", None)
@@ -518,7 +520,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         again = [{"agent_id": r["agent_id"], "platform": platform,
                   "prompt": "A week has passed since a researcher last asked you about this. They ask again; answer afresh "
                             "as you feel today, without trying to remember what you said.\n\n"
-                            + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency)} for r in sample]
+                            + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency,
+                                                      variant=r["agent_id"] + 1)} for r in sample]
         agree = interest_close = 0
         if again:
             try:
@@ -539,6 +542,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         retest_info = {"n": len(sample), "agreement_pct": round(100.0 * agree / len(sample), 1) if sample else None,
                        "interest_within_2_pct": round(100.0 * interest_close / len(sample), 1) if sample else None}
         log(f"survey: retest of {len(sample)} people: {retest_info['agreement_pct']}% gave the same verdict")
+    estimate_info = None
+    if estimate and any(r.get("answer") for r in responses):
+        estimate_info = _try("segment estimate", lambda: c.data(
+            "POST", "/api/simulation/survey-estimate",
+            json={"simulation_id": simulation_id, "offer": offer, "goal": goal,
+                  "message": messages[0] if messages and not split and len(messages) == 1 else ""}, timeout=900))
+        if estimate_info:
+            log(f"survey: segment estimate for {len(estimate_info.get('by_segment') or {})} segments "
+                f"({(estimate_info.get('usage') or {}).get('calls', 0)} calls)")
     scope = getattr(c, "memory_scope", None)
     if scope and scope != "off":
         _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
@@ -549,7 +561,8 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
               **({"settle": settler.summary(len(people))} if settler is not None else {}),
-              **({"objection_check": obj_check} if obj_check else {}), "responses": responses}
+              **({"objection_check": obj_check} if obj_check else {}),
+              **({"estimate": estimate_info} if estimate_info else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     if responses and not answered:
@@ -1205,7 +1218,8 @@ def cmd_survey(c: Client, a) -> Any:
                       a.split, a.pricing, a.platform, a.batch, a.wait_s, a.limit, not a.no_ssr,
                       retest=a.retest, seed=a.assignment_seed, ssr_engine=a.ssr_engine,
                       objection_check=a.objection_check,
-                      settle={"margin": a.settle_margin, "min_n": a.settle_min, "cells": a.settle_cells} if a.settle else None)
+                      settle={"margin": a.settle_margin, "min_n": a.settle_min, "cells": a.settle_cells} if a.settle else None,
+                      estimate=not a.no_estimate)
     if not a.no_export:
         collect(c, out_dir, simulation_id=a.simulation)
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), a.title)
@@ -1229,10 +1243,18 @@ def cmd_feedtest(c: Client, a) -> Any:
     try:
         res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
                                   a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate, a.seeds,
-                                  competitor_arg=a.competitor, generic_baseline=True if a.generic_baseline else None)
+                                  competitor_arg=a.competitor, generic_baseline=True if a.generic_baseline else None,
+                                  vision=a.vision)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     return _reexport(c, a, out_dir, res)
+
+
+def cmd_creative_check(c: Client, a) -> Any:
+    try:
+        return market_cli.creative_check(c, log, a.creatives, a.out)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_website_test(c: Client, a) -> Any:
@@ -1383,6 +1405,20 @@ def cmd_market_test(c: Client, a) -> Any:
     if isinstance(persona_spec, str):
         with open(_cfg_path(base, persona_spec), encoding="utf-8") as f:
             persona_spec = json.load(f)
+    intake_cfg = cfg.get("intake")
+    if isinstance(intake_cfg, dict) and intake_cfg.get("files") and not state.get("intake"):
+        files = [p if os.path.isabs(p) else os.path.join(base, p.lstrip("@")) for p in intake_cfg["files"]]
+        res = market_cli.intake(c, log, files, None, os.path.join(out_dir, "personas_intake.json"), None,
+                                str(intake_cfg.get("engine") or "llm"), str(intake_cfg.get("context") or ""),
+                                str(intake_cfg.get("id_field") or ""), str(intake_cfg.get("segment_field") or ""),
+                                str(intake_cfg.get("text_field") or ""), str(intake_cfg.get("segment") or ""),
+                                int(intake_cfg.get("max_people") or 200))
+        state["intake"] = {k: res[k] for k in ("intake", "counts", "real_profiles")}
+        checkpoint()
+    if state.get("intake"):
+        with open(os.path.join(out_dir, "personas_intake.json"), encoding="utf-8") as f:
+            grounded = json.load(f).get("real_profiles") or []
+        persona_spec = {**(persona_spec or {}), "real_profiles": (persona_spec or {}).get("real_profiles", []) + grounded}
     if cfg.get("auto_personas"):
         persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
     if cfg.get("personas_lite") and persona_spec is not None:
@@ -1460,11 +1496,18 @@ def cmd_market_test(c: Client, a) -> Any:
             log("market-test: reusing completed feed test in this study cell")
         else:
             cpath = _cfg_path(base, creatives)
+            if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
+                inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
+                for cr in inline or []:
+                    for k in ("image", "video"):
+                        v = cr.get(k) if isinstance(cr, dict) else None
+                        if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
+                            cr[k] = os.path.join(base, v)
             arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
             state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
                 c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
                 int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5)), log)
+                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
         steps.append("feed_test")
         checkpoint()
     fg = cfg.get("focus_group")
@@ -1518,7 +1561,8 @@ def cmd_market_test(c: Client, a) -> Any:
                 survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
                 seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
                 objection_check=bool(survey.get("objection_check")),
-                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None)), log)
+                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
+                estimate=survey.get("estimate", True) is not False), log)
         steps.append("survey")
         checkpoint()
     pitch_cfg = cfg.get("pitch")
@@ -1651,7 +1695,8 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
             rows = rows.get("ads") or rows.get("rows") or rows
         if rows is not None and not isinstance(rows, list):
             raise ValueError("--rows must be a JSON list of ad objects (or @file with one)")
-        res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now)
+        res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now,
+                                     vision=a.vision)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
@@ -1683,6 +1728,79 @@ def cmd_focus_group(c: Client, a) -> Any:
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
+
+
+def _bench_complete():
+    """complete(system, user) on the configured model, in this process (no backend server needed)."""
+    from app.config import Config
+    from app.utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+    pool = Config.get_model_pool()
+
+    def complete(system, user):
+        resp = create_chat_completion(pool, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=2000,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {"input_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                                                    "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    complete.model = Config.LLM_MODEL_NAME
+    return complete
+
+
+def cmd_bench(c: Optional[Client], a) -> Any:
+    import bench
+    out_dir = a.out or os.path.join("benchmarks", "bench", "results")
+    cache = a.cache or os.path.join("benchmarks", "bench", "cache")
+    complete = _bench_complete() if a.approve_spend else None
+    try:
+        if a.suite == "upworthy":
+            if not a.data or not os.path.isfile(a.data):
+                raise ValueError("bench upworthy: --data <packages CSV from https://osf.io/jd64p/> is required")
+            people = []
+            if a.run_dir:
+                people = [p for p in marketing._profiles(exporter.load_run_dir(a.run_dir)) if p.get("persona") or p.get("bio")]
+            methods = a.methods or ["generic_reader", "persona_panel"]
+            res = bench.run_upworthy(a.data, a.n, complete, methods, people, a.panel_size, a.approve_spend)
+        else:
+            files = [os.path.join(cache, f) for f in sorted(os.listdir(cache))] if os.path.isdir(cache) else []
+            files = [f for f in files if os.path.basename(f).startswith("twin_")]
+            if a.fetch and len(files) < a.pool:
+                files = bench.fetch_twin(cache, a.pool, log)
+            if not files:
+                raise ValueError(f"bench twin2k: no rows in {cache}; add --fetch to download them (public, no key)")
+            rows = []
+            for f in files:
+                with open(f, encoding="utf-8") as fh:
+                    rows.append(json.load(fh))
+            methods = a.methods or ["no_persona", "twin"]
+            res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
+    res.update({"version": bench.VERSION, "model": getattr(complete, "model", None),
+                "at": datetime.now().isoformat(timespec="seconds")})
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.join(out_dir, f"bench_{a.suite}")
+    with open(stem + ".json", "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    with open(stem + ".md", "w", encoding="utf-8") as f:
+        f.write(bench.render_markdown(res))
+    log(("bench: dry run, nothing spent; " if res.get("dry_run") else "bench: ")
+        + f"estimate {res.get('estimate')} -> {stem}.json")
+    return {"bench": os.path.abspath(stem + ".json"), "markdown": os.path.abspath(stem + ".md"),
+            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods")}
+
+
+def cmd_intake(c: Optional[Client], a) -> Any:
+    try:
+        rows = market_cli._load_json_arg(a.rows) if a.rows else None
+        if isinstance(rows, dict):
+            rows = rows.get("rows") or rows.get("data") or [rows]
+        if rows is not None and not isinstance(rows, list):
+            raise ValueError("--rows must be a JSON list of rows (or @file with one)")
+        context = read_text_arg(a.context) if a.context else ""
+        return market_cli.intake(c, log, a.files, rows, a.out, a.base, a.engine, context, a.id_field or "",
+                                 a.segment_field or "", a.text_field or "", a.segment or "", a.max_people, a.replace)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_quickstart(c: Optional[Client], a) -> Any:
@@ -1846,7 +1964,8 @@ def cmd_calibrate(c: Client, a) -> Any:
         y = {"yes": 1.0, "maybe": 0.5, "no": 0.0}.get(v) if isinstance(v, str) else (float(v) / 10 if isinstance(v, (int, float)) else None)
         if y is None:
             continue
-        synthetic.append({"segment": m.get("segment"), "country": m.get("country"), "gender": m.get("gender"), "age": m.get("age"), "y": y})
+        synthetic.append({"segment": m.get("segment"), "country": m.get("country"), "gender": m.get("gender"), "age": m.get("age"),
+                          "weight": m.get("weight") or 1.0, "y": y})
     mapping = dict(x.split("=", 1) for x in (a.map or []) if "=" in x)
     real = []
     try:
@@ -1868,10 +1987,18 @@ def cmd_calibrate(c: Client, a) -> Any:
     if not synthetic or not real:
         raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
     log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
-    res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field}, timeout=300)
+    res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field,
+                                                             "halfwidth": a.halfwidth}, timeout=300)
     save_json(out_dir, "calibration", res)
+    ppi = res.get("ppi") or {}
+    if ppi.get("reading"):
+        log("calibrate: " + ppi["reading"])
+    if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
+        _try("dashboard", lambda: do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None))
     return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
+            "ppi": {k: (ppi.get("overall") or {}).get(k) for k in ("estimate", "ci", "lambda", "effective_n", "worth_extra_real")},
+            "plan": ppi.get("plan"), "ppi_reading": ppi.get("reading"),
             "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
 
 
@@ -2313,6 +2440,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--settle-cells", default="provider", help="settle: provider, segment, segment,provider or all")
     s.add_argument("--assignment-seed", type=int, default=11,
                    help="reproducible split-message assignment and retest sample (default %(default)s)")
+    s.add_argument("--no-estimate", action="store_true",
+                   help="skip the segment-level described distributions (two calls per segment) shown next to SSR")
     s.add_argument("--no-ssr", action="store_true",
                    help="skip mapping free-text answers to rating distributions (use the stated numbers only)")
     s.add_argument("--ssr-engine", choices=["embeddings", "jev", "auto"],
@@ -2339,6 +2468,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="repeat with N different seeds and report each creative's range (N x the cost; default %(default)s)")
     s.add_argument("--competitor", help="@competitor.json or JSON {name, offer|text|headline, price?}: a rival "
                                          "counter-offer / price shock shown in the same feeds (summary.competitor_shock)")
+    s.add_argument("--vision", choices=["describe", "direct", "off"],
+                   help="creatives with image / video / frames: describe (default) = one vision call per creative writes "
+                        "what it shows and a pre-flight checklist, then every buyer reads that; direct = every buyer's "
+                        "scroll call also carries the picture (API providers; cached per creative); off = text only")
     s.add_argument("--generic-baseline", action="store_true",
                    help="also rank the ads with one zero-persona generic reader (summary.generic_baseline; one extra call)")
     s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
@@ -2458,6 +2591,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--brand")
     s.add_argument("--now", help="collection date (YYYY-MM-DD) for rows without collected_at (default today)")
     s.add_argument("--max-ads", type=int, default=300)
+    s.add_argument("--vision", action="store_true", help="describe each row's image / video (image, image_url, "
+                                                         "thumbnail_url or video) first, so labels read the picture (backend)")
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
 
     s = sub.add_parser("ask", help="talk to one saved simulated person after the run (no live environment needed)")
@@ -2477,6 +2612,44 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--goal")
     s.add_argument("--rounds", type=int, default=1, help="passes per question (2 adds 'did anything change your mind?')")
     s.add_argument("--run-dir", help="where focus_group.json lands (default mirofish_runs/<simulation>)")
+
+    s = sub.add_parser("bench", help="MarketMirror-Bench: score simulated answers against open human data (Upworthy "
+                                     "headline tests, Twin-2K-500) next to simpler comparators; dry run unless --approve-spend")
+    s.add_argument("--suite", required=True, choices=["upworthy", "twin2k"])
+    s.add_argument("--data", help="upworthy: the packages CSV from https://osf.io/jd64p/")
+    s.add_argument("--run-dir", help="upworthy persona_panel: a prepared run whose people vote")
+    s.add_argument("--panel-size", type=int, default=10)
+    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel; twin2k: no_persona twin")
+    s.add_argument("--n", type=int, default=50, help="tests (upworthy) or people (twin2k) in the fixed sample")
+    s.add_argument("--items", type=int, default=20, help="twin2k: questions per person")
+    s.add_argument("--blocks", default="pricing", choices=["pricing", "all"], help="twin2k: which questions")
+    s.add_argument("--fetch", action="store_true", help="twin2k: download rows from Hugging Face into --cache")
+    s.add_argument("--pool", type=int, default=200, help="twin2k: rows to download and sample from")
+    s.add_argument("--cache", help="twin2k cache folder (default benchmarks/bench/cache, gitignored)")
+    s.add_argument("--out", help="results folder (default benchmarks/bench/results)")
+    s.add_argument("--approve-spend", action="store_true", help="call the configured model; without it only an estimate")
+
+    s = sub.add_parser("creative-check", help="pre-flight look at real ad images / videos: what they show, words on "
+                                              "them, brand and CTA visibility, platform checks, measured aspect ratio")
+    s.add_argument("--creatives", required=True, help="@creatives.json (each with image, video or frames, plus platform)")
+    s.add_argument("--out", help="creative_check.json path (default ./creative_check.json)")
+
+    s = sub.add_parser("intake", help="turn your customer material (call transcripts, reviews, NPS/survey verbatims, CRM notes) "
+                                      "into grounded personas (personas.json real_profiles); contact details are removed first")
+    s.add_argument("--files", nargs="+", help="CSV/TSV/JSON/JSONL exports and txt/md/vtt/srt transcripts (one person per transcript)")
+    s.add_argument("--rows", help="@file.json or inline JSON list of rows (e.g. fetched by an agent from a CRM)")
+    s.add_argument("--out", help="persona spec to write (default ./personas.json; records are added to it when it exists)")
+    s.add_argument("--base", help="persona spec to start from (segments, communities); --out is written")
+    s.add_argument("--engine", default="llm", choices=["llm", "supplied"],
+                   help="llm = the chat model writes structured records from the words (backend); "
+                        "supplied = columns + the person's own sentences, no model (offline)")
+    s.add_argument("--context", help="product context for the model, text or @file")
+    s.add_argument("--id-field", help="column that identifies a customer (default: customer_id, author, email, name ...)")
+    s.add_argument("--segment-field", help="column to use as the audience segment (e.g. plan)")
+    s.add_argument("--text-field", help="column with the customer's words (default: text, review, transcript, notes ...)")
+    s.add_argument("--segment", help="segment label for rows without one")
+    s.add_argument("--max-people", type=int, default=200)
+    s.add_argument("--replace", action="store_true", help="replace earlier intake records in the spec instead of adding")
 
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
@@ -2533,6 +2706,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--map", nargs="*", help="column mapping, e.g. segment=Audience y=Converted")
     s.add_argument("--field", default="would_convert", help="survey field to compare (default %(default)s)")
     s.add_argument("--by", default="segment", help="subgroup key for the per-group verdicts (segment|country)")
+    s.add_argument("--halfwidth", type=float, default=0.05,
+                   help="target interval half-width for the sample planner (0.05 = +-5 points)")
 
     s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
     s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
@@ -2836,7 +3011,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "ask": cmd_ask, "focus-group": cmd_focus_group, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -2850,9 +3025,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
-            (a.cmd == "ad-patterns" and a.engine == "supplied")
+            (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

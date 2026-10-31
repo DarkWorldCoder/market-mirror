@@ -114,6 +114,10 @@ def to_messages(exp: Dict[str, Any]) -> List[str]:
         if exp["type"] == "price":
             price = v.get("price") if isinstance(v, dict) else v
             text = f"{exp['extra'].get('offer') or 'The offer'} at {price}" + (f": {v.get('text')}" if isinstance(v, dict) and v.get("text") else "")
+            # only the price differs between arms; saying so stops the model inferring other changes from a price
+            # change (Gui & Toubia, arXiv 2312.15524)
+            held = exp["extra"].get("held_fixed") or "the product, its features, the brand and the terms"
+            text += f". Everything else is the same as in the other options ({held}); only the price differs."
         elif exp["type"] == "naming":
             text = f"The product is called \"{text}\"" + (f". {v.get('tagline')}" if isinstance(v, dict) and v.get("tagline") else "")
         msgs.append(text)

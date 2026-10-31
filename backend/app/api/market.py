@@ -26,6 +26,7 @@ from flask import jsonify, request
 
 from claude_cli import actuals
 from ..services import predict as prediction
+from ..services import creative_vision, feed_test
 
 from . import simulation_bp
 from ..config import Config
@@ -138,6 +139,33 @@ def _client_for(people):
     if getattr(client, "is_multi", False) and hasattr(client, "with_people"):
         return client.with_people(people)
     return client
+
+
+def _local_gateway() -> bool:
+    """True when a provider slot is a local login gateway (it passes text only)."""
+    try:
+        pool = Config.get_model_pool()
+    except Exception:  # noqa: BLE001
+        return False
+    for slot in getattr(pool, "slots", []) or []:
+        url = str(getattr(slot, "base_url", "") or getattr(getattr(slot, "client", None), "base_url", "") or "")
+        if "127.0.0.1" in url or "localhost" in url:
+            return True
+    return False
+
+
+def _vision_complete():
+    """complete(system, parts) -> (text, usage) on the configured model, for creative_vision."""
+    client = _client()
+
+    def complete(system, parts):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=1500,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": parts}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    return complete
 
 
 def _sim_dir(simulation_id: str) -> str:
@@ -289,8 +317,21 @@ def start_feed_test():
     scope = _memory_scope(data)
     people = _with_history(people, sid, scope)
 
+    vision = str(data.get("vision") or "describe").lower()
+    if vision not in ("describe", "direct", "off"):
+        return jsonify({"success": False, "error": "vision must be describe, direct or off"}), 400
+    if vision == "direct" and _local_gateway():
+        logger.info("feed test: vision direct needs an API provider; the local login gateway gets the described image")
+        vision = "describe"
+    sim_dir = _sim_dir(sid)
+
     def work(progress):
-        return feed_test.run_multi_seed(_client_for(people), Config.LLM_MODEL_NAME, creatives, people,
+        nonlocal creatives
+        vision_info = None
+        if vision != "off" and any(creative_vision.has_visual(c) for c in creatives):
+            creatives, vision_info = creative_vision.prepare(creatives, _vision_complete(),
+                                                             os.path.join(sim_dir, "creative_vision"), logger.warning)
+        result = feed_test.run_multi_seed(_client_for(people), Config.LLM_MODEL_NAME, creatives, people,
                                         seeds=feed_test.seed_list(seed, n_seeds), context=context, voices=voices,
                                         organic_per_feed=organic, parallel=parallel, progress=progress,
                                         waves=int(data.get("waves") or 3), landing=landing,
@@ -298,7 +339,11 @@ def start_feed_test():
                                         attention_gate=data.get("attention_gate", True) is not False,
                                         benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None,
                                         competitor=competitor,
-                                        include_generic_baseline=bool(data.get("include_generic_baseline")))
+                                        include_generic_baseline=bool(data.get("include_generic_baseline")),
+                                        vision=vision)
+        if vision_info:
+            result["vision_pass"] = vision_info
+        return result
 
     task_id = _start("feed-test", sid, work, **({"memory_scope": scope} if scope else {}))
     feeds = len(feed_test.assign(creatives, people))
@@ -396,6 +441,66 @@ def start_focus_group():
     task_id = _start("focus-group", sid, work)
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(group),
                                               "questions": len([q for q in guide if str(q).strip()])}})
+
+
+@simulation_bp.route('/creative-check', methods=['POST'])
+def creative_check():
+    """POST {creatives: [{id, platform, image (data URI / https) or frames, text?, headline?, cta?, page?}]} ->
+    {creatives: [{id, platform, visual: {description, on_image_text, brand_visible, first_glance, checks}}], usage}
+    (synchronous). A pre-flight look at the real creative before any simulated buyer sees it; no simulation needed."""
+    data = request.get_json() or {}
+    try:
+        creatives = feed_test.normalize_creatives(data.get("creatives"))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not any(creative_vision.has_visual(c) for c in creatives):
+        return jsonify({"success": False, "error": "no creative has an image or frames"}), 400
+    try:
+        described, info = creative_vision.prepare(creatives, _vision_complete(), os.path.join(Config.UPLOAD_FOLDER, "creative_vision"),
+                                                  logger.warning)
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    out = [{k: c.get(k) for k in ("id", "platform", "name", "visual", "media_brief") if c.get(k) is not None}
+           for c in described]
+    return jsonify({"success": True, "data": {"creatives": out, **info, "model": Config.LLM_MODEL_NAME,
+                                              "note": "A model's reading of the creative plus measured aspect ratio: a "
+                                                      "pre-flight check, not a measured attention or recall score."}})
+
+
+@simulation_bp.route('/survey-estimate', methods=['POST'])
+def survey_estimate():
+    """POST {simulation_id, offer, goal, message?} -> per segment, how its answers would spread over the five
+    verdicts on interest, trust, purchase and recommend (two calls per segment, both verdict orders averaged)."""
+    from ..services import survey_estimate as se
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    segments: Dict[str, List[Dict[str, Any]]] = {}
+    for p in people:
+        segments.setdefault(str(p.get("segment") or "Everyone"), []).append(p)
+    if not segments:
+        return jsonify({"success": False, "error": "no personas yet: prepare the simulation first"}), 400
+    client = _client()
+
+    def complete(system, user):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=1200,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = se.run(segments, str(data.get("offer") or "")[:1500], str(data.get("goal") or "")[:300], complete,
+                     str(data.get("message") or "")[:1000])
+        out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"survey estimate failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @simulation_bp.route('/ssr', methods=['POST'])
@@ -611,7 +716,7 @@ def calibration_pairs():
 
 @simulation_bp.route('/study-report', methods=['POST'])
 def study_report():
-    """POST {summary: study_summary.json, brand?} -> {markdown, method} (one Claude call, number-guarded; synchronous)."""
+    """POST {summary: study_summary.json, brand?} -> {markdown, method, number_guard} (one Claude call, number-guarded; synchronous)."""
     from ..services import market_report
     from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
     data = request.get_json() or {}
@@ -631,8 +736,10 @@ def study_report():
         resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=3000,
                                       messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
         md = market_report.unwrap_markdown(extract_chat_completion_text(resp) or "")
-        md = market_report.check_numbers_markdown(md, market_report._fact_numbers(summary))
-        return jsonify({"success": True, "data": {"markdown": md, "method": "llm"}})
+        number_guard = []
+        md = market_report.check_numbers_markdown(md, market_report._fact_numbers(summary), number_guard)
+        logger.info("Number guard removed %d sentence(s) or table cell(s)", len(number_guard))
+        return jsonify({"success": True, "data": {"markdown": md, "method": "llm", "number_guard": number_guard}})
     except Exception as e:  # noqa: BLE001
         logger.error(f"study report failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -649,7 +756,8 @@ def calibrate_panel():
         return jsonify({"success": False, "error": "synthetic and real rows are required"}), 400
     try:
         out = calibration.diagnose([r for r in syn if isinstance(r, dict) and "y" in r],
-                                   [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"))
+                                   [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"),
+                                   halfwidth=max(0.005, min(0.5, float(data.get("halfwidth") or 0.05))))
         out["field"] = data.get("field")
         corr = out.get("corrected") or {}
         if corr.get("estimate") is not None and corr.get("naive_syn"):
@@ -735,6 +843,43 @@ def ad_patterns():
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:  # noqa: BLE001
         logger.error(f"ad patterns failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route('/intake', methods=['POST'])
+def customer_intake():
+    """POST {rows: [raw rows from transcripts, reviews, NPS/survey verbatims or CRM notes], engine?: llm|supplied,
+    context?, id_field?, segment_field?, text_field?, segment?, max_people?} -> {records: real_profiles records,
+    counts, usage, note} (synchronous). Contact details are scrubbed before the model call; quotes are verbatim."""
+    from ..services import intake
+    data = request.get_json() or {}
+    rows = data.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"success": False, "error": "rows must be a non-empty list"}), 400
+    engine = str(data.get("engine") or "llm").lower()
+    complete = None
+    if engine == "llm":
+        client = _client()
+
+        def complete(system: str, user: str):
+            from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+            resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0, max_tokens=6000,
+                                          messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+            u = getattr(resp, "usage", None)
+            return extract_chat_completion_text(resp), {
+                "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+    try:
+        out = intake.run(rows, engine=engine, complete=complete, context=str(data.get("context") or "")[:2000],
+                         id_field=str(data.get("id_field") or ""), segment_field=str(data.get("segment_field") or ""),
+                         text_field=str(data.get("text_field") or ""), segment=str(data.get("segment") or ""),
+                         max_people=max(1, min(int(data.get("max_people") or intake.MAX_PEOPLE), intake.MAX_PEOPLE)))
+        if engine == "llm":
+            out["model"] = Config.LLM_MODEL_NAME
+        return jsonify({"success": True, "data": out})
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"intake failed: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

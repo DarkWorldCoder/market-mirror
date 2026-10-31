@@ -1614,7 +1614,7 @@ def _entities_from_real_profiles(real_profiles: List[Dict[str, Any]], taken: set
             "demographics": "real_intake: observed",
             "profile": "real_intake: customer_excerpts",
             "interview": "real_intake: verbatim_excerpts" if excerpts else "none",
-            "bde": "real_intake: structured" if bde else "unobserved",
+            "bde": (str(r.get("bde_source") or "real_intake: structured")[:120]) if bde else "unobserved",
             "habits": "planner: seeded by identity",
         }
         profile = {

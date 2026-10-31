@@ -76,3 +76,6 @@ backend/logs/
 
 # Private simulation inputs (seed docs, questions, ad copy). Kept local, never pushed.
 scenarios/
+
+# MarketMirror-Bench downloads and summaries (human data stays out of the repo)
+benchmarks/bench/cache/
