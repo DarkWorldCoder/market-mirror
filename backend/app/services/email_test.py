@@ -18,7 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
-from .feed_test import UsageMeter, _llm_json, behaviour_traits, economics, person_habits
+from . import emotion
+from .feed_test import FEEL_HINT, FEEL_JSON, UsageMeter, _llm_json, behaviour_traits, economics, person_habits
 
 logger = get_logger('mirofish.email_test')
 
@@ -151,7 +152,7 @@ def open_probability(email: Dict[str, Any], person: Dict[str, Any], traits: Dict
 # --------------------------------------------------------------------------
 
 def read_prompt(person: Dict[str, Any], email: Dict[str, Any], inbox: List[Dict[str, Any]], traits: Dict[str, Any],
-                step: int, earlier: List[Dict[str, Any]], product: str = "") -> str:
+                step: int, earlier: List[Dict[str, Any]], product: str = "", feel: bool = False) -> str:
     others = "\n".join(f"- {f.get('from')}: {f.get('subject')}" for f in inbox[:8])
     hist = ""
     if earlier:
@@ -171,7 +172,9 @@ def read_prompt(person: Dict[str, Any], email: Dict[str, Any], inbox: List[Dict[
           "Return JSON: {\"action\": \"skim|read|click|reply|unsubscribe|spam|forward\", \"seconds\": 4, "
           "\"reason\": \"your inner reaction in under 15 words, your own language mix\", \"reply_text\": \"if you reply, what you write, else empty\", "
           "\"would_buy_now\": \"yes|maybe|no\", \"p_click\": 0.0, \"p_reply\": 0.0, \"p_unsubscribe\": 0.0, \"p_spam\": 0.0, "
-          "\"what_would_make_you_click\": \"one short sentence\"}"
+          + ("\"what_would_make_you_click\": \"one short sentence\"}" if not feel else
+             "\"what_would_make_you_click\": \"one short sentence\", " + FEEL_JSON + "}\nFor \"feel\", say how this email made you feel. "
+             + FEEL_HINT)
     )
 
 
@@ -192,6 +195,9 @@ def normalize_read(d: Dict[str, Any]) -> Dict[str, Any]:
     out = {"action": action, "seconds": round(num(d.get("seconds"), 0, 600), 1), "reason": str(d.get("reason") or "")[:200],
            "reply_text": str(d.get("reply_text") or "")[:400], "would_buy_now": wb,
            "what_would_make_you_click": str(d.get("what_would_make_you_click") or "")[:200]}
+    feel = emotion.normalize_feel(d.get("feel"))
+    if feel:
+        out["feel"] = feel
     for key, did in (("p_click", action == "click"), ("p_reply", action == "reply"), ("p_unsubscribe", action == "unsubscribe"),
                      ("p_spam", action == "spam")):
         v = d.get(key)
@@ -224,7 +230,9 @@ def assign(emails: List[Dict[str, Any]], people: List[Dict[str, Any]], seed: int
 def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: List[Dict[str, Any]], context: str = "",
                    product: str = "", seed: int = 5, parallel: int = 8, list_size: Optional[int] = None,
                    benchmarks: Optional[Dict[str, Any]] = None, familiarity: float = 0.2,
-                   progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
+                   progress: Optional[Callable[[int, int], None]] = None, emotions: Optional[str] = None) -> Dict[str, Any]:
+    emo_mode = emotion.mode(emotions)
+    want_feel = emo_mode != "off"
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
     client = meter
     start = meter.snapshot()
@@ -270,7 +278,7 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
             return rec
         mail = {**email, **{k: v for k, v in step_mail.items() if v}}
         try:
-            data = _llm_json(client, model, SYSTEM, read_prompt(person, mail, inbox, tr, step, history[aid], product),
+            data = _llm_json(client, model, SYSTEM, read_prompt(person, mail, inbox, tr, step, history[aid], product, feel=want_feel),
                              temperature=0.8, max_tokens=600)
             act = normalize_read(data if isinstance(data, dict) else {})
         except Exception as e:  # noqa: BLE001
@@ -309,8 +317,20 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
     summary = summarize(emails, sessions, people, list_size, benchmarks)
     end = meter.snapshot()
     usage = {k: end[k] - start.get(k, 0) for k in end}
+    if want_feel:
+        from .feed_test import feelings_summary
+        feelings = {}
+        for e in emails:
+            rows = [{"feel": x["feel"], "click": x.get("action") == "click"} for x in sessions
+                    if x.get("email_id") == e["id"] and x.get("feel")]
+            fs = feelings_summary(rows)
+            if fs:
+                feelings[e["id"]] = fs
+        if feelings:
+            summary["feelings"] = feelings
     return {"emails": emails, "plan": {str(k): v for k, v in plan.items()}, "sessions": sessions, "summary": summary,
-            "usage": usage, "seed": seed, "list_size": list_size, "benchmarks": benchmarks, "familiarity": familiarity}
+            "usage": usage, "seed": seed, "list_size": list_size, "benchmarks": benchmarks, "familiarity": familiarity,
+            "emotion": {"mode": emo_mode, "version": emotion.VERSION}}
 
 
 # --------------------------------------------------------------------------

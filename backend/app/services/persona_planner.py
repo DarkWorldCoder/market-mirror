@@ -1820,4 +1820,7 @@ def persona_index(entities: List[EntityNode]) -> List[Dict[str, Any]]:
             "habits": attrs.get("habits"), "provenance": attrs.get("provenance"), "depth": attrs.get("depth"),
             **{k: attrs.get(k) for k in DEFAULT_DIVERSITY if attrs.get(k)},
         })
+        if kind == "persona":
+            from . import emotion
+            out[-1]["affect_traits"] = attrs.get("affect_traits") or emotion.affect_traits(out[-1])
     return out

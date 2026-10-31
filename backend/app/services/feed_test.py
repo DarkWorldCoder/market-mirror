@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.anthropic_native import CACHE_BREAK
 from . import creative_vision
+from . import emotion
 from ..utils.logger import get_logger
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .persona_planner import parse_json_block
@@ -246,8 +247,25 @@ def patience_for(person: Dict[str, Any], rng: random.Random) -> float:
     return round(base, 1)
 
 
-def landing_prompt(person: Dict[str, Any], creative: Dict[str, Any], landing: Dict[str, Any], waited: float) -> str:
+FEEL_HINT = ("Most ads make people feel nothing much, so \"neutral\" with low intensity is the normal answer; only name a "
+             "feeling you would really have. pleasant -1..1, fair -1 (feels manipulative) to 1 (feels honest), the rest 0..1.")
+FEEL_JSON = ('"feel": {"emotion": "neutral|interest|joy|trust|surprise|fomo|irritation|anxiety|sadness|disgust|regret|pressured", "intensity": 0.0, "pleasant": 0.0, "novel": 0.0, "relevant": 0.0, "control": 0.0, "fair": 0.0, "urgent": 0.0, "words": "how it made you feel, under 10 words"}')
+
+
+def landing_prompt(person: Dict[str, Any], creative: Dict[str, Any], landing: Dict[str, Any], waited: float,
+                   feel: bool = False) -> str:
     fields = ", ".join(landing["form_fields"]) or "no form"
+    if feel:
+        return (
+            f"Who you are:\n{person['persona'][:1200]}\n\nYou tapped this ad: \"{creative.get('headline') or creative['text'][:120]}\" "
+            f"from {creative['page']}. The page took {waited:.1f} seconds to load on your phone.\n"
+            f"The page is in {landing['language']}. It shows: {landing['shows'] or 'the offer from the ad'}.\n"
+            f"Price: {landing['price']}. To finish you must fill in: {fields} ({landing['steps']} step(s)).\n\n"
+            "Do you actually read it, start filling the form, and finish? Be honest about what would stop you. "
+            "Also say how the page made you feel. " + FEEL_HINT + "\n"
+            'Return JSON: {"read": true, "started_form": false, "completed": false, '
+            '"drop_reason": "why you left, or empty", "thought": "under 15 words", ' + FEEL_JSON + '}'
+        )
     return (
         f"Who you are:\n{person['persona'][:1200]}\n\nYou tapped this ad: \"{creative.get('headline') or creative['text'][:120]}\" "
         f"from {creative['page']}. The page took {waited:.1f} seconds to load on your phone.\n"
@@ -629,7 +647,7 @@ def render_item(item_id: str, post: Dict[str, Any], platform: str, is_ad: bool,
 
 
 def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: int,
-                  habits: Optional[Dict[str, Any]] = None) -> str:
+                  habits: Optional[Dict[str, Any]] = None, feel: bool = False) -> str:
     pb = PLATFORMS[platform]
     reactions = "|".join(["none"] + pb["reactions"])
     h = habits or {}
@@ -645,10 +663,12 @@ def scroll_prompt(person: Dict[str, Any], platform: str, feed: List[str], hour: 
         "stop and read, react, comment, share, click. Most items should be a quick scroll past with no action.\n"
         "For the Sponsored/Promoted item also give your honest probabilities (0-1) of each action if you saw it on a "
         "normal day: p_click, p_react, p_comment, p_share, p_hide.\n"
-        "Return JSON: {\"items\": [{\"id\": \"i1\", \"stopped\": false, \"dwell_seconds\": 0.5, \"watched_pct\": 0, "
+        + ("For the Sponsored/Promoted item also add \"feel\": how the ad made you feel. " + FEEL_HINT + "\n" if feel else "")
+        + "Return JSON: {\"items\": [{\"id\": \"i1\", \"stopped\": false, \"dwell_seconds\": 0.5, \"watched_pct\": 0, "
         f"\"reaction\": \"{reactions}\", \"comment\": \"what you type, or empty\", \"share\": \"none|share|send\", "
         "\"save\": false, \"click\": false, \"hide\": false, \"thought\": \"your honest inner reaction in under 15 words\", "
-        "\"p_click\": 0.0, \"p_react\": 0.0, \"p_comment\": 0.0, \"p_share\": 0.0, \"p_hide\": 0.0}]}"
+        "\"p_click\": 0.0, \"p_react\": 0.0, \"p_comment\": 0.0, \"p_share\": 0.0, \"p_hide\": 0.0"
+        + (", " + FEEL_JSON + " (Sponsored/Promoted item only)" if feel else "") + "}]}"
         + CACHE_BREAK
         + f"Who you are:\n{person['persona']}\n(Age {person.get('age')}, {person.get('gender')}, {person.get('country')}.)\n{facts}\n"
         + (f"{person['history']}\n" if person.get("history") else "")
@@ -686,6 +706,9 @@ def normalize_action(d: Dict[str, Any], platform: str) -> Dict[str, Any]:
                      ("p_share", share != "none"), ("p_hide", out["hide"])):
         v = d.get(key)
         out[key] = round(_num(v, 0, 1), 3) if v is not None else (1.0 if did else 0.0)
+    feel = emotion.normalize_feel(d.get("feel"))
+    if feel:
+        out["feel"] = feel
     return out
 
 
@@ -729,7 +752,8 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
                   pools: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
                   voices: Optional[List[Dict[str, Any]]] = None,
                   competitor: Optional[Dict[str, Any]] = None,
-                  include_generic_baseline: bool = False, vision: str = "describe") -> Dict[str, Any]:
+                  include_generic_baseline: bool = False, vision: str = "describe",
+                  emotions: Optional[str] = None) -> Dict[str, Any]:
     """vision: "direct" also sends each creative's image with every scroll call (the image sits in the cached shared
     part); "describe" / "off" leave the scroll calls text-only (describe runs once per creative before the test).
     waves: later waves see earlier reaction counts (and, if they open them, comments).
@@ -738,7 +762,10 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
     landing: optional page model; clickers face load time on their network, then decide to finish or leave.
     benchmarks: optional {platform: {cpm, ctr, budget, currency, lead_value, ...}} for projections.
     pools: organic posts per (platform, country), shared across seeds; missing keys are generated in parallel.
-    competitor: optional counter-offer / price-shock creative inserted into the same feed."""
+    competitor: optional counter-offer / price-shock creative inserted into the same feed.
+    emotions: "off" | "observe" | "on" (emotion.mode); anything but off asks for a "feel" on the ad and the page."""
+    emo_mode = emotion.mode(emotions)
+    want_feel = emo_mode != "off"
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
     client = meter
     start_usage = meter.snapshot()
@@ -790,7 +817,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
         try:
             res_tuple = _llm_json(
                 client, model, SYSTEM_PROMPT,
-                scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]]),
+                scroll_prompt(person, platform, feed, job["hour"], traits[person["agent_id"]], feel=want_feel),
                 agent_id=person["agent_id"], return_meta=True,
                 images=creative_vision.image_parts(creative) if vision == "direct" else None,
             )
@@ -868,7 +895,7 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             if ad_act["comment"]:
                 pr["comments"].append({"first": str(person["name"]).split()[0], "text": ad_act["comment"][:160]})
     if landing:
-        run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel)
+        run_landing(client, model, sessions, by_id, {c["id"]: c for c in creatives}, landing, rng, parallel, feel=want_feel)
     failed = sum(1 for j in jobs if j["noticed"]) - sum(1 for s in sessions if s["ad"].get("noticed"))
     if llm_calls and failed == llm_calls:
         raise RuntimeError("No usable model decisions: all noticed exposures failed. Check provider authentication and availability before retrying.")
@@ -886,14 +913,16 @@ def run_feed_test(client, model: str, creatives: List[Dict[str, Any]], people: L
             "usage_by_provider": provider_diff(meter.provider_snapshot(), start_by_provider),
             "usage_basis": next(iter(meter.usage_sources)) if len(meter.usage_sources) == 1 else "mixed_or_unavailable",
             "realism": {"attention_gate": attention_gate, "notice_rate": NOTICE_RATE, "comment_open_rate": COMMENT_OPEN_RATE,
-                        "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls},
+                        "wear_out": WEAR_OUT, "llm_feed_calls": llm_calls, "emotions": emo_mode},
+            "emotion": {"mode": emo_mode, "version": emotion.VERSION},
             "summary": summ,
             "personas_tested": len({s["agent_id"] for s in sessions}), "feeds": total,
             "completion_status": "partial" if failed else "complete", "failed": failed}
 
 
 def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[int, Dict[str, Any]],
-                creatives: Dict[str, Dict[str, Any]], landing: Dict[str, Any], rng: random.Random, parallel: int) -> None:
+                creatives: Dict[str, Dict[str, Any]], landing: Dict[str, Any], rng: random.Random, parallel: int,
+                feel: bool = False) -> None:
     """Clickers: page load on their network vs their patience, then an in-character finish-or-leave decision
     combined with the research-backed Say-vs-Do friction gate (wallet limit, dealbreakers, acquiescence)."""
     todo = []
@@ -916,7 +945,7 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
         person = by_id[s["agent_id"]]
         try:
             d = _llm_json(client, model, LANDING_SYSTEM,
-                          landing_prompt(person, creatives[s["creative_id"]], landing, s["landing"]["load_seconds"]),
+                          landing_prompt(person, creatives[s["creative_id"]], landing, s["landing"]["load_seconds"], feel=feel),
                           temperature=0.7, max_tokens=600, agent_id=person["agent_id"])
             d = d if isinstance(d, dict) else {}
         except Exception as e:  # noqa: BLE001
@@ -944,6 +973,9 @@ def run_landing(client, model: str, sessions: List[Dict[str, Any]], by_id: Dict[
                                  "friction_gate": gate,
                                  "drop_reason": "" if completed else str(d.get("drop_reason") or "")[:200],
                                  "thought": str(d.get("thought") or "")[:160]})
+            lf = emotion.normalize_feel(d.get("feel")) if feel else None
+            if lf:
+                s["landing"]["feel"] = lf
 
 
 def _proof_effect(ss: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1156,6 +1188,28 @@ def _provider_key(session: Dict[str, Any]) -> str:
     return provider_family(session.get("model_provider") or "claude") or "claude"
 
 
+def feelings_summary(ads: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """How the people who noticed an ad felt about it (simulated appraisals, mapped by emotion.appraise)."""
+    labelled = []
+    for a in ads:
+        f = a.get("feel")
+        if f:
+            r = emotion.appraise(f)
+            labelled.append({**f, "emotion": r["emotion"], "intensity": r["intensity"], "_ad": a})
+    if not labelled:
+        return None
+    n = len(labelled)
+    counts = Counter(f["emotion"] for f in labelled)
+    pleasant = [float(f["pleasant"]) for f in labelled if f.get("pleasant") is not None]
+    clicked = [f for f in labelled if f["_ad"].get("click")]
+    return {"n": n, "neutral_share": round(counts.get("neutral", 0) / n, 3),
+            "emotions": {k: round(v / n, 3) for k, v in counts.most_common()},
+            "mean_pleasant": round(sum(pleasant) / len(pleasant), 3) if pleasant else None,
+            "clicked_after": {k: round(v / len(clicked), 3) for k, v in Counter(f["emotion"] for f in clicked).most_common()} if clicked else {},
+            "words": [f["words"] for f in labelled if f.get("words") and f["emotion"] != "neutral"][:12],
+            "flags": emotion.quality_flags(labelled), "basis": "simulated"}
+
+
 def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
               benchmarks: Optional[Dict[str, Any]] = None,
               competitor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1193,6 +1247,7 @@ def summarize(creatives: List[Dict[str, Any]], sessions: List[Dict[str, Any]],
                                   key=lambda r: r["provider"]),
             "comments_list": [{"name": s["name"], "segment": s["segment"], "text": s["ad"]["comment"],
                                "reaction": s["ad"]["reaction"]} for s in ss if s["ad"]["comment"]],
+            "feelings": feelings_summary([s["ad"] for s in ss]),
             "thoughts": [{"name": s["name"], "segment": s["segment"], "text": s["ad"]["thought"],
                           "stopped": s["ad"]["stopped"], "click": s["ad"]["click"]} for s in ss if s["ad"]["thought"]][:40],
             "events": [{"name": s["name"], "segment": s["segment"], "wave": s.get("wave", 1),

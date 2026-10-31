@@ -28,13 +28,16 @@ SYSTEM = (
     "and treat all rates as directions, not measurements. Do not call simulated interest real demand or validated lift. "
     "Analyst confidence and seed agreement are model assessments, not success probabilities. Only discuss real-world "
     "predictive uncertainty when the facts supply its held-out calibration basis. Recommend a small randomized real "
-    "experiment with audience, control, treatment, exposure context and outcome metric. Return only valid JSON."
+    "experiment with audience, control, treatment, exposure context and outcome metric. Feelings in the facts are "
+    "simulated appraisals produced by the model and mapped by fixed rules; never write that real customers will feel "
+    "something, only that the simulated people did. Return only valid JSON."
 )
 
 SECTION_ORDER = [
     ("executive_summary", "Executive summary"), ("what_we_tested", "What we tested"),
     ("who_we_simulated", "Who we simulated"), ("social", "What happened on social media"),
-    ("real_world_check", "What real people say"), ("ad_results", "Ad results"), ("survey_results", "Survey results"), ("objections", "Objections and how to answer them"),
+    ("real_world_check", "What real people say"), ("ad_results", "Ad results"), ("survey_results", "Survey results"),
+    ("emotional_response", "How people felt (simulated)"), ("objections", "Objections and how to answer them"),
     ("pricing", "Pricing"), ("sales_rehearsal", "Sales rehearsal"), ("email_results", "Email results"), ("sales_notes", "Sales notes"), ("action_plan", "Action plan"),
     ("budget_plan", "Budget plan"), ("thirty_day_plan", "The next 30 days"), ("what_would_change_the_decision", "What would change the decision"),
     ("risks", "Risks"), ("limits", "Limits and confidence"),
@@ -167,6 +170,7 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "social": social, "playbook": _top(mk.get("playbook") or [], 8, ["segment", "priority", "lead_with", "preempt", "answer_with", "seed_in"]),
         "real_voices": _research_facts(bundle.get("research") or {}),
         "pitch": _pitch_facts(bundle.get("pitch") or {}),
+        "emotions": _emotion_facts(bundle, ads),
         "email": _email_facts(bundle.get("email_test") or {}),
         "reliability": _reliability(mk, bundle),
         "budget": _budget_facts(ads, bundle),
@@ -204,6 +208,40 @@ def _email_facts(e: Dict[str, Any]) -> Dict[str, Any]:
                      "sequence": [{"step": st.get("step"), "open_rate_pct": st.get("open_rate"), "click_rate_pct": st.get("click_rate")} for st in m.get("sequence") or []],
                      "projection": {k: v for k, v in (m.get("projection") or {}).items() if k in ("list_size", "opens", "clicks", "leads", "unsubscribes", "cost", "cpl", "roas")}})
     return {"emails": rows, "people": summ.get("people"), "lost_to_unsubscribe_or_spam": summ.get("lost_to_unsubscribe_or_spam")}
+
+
+def _emotion_facts(bundle: Dict[str, Any], ads: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Simulated feelings: the population view from behavior_state, how each ad felt, and pitch resistance."""
+    from . import emotion
+    out: Dict[str, Any] = {}
+    bs = bundle.get("behavior_state") or {}
+    summ = bundle.get("emotion_summary") or (emotion.summarize(bs) if isinstance(bs, dict) and bs.get("scopes") else {})
+    if summ.get("feelings"):
+        out["population"] = {"people_with_feelings": summ.get("with_feelings"),
+                             "emotion_shares_pct": {k: round(100 * v, 1) for k, v in list((summ.get("emotions") or {}).items())[:6]},
+                             "valence_sam_1_9": (summ.get("valence") or {}).get("sam9_mean"),
+                             "valence_range_sam_1_9": [(summ.get("valence") or {}).get("sam9_p10"), (summ.get("valence") or {}).get("sam9_p90")],
+                             "flags": {k: v for k, v in (summ.get("flags") or {}).items() if v is True}}
+    ft = ((bundle.get("feed_test") or {}).get("summary") or {}).get("per_creative") or {}
+    per_ad = []
+    for a in ads:
+        f = (ft.get(a["id"]) or {}).get("feelings") or {}
+        if f.get("n"):
+            per_ad.append({"id": a["id"], "noticed_and_felt": f.get("n"), "neutral_pct": round(100 * (f.get("neutral_share") or 0), 1),
+                           "top_feelings_pct": {k: round(100 * v, 1) for k, v in list((f.get("emotions") or {}).items())[:3]},
+                           "in_their_words": (f.get("words") or [])[:3]})
+    if per_ad:
+        out["per_ad"] = per_ad
+    p = bundle.get("pitch") or {}
+    if p.get("resistance"):
+        out["pitch_resistance"] = {k: p["resistance"].get(k) for k in ("walk_away_pct", "no_pct", "resistance_pct", "low_resistance_flag")}
+    if (p.get("feelings") or {}).get("after_pitch"):
+        out["pitch_feelings_pct"] = {k: round(100 * v, 1) for k, v in list((p["feelings"]["after_pitch"].get("emotions") or {}).items())[:4]}
+        if p.get("backfire_pct") is not None:
+            out["rebuttal_backfire_pct"] = p.get("backfire_pct")
+    if out:
+        out["basis"] = "simulated appraisal, not measured emotion; behavioural effect not validated"
+    return out
 
 
 def _pitch_facts(p: Dict[str, Any]) -> Dict[str, Any]:
@@ -293,6 +331,7 @@ SCHEMA = '''{
  "real_world_check": {"summary": "2-3 sentences: what real people say about this kind of product (from the real_voices facts; omit if none) and where the simulation agrees or disagrees", "agrees": ["..."], "disagrees": ["..."], "quotes": [{"text": "...", "source": "..."}]},
  "ad_results": {"summary": "2-4 sentences", "winner": "creative id and why", "table_notes": ["one line per ad"], "landing_page": "what happened after the click and what to fix", "so_what": "one sentence: what to do with the ads", "confidence": "low|medium|high"},
  "survey_results": {"summary": "2-4 sentences with the main rates and what they mean", "best_audience": "...", "weakest_audience": "...", "message_winner": "...", "so_what": "one sentence", "confidence": "low|medium|high"},
+ "emotional_response": {"summary": "2-3 sentences: which feelings each ad, email or pitch caused in the simulated people and what they then did; directions, not measurements (omit if no emotions facts)", "by_ad": ["one line per ad"], "watch_out": "one sentence on irritation, pressure or distrust risk", "so_what": "one sentence", "confidence": "low|medium|high"},
  "sales_rehearsal": {"summary": "2-3 sentences on how the pitch did (omit if no pitch facts)", "fix_first": ["..."], "so_what": "one sentence"},
  "email_results": {"summary": "2-3 sentences on the email test (omit if no email facts)", "winner": "email id and why", "subject_line_notes": ["one line per email"], "deliverability": "warnings worth fixing", "so_what": "one sentence"},
  "objections": [{"objection": "...", "who": "which segments", "share_pct": N, "quote": "...", "answer_line": "the exact line a salesperson or ad can use to answer it"}],
@@ -489,6 +528,7 @@ def fallback_sections(m: Dict[str, Any]) -> Dict[str, Any]:
                     "range": f"{(m.get('pricing') or {}).get('acceptable_low')} to {(m.get('pricing') or {}).get('acceptable_high')}" if m.get("pricing") else ""},
         "sales_notes": {"objection_handling": [], "icp": [{"segment": s["segment"], "lead_score": s["lead_score"], "why": "", "best_channel": "", "first_message": ""} for s in segs], "do_not_chase": ""},
         "action_plan": {"ads": [], "fixes": list(d.get("fixes") or []), "messages_to_use": [], "retest": {"when": "", "what": "", "success_looks_like": ""}},
+        "emotional_response": _fallback_emotions(m.get("emotions") or {}),
         "sales_rehearsal": ({"summary": f"{m['pitch'].get('people')} simulated buyers heard the pitch; score {m['pitch'].get('pitch_score_0_100')}/100.",
                              "fix_first": list(m["pitch"].get("fixes") or []), "so_what": ""} if m.get("pitch") else {}),
         "email_results": ({"summary": f"{len(m['email'].get('emails') or [])} emails tested on {m['email'].get('people')} inboxes.",
@@ -505,6 +545,21 @@ def fallback_sections(m: Dict[str, Any]) -> Dict[str, Any]:
         "limits": {"confidence": d.get("confidence") or "low", "caveats": ["Simulated people, not real customers."], "what_would_raise_confidence": ["A small real-budget test."],
                    "reliability_note": _reliability_note(m.get("reliability") or {})},
     }
+
+
+def _fallback_emotions(e: Dict[str, Any]) -> Dict[str, Any]:
+    if not e:
+        return {}
+    pop = e.get("population") or {}
+    shares = pop.get("emotion_shares_pct") or {}
+    top = ", ".join(f"{k} {v}%" for k, v in list(shares.items())[:3])
+    lines = [f"{a['id']}: " + ", ".join(f"{k} {v}%" for k, v in (a.get("top_feelings_pct") or {}).items()) for a in e.get("per_ad") or []]
+    res = e.get("pitch_resistance") or {}
+    watch = ""
+    if res.get("low_resistance_flag"):
+        watch = f"Only {res.get('resistance_pct')}% of simulated buyers pushed back on the pitch; real buyers usually resist more."
+    return {"summary": (f"Simulated feelings recorded: {top}." if top else "Simulated feelings were recorded per ad."),
+            "by_ad": lines, "watch_out": watch, "so_what": "", "confidence": "low"}
 
 
 def _fallback_budget(m: Dict[str, Any]) -> Dict[str, Any]:
@@ -599,6 +654,16 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
         out += [f"- Best audience: {sv.get('best_audience') or '–'}", f"- Weakest audience: {sv.get('weakest_audience') or '–'}",
                 f"- Message that worked best: {sv.get('message_winner') or '–'}", ""]
         out += _so_what(sv)
+    er = sec.get("emotional_response") or {}
+    if er and er.get("summary") and material.get("emotions"):
+        out += ["## How people felt (simulated)", "", str(er.get("summary") or ""), ""]
+        if er.get("by_ad"):
+            out += [_bullets(er["by_ad"])]
+        if er.get("watch_out"):
+            out += [f"**Watch out:** {er['watch_out']}", ""]
+        out += _so_what(er)
+        out += ["_Simulated feelings, not measured emotion. Their effect on behaviour is a configured assumption "
+                "(mode and weights in run_manifest.json), not validated._", ""]
     sr = sec.get("sales_rehearsal") or {}
     if sr and sr.get("summary"):
         out += ["## Sales rehearsal", "", str(sr.get("summary") or ""), ""]

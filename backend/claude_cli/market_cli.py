@@ -65,7 +65,11 @@ def _load_json_arg(v: Optional[str]) -> Any:
 def _scope(c) -> Dict[str, Any]:
     """The client's behaviour-memory scope as a request field ({} = server default)."""
     scope = getattr(c, "memory_scope", None)
-    return {"memory_scope": scope} if scope else {}
+    out: Dict[str, Any] = {"memory_scope": scope} if scope else {}
+    emotions = getattr(c, "emotions", None)
+    if emotions:
+        out["emotions"] = emotions
+    return out
 
 
 def _image_data_uri(path: str, base_dir: str) -> Optional[str]:
@@ -407,6 +411,15 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         keep["config"] = {**{k: v for k, v in cfg.items() if k != "persona_index"},
                           "persona_index": [{f: r.get(f) for f in fields if r.get(f) is not None}
                                             for r in cfg["persona_index"] if isinstance(r, dict)]}
+    # simulated feelings: send the population summary, not every person's memory (the backend reads only this)
+    bs = bundle.get("behavior_state")
+    if isinstance(bs, dict) and bs.get("scopes"):
+        try:
+            summ = load_service("emotion").summarize(bs)
+            if summ.get("feelings"):
+                keep["emotion_summary"] = summ
+        except Exception:  # noqa: BLE001 - feelings are optional in the report
+            pass
     if "summary" not in keep:
         try:
             with open(os.path.join(bundle.get("_run_dir", ""), "summary.json"), encoding="utf-8") as f:
