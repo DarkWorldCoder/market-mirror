@@ -882,6 +882,27 @@ def intake(c, log, files: Optional[List[str]] = None, rows: Optional[List[Dict[s
 # emailtest
 # --------------------------------------------------------------------------
 
+def choice_test(c, simulation_id: str, kind: str, spec: Dict[str, Any], out_dir: str, log, limit: Optional[int] = None,
+                segment: str = "") -> Dict[str, Any]:
+    """MaxDiff, choice-based conjoint or Gabor-Granger on the simulated people -> choice_<kind>.json."""
+    body = {"simulation_id": simulation_id, "kind": kind, "spec": spec, "segment": segment,
+            **({"max_personas": limit} if limit else {})}
+    started = c.data("POST", "/api/simulation/choice-test", json=body, timeout=120)
+    log(f"choice-test: {kind} with {started.get('people')} people (one call each)")
+    wait_task(c, started["task_id"], "choice-test", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/choice-test")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"choice_{kind}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    top = ([r["item"] for r in result.get("ranking") or []][:3] if kind == "maxdiff" else
+           list((result.get("fit") or {}).get("importance") or {})[:3] if kind == "conjoint" else
+           result.get("revenue_max_price"))
+    log(f"choice-test: {result.get('answered')}/{result.get('people')} answered; top: {top}")
+    return {"choice_test": os.path.abspath(path), "kind": kind, "answered": result.get("answered"), "top": top,
+            "usage": result.get("usage")}
+
+
 def focus_group(c, simulation_id: str, guide: List[str], out_dir: str, log, people: int = 6, segment: str = "",
                 offer: str = "", goal: str = "", rounds: int = 1, agent_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """A moderated focus group of saved personas: private verdict, discussion, private verdict, themes."""

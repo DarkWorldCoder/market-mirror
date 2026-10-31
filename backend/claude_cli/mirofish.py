@@ -1704,6 +1704,20 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
     return res
 
 
+def cmd_choice_test(c: Client, a) -> Any:
+    out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
+    try:
+        spec = market_cli._load_json_arg(a.spec)
+        if not isinstance(spec, dict):
+            raise ValueError("--spec must be a JSON object")
+        res = market_cli.choice_test(c, a.simulation, a.kind, spec, out_dir, log, a.limit, a.segment or "")
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
+    if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
+        res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
+    return res
+
+
 def cmd_ask(c: Client, a) -> Any:
     history = market_cli._load_json_arg(a.history) if a.history else []
     res = c.data("POST", "/api/simulation/ask", json={"simulation_id": a.simulation, "agent_id": a.person,
@@ -2031,6 +2045,7 @@ def cmd_test(c: Client, a) -> Any:
             c_, sid, run_dir, log_, script, rebuttals, product, channel),
         "emailtest": lambda c_, sid, spec_arg, run_dir, log_: market_cli.emailtest(c_, sid, spec_arg, run_dir, log_, 5, a.parallel, None, a.limit),
         "collect": collect, "load_bundle": exporter.load_run_dir,
+        "choice": lambda c_, sid, kind, spec, run_dir, log_: market_cli.choice_test(c_, sid, kind, spec, run_dir, log_, a.limit),
     }
     try:
         res = experiments.run(c, exp, a.simulation, out_dir, log, engines, brand=a.brand or "")
@@ -2595,6 +2610,16 @@ def build_parser() -> argparse.ArgumentParser:
                                                          "thumbnail_url or video) first, so labels read the picture (backend)")
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
 
+    s = sub.add_parser("choice-test", help="MaxDiff (rank claims/features), choice-based conjoint (what drives choice) or "
+                                           "Gabor-Granger (demand at each price) on the simulated people")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--kind", required=True, choices=["maxdiff", "conjoint", "gabor_granger"])
+    s.add_argument("--spec", required=True, help="@spec.json: maxdiff {items, topic}; conjoint {attributes: {name: [levels]}, "
+                                                 "price_attribute?, held_fixed?, tasks?, topic}; gabor_granger {prices, topic}")
+    s.add_argument("--limit", type=int, help="ask at most this many people")
+    s.add_argument("--segment", help="only this segment")
+    s.add_argument("--run-dir", help="where choice_<kind>.json lands (default mirofish_runs/<simulation>)")
+
     s = sub.add_parser("ask", help="talk to one saved simulated person after the run (no live environment needed)")
     s.add_argument("--simulation", required=True)
     s.add_argument("--person", type=int, required=True, help="agent id (see `profiles --brief`)")
@@ -3011,7 +3036,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,

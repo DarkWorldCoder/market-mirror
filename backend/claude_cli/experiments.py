@@ -20,14 +20,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 TYPES = ("ad", "message", "price", "offer", "positioning", "naming", "landing", "launch", "pitch", "email",
          "creator_post", "channel_mix", "conjoint", "search_content", "organic_content", "nurture", "retention",
-         "referral", "sales_outreach", "sales_followup")
+         "referral", "sales_outreach", "sales_followup", "maxdiff", "gabor_granger")
 METRIC_DEFAULT = {"ad": "expected_ctr", "message": "convert_yes", "price": "convert_yes", "offer": "convert_yes",
                   "positioning": "convert_yes", "naming": "convert_yes", "landing": "conversion_after_click",
                   "launch": "brand_post_engagement", "pitch": "pitch_score", "email": "click_rate",
                   "creator_post": "brand_post_engagement", "channel_mix": "expected_ctr", "conjoint": "share_of_choice",
                   "search_content": "convert_yes", "organic_content": "convert_yes", "nurture": "click_rate",
                   "retention": "click_rate", "referral": "convert_yes", "sales_outreach": "pitch_score",
-                  "sales_followup": "pitch_score"}
+                  "sales_followup": "pitch_score", "maxdiff": "best_minus_worst", "gabor_granger": "share_buy"}
 PLATFORMS = ("facebook", "instagram", "tiktok", "reddit", "linkedin", "x")
 
 
@@ -38,11 +38,19 @@ def normalize(spec: Any) -> Dict[str, Any]:
     if t not in TYPES:
         raise ValueError(f"experiment type must be one of {', '.join(TYPES)}")
     variants = spec.get("variants") or []
-    if t not in ("launch", "landing", "conjoint") and len(variants) < 1:
+    if t not in ("launch", "landing", "conjoint", "maxdiff", "gabor_granger") and len(variants) < 1:
         raise ValueError("variants are required")
     if t in ("message", "offer", "positioning", "naming", "price", "search_content", "organic_content",
              "nurture", "retention", "referral", "sales_outreach", "sales_followup") and len(variants) < 2:
         raise ValueError(f"a {t} test needs at least two variants")
+    if t == "conjoint":
+        attrs = spec.get("attributes")
+        if not isinstance(attrs, dict) or len(attrs) < 2 or any(not isinstance(v, list) or len(v) < 2 for v in attrs.values()):
+            raise ValueError("a conjoint test needs attributes: {name: [2+ levels]} for 2+ attributes")
+    if t == "maxdiff" and len(variants or spec.get("items") or []) < 3:
+        raise ValueError("a maxdiff test needs 3+ items (variants)")
+    if t == "gabor_granger" and len(variants or spec.get("prices") or []) < 3:
+        raise ValueError("a gabor_granger test needs 3+ prices (variants)")
     out = {"type": t, "name": str(spec.get("name") or t), "variants": variants, "audience": spec.get("audience") or {},
            "metric": str(spec.get("metric") or METRIC_DEFAULT[t]), "budget": spec.get("budget") or {}, "rounds": int(spec.get("rounds") or 0),
            "seeds": max(1, int(spec.get("seeds") or 1)), "extra": {k: v for k, v in spec.items()
@@ -265,7 +273,10 @@ def conclude(exp: Dict[str, Any], rows: List[Dict[str, Any]], files: Dict[str, s
         "naming": "share who would convert for each name", "price": "share who would convert at each price point (stated; price answers run optimistic)",
         "launch": "engagement = likes + 2 x comments + 2 x quotes + reposts on each brand post inside the simulation",
         "creator_post": "same as launch, posted by the creator or community account", "pitch": "pitch score 0-100 after rebuttals (yes = 1, maybe = 0.5)",
-        "email": "click rate per email among the people it was sent to; opens are decided by the attention gate", "conjoint": "share of choice",
+        "email": "click rate per email among the people it was sent to; opens are decided by the attention gate",
+        "conjoint": "attribute importance (range of part-worths, multinomial logit); willingness to pay is a direction only",
+        "maxdiff": "best-minus-worst score per item (x100) with a bootstrap interval over people",
+        "gabor_granger": "share who would buy at each price (stated; runs optimistic); revenue-max price on that curve",
     }.get(exp["type"], "")
     return {"type": exp["type"], "name": exp["name"], "metric": exp["metric"],
             "audience": exp.get("audience") or {}, "exposure_context": exp.get("exposure_context"),
@@ -343,12 +354,42 @@ def run(c, exp: Dict[str, Any], simulation_id: str, run_dir: str, log: Callable[
         et = _read(os.path.join(run_dir, "email_test.json"))
         files["email_test"] = os.path.join(run_dir, "email_test.json")
         rows = from_email(exp, et)
-    elif t == "conjoint":
-        raise ValueError("conjoint tests are not available yet")
+    elif t in ("conjoint", "maxdiff", "gabor_granger"):
+        spec = {**exp["extra"], **({"items": exp["variants"]} if t == "maxdiff" and exp["variants"] else {}),
+                **({"prices": exp["variants"]} if t == "gabor_granger" and exp["variants"] else {})}
+        spec.setdefault("topic", exp["extra"].get("offer") or exp["name"])
+        engines["choice"](c, simulation_id, t, spec, run_dir, log)
+        res = _read(os.path.join(run_dir, f"choice_{t}.json"))
+        files[t] = os.path.join(run_dir, f"choice_{t}.json")
+        rows = from_choice(t, res)
     result = conclude(exp, rows, files)
     with open(os.path.join(run_dir, "experiment_result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     return result
+
+
+def from_choice(t: str, res: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Choice results as experiment rows: MaxDiff items (best-minus-worst x 100), conjoint attributes (importance
+    %), Gabor-Granger prices (share who would buy %)."""
+    rows = []
+    if t == "maxdiff":
+        for i, r in enumerate(res.get("ranking") or []):
+            ci = r.get("ci") or [None, None]
+            margin = round(50 * (ci[1] - ci[0]), 1) if None not in ci else None
+            rows.append({"id": f"item{i + 1}", "label": r["item"], "value": round(100 * r["score"], 1), "margin": margin,
+                         "n": res.get("answered")})
+    elif t == "conjoint":
+        for a, imp in ((res.get("fit") or {}).get("importance") or {}).items():
+            rows.append({"id": a, "label": f"{a} (importance)", "value": round(100 * imp, 1), "margin": None,
+                         "n": res.get("answered")})
+    else:
+        for r in res.get("curve") or []:
+            share = r.get("share_buy")
+            n = r.get("n") or 0
+            margin = round(196 * ((share * (1 - share) / n) ** 0.5), 1) if share is not None and n else None
+            rows.append({"id": str(r["price"]), "label": f'at {r["price"]}', "value": None if share is None else round(100 * share, 1),
+                         "margin": margin, "n": n, "revenue_index": r.get("revenue_index")})
+    return rows
 
 
 def _read(path: str) -> Dict[str, Any]:

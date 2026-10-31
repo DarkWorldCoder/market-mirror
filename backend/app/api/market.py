@@ -39,7 +39,7 @@ logger = get_logger('mirofish.api.market')
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
                 "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json",
                 "website-test": "website_test.json", "thought-stream": "thought_stream.json",
-                "focus-group": "focus_group.json"}
+                "focus-group": "focus_group.json", "choice-test": "choice_test.json"}
 
 
 @simulation_bp.route('/website-test', methods=['POST'])
@@ -349,6 +349,55 @@ def start_feed_test():
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
+
+
+@simulation_bp.route('/choice-test', methods=['POST'])
+def start_choice_test():
+    """POST {simulation_id, kind: maxdiff|conjoint|gabor_granger, spec, max_personas?, segment?} -> background task
+    writing choice_test.json (one call per person with all their tasks; simulated directions)."""
+    from ..services import choice_methods as cm
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    kind = str(data.get("kind") or "").lower()
+    spec = data.get("spec") if isinstance(data.get("spec"), dict) else {}
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    if kind not in ("maxdiff", "conjoint", "gabor_granger"):
+        return jsonify({"success": False, "error": "kind must be maxdiff, conjoint or gabor_granger"}), 400
+    seg = str(data.get("segment") or "").lower()
+    people = [p for p in people if not seg or str(p.get("segment") or "").lower() == seg]
+    limit = data.get("max_personas")
+    if isinstance(limit, int) and limit > 0:
+        people = people[:limit]
+    if not people:
+        return jsonify({"success": False, "error": "no matching simulated people"}), 400
+    try:                                           # validate the spec before starting (designs raise on bad input)
+        if kind == "maxdiff":
+            cm.maxdiff_design([str(x) for x in spec.get("items") or []])
+        elif kind == "conjoint":
+            cm.cbc_design({str(a): list(v) for a, v in (spec.get("attributes") or {}).items()})
+        elif len(spec.get("prices") or []) < 3:
+            raise ValueError("Gabor-Granger needs 3+ prices")
+    except (ValueError, TypeError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    client = _client()
+
+    def complete(system, user):
+        from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+        resp = create_chat_completion(client, model=Config.LLM_MODEL_NAME, temperature=0.7, max_tokens=1200,
+                                      messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        u = getattr(resp, "usage", None)
+        return extract_chat_completion_text(resp), {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0, "output_tokens": getattr(u, "completion_tokens", 0) or 0}
+
+    def work(progress):
+        return cm.run(kind, people, spec, complete, parallel=max(1, min(int(data.get("parallel") or 8), 32)))
+
+    task_id = _start("choice-test", sid, work)
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "kind": kind, "people": len(people)}})
 
 
 def _plain_complete(temperature: float = 0.8, max_tokens: int = 600):
@@ -932,6 +981,7 @@ def market_task_status():
 @simulation_bp.route('/<simulation_id>/analyst-panel', methods=['GET'], defaults={"kind": "analyst-panel"})
 @simulation_bp.route('/<simulation_id>/pitch', methods=['GET'], defaults={"kind": "pitch"})
 @simulation_bp.route('/<simulation_id>/email-test', methods=['GET'], defaults={"kind": "email-test"})
+@simulation_bp.route('/<simulation_id>/choice-test', methods=['GET'], defaults={"kind": "choice-test"})
 @simulation_bp.route('/<simulation_id>/focus-group', methods=['GET'], defaults={"kind": "focus-group"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
