@@ -623,7 +623,7 @@ def calibration_pairs():
 
 @simulation_bp.route('/study-report', methods=['POST'])
 def study_report():
-    """POST {summary: study_summary.json, brand?} -> {markdown, method} (one Claude call, number-guarded; synchronous)."""
+    """POST {summary: study_summary.json, brand?} -> {markdown, method, number_guard} (one Claude call, number-guarded; synchronous)."""
     from ..services import market_report
     from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
     data = request.get_json() or {}
@@ -643,8 +643,10 @@ def study_report():
         resp = create_chat_completion(_client(), model=Config.LLM_MODEL_NAME, temperature=0.3, max_tokens=3000,
                                       messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
         md = market_report.unwrap_markdown(extract_chat_completion_text(resp) or "")
-        md = market_report.check_numbers_markdown(md, market_report._fact_numbers(summary))
-        return jsonify({"success": True, "data": {"markdown": md, "method": "llm"}})
+        number_guard = []
+        md = market_report.check_numbers_markdown(md, market_report._fact_numbers(summary), number_guard)
+        logger.info("Number guard removed %d sentence(s) or table cell(s)", len(number_guard))
+        return jsonify({"success": True, "data": {"markdown": md, "method": "llm", "number_guard": number_guard}})
     except Exception as e:  # noqa: BLE001
         logger.error(f"study report failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
