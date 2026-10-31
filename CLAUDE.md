@@ -67,6 +67,7 @@ $C run --seed brief.md data.pdf \
 | report | `$C report --simulation sim_x [--force] [--out report.md]` |
 | ask ReportAgent | `$C chat --simulation sim_x --message "Why did sentiment flip?" [--history chat.json]` |
 | interview agents | `$C profiles --simulation sim_x --brief`, then `$C interview --simulation sim_x --agent 3 --prompt "..."` (or `--agent 1 2 5`, or `--all`) |
+| MCP resources and prompts | the MCP server also lists run files as resources (`marketmirror://runs/<run>/dashboard.html|summary.json|market_report.md|...`), the dashboard as an MCP Apps UI resource (`ui://market-mirror/dashboard`, linked from the `results` tool) and prompts `test_an_ad`, `price_check`, `calibrate_with_real_data`, `pull_real_results` (real results from the host's connected ads / analytics / CRM servers into `actuals_import`), `focus_group_after_run` |
 | housekeeping | `$C list [projects|simulations|reports]`, `$C stop`, `$C close-env --simulation sim_x` |
 
 Interviews work only while the simulation environment is still alive (`status` shows `env.env_alive`). It stays alive after a run finishes until `close-env`, `stop` or a server restart.

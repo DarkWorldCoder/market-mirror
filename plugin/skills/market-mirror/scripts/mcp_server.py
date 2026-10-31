@@ -168,6 +168,148 @@ def results(run: str) -> Dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------
+# resources: run files, and the dashboard as an MCP Apps UI resource
+# --------------------------------------------------------------------------
+
+RUN_RESOURCES = {"dashboard.html": "text/html", "summary.json": "application/json", "market_report.md": "text/markdown",
+                 "report.md": "text/markdown", "calibration.json": "application/json", "focus_group.json": "application/json",
+                 "ideas.md": "text/markdown", "ad_patterns.md": "text/markdown", "intake.md": "text/markdown"}
+UI_URI = "ui://market-mirror/dashboard"
+UI_MIME = "text/html;profile=mcp-app"          # MCP Apps (ext-apps): hosts render this resource inline
+LAST_RUN: Dict[str, str] = {}
+
+
+def _runs_root() -> str:
+    return os.path.join(home(), "mirofish_runs")
+
+
+def _run_dir(name: str) -> str:
+    """A run folder by name; refuses anything that is not a plain folder name under mirofish_runs."""
+    if not name or name != os.path.basename(name) or name in (".", "..") or "\\" in name:
+        raise ValueError(f"not a run name: {name!r}")
+    path = os.path.join(_runs_root(), name)
+    if not os.path.isdir(path):
+        raise ValueError(f"no run named {name!r}")
+    return path
+
+
+def list_resources() -> List[Dict[str, Any]]:
+    out = [{"uri": UI_URI, "name": "MarketMirror dashboard", "mimeType": UI_MIME,
+            "description": "The dashboard of the run last opened with `results` (else the newest run), as an MCP App."}]
+    root = _runs_root()
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        for f, mime in RUN_RESOURCES.items():
+            if os.path.isfile(os.path.join(root, name, f)):
+                out.append({"uri": f"marketmirror://runs/{name}/{f}", "name": f"{name}/{f}", "mimeType": mime,
+                            "description": f"{f} of run {name} (simulated results)"})
+    return out
+
+
+def _newest_run() -> Optional[str]:
+    root = _runs_root()
+    runs = [n for n in os.listdir(root) if os.path.isfile(os.path.join(root, n, "dashboard.html"))] if os.path.isdir(root) else []
+    return max(runs, key=lambda n: os.path.getmtime(os.path.join(root, n, "dashboard.html"))) if runs else None
+
+
+def read_resource(uri: str) -> Dict[str, Any]:
+    if uri == UI_URI:
+        run = LAST_RUN.get("run") or _newest_run()
+        if not run:
+            text = "<!doctype html><meta charset=utf-8><p>No MarketMirror run with a dashboard yet.</p>"
+        else:
+            with open(os.path.join(_run_dir(run), "dashboard.html"), encoding="utf-8") as f:
+                text = f.read()
+        return {"contents": [{"uri": uri, "mimeType": UI_MIME, "text": text}]}
+    prefix = "marketmirror://runs/"
+    if not uri.startswith(prefix) or uri.count("/") != 4:
+        raise ValueError(f"unknown resource: {uri}")
+    run, f = uri[len(prefix):].split("/", 1)
+    if f not in RUN_RESOURCES:
+        raise ValueError(f"not an exposed run file: {f}")
+    path = os.path.join(_run_dir(run), f)
+    if not os.path.isfile(path):
+        raise ValueError(f"{f} does not exist in run {run}")
+    with open(path, encoding="utf-8") as fh:
+        return {"contents": [{"uri": uri, "mimeType": RUN_RESOURCES[f], "text": fh.read()}]}
+
+
+# --------------------------------------------------------------------------
+# prompts: recipes an agent (or a user's slash menu) can start from
+# --------------------------------------------------------------------------
+
+def _arg(name: str, description: str, required: bool = True) -> Dict[str, Any]:
+    return {"name": name, "description": description, "required": required}
+
+
+PROMPTS: Dict[str, Dict[str, Any]] = {
+    "test_an_ad": {
+        "description": "Test ad copy (and its image or video) on simulated buyers before spending on media.",
+        "arguments": [_arg("product", "what is sold, one line"), _arg("ads", "the ad texts, and image/video paths if any"),
+                      _arg("audience", "who should see it", False)],
+        "text": ("Use MarketMirror to test these ads for {product}.\nAds: {ads}\nAudience: {audience}\n\nRun `doctor`; "
+                 "if needed `quickstart` with these answers. Give each creative its real image or video path so the buyers "
+                 "see the picture (`creative_check` first for a pre-flight look). Show me the planned personas and the "
+                 "estimated cost before any paid step, then run `market_test` with a feed test (seeds 3) and a survey. "
+                 "Report each ad's simulated thumb-stop and CTR as directions with their seed ranges, the top objections, "
+                 "and the next small real test to run.")},
+    "price_check": {
+        "description": "Compare price points on simulated buyers, with what is held fixed stated.",
+        "arguments": [_arg("product", "what is sold"), _arg("prices", "the price points, e.g. USD 4.99, 7.99, 9.99"),
+                      _arg("held_fixed", "what stays the same across prices", False)],
+        "text": ("Run a MarketMirror price test for {product} at {prices} with `run_test` (type price, held_fixed: "
+                 "{held_fixed}). Before paying, show me the personas and the cost estimate. Report the share who would "
+                 "convert at each price as simulated directions (and the shrunk differences), the price objections, and "
+                 "say plainly that stated willingness to pay runs optimistic.")},
+    "calibrate_with_real_data": {
+        "description": "Check a run against real survey answers and get a valid interval and a sample plan.",
+        "arguments": [_arg("run", "run name"), _arg("real_csv", "absolute path to real answers (segment, country, gender, age, y)")],
+        "text": ("Calibrate MarketMirror run {run} with the real answers in {real_csv} using the `calibrate` tool. Report "
+                 "the verdict (trust / correct / walk-away), the PPI++ interval for the audience rate with its "
+                 "assumption, what the panel is worth in real answers, and how many more real answers a +-5 point "
+                 "interval needs.")},
+    "pull_real_results": {
+        "description": "Fetch real campaign results from a connected ads, analytics or CRM server and use them as evidence.",
+        "arguments": [_arg("source", "meta_ads | google_ads | ga4 | tiktok_ads | hubspot | klaviyo | shopify"),
+                      _arg("run", "the MarketMirror run to compare with", False),
+                      _arg("period", "date range, e.g. last 30 days", False)],
+        "text": ("Using the {source} tools this host already has connected (do not ask me for keys; if none are "
+                 "connected, say so and ask me for an export instead), fetch real results for {period}: per ad or campaign "
+                 "the impressions, clicks, conversions, spend and currency, with the date range and market. Save them as a "
+                 "CSV and normalise it with MarketMirror `actuals_import`, keeping the source. Then compare with run {run} "
+                 "through `backtest` (ads) or `holdout_backtest` (independent experiments). Never change the ad account: "
+                 "if a winning variant should go live, prepare it as a paused draft only after I approve it explicitly.")},
+    "focus_group_after_run": {
+        "description": "Hold a moderated focus group with the simulated buyers of a run.",
+        "arguments": [_arg("simulation_id", "the run's simulation id"), _arg("questions", "the discussion guide, one per line"),
+                      _arg("segment", "only this segment", False)],
+        "text": ("Hold a MarketMirror focus group with `ask_buyers` (action focus_group) on simulation {simulation_id}"
+                 "{segment_clause}, guide:\n{questions}\n\nReport the themes with their quotes, each person's private "
+                 "verdict before and after, and the conformity flag. Present it as qualitative exploration of simulated "
+                 "people, and trust the private first answers over the group's apparent agreement.")},
+}
+
+
+def list_prompts() -> List[Dict[str, Any]]:
+    return [{"name": n, "description": p["description"], "arguments": p["arguments"]} for n, p in PROMPTS.items()]
+
+
+def get_prompt(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    if name not in PROMPTS:
+        raise ValueError(f"unknown prompt: {name}")
+    p = PROMPTS[name]
+    missing = [a["name"] for a in p["arguments"] if a["required"] and not str(args.get(a["name"]) or "").strip()]
+    if missing:
+        raise ValueError(f"missing arguments: {', '.join(missing)}")
+    vals = {a["name"]: str(args.get(a["name"]) or "").strip() for a in p["arguments"]}
+    defaults = {"audience": "infer it from the product", "held_fixed": "the product, features, brand and terms",
+                "run": "(the newest run)", "period": "the last 30 days", "segment": ""}
+    vals = {k: v or defaults.get(k, "") for k, v in vals.items()}
+    vals["segment_clause"] = f", segment {vals['segment']}" if vals.get("segment") else ""
+    return {"description": p["description"],
+            "messages": [{"role": "user", "content": {"type": "text", "text": p["text"].format(**vals)}}]}
+
+
 def list_runs() -> List[Dict[str, Any]]:
     root = os.path.join(home(), "mirofish_runs")
     out = []
@@ -239,7 +381,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"config": {"type": "object"}}, "required": ["config"]}},
     {"name": "job_status", "description": "Status, log tail and final result of a background job.",
      "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
-    {"name": "results", "description": "Key results of a run: decision, verdicts, segments, objections, messages, pricing, feed-test metrics, ROI projections, files.",
+    {"name": "results", "_meta": {"ui": {"resourceUri": UI_URI}, "ui/resourceUri": UI_URI},
+     "description": "Key results of a run: decision, verdicts, segments, objections, messages, pricing, feed-test metrics, ROI projections, files. Hosts with MCP Apps also show the run's dashboard inline (resource ui://market-mirror/dashboard).",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string", "description": "run name under mirofish_runs or absolute path"}}, "required": ["run"]}},
     {"name": "list_runs", "description": "List previous runs with their decision.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "start_live", "description": "Serve the live dashboard at http://127.0.0.1:5050/ (newest run, or a given run).",
@@ -441,7 +584,13 @@ def call(name: str, a: Dict[str, Any]) -> Any:
     if name == "job_status":
         return job_status(a["job_id"])
     if name == "results":
-        return results(a["run"])
+        out = results(a["run"])
+        run = os.path.basename(os.path.normpath(a["run"]))
+        if isinstance(out, dict) and "error" not in out:
+            LAST_RUN["run"] = run
+            out["resources"] = {f: f"marketmirror://runs/{run}/{f}" for f in RUN_RESOURCES
+                                if os.path.isfile(os.path.join(os.path.dirname(out.get("dashboard") or ""), f))}
+        return out
     if name == "list_runs":
         return list_runs()
     if name == "start_live":
@@ -751,7 +900,7 @@ def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if method == "initialize":
         requested = (msg.get("params") or {}).get("protocolVersion")
         result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
-                    "capabilities": {"tools": {}},
+                    "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                     "serverInfo": {"name": "market-mirror", "version": "0.4.2"},
                     "instructions": "MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; "
                                     "run setup if the engine is missing; use market_test for everything; show the user the "
@@ -760,6 +909,22 @@ def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         result = {}
     elif method == "tools/list":
         result = {"tools": TOOLS}
+    elif method in ("resources/list", "resources/read", "resources/templates/list", "prompts/list", "prompts/get"):
+        p = msg.get("params") or {}
+        try:
+            if method == "resources/list":
+                result = {"resources": list_resources()}
+            elif method == "resources/templates/list":
+                result = {"resourceTemplates": [{"uriTemplate": "marketmirror://runs/{run}/{file}", "name": "Run file",
+                                                 "description": "A file of a MarketMirror run: " + ", ".join(RUN_RESOURCES)}]}
+            elif method == "resources/read":
+                result = read_resource(str(p.get("uri") or ""))
+            elif method == "prompts/list":
+                result = {"prompts": list_prompts()}
+            else:
+                result = get_prompt(str(p.get("name") or ""), p.get("arguments") or {})
+        except (ValueError, OSError) as e:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": str(e)}}
     elif method == "tools/call":
         p = msg.get("params") or {}
         try:
