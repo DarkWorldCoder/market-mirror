@@ -1,0 +1,12 @@
+created_at,clickability_test_id,excerpt,headline,lede,slug,eyecatcher_id,impressions,clicks,significance,first_place,winner,share_text,square,test_week,problem
+2014-01-01,t1,,This Dad Did Something Simple,,a,e1,5000,300,,,,,,201401,FALSE
+2014-01-01,t1,,A Father's Small Act,,a,e1,5000,150,,,,,,201401,FALSE
+2014-01-01,t2,,Headline One,,b,e1,5000,200,,,,,,201401,FALSE
+2014-01-01,t2,,Headline Two,,b,e1,5000,198,,,,,,201401,FALSE
+2014-01-01,t3,,Too Small A,,c,e1,500,50,,,,,,201401,FALSE
+2014-01-01,t3,,Too Small B,,c,e1,500,10,,,,,,201401,FALSE
+2014-01-01,t4,,Same Words,,d,e1,3000,90,,,,,,201401,FALSE
+2014-01-01,t4,,Same Words,,d,e2,3000,60,,,,,,201401,FALSE
+2014-01-01,t5,,Why Cats Purr,,e,e1,8000,800,,,,,,201401,FALSE
+2014-01-01,t5,,Cats And Purring,,e,e1,8000,400,,,,,,201401,FALSE
+2014-01-01,t5,,The Purr Science,,e,e1,8000,300,,,,,,201401,FALSE

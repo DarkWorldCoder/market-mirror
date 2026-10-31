@@ -1,6 +1,6 @@
 {
   "name": "market-mirror",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Test ads, prices, emails and sales pitches on simulated buyers and get a go / iterate / no-go report with an offline dashboard.",
   "mcpServers": {
     "market-mirror": {

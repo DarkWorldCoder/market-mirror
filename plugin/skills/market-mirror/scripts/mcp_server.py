@@ -450,7 +450,49 @@ TOOLS = [
                                                       "rows": {"type": "array", "items": {"type": "object"}},
                                                       "run": {"type": "string"}, "engine": {"type": "string", "enum": ["auto", "llm", "jev", "supplied"]},
                                                       "brand": {"type": "string"}, "now": {"type": "string", "description": "collection date YYYY-MM-DD"},
-                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"}}}},
+                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"},
+                                                      "vision": {"type": "boolean", "description": "describe rows' image/video first (backend)"}}}},
+    {"name": "creative_check", "description": (
+        "Pre-flight look at real ad creatives before any simulated buyer sees them: what each image or video (keyframes via "
+        "ffmpeg) shows, the words on it, whether brand and call to action are visible, what a one-second scroller takes away, "
+        "platform checks (text density, brand early, legibility, safe zones, captions) and the measured aspect ratio. "
+        "creatives: [{id, platform, image|video (absolute path or https URL), text?, headline?, cta?}]. Needs the backend and a "
+        "vision-capable model. A model's reading plus measured facts, not an attention or recall score. In market_test, "
+        "creatives with image/video are seen by the buyers too ('vision': describe|direct|off). Background job."),
+     "inputSchema": {"type": "object", "properties": {"creatives": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string"}}, "required": ["creatives"]}},
+    {"name": "intake", "description": (
+        "Turn the owner's own customer material into grounded personas: call or interview transcripts, review exports, NPS / survey "
+        "verbatims, CRM or support notes (absolute paths: CSV, TSV, JSON, JSONL, txt, md, vtt, srt), or rows you fetched from a "
+        "connected CRM. Emails, phone and card numbers, links, @handles and names from name columns are removed before any model "
+        "call; quotes stay verbatim (a quote not in the source is dropped) and nothing unstated is invented. Writes a persona spec "
+        "with real_profiles (marked 'Grounded' in the dashboard) that market_test takes as its personas; synthetic people fill the "
+        "rest of the audience. engine: llm (backend) or supplied (offline, no model). Use customer data only with the owner's "
+        "permission and show them intake.md before running. Background job."),
+     "inputSchema": {"type": "object", "properties": {"files": {"type": "array", "items": {"type": "string"}},
+                                                      "rows": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string", "description": "persona spec path to write (absolute)"},
+                                                      "base": {"type": "string", "description": "persona spec to start from"},
+                                                      "engine": {"type": "string", "enum": ["llm", "supplied"]},
+                                                      "context": {"type": "string"}, "segment_field": {"type": "string"},
+                                                      "id_field": {"type": "string"}, "text_field": {"type": "string"},
+                                                      "segment": {"type": "string"}, "max_people": {"type": "integer"}}}},
+    {"name": "ask_buyers", "description": (
+        "Talk to the simulated buyers after a run, no live simulation needed. action 'ask': one person (agent_id from "
+        "results/profiles) answers a message, with optional history. action 'focus_group': 2-8 saved people (taken in turn "
+        "from each segment, or one segment, or agent_ids) give a private verdict, discuss the guide questions with a "
+        "moderator, then give a private verdict again; returns themes with checked quotes, the before/after shift and a "
+        "conformity flag, saves focus_group.json and adds a dashboard section (background job). Simulated people: "
+        "qualitative exploration, not real buyers."),
+     "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["ask", "focus_group"]},
+                                                      "simulation_id": {"type": "string"}, "agent_id": {"type": "integer"},
+                                                      "message": {"type": "string"},
+                                                      "history": {"type": "array", "items": {"type": "object"}},
+                                                      "guide": {"type": "array", "items": {"type": "string"}},
+                                                      "people": {"type": "integer"}, "segment": {"type": "string"},
+                                                      "offer": {"type": "string"}, "goal": {"type": "string"},
+                                                      "run": {"type": "string"}},
+                     "required": ["action", "simulation_id"]}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -697,7 +739,69 @@ def call(name: str, a: Dict[str, Any]) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("max_ads"):
             args += ["--max-ads", str(int(a["max_ads"]))]
+        if a.get("vision"):
+            args.append("--vision")
         return job(args, "ad_patterns")
+    if name == "ask_buyers":
+        if a.get("action") == "ask":
+            if a.get("agent_id") is None or not a.get("message"):
+                raise ValueError("ask needs agent_id and message")
+            d = os.path.join(home(), "scenarios", "_ask")
+            os.makedirs(d, exist_ok=True)
+            hp = os.path.join(d, f"chat_{a['simulation_id']}_{int(a['agent_id'])}.json")
+            if a.get("history") is not None:
+                json.dump(a["history"], open(hp, "w", encoding="utf-8"), ensure_ascii=False)
+            elif not os.path.exists(hp):
+                json.dump([], open(hp, "w", encoding="utf-8"))
+            return _cli_result(sh(["cli", "ask", "--simulation", a["simulation_id"], "--person", str(int(a["agent_id"])),
+                                   "--history", "@" + hp, a["message"]], timeout=400))
+        if not a.get("guide"):
+            raise ValueError("focus_group needs guide (a list of questions)")
+        d = os.path.join(home(), "scenarios", "_focus_groups")
+        os.makedirs(d, exist_ok=True)
+        gp = os.path.join(d, f"guide_{uuid.uuid4().hex[:6]}.md")
+        open(gp, "w", encoding="utf-8").write("\n".join(str(q) for q in a["guide"]))
+        args = ["cli", "focus-group", "--simulation", a["simulation_id"], "--guide", "@" + gp]
+        for k in ("people",):
+            if a.get(k):
+                args += ["--" + k, str(int(a[k]))]
+        for k in ("segment", "offer", "goal"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("run"):
+            run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
+            args += ["--run-dir", run_dir]
+        return job(args, "focus_group")
+    if name == "creative_check":
+        d = os.path.join(home(), "scenarios", "_creative_check")
+        os.makedirs(d, exist_ok=True)
+        tag = uuid.uuid4().hex[:6]
+        cp = os.path.join(d, f"creatives_{tag}.json")
+        json.dump({"creatives": a["creatives"]}, open(cp, "w", encoding="utf-8"), ensure_ascii=False)
+        return job(["cli", "creative-check", "--creatives", "@" + cp,
+                    "--out", a.get("out") or os.path.join(d, f"creative_check_{tag}.json")], "creative_check")
+    if name == "intake":
+        if not (a.get("rows") or a.get("files")):
+            raise ValueError("files or rows is required")
+        d = os.path.join(home(), "scenarios", "_intake")
+        os.makedirs(d, exist_ok=True)
+        args = ["cli", "intake", "--engine", str(a.get("engine") or "llm"),
+                "--out", a.get("out") or os.path.join(d, f"personas_{uuid.uuid4().hex[:6]}.json")]
+        if a.get("files"):
+            args += ["--files", *[str(f) for f in a["files"]]]
+        if a.get("rows"):
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            json.dump(a["rows"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        for k in ("base", "context", "segment"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        for k in ("id_field", "segment_field", "text_field"):
+            if a.get(k):
+                args += ["--" + k.replace("_", "-"), str(a[k])]
+        if a.get("max_people"):
+            args += ["--max-people", str(int(a["max_people"]))]
+        return job(args, "intake")
     if name == "push_context":
         args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
         if a.get("round") is not None:
@@ -797,7 +901,7 @@ def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         requested = (msg.get("params") or {}).get("protocolVersion")
         result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
                     "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
-                    "serverInfo": {"name": "market-mirror", "version": "0.4.0"},
+                    "serverInfo": {"name": "market-mirror", "version": "0.4.2"},
                     "instructions": "MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; "
                                     "run setup if the engine is missing; use market_test for everything; show the user the "
                                     "personas before approving spend; report results as simulated directions with their margins."}
