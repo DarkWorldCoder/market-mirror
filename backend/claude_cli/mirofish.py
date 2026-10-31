@@ -559,13 +559,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
             "scope": scope, **({"emotions": c.emotions} if getattr(c, "emotions", None) else {}), "survey": {"offer": offer, "responses": [{"agent_id": r["agent_id"], "answer": r.get("answer")}
                                                                     for r in responses if r.get("answer")]}}))
+    say_do_info = _survey_say_do(cfg, responses, offer, seed)
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
               **({"settle": settler.summary(len(people))} if settler is not None else {}),
               **({"objection_check": obj_check} if obj_check else {}),
-              **({"estimate": estimate_info} if estimate_info else {}), "responses": responses}
+              **({"estimate": estimate_info} if estimate_info else {}),
+              **({"say_do": say_do_info} if say_do_info else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     if responses and not answered:
@@ -592,6 +594,18 @@ def _add_counts(total: Dict[str, Any], part: Optional[Dict[str, Any]]) -> None:
             total[k] = round(total.get(k, 0) + v, 6)
         elif isinstance(v, dict):
             _add_counts(total.setdefault(k, {}), v)
+
+
+def _survey_say_do(cfg: Dict[str, Any], responses: List[Dict[str, Any]], offer: str, seed: int) -> Optional[Dict[str, Any]]:
+    """Stated 'would convert' yeses next to what is left after the say-do rules on each person's decision card."""
+    people = {r.get("agent_id"): r for r in (cfg or {}).get("persona_index") or [] if isinstance(r, dict)}
+    rows = [{"agent_id": r["agent_id"], "stated": (r.get("answer") or {}).get("would_convert")}
+            for r in responses if r.get("answer")]
+    try:
+        return market_cli.load_service("say_do").split(rows, people, offer=offer, seed=int(seed or 7)) or None
+    except Exception as e:  # noqa: BLE001 - an extra view, never fails the survey
+        log(f"survey: say-do split skipped: {e}")
+        return None
 
 
 def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000, engine: Optional[str] = None) -> Dict[str, Any]:
@@ -1847,8 +1861,34 @@ def cmd_bench(c: Optional[Client], a) -> Any:
         f.write(bench.render_markdown(res))
     log(("bench: dry run, nothing spent; " if res.get("dry_run") else "bench: ")
         + f"estimate {res.get('estimate')} -> {stem}.json")
+    gate = _bench_gate(out_dir)
     return {"bench": os.path.abspath(stem + ".json"), "markdown": os.path.abspath(stem + ".md"),
-            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods")}
+            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods"),
+            **({"emotion_gate": gate} if gate else {})}
+
+
+def _bench_gate(out_dir: str) -> Optional[Dict[str, Any]]:
+    """When both suites have real (not dry-run) results with an emotion method, check the default-flip gate and
+    write bench_emotion_gate.json/.md next to them."""
+    import bench
+    got = {}
+    for suite in ("upworthy", "twin2k"):
+        try:
+            with open(os.path.join(out_dir, f"bench_{suite}.json"), encoding="utf-8") as f:
+                got[suite] = json.load(f)
+        except (OSError, ValueError):
+            got[suite] = None
+    emo_methods = {"persona_panel_feel", "persona_panel_mood", "twin_affect"}
+    if not any(r and not r.get("dry_run") and emo_methods & set(r.get("methods") or {}) for r in got.values()):
+        return None
+    gate = bench.flip_gate(got["upworthy"], got["twin2k"])
+    stem = os.path.join(out_dir, "bench_emotion_gate")
+    with open(stem + ".json", "w", encoding="utf-8") as f:
+        json.dump(gate, f, ensure_ascii=False, indent=2)
+    with open(stem + ".md", "w", encoding="utf-8") as f:
+        f.write(bench.render_gate(gate))
+    log(f"bench: emotion default-flip gate {'passed' if gate['pass'] else 'not passed'} -> {stem}.md")
+    return {"pass": gate["pass"], "default": gate["default"], "file": os.path.abspath(stem + ".md")}
 
 
 def cmd_intake(c: Optional[Client], a) -> Any:
@@ -2696,7 +2736,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--data", help="upworthy: the packages CSV from https://osf.io/jd64p/")
     s.add_argument("--run-dir", help="upworthy persona_panel: a prepared run whose people vote")
     s.add_argument("--panel-size", type=int, default=10)
-    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel; twin2k: no_persona twin")
+    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel persona_panel_feel "
+                                                "persona_panel_mood; twin2k: no_persona twin twin_affect")
     s.add_argument("--n", type=int, default=50, help="tests (upworthy) or people (twin2k) in the fixed sample")
     s.add_argument("--items", type=int, default=20, help="twin2k: questions per person")
     s.add_argument("--blocks", default="pricing", choices=["pricing", "all"], help="twin2k: which questions")

@@ -12,7 +12,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional
 
-from . import emotion
+from . import emotion, say_do
 
 FEEL_JSON = ('"feel": {"emotion": "neutral|interest|joy|trust|surprise|fomo|irritation|anxiety|sadness|disgust|regret|pressured", '
              '"intensity": 0-1, "pleasant": -1 to 1, "novel": 0-1, "relevant": 0-1, "control": 0-1, '
@@ -281,6 +281,14 @@ def score(people: List[Dict[str, Any]], turn1: Dict[int, Optional[Dict[str, Any]
             "people": rows}
 
 
+def say_do_split(result: Dict[str, Any], people: List[Dict[str, Any]], script: str = "", product: str = "",
+                 seed: int = 7) -> Dict[str, Any]:
+    """Final verdicts as stated next to what is left after the say-do rules (say_do.split): an assumption, labelled."""
+    rows = [{"agent_id": r["agent_id"], "stated": r.get("final_verdict")} for r in result.get("people") or [] if r.get("turn1")]
+    by_id = {p["agent_id"]: p for p in people}
+    return say_do.split(rows, by_id, offer=f"{product} {script}".strip(), seed=seed)
+
+
 def resistance_and_feelings(answered: List[Dict[str, Any]]) -> Dict[str, Any]:
     """How often simulated buyers push back or walk away, and how the pitch made them feel (when asked).
     Simulated buyers are known to walk away far less often than real ones (Chen 2026: resistance fell from about 25%
@@ -404,4 +412,7 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     out["channel"] = channel
     out["rebuttals"] = rebuttals
     out["emotion"] = {"mode": emo_mode, "version": emotion.VERSION}
+    sd = say_do_split(out, people, script, product)
+    if sd:
+        out["say_do"] = sd
     return out

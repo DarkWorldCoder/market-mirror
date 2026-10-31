@@ -32,6 +32,7 @@ import html
 import json
 import math
 import os
+import random
 import re
 import urllib.request
 from collections import Counter, defaultdict
@@ -168,17 +169,63 @@ def generic_reader(test: Dict[str, Any], ask: Callable[[str, str], str], order: 
 
 
 PANEL_SYSTEM = "You are this person, scrolling your feed. Answer as yourself. Reply with JSON only."
+PANEL_VARIANTS = {"persona_panel": "plain", "persona_panel_feel": "feel", "persona_panel_mood": "mood"}
+FEEL_ASK = ("Also say how each headline makes you feel. Most headlines make people feel nothing much, so \"neutral\" "
+            "is a normal answer. pleasant runs from -1 (unpleasant) to 1 (pleasant), relevant from 0 to 1.")
+
+_EMO = None
 
 
-def persona_panel(test: Dict[str, Any], ask: Callable[[str, str], str], people: List[Dict[str, Any]],
-                  order: List[int]) -> Optional[List[float]]:
+def _emotion():
+    """backend/app/services/emotion.py by path (stdlib only); None when it is not there."""
+    global _EMO
+    if _EMO is None:
+        try:
+            import importlib.util
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", "emotion.py")
+            spec = importlib.util.spec_from_file_location("mm_emotion_bench", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            _EMO = mod
+        except Exception:  # noqa: BLE001
+            _EMO = False
+    return _EMO or None
+
+
+def mood_line(person: Dict[str, Any]) -> str:
+    """A fixed, mild mood for this person (seeded by who they are), worded the way emotions mode "on" words it;
+    '' when the drawn mood is close to nothing much. Used by persona_panel_mood."""
+    emo = _emotion()
+    if not emo:
+        return ""
+    who = str(person.get("name") or person.get("persona") or person.get("bio") or "")[:200]
+    traits = emo.affect_traits({**person, "name": who})
+    r = random.Random(emo.identity_seed(who, emo.EMO_SALT + 1))
+    aff = {"v": max(-0.8, min(0.8, float(traits.get("base_v", 0)) + r.uniform(-0.5, 0.5))), "a": r.uniform(-0.4, 0.5),
+           "d": r.uniform(-0.3, 0.3), "brand_v": 0.0, "t_h": 0.0, "last": None}
+    return emo.prompt_line(aff, traits, 0.0)
+
+
+def panel_votes(test: Dict[str, Any], ask: Callable[[str, str], str], people: List[Dict[str, Any]],
+                order: List[int], variant: str = "plain") -> Tuple[Optional[List[float]], List[List[Optional[Dict[str, Any]]]]]:
+    """Each person picks the headline they would click (votes per arm, in the test's own arm order). variant "feel"
+    also asks how each headline makes them feel (returned per person, per arm); "mood" adds a mild seeded mood."""
     votes = [0.0] * len(test["arms"])
     lines = "\n".join(f"{k + 1}. {test['arms'][i]['headline']}" for k, i in enumerate(order))
     got = 0
+    feels: List[List[Optional[Dict[str, Any]]]] = []
     for p in people:
         who = str(p.get("persona") or p.get("bio") or p.get("name") or "an adult")[:1200]
-        d = _json_block(ask(PANEL_SYSTEM, f"Who you are: {who}\n\nThese headlines are in your feed:\n{lines}\n\n"
-                                          'Which one would you click, if any? Reply: {"click": number or 0}'))
+        mood = mood_line(p) if variant == "mood" else ""
+        if variant == "feel":
+            tail = (f"Which one would you click, if any? {FEEL_ASK}\n"
+                    'Reply: {"click": number or 0, "feel": [{"emotion": "neutral|interest|joy|trust|surprise|fomo|'
+                    'irritation|anxiety|sadness|disgust|regret|pressured", "pleasant": 0.0, "relevant": 0.0, '
+                    '"words": "under 8 words"}, one per headline in the order above]}')
+        else:
+            tail = 'Which one would you click, if any? Reply: {"click": number or 0}'
+        d = _json_block(ask(PANEL_SYSTEM, f"Who you are: {who}\n" + (f"{mood}\n" if mood else "")
+                            + f"\nThese headlines are in your feed:\n{lines}\n\n{tail}"))
         try:
             k = int((d or {}).get("click") or 0)
         except (TypeError, ValueError, AttributeError):
@@ -186,23 +233,110 @@ def persona_panel(test: Dict[str, Any], ask: Callable[[str, str], str], people: 
         got += 1
         if 1 <= k <= len(order):
             votes[order[k - 1]] += 1
-    return votes if got else None
+        fl = (d or {}).get("feel") if variant == "feel" else None
+        if isinstance(fl, list) and len(fl) == len(order):
+            row: List[Optional[Dict[str, Any]]] = [None] * len(order)
+            for kk, i in enumerate(order):
+                row[i] = fl[kk] if isinstance(fl[kk], dict) else None
+            feels.append(row)
+    return (votes if got else None), feels
+
+
+def persona_panel(test: Dict[str, Any], ask: Callable[[str, str], str], people: List[Dict[str, Any]],
+                  order: List[int]) -> Optional[List[float]]:
+    return panel_votes(test, ask, people, order)[0]
+
+
+def _seed(salt: str) -> int:
+    return int(hashlib.sha256(salt.encode("utf-8")).hexdigest()[:12], 16)
+
+
+def bootstrap_ci(xs: Sequence[Optional[float]], reps: int = 2000, salt: str = SALT) -> Optional[List[float]]:
+    """95% percentile interval of the mean, resampling the units (tests or people); fixed seed, so reproducible."""
+    v = [float(x) for x in xs if x is not None]
+    if len(v) < 2:
+        return None
+    r = random.Random(_seed(salt))
+    means = sorted(sum(r.choices(v, k=len(v))) / len(v) for _ in range(reps))
+    return [round(means[int(0.025 * reps)], 3), round(means[min(reps - 1, int(0.975 * reps))], 3)]
+
+
+def paired_diff(a: Dict[str, float], b: Dict[str, float], reps: int = 2000, salt: str = SALT) -> Optional[Dict[str, Any]]:
+    """Mean of a - b over the units both scored, with a paired bootstrap 95% interval."""
+    keys = sorted(set(a) & set(b), key=str)
+    if len(keys) < 2:
+        return None
+    d = [float(a[k]) - float(b[k]) for k in keys]
+    return {"n": len(keys), "diff": round(sum(d) / len(d), 3), "ci95": bootstrap_ci(d, reps, salt)}
 
 
 def score_upworthy(tests: List[Dict[str, Any]], preds: Dict[str, Optional[List[float]]]) -> Dict[str, Any]:
     hits, rhos, n = 0, [], 0
+    per_test: Dict[str, int] = {}
     for t in tests:
         p = preds.get(t["id"])
         if not p:
             continue
         n += 1
         top = max(range(len(p)), key=lambda i: (p[i], -i))
-        hits += int(top == t["winner"] and p.count(p[top]) == 1)      # a tie at the top is not a hit
+        hit = int(top == t["winner"] and p.count(p[top]) == 1)        # a tie at the top is not a hit
+        hits += hit
+        per_test[t["id"]] = hit
         rho = spearman(p, [a["ctr"] for a in t["arms"]])
         if rho is not None:
             rhos.append(rho)
     return {"n": n, "top_choice_accuracy": round(hits / n, 3) if n else None,
-            "spearman": round(sum(rhos) / len(rhos), 3) if rhos else None, "missing": len(tests) - n}
+            "ci95": bootstrap_ci(list(per_test.values()), salt=f"{SALT}:upworthy"),
+            "spearman": round(sum(rhos) / len(rhos), 3) if rhos else None, "missing": len(tests) - n,
+            "per_test": per_test}
+
+
+def unanimity(preds: Dict[str, Optional[List[float]]], share: float = 0.8) -> Optional[float]:
+    """Share of tests where at least `share` of the panel picked the same headline: a caricature / herding proxy
+    (real readers split; CoMPosT-style personas that all act alike do not)."""
+    vs = [v for v in preds.values() if v and sum(v) > 0]
+    if not vs:
+        return None
+    return round(sum(1 for v in vs if max(v) / sum(v) >= share) / len(vs), 3)
+
+
+def feel_checks(tests: List[Dict[str, Any]], feels: Dict[str, List[List[Optional[Dict[str, Any]]]]]) -> Dict[str, Any]:
+    """From persona_panel_feel: does pleasantness run against real clicks the way the negativity effect says it should
+    (Robertson et al. 2023: each negative word raised click-through on Upworthy), and do the feelings look like people
+    (enough 'nothing much', not caricatured)? Both are needed before feelings may steer anything."""
+    emo = _emotion()
+    rhos, appraised = [], []
+    for t in tests:
+        rows = feels.get(t["id"]) or []
+        if not rows:
+            continue
+        means = []
+        for i in range(len(t["arms"])):
+            ps = []
+            for row in rows:
+                f = row[i] if i < len(row) else None
+                try:
+                    ps.append(max(-1.0, min(1.0, float((f or {}).get("pleasant")))))
+                except (TypeError, ValueError):
+                    pass
+                if emo and f:
+                    nf = emo.normalize_feel(f)
+                    if nf:
+                        a = emo.appraise(nf)
+                        appraised.append({**nf, "emotion": a["emotion"], "intensity": a["intensity"]})
+            means.append(sum(ps) / len(ps) if ps else None)
+        if all(m is not None for m in means):
+            rho = spearman(means, [a["ctr"] for a in t["arms"]])
+            if rho is not None:
+                rhos.append(rho)
+    out: Dict[str, Any] = {"tests_with_feelings": len(rhos)}
+    if rhos:
+        mean = round(sum(rhos) / len(rhos), 3)
+        out.update({"valence_ctr_spearman": mean, "ci95": bootstrap_ci(rhos, salt=f"{SALT}:negativity"),
+                    "negativity_sign_matches": mean < 0})
+    if emo and appraised:
+        out["quality"] = emo.quality_flags(appraised)
+    return out
 
 
 def run_upworthy(path: str, n: int, complete: Optional[Complete], methods: Sequence[str], people: Sequence[Dict[str, Any]] = (),
@@ -216,29 +350,46 @@ def run_upworthy(path: str, n: int, complete: Optional[Complete], methods: Seque
     people = list(people)[:panel_size]
     if "persona_panel" in methods and not people:
         out["methods"]["persona_panel"] = {"skipped": "needs people: pass --run-dir of a prepared run"}
-    calls = {"generic_reader": len(sample), "persona_panel": len(sample) * len(people)}
+    for m in methods:
+        if m in PANEL_VARIANTS and not people:
+            out["methods"][m] = {"skipped": "needs people: pass --run-dir of a prepared run"}
+    calls = {"generic_reader": len(sample), **{m: len(sample) * len(people) for m in PANEL_VARIANTS}}
     est_in = sum(calls[m] for m in methods if m in calls) * 400
     out["estimate"] = {"calls": sum(calls[m] for m in methods if m in calls), "usd_at_haiku": cost(est_in, est_in / 8)}
     if not approve_spend or complete is None:
         out["dry_run"] = True
         return out
     for m in methods:
-        if m not in calls or (m == "persona_panel" and not people):
+        if m not in calls or (m in PANEL_VARIANTS and not people):
             continue
         meter = Meter(complete)
+        feels: Dict[str, List[List[Optional[Dict[str, Any]]]]] = {}
 
         def one(t):
             order = pick(list(range(len(t["arms"]))), len(t["arms"]), salt=t["id"])   # fixed shuffled order
             try:
                 if m == "generic_reader":
                     return t["id"], generic_reader(t, meter, order)
-                return t["id"], persona_panel(t, meter, people, order)
+                votes, fl = panel_votes(t, meter, people, order, PANEL_VARIANTS[m])
+                if fl:
+                    feels[t["id"]] = fl
+                return t["id"], votes
             except Exception:  # noqa: BLE001 - a failed test is counted as missing
                 return t["id"], None
         with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
             preds = dict(pool.map(one, sample))
-        out["methods"][m] = {**score_upworthy(sample, preds), **meter.usage(),
-                             "usd_at_haiku": cost(meter.input_tokens, meter.output_tokens)}
+        res = {**score_upworthy(sample, preds), **meter.usage(), "usd_at_haiku": cost(meter.input_tokens, meter.output_tokens)}
+        if m in PANEL_VARIANTS:
+            res["unanimity"] = unanimity(preds)
+        if m == "persona_panel_feel":
+            res["feelings"] = feel_checks(sample, feels)
+        out["methods"][m] = res
+    for m in PANEL_VARIANTS:
+        if m != "persona_panel" and "per_test" in out["methods"].get(m, {}):
+            for base in ("persona_panel", "generic_reader"):
+                if "per_test" in out["methods"].get(base, {}):
+                    out["methods"][m][f"vs_{base}"] = paired_diff(out["methods"][m]["per_test"],
+                                                                  out["methods"][base]["per_test"], salt=f"{SALT}:{m}:{base}")
     return out
 
 
@@ -309,11 +460,16 @@ def twin_summary(row: Dict[str, Any], ask: Callable[[str, str], str], cache_dir:
     return text
 
 
-def answer_items(persona: str, items: List[Dict[str, Any]], ask: Callable[[str, str], str]) -> Dict[str, int]:
+def answer_items(persona: str, items: List[Dict[str, Any]], ask: Callable[[str, str], str],
+                 feel: bool = False) -> Dict[str, int]:
     qs = "\n".join(f"{k + 1}. {it['text']}\n   Options: " + " | ".join(f"{j + 1}) {o}" for j, o in enumerate(it["options"]))
                    for k, it in enumerate(items))
-    d = _json_block(ask(ANSWER_SYSTEM, f"The person:\n{persona}\n\nQuestions:\n{qs}\n\nGive the option number this "
-                                       'person picks for each question. Reply: {"answers": [n, n, ...]} in order.'))
+    ask_for = ('Give the option number this person picks for each question. Reply: {"answers": [n, n, ...]} in order.'
+               if not feel else
+               "For each question, first note how it makes this person feel (pleasant from -1 to 1; most things feel "
+               "like nothing much, near 0), then give the option number they pick. "
+               'Reply: {"feel": [p, p, ...], "answers": [n, n, ...]} in order.')
+    d = _json_block(ask(ANSWER_SYSTEM, f"The person:\n{persona}\n\nQuestions:\n{qs}\n\n{ask_for}"))
     ans = d.get("answers") if isinstance(d, dict) else d
     out = {}
     for it, a in zip(items, ans if isinstance(ans, list) else []):
@@ -351,7 +507,13 @@ def score_twin(people: List[Dict[str, Any]], preds: Dict[Tuple[Any, str], int]) 
                 brier.append((float(ys) - float(yr)) ** 2)
     acc = hit / n if n else None
     ceiling = retest_hit / retest_n if retest_n else None
+    per_person: Dict[str, float] = {}
+    for p in people:
+        got = [int(preds[(p["pid"], it["id"])] == it["answer"]) for it in p["items"] if (p["pid"], it["id"]) in preds]
+        if got:
+            per_person[str(p["pid"])] = round(sum(got) / len(got), 4)
     return {"n": n, "accuracy": round(acc, 3) if acc is not None else None,
+            "ci95": bootstrap_ci(list(per_person.values()), salt=f"{SALT}:twin"), "per_person": per_person,
             "test_retest": round(ceiling, 3) if ceiling is not None else None,
             "normalized_accuracy": round(acc / ceiling, 3) if acc is not None and ceiling else None,
             "brier_purchase": round(sum(brier) / len(brier), 3) if brier else None,
@@ -385,8 +547,8 @@ def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], m
             if best:
                 maj[(p["pid"], it["id"])] = best[0]
     out["methods"]["majority"] = {**score_twin(people, maj), "calls": 0}
-    calls = {"no_persona": len(people), "twin": 2 * len(people)}
-    est_in = len(people) * 1500 + (len(people) * 30000 if "twin" in methods else 0)
+    calls = {"no_persona": len(people), "twin": 2 * len(people), "twin_affect": 2 * len(people)}
+    est_in = len(people) * 1500 + (len(people) * 30000 if {"twin", "twin_affect"} & set(methods) else 0)
     out["estimate"] = {"calls": sum(calls[m] for m in methods if m in calls), "usd_at_haiku": cost(est_in, len(people) * 1500)}
     if not approve_spend or complete is None:
         out["dry_run"] = True
@@ -400,7 +562,7 @@ def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], m
             try:
                 persona = ("A typical adult living in the United States." if m == "no_persona"
                            else twin_summary(p["row"], meter, cache_dir))
-                return p["pid"], answer_items(persona, p["items"], meter)
+                return p["pid"], answer_items(persona, p["items"], meter, feel=(m == "twin_affect"))
             except Exception:  # noqa: BLE001 - a failed person is counted as missing
                 return p["pid"], {}
         with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
@@ -408,7 +570,61 @@ def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], m
         preds = {(pid, qid): a for pid, ans in got.items() for qid, a in ans.items()}
         out["methods"][m] = {**score_twin(people, preds), **meter.usage(),
                              "usd_at_haiku": cost(meter.input_tokens, meter.output_tokens)}
+    if "per_person" in out["methods"].get("twin_affect", {}) and "per_person" in out["methods"].get("twin", {}):
+        out["methods"]["twin_affect"]["vs_twin"] = paired_diff(out["methods"]["twin_affect"]["per_person"],
+                                                               out["methods"]["twin"]["per_person"], salt=f"{SALT}:twin_affect")
     return out
+
+
+# --------------------------------------------------------------------------
+# the gate for turning emotions "on" by default
+# --------------------------------------------------------------------------
+
+GATE_RULE = ("Emotions stay 'observe' by default. 'on' may become the default only if every check passes: "
+             "(1) on Upworthy, the feelings panel is at least as accurate as both persona_panel and generic_reader; "
+             "(2) on Twin-2K-500, twin_affect's accuracy is not lower and its Brier score not higher than twin's; "
+             "(3) the feelings look human: at least 30% 'nothing much' and no caricature flag; "
+             "(4) pleasantness runs against real clicks the way the negativity effect says (negative sign).")
+
+
+def flip_gate(upworthy: Optional[Dict[str, Any]], twin: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Check the bench results against GATE_RULE. A check whose method was not run counts as failed."""
+    um = (upworthy or {}).get("methods") or {}
+    tm = (twin or {}).get("methods") or {}
+    checks = []
+
+    def add(name: str, ok: Optional[bool], detail: Any) -> None:
+        checks.append({"check": name, "pass": bool(ok), "detail": detail if ok is not None else "not run"})
+    feel = um.get("persona_panel_feel") or {}
+    for base in ("persona_panel", "generic_reader"):
+        d = feel.get(f"vs_{base}")
+        add(f"feelings panel >= {base} (Upworthy)", None if not d else d["diff"] >= 0, d)
+    tw, ta = tm.get("twin") or {}, tm.get("twin_affect") or {}
+    if tw.get("accuracy") is not None and ta.get("accuracy") is not None:
+        ok = ta["accuracy"] >= tw["accuracy"] and (ta.get("brier_purchase") is None or tw.get("brier_purchase") is None
+                                                   or ta["brier_purchase"] <= tw["brier_purchase"])
+        add("twin_affect >= twin (Twin-2K-500)", ok, {"accuracy": [ta["accuracy"], tw["accuracy"]],
+                                                     "brier": [ta.get("brier_purchase"), tw.get("brier_purchase")],
+                                                     "paired": ta.get("vs_twin")})
+    else:
+        add("twin_affect >= twin (Twin-2K-500)", None, None)
+    q = (feel.get("feelings") or {}).get("quality") or {}
+    add("feelings look human", None if not q.get("n") else (q.get("neutral_share", 0) >= 0.3 and not q.get("caricature")),
+        {k: q.get(k) for k in ("n", "neutral_share", "caricature", "uniform", "positive_skew")} if q.get("n") else None)
+    neg = feel.get("feelings") or {}
+    add("negativity sign matches", None if "negativity_sign_matches" not in neg else neg["negativity_sign_matches"],
+        {"valence_ctr_spearman": neg.get("valence_ctr_spearman"), "ci95": neg.get("ci95")} if neg else None)
+    return {"pass": all(c["pass"] for c in checks), "checks": checks, "rule": GATE_RULE,
+            "default": "on" if all(c["pass"] for c in checks) else "observe"}
+
+
+def render_gate(g: Dict[str, Any]) -> str:
+    lines = ["# Emotion layer: default-flip gate", "", g["rule"], "",
+             f"Result: **{'pass' if g['pass'] else 'not passed'}**, so the default is **{g['default']}**.", "",
+             "| check | pass | detail |", "|---|---|---|"]
+    for c in g["checks"]:
+        lines.append(f"| {c['check']} | {'yes' if c['pass'] else 'no'} | {json.dumps(c['detail'], ensure_ascii=False)} |")
+    return "\n".join(lines) + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -421,7 +637,8 @@ def render_markdown(res: Dict[str, Any]) -> str:
         e = res.get("estimate") or {}
         lines += [f"Dry run: about {e.get('calls')} model calls, roughly ${e.get('usd_at_haiku')} at Claude Haiku 4.5 prices. "
                   "Nothing was spent; rerun with --approve-spend.", ""]
-    keys = sorted({k for m in res["methods"].values() for k in m if k not in ("skipped",)})
+    keys = sorted({k for m in res["methods"].values() for k, v in m.items()
+                   if k not in ("skipped",) and not isinstance(v, dict)})
     lines.append("| method | " + " | ".join(keys) + " |")
     lines.append("|---" * (len(keys) + 1) + "|")
     for name, m in res["methods"].items():
