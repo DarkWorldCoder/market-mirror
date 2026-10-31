@@ -737,6 +737,8 @@ MarketMirror adds audience planning, marketing experiments, and decision reports
 - **Backtests answer specific questions.** The existing no-persona comparator is the mean real outcome in the training set. Beating it alone does not establish general predictive reliability or replace a matched generic-reader LLM comparison.
 - **Calibration depends on coverage and assumptions.** Uncalibrated predictions omit intervals and success probabilities. Validate absolute rates, rankings, and subgroup findings separately on untouched real experiments.
 
+`bench` scores the simulated answers against open human data next to simpler comparators: real Upworthy headline tests, and real people's buy-at-this-price answers from Twin-2K-500 ([MarketMirror-Bench](benchmarks/bench/README.md)). No results are published yet.
+
 Read the [human-behavior research guide](docs/HUMAN_BEHAVIOR_RESEARCH.md) for the papers, inspected code gaps, and proposed memory/state architecture. It distinguishes implemented controls from future work and experimentally supported results.
 
 ## Frequently asked questions
