@@ -12,12 +12,22 @@ import re
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional
 
+from . import emotion
+
+FEEL_JSON = ('"feel": {"emotion": "neutral|interest|joy|trust|surprise|fomo|irritation|anxiety|sadness|disgust|regret|pressured", '
+             '"intensity": 0-1, "pleasant": -1 to 1, "novel": 0-1, "relevant": 0-1, "control": 0-1, '
+             '"fair": -1 (feels manipulative) to 1 (feels honest), "urgent": 0-1, "words": "how it made you feel, under 10 words"}')
+FEEL_HINT = ("For \"feel\": most sales messages leave people feeling nothing much, so \"neutral\" with low intensity is "
+             "normal; only name a feeling you would really have.")
+WALK_AWAY_LINE = "You are allowed to end the conversation: real people often say 'not now' and hang up or stop replying. "
+
 OBJECTION_TYPES = ["price", "trust", "relevance", "timing", "effort", "unclear", "privacy", "language",
                    "competitor", "authority", "none", "other"]
 VERDICT_SCORE = {"yes": 1.0, "maybe": 0.5, "no": 0.0}
 
 
-def pitch_prompt(script: str, product: str = "", channel: str = "message", seller: str = "a salesperson") -> str:
+def pitch_prompt(script: str, product: str = "", channel: str = "message", seller: str = "a salesperson",
+                 feel: bool = False) -> str:
     how = {"call": "calls you", "demo": "shows you a short demo and says", "email": "emails you",
            "dm": "sends you a direct message"}.get(channel, "sends you a message")
     return (
@@ -25,7 +35,8 @@ def pitch_prompt(script: str, product: str = "", channel: str = "message", selle
         + (f" about {product[:200]}" if product else "") + ". Here is exactly what they say:\n\n"
         f"\"\"\"\n{script[:5000]}\n\"\"\"\n\n"
         "React as yourself, honestly, the way you really would: busy, maybe sceptical, maybe interested. "
-        "It is fine to say no, to not care, or to ask a hard question back. Write your spoken reply in the "
+        "It is fine to say no, to not care, or to ask a hard question back. " + (WALK_AWAY_LINE if feel else "")
+        + "Write your spoken reply in the "
         "language you normally use with strangers (plain English or your own script, not Latin-letter Hindi/Tagalog).\n"
         "Reply with only this JSON, no other text:\n"
         '{"reply": "what you would actually say back, 1-3 sentences, in your own voice", '
@@ -36,11 +47,12 @@ def pitch_prompt(script: str, product: str = "", channel: str = "message", selle
         '"question_for_seller": "the one question you would ask them, or empty", '
         '"what_would_convince": "what they would have to say or show for you to say yes, one sentence", '
         '"decision_role": "I decide alone|I ask my partner/family|I ask my boss|not my decision", '
-        '"best_time_to_reach": "when and where they should contact you (channel, time of day)"}'
+        '"best_time_to_reach": "when and where they should contact you (channel, time of day)"'
+        + (', "walk_away": true|false (do you end the conversation now), ' + FEEL_JSON + '}\n' + FEEL_HINT if feel else '}')
     )
 
 
-def rebuttal_prompt(prior: Dict[str, Any], rebuttal: str) -> str:
+def rebuttal_prompt(prior: Dict[str, Any], rebuttal: str, feel: bool = False) -> str:
     return (
         "Same conversation, a moment later. You just said: "
         f"\"{str(prior.get('reply') or prior.get('objection') or '')[:400]}\". "
@@ -52,7 +64,8 @@ def rebuttal_prompt(prior: Dict[str, Any], rebuttal: str) -> str:
         '"verdict": "yes|maybe|no" (would you take the next step now), '
         '"moved": "yes|partly|no" (did the answer change your mind), '
         '"remaining_objection": "what still holds you back, one sentence, or empty", '
-        '"next_step_you_accept": "what you would agree to now: a call, a trial, a demo, more info, nothing"}'
+        '"next_step_you_accept": "what you would agree to now: a call, a trial, a demo, more info, nothing"'
+        + (', ' + FEEL_JSON + '}\n' + FEEL_HINT if feel else '}')
     )
 
 
@@ -120,6 +133,11 @@ def parse_turn1(text: Any) -> Optional[Dict[str, Any]]:
            "best_time_to_reach": str(d.get("best_time_to_reach") or "").strip()[:120]}
     if out["verdict"] is None and not out["reply"]:
         return None
+    if d.get("walk_away") is not None:
+        out["walk_away"] = d.get("walk_away") is True or str(d.get("walk_away")).strip().lower() in ("true", "yes", "1")
+    feel = emotion.normalize_feel(d.get("feel"))
+    if feel:
+        out["feel"] = feel
     return out
 
 
@@ -129,9 +147,13 @@ def parse_turn2(text: Any) -> Optional[Dict[str, Any]]:
         return None
     moved = str(d.get("moved") or "").strip().lower()
     moved = "yes" if moved.startswith("yes") else "partly" if moved.startswith(("part", "some", "a bit")) else "no"
-    return {"reply": str(d.get("reply") or "").strip()[:400], "verdict": _ynm(d.get("verdict")), "moved": moved,
-            "remaining_objection": str(d.get("remaining_objection") or "").strip()[:300],
-            "next_step": str(d.get("next_step_you_accept") or "").strip()[:120]}
+    out = {"reply": str(d.get("reply") or "").strip()[:400], "verdict": _ynm(d.get("verdict")), "moved": moved,
+           "remaining_objection": str(d.get("remaining_objection") or "").strip()[:300],
+           "next_step": str(d.get("next_step_you_accept") or "").strip()[:120]}
+    feel = emotion.normalize_feel(d.get("feel"))
+    if feel:
+        out["feel"] = feel
+    return out
 
 
 def pick_rebuttal(objection_type: str, rebuttals: Dict[str, str]) -> Optional[str]:
@@ -255,7 +277,44 @@ def score(people: List[Dict[str, Any]], turn1: Dict[int, Optional[Dict[str, Any]
             "best_replies": [{"name": r["name"], "segment": r["segment"], "text": r["turn1"]["reply"]} for r in quotes[:3]],
             "worst_replies": [{"name": r["name"], "segment": r["segment"], "text": r["turn1"]["reply"]} for r in quotes[-3:][::-1]],
             "decision_roles": dict(Counter(r["turn1"].get("decision_role") for r in answered if r["turn1"].get("decision_role")).most_common(5)),
+            **resistance_and_feelings(answered),
             "people": rows}
+
+
+def resistance_and_feelings(answered: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """How often simulated buyers push back or walk away, and how the pitch made them feel (when asked).
+    Simulated buyers are known to walk away far less often than real ones (Chen 2026: resistance fell from about 25%
+    in real sales calls to 13.5% in simulation), so a low rate is flagged rather than celebrated."""
+    n = len(answered)
+    if not n:
+        return {}
+    asked = [r for r in answered if "walk_away" in r["turn1"]]
+    walk = sum(1 for r in asked if r["turn1"].get("walk_away"))
+    no = sum(1 for r in answered if r["turn1"].get("verdict") == "no")
+    resist = sum(1 for r in answered if r["turn1"].get("verdict") == "no" or r["turn1"].get("walk_away"))
+    rate = resist / n
+    out: Dict[str, Any] = {"resistance": {
+        "walk_away_pct": round(100.0 * walk / len(asked), 1) if asked else None,
+        "no_pct": round(100.0 * no / n, 1), "resistance_pct": round(100.0 * rate, 1),
+        "low_resistance_flag": rate < 0.20,
+        "note": "Simulated buyers rarely walk away; real sales conversations show more resistance (Chen 2026)."}}
+    t1 = [r["turn1"]["feel"] for r in answered if r["turn1"].get("feel")]
+    t2 = [r["turn2"]["feel"] for r in answered if (r.get("turn2") or {}).get("feel")]
+    if t1 or t2:
+        def dist(fs):
+            labs = [emotion.appraise(f)["emotion"] for f in fs]
+            c = Counter(labs)
+            pl = [float(f["pleasant"]) for f in fs if f.get("pleasant") is not None]
+            return {"n": len(fs), "emotions": {k: round(v / len(fs), 3) for k, v in c.most_common()},
+                    "mean_pleasant": round(sum(pl) / len(pl), 3) if pl else None}
+        out["feelings"] = {"after_pitch": dist(t1) if t1 else None, "after_rebuttal": dist(t2) if t2 else None,
+                           "basis": "simulated"}
+        backfire = [r for r in answered if (r.get("turn2") or {}).get("feel")
+                    and emotion.appraise(r["turn2"]["feel"])["emotion"] in ("pressured", "irritation")
+                    and r["turn2"].get("moved") == "no"]
+        heard = sum(1 for r in answered if r.get("turn2"))
+        out["backfire_pct"] = round(100.0 * len(backfire) / heard, 1) if heard else None
+    return out
 
 
 def provider_mixed(people: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -284,9 +343,14 @@ def _ask(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], item
 
 def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], people: List[Dict[str, Any]],
         script: str, rebuttals: Dict[str, str], product: str = "", channel: str = "message",
-        batch: int = 8, progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
+        batch: int = 8, progress: Optional[Callable[[int, int], None]] = None,
+        emotions: Optional[str] = None) -> Dict[str, Any]:
     """interview_batch([{agent_id, prompt}]) -> {agent_id: reply text}. Two turns, batched, providers mixed in
-    every batch. A batch that raises leaves its people without an answer (failed_batches, unanswered)."""
+    every batch. A batch that raises leaves its people without an answer (failed_batches, unanswered).
+    emotions (emotion.mode): not 'off' asks for a feeling and allows walking away; 'on' also skips the rebuttal for
+    people who walked away (they ended the conversation)."""
+    emo_mode = emotion.mode(emotions)
+    want_feel = emo_mode != "off"
     turn1: Dict[int, Optional[Dict[str, Any]]] = {}
     turn2: Dict[int, Optional[Dict[str, Any]]] = {}
     failures: List[str] = []
@@ -295,7 +359,7 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     done = 0
     for i in range(0, len(order), max(1, batch)):
         chunk = order[i:i + batch]
-        texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": (p.get("history") or "") + pitch_prompt(script, product, channel)}
+        texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": (p.get("history") or "") + pitch_prompt(script, product, channel, feel=want_feel)}
                                        for p in chunk], failures)
         for p in chunk:
             turn1[p["agent_id"]] = parse_turn1(texts.get(p["agent_id"]))
@@ -306,11 +370,12 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     if rebuttals:
         # turn 2 only for people whose own turn-1 answer arrived (and was not a firm yes)
         second = [(p, pick_rebuttal((turn1.get(p["agent_id"]) or {}).get("objection_type") or "", rebuttals))
-                  for p in order if turn1.get(p["agent_id"]) and (turn1[p["agent_id"]].get("verdict") != "yes")]
+                  for p in order if turn1.get(p["agent_id"]) and (turn1[p["agent_id"]].get("verdict") != "yes")
+                  and not (emo_mode == "on" and turn1[p["agent_id"]].get("walk_away"))]
         second = [(p, rb) for p, rb in second if rb]
         for i in range(0, len(second), max(1, batch)):
             chunk = second[i:i + batch]
-            texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": rebuttal_prompt(turn1[p["agent_id"]], rb)}
+            texts = _ask(interview_batch, [{"agent_id": p["agent_id"], "prompt": rebuttal_prompt(turn1[p["agent_id"]], rb, feel=want_feel)}
                                            for p, rb in chunk], failures)
             for p, _ in chunk:
                 turn2[p["agent_id"]] = parse_turn2(texts.get(p["agent_id"]))
@@ -336,4 +401,5 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     out["script"] = script[:5000]
     out["channel"] = channel
     out["rebuttals"] = rebuttals
+    out["emotion"] = {"mode": emo_mode, "version": emotion.VERSION}
     return out

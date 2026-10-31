@@ -133,6 +133,7 @@ class Client:
         if token:
             self.session.headers["Authorization"] = f"Bearer {token}"
         self.memory_scope = "default"   # behaviour-memory scope the tests read and write ("off" disables; study cells set their own)
+        self.emotions = os.environ.get("MM_EMOTIONS") or None   # off | observe | on (None = the server default, observe)
 
     def __repr__(self) -> str:   # never show the session headers (they carry the token)
         return f"Client(base={self.base!r})"
@@ -466,13 +467,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
     def ask(chunk):
         quota.wait_if_paused(log)          # don't spend batches while a model account is paused
         interviews = [{"agent_id": aid, "platform": platform,
-                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency, variant=aid)}
+                       "prompt": marketing.survey_prompt(offer, goal, messages, assigned.get(aid), currency, variant=aid,
+                                                         feel=_wants_feel(c))}
                       for aid in chunk]
         try:
             scope = getattr(c, "memory_scope", None)
             res = c.data("POST", "/api/simulation/interview/batch",
                          json={"simulation_id": simulation_id, "interviews": interviews, "platform": platform,
-                               "timeout": wait_s, **({"memory_scope": scope} if scope and scope != "off" else {})},
+                               "timeout": wait_s, **({"memory_scope": scope} if scope and scope != "off" else {}),
+                               **({"emotions": c.emotions} if getattr(c, "emotions", None) else {})},
                          timeout=wait_s + 90)
             texts = marketing.interview_texts(res)
         except CLIError as e:
@@ -521,7 +524,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
                   "prompt": "A week has passed since a researcher last asked you about this. They ask again; answer afresh "
                             "as you feel today, without trying to remember what you said.\n\n"
                             + marketing.survey_prompt(offer, goal, messages, assigned.get(r["agent_id"]), currency,
-                                                      variant=r["agent_id"] + 1)} for r in sample]
+                                                      variant=r["agent_id"] + 1, feel=_wants_feel(c))} for r in sample]
         agree = interest_close = 0
         if again:
             try:
@@ -554,7 +557,7 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
     scope = getattr(c, "memory_scope", None)
     if scope and scope != "off":
         _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
-            "scope": scope, "survey": {"offer": offer, "responses": [{"agent_id": r["agent_id"], "answer": r.get("answer")}
+            "scope": scope, **({"emotions": c.emotions} if getattr(c, "emotions", None) else {}), "survey": {"offer": offer, "responses": [{"agent_id": r["agent_id"], "answer": r.get("answer")}
                                                                     for r in responses if r.get("answer")]}}))
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
@@ -1212,6 +1215,12 @@ def cmd_live(c: Optional[Client], a) -> Any:
     return {"run_dir": os.path.abspath(run_dir), "stopped": True}
 
 
+def _wants_feel(c) -> bool:
+    """Ask survey answers for a feeling unless emotions are off for this client (or MM_EMOTIONS=off)."""
+    m = str(getattr(c, "emotions", None) or os.environ.get("MM_EMOTIONS") or "observe").lower()
+    return m not in ("off", "false", "0", "no", "none")
+
+
 def cmd_survey(c: Client, a) -> Any:
     out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
     res = step_survey(c, a.simulation, out_dir, a.offer or "", a.goal or "", read_messages(a.messages),
@@ -1369,12 +1378,16 @@ def cmd_market_test(c: Client, a) -> Any:
     base = os.path.dirname(os.path.abspath(path))
     if cfg.get("memory_scope") is not None:
         c.memory_scope = "off" if cfg["memory_scope"] in (False, "off", "none") else str(cfg["memory_scope"])
+    if cfg.get("emotions") is not None:
+        c.emotions = ("on" if cfg["emotions"] is True else "off" if cfg["emotions"] is False else str(cfg["emotions"]).lower())
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cfg.get("name") or "market_test"))
     out_dir = _cfg_path(base, cfg.get("out")) if cfg.get("out") else os.path.join("mirofish_runs", name)
     os.makedirs(out_dir, exist_ok=True)
     progress_to(out_dir)
     state: Dict[str, Any] = {"out_dir": os.path.abspath(out_dir), "title": cfg.get("title") or name,
-                             "started_at": datetime.now().isoformat()}
+                             "started_at": datetime.now().isoformat(),
+                             "emotions": {"mode": getattr(c, "emotions", None) or os.environ.get("MM_EMOTIONS") or "observe",
+                                          "weight": os.environ.get("MM_EMOTION_WEIGHT") or "1.0"}}
     manifest_path = os.path.join(out_dir, "run_manifest.json")
     if os.path.exists(manifest_path):
         try:
@@ -2288,11 +2301,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="backend URL (default %(default)s, env MIROFISH_URL)")
     p.add_argument("--pretty", action="store_true", help="indent JSON output")
     p.add_argument("--lang", default="en", help="Accept-Language sent to the backend (en/zh), default en")
+    p.add_argument("--emotions", choices=["off", "observe", "on"], default=None,
+                   help="simulated feelings: observe (default) records them, on also lets them steer behaviour, off "
+                        "leaves them out (env MM_EMOTIONS)")
     # Same global flags accepted after the subcommand too (e.g. `list --pretty`).
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--base-url", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--pretty", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--lang", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    common.add_argument("--emotions", choices=["off", "observe", "on"], default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd", required=True)
     _add = sub.add_parser
     sub.add_parser = lambda *a, **k: _add(*a, parents=[common], **k)  # type: ignore[assignment]
@@ -3059,6 +3076,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             except Exception:  # noqa: BLE001 - backtest works offline; pairs are stored only when the backend is up
                 offline = True
         c = None if offline else Client(a.base_url, lang=a.lang)
+        if c is not None and getattr(a, "emotions", None):
+            c.emotions = a.emotions
         result = COMMANDS[a.cmd](c, a)
     except CLIError as e:
         print(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False), flush=True)

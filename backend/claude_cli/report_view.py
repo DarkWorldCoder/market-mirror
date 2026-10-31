@@ -127,6 +127,102 @@ def person_budget(r: Dict[str, Any]) -> str:
     return str(disc or r.get("income_level") or r.get("income") or "").strip()
 
 
+_EMO = None
+
+
+def _emotion():
+    """backend/app/services/emotion.py by path (stdlib only), or None when it is not there."""
+    global _EMO
+    if _EMO is None:
+        try:
+            import importlib.util
+            import os
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", "emotion.py")
+            spec = importlib.util.spec_from_file_location("mm_emotion_view", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            _EMO = mod
+        except Exception:  # noqa: BLE001 - the dashboard renders without it
+            _EMO = False
+    return _EMO or None
+
+
+def _sam(v: Any) -> Optional[float]:
+    x = ui.num(v)
+    return None if x is None else round(1 + 4 * (float(x) + 1), 1)
+
+
+def _feeling_rows(state: Dict[str, Any], trajectory: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+    """'Feels now', 'Last feeling' and 'Feeling over time' for one person (simulated, on the 1-9 SAM scale)."""
+    aff = state.get("affect") if isinstance(state.get("affect"), dict) else None
+    if not aff:
+        return []
+    out: List[Tuple[str, str]] = []
+    emo = _emotion()
+    word = emo.mood_word(aff) if emo else ""
+    v = _sam(aff.get("v"))
+    if v is not None:
+        out.append(("Feels now", (word or "nothing much") + f" · pleasantness {v}/9 (simulated)"))
+    last = aff.get("last") if isinstance(aff.get("last"), dict) else {}
+    if last.get("emotion") and last.get("emotion") != "neutral":
+        out.append(("Last feeling", f'{last["emotion"]}' + (f' — “{last["words"]}”' if last.get("words") else "")
+                    + (f' ({str(last.get("test") or "").replace("_", " ")})' if last.get("test") else "")))
+    path = [_sam(t.get("valence")) for t in trajectory if t.get("valence") is not None]
+    path = [x for x in path if x is not None]
+    if len(path) >= 2:
+        out.append(("Feeling over time", f"pleasantness {path[0]} → {path[-1]} /9 over {len(path)} events"))
+    return out
+
+
+def emotion_section(states: Optional[Dict[str, Any]], feed_test: Optional[Dict[str, Any]] = None,
+                    pitch: Optional[Dict[str, Any]] = None, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'How people felt (simulated)': emotion shares, pleasantness on the 1-9 SAM scale, feelings per ad, pitch
+    resistance, and quality flags for the known ways simulated feelings go wrong."""
+    emo = _emotion()
+    summ = emo.summarize(states) if emo and isinstance(states, dict) and states.get("scopes") else {}
+    per = ((feed_test or {}).get("summary") or {}).get("per_creative") or {}
+    ads = [(cid, m.get("feelings")) for cid, m in per.items() if isinstance(m, dict) and (m.get("feelings") or {}).get("n")]
+    res = (pitch or {}).get("resistance") or {}
+    if not summ.get("feelings") and not ads and not res:
+        return None
+    pct = lambda x: "–" if ui.num(x) is None else f"{100 * float(x):.0f}%"
+    shares = summ.get("emotions") or {}
+    top = next(((k, v) for k, v in shares.items() if k != "neutral"), None)
+    val = summ.get("valence") or {}
+    traj = summ.get("trajectory") or []
+    tiles = [("Felt nothing much", pct(shares.get("neutral")), f'{summ.get("feelings", 0)} reactions recorded'),
+             ("Most common feeling", top[0] if top else "–", pct(top[1]) if top else ""),
+             ("Pleasantness now", val.get("sam9_mean", "–"), f'1-9 scale, range {val.get("sam9_p10", "–")}–{val.get("sam9_p90", "–")}'),
+             ("Mood over the tests", f'{_sam(traj[0]["avg_valence"])} → {_sam(traj[-1]["avg_valence"])}' if len(traj) >= 2 else "–",
+              "average pleasantness, 1-9")]
+    if res:
+        tiles.append(("Pushed back on the pitch", f'{res.get("resistance_pct", "–")}%',
+                      "low for real buyers" if res.get("low_resistance_flag") else "said no or walked away"))
+    flags = summ.get("flags") or {}
+    pills = []
+    for key, text in (("uniform", "Too uniform"), ("positive_skew", "Positive skew"), ("caricature", "Caricature risk")):
+        if flags.get(key):
+            pills.append(_pill(text, "orchid"))
+    if summ.get("mismatch_rate") is not None:
+        pills.append(_pill(f'Label mismatch {pct(summ["mismatch_rate"])}', ""))
+    pills.append(_pill("Behavioural effect: configured, not validated", ""))
+    rows = [[cid, f.get("n"), pct(f.get("neutral_share")),
+             ", ".join(f"{k} {pct(v)}" for k, v in list((f.get("emotions") or {}).items())[:3] if k != "neutral") or "–",
+             "; ".join(f.get("words") or [])[:140]] for cid, f in ads]
+    by_test = summ.get("by_test") or {}
+    trows = [[t.replace("_", " "), r.get("n"), ", ".join(f"{k} {pct(v)}" for k, v in list((r.get("emotions") or {}).items())[:4])]
+             for t, r in by_test.items()]
+    body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + f'<p>{" ".join(pills)}</p>'
+            + (ui.table(["Ad", "Felt something", "Nothing much", "Top feelings", "In their words"], rows, sortable=True) if rows else "")
+            + (ui.table(["Test", "Reactions", "Feelings"], trows, sortable=True) if trows else "")
+            + '<p class="muted small">Simulated feelings: the model appraised each ad, email, page and pitch, and fixed rules '
+              'turned that into one feeling. They are not measured emotion. Use them to choose what to test with real people.</p>')
+    head = ui.section_head("How people felt", "What the simulated people felt when they saw each ad, page, email and pitch, "
+                           "and how their mood moved over the tests.", insight)
+    return ("feelings", "How people felt", head + body)
+
+
 def _bde_inspector_drawer(r: Dict[str, Any], st: Optional[Dict[str, Any]] = None) -> str:
     """The person's decision profile (the BDE card from persona_planner) and what the simulation did to them
     (one behavior_state.json record: {"state": {...}, "memory": [...], "trajectory": [...]}). Empty without real data."""
@@ -162,6 +258,8 @@ def _bde_inspector_drawer(r: Dict[str, Any], st: Optional[Dict[str, Any]] = None
     trust_path = [v for v in (ui.num(t.get("trust")) for t in trajectory) if v is not None]
     if len(trust_path) >= 2:
         rows.append(("Trust over time", f"{trust_path[0]:.0%} → {trust_path[-1]:.0%} over {len(trust_path)} events"))
+    felt = _feeling_rows(state, trajectory)
+    rows += felt
     if not rows and not memory:
         return ""
     if r.get("payday_status"):
@@ -173,7 +271,8 @@ def _bde_inspector_drawer(r: Dict[str, Any], st: Optional[Dict[str, Any]] = None
                         for m in memory[-4:])
         mem_html = (f'<div class="bde-mem"><strong>What happened to them</strong> <span class="muted">(last {min(4, len(memory))} '
                     f'of {len(memory)})</span><ul>{items}</ul></div>')
-    label = ("Decision profile and memory" if bde and (memory or live) else "Decision profile" if bde
+    label = ("Decision profile, memory and feelings" if bde and felt else
+             "Decision profile and memory" if bde and (memory or live) else "Decision profile" if bde
              else "Memory from the tests")
     return f'<details class="bde-drawer"><summary>{label}</summary>{dl}{mem_html}</details>'
 

@@ -73,7 +73,7 @@ PARAPHRASES = {
 
 def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]] = None,
                   assigned: Optional[int] = None, currency: Optional[str] = None,
-                  variant: Optional[int] = None) -> str:
+                  variant: Optional[int] = None, feel: bool = False) -> str:
     """The questionnaire. `assigned` (0-based) = split test: this person sees only that message.
     `currency` adds four price-sensitivity questions (Van Westendorp).
     `variant` (e.g. the agent id) picks one wording per question and the verdict order; None = the first wording,
@@ -122,8 +122,36 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         '"main_objection": "your biggest hesitation, one sentence", '
         '"objection_type": "price|trust|relevance|timing|effort|unclear|privacy|language|none|other", '
         '"would_change_mind": "what would make you say yes, one sentence", '
-        '"quote": "one sentence about it in your own voice and the language you normally use"}'
+        + (SURVEY_FEEL_FIELDS if feel else "")
+        + '"quote": "one sentence about it in your own voice and the language you normally use"}'
+        + (SURVEY_FEEL_HINT if feel else "")
     )
+
+
+SURVEY_FEEL_FIELDS = (
+    '"feeling_text": "one sentence, in your own words, on how this offer makes you feel (no verdict)", '
+    '"feel": {"emotion": "neutral|interest|joy|trust|surprise|fomo|irritation|anxiety|sadness|disgust|regret|pressured", '
+    '"intensity": 0-1, "pleasant": -1 to 1, "novel": 0-1, "relevant": 0-1, "control": 0-1, '
+    '"fair": -1 (feels manipulative) to 1 (feels honest), "urgent": 0-1, "words": "under 10 words"}, ')
+SURVEY_FEEL_HINT = ("\nFor \"feel\": most offers leave people feeling nothing much, so \"neutral\" with low intensity is "
+                    "normal; only name a feeling you would really have.")
+
+
+def _feel_clip(raw: Any) -> Optional[Dict[str, Any]]:
+    """Keep the survey's 'feel' object small and typed; the server's emotion layer does the real normalising."""
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for k in ("intensity", "pleasant", "novel", "relevant", "control", "fair", "urgent"):
+        try:
+            if raw.get(k) is not None:
+                out[k] = round(max(-1.0, min(1.0, float(raw[k]))), 3)
+        except (TypeError, ValueError):
+            pass
+    for k, n in (("emotion", 20), ("words", 60)):
+        if raw.get(k):
+            out[k] = " ".join(str(raw[k]).split())[:n]
+    return out or None
 
 
 def assign_messages(agent_ids: List[int], n_messages: int, seed: int = 11) -> Dict[int, int]:
@@ -261,6 +289,11 @@ def parse_answer(response: Any, n_messages: int = 0) -> Optional[Dict[str, Any]]
         pc = _chances(ch.get(key))
         if pc:
             out[f"p_{key}"] = pc
+    feel = _feel_clip(data.get("feel"))
+    if feel:
+        out["feel"] = feel
+    if str(data.get("feeling_text") or "").strip():
+        out["feeling_text"] = str(data["feeling_text"]).strip()[:300]
     texts = {scale: str(data.get(field) or "").strip()[:400] for scale, field in TEXT_FIELDS.items()}
     texts = {k: v for k, v in texts.items() if v}
     if texts:

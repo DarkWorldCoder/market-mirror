@@ -228,13 +228,30 @@ def _memory_scope(data) -> str:
     return str(scope or "default")[:80]
 
 
+def _emotion_mode(data) -> str:
+    """off | observe | on: whether the simulated people report feelings, and whether those feelings steer them."""
+    from ..services import emotion
+    return emotion.mode((data or {}).get("emotions"))
+
+
+def _traits_by_agent(people) -> dict:
+    from ..services import emotion
+    return {str(p["agent_id"]): p.get("affect_traits") or emotion.affect_traits(p) for p in people or []
+            if p.get("agent_id") is not None}
+
+
 def _brand(simulation_id: str) -> str:
     prof = _profile(simulation_id) or {}
     return str(prof.get("name") or "the brand")[:60]
 
 
-def _with_history(people, simulation_id: str, scope: str):
-    """Copy of people with each person's memory block (what already happened to them) under "history"."""
+def _with_history(people, simulation_id: str, scope: str, mode: str = None):
+    """Copy of people with each person's memory block (what already happened to them) under "history", and (unless
+    emotions are off) their stable affect traits; in emotions mode "on" the block also says how they feel now."""
+    from ..services import emotion
+    emo_mode = emotion.mode(mode)
+    if emo_mode != "off":
+        people = [{**p, "affect_traits": p.get("affect_traits") or emotion.affect_traits(p)} for p in people]
     if not scope:
         return people
     from ..services import behavior_state
@@ -243,22 +260,24 @@ def _with_history(people, simulation_id: str, scope: str):
     except LookupError:
         return people
     data = behavior_state.load(sim_dir)
-    return [{**p, "history": behavior_state.prompt_block(sim_dir, p["agent_id"], scope, data=data)} for p in people]
+    brand = _brand(simulation_id) if emo_mode == "on" else ""
+    return [{**p, "history": behavior_state.prompt_block(sim_dir, p["agent_id"], scope, data=data, mode=emo_mode, brand=brand)}
+            for p in people]
 
 
-def _record_memory(kind: str, simulation_id: str, result, scope: str) -> None:
+def _record_memory(kind: str, simulation_id: str, result, scope: str, emotions: str = None, traits=None) -> None:
     if not scope or kind not in MEMORY_EVENTS or not isinstance(result, dict):
         return
     from ..services import behavior_state
     try:
         events = getattr(behavior_state, MEMORY_EVENTS[kind])(result, _brand(simulation_id))
-        n = behavior_state.record(_sim_dir(simulation_id), events, scope)
+        n = behavior_state.record(_sim_dir(simulation_id), events, scope, mode=emotions, traits_by_agent=traits)
         result["memory"] = {"scope": scope, "events_recorded": n}
     except Exception as e:  # noqa: BLE001 - memory is an extra, never fails a test
         logger.warning(f"{kind}: behaviour memory not recorded: {e}")
 
 
-def _start(kind: str, simulation_id: str, work, memory_scope: str = ""):
+def _start(kind: str, simulation_id: str, work, memory_scope: str = "", emotions: str = None, traits=None):
     tm = TaskManager()
     task_id = tm.create_task(task_type=f"market_{kind}", metadata={"simulation_id": simulation_id})
 
@@ -267,7 +286,7 @@ def _start(kind: str, simulation_id: str, work, memory_scope: str = ""):
             tm.update_task(task_id, status=TaskStatus.PROCESSING, progress=1, message=f"{kind} started")
             result = work(lambda done, total: tm.update_task(
                 task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}"))
-            _record_memory(kind, simulation_id, result, memory_scope)
+            _record_memory(kind, simulation_id, result, memory_scope, emotions, traits)
             path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
@@ -315,7 +334,8 @@ def start_feed_test():
 
     voices = _voices(sid)
     scope = _memory_scope(data)
-    people = _with_history(people, sid, scope)
+    emo = _emotion_mode(data)
+    people = _with_history(people, sid, scope, emo)
 
     vision = str(data.get("vision") or "describe").lower()
     if vision not in ("describe", "direct", "off"):
@@ -340,12 +360,13 @@ def start_feed_test():
                                         benchmarks=data.get("benchmarks") if isinstance(data.get("benchmarks"), dict) else None,
                                         competitor=competitor,
                                         include_generic_baseline=bool(data.get("include_generic_baseline")),
-                                        vision=vision)
+                                        vision=vision, emotions=emo)
         if vision_info:
             result["vision_pass"] = vision_info
         return result
 
-    task_id = _start("feed-test", sid, work, **({"memory_scope": scope} if scope else {}))
+    task_id = _start("feed-test", sid, work, **({"memory_scope": scope} if scope else {}), emotions=emo,
+                     traits=_traits_by_agent(people))
     feeds = len(feed_test.assign(creatives, people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "personas": len(people),
                                               "feeds": feeds, "creatives": len(creatives), "seeds": n_seeds}})
@@ -445,7 +466,8 @@ def ask_person():
     if not str(data.get("message") or "").strip():
         return jsonify({"success": False, "error": "message is required"}), 400
     try:
-        person = next(p for p in _with_history(people, sid, _memory_scope(data)) if p["agent_id"] == int(data.get("agent_id")))
+        person = next(p for p in _with_history(people, sid, _memory_scope(data), _emotion_mode(data))
+                      if p["agent_id"] == int(data.get("agent_id")))
     except (StopIteration, TypeError, ValueError):
         return jsonify({"success": False, "error": "agent_id is not one of this simulation's people"}), 404
     try:
@@ -478,7 +500,8 @@ def start_focus_group():
         return jsonify({"success": False, "error": "guide must be a list of questions"}), 400
     n = max(2, min(int(data.get("people") or 6), focus_group.MAX_PEOPLE))
     scope = _memory_scope(data)
-    group = pick_group(_with_history(people, sid, scope), n, str(data.get("segment") or ""), data.get("agent_ids"))
+    group = pick_group(_with_history(people, sid, scope, _emotion_mode(data)), n, str(data.get("segment") or ""),
+                       data.get("agent_ids"))
     if len(group) < 2:
         return jsonify({"success": False, "error": "fewer than 2 matching people"}), 400
     complete = _plain_complete()
@@ -669,13 +692,15 @@ def start_pitch():
         product = (prof or {}).get("one_liner") or (prof or {}).get("name") or ""
 
     scope = _memory_scope(data)
-    people = _with_history(people, sid, scope)
+    emo = _emotion_mode(data)
+    people = _with_history(people, sid, scope, emo)
 
     def work(progress):
         return pitch_svc.run(interview_batch, people, script, rebuttals, product,
-                             str(data.get("channel") or "message"), batch=batch, progress=progress)
+                             str(data.get("channel") or "message"), batch=batch, progress=progress, emotions=emo)
 
-    task_id = _start("pitch", sid, work, **({"memory_scope": scope} if scope else {}))
+    task_id = _start("pitch", sid, work, **({"memory_scope": scope} if scope else {}), emotions=emo,
+                     traits=_traits_by_agent(people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(people),
                                               "rebuttals": sorted(rebuttals)}})
 
@@ -709,14 +734,16 @@ def start_email_test():
     prof = _profile(sid)
     product = ((prof or {}).get("one_liner") or (prof or {}).get("name") or "")
     scope = _memory_scope(data)
-    people = _with_history(people, sid, scope)
+    emo = _emotion_mode(data)
+    people = _with_history(people, sid, scope, emo)
 
     def work(progress):
         return email_test.run_email_test(_client_for(people), Config.LLM_MODEL_NAME, emails, people, product=product, seed=seed,
                                          parallel=parallel, list_size=int(list_size) if list_size else None,
-                                         benchmarks=bench, familiarity=fam, progress=progress)
+                                         benchmarks=bench, familiarity=fam, progress=progress, emotions=emo)
 
-    task_id = _start("email-test", sid, work, **({"memory_scope": scope} if scope else {}))
+    task_id = _start("email-test", sid, work, **({"memory_scope": scope} if scope else {}), emotions=emo,
+                     traits=_traits_by_agent(people))
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "emails": len(emails), "people": len(people)}})
 
 
@@ -1048,7 +1075,13 @@ def simulation_memory(simulation_id: str):
     survey = data.get("survey")
     if isinstance(survey, dict):
         events += behavior_state.events_from_survey(survey.get("responses") or [], str(survey.get("offer") or ""))
-    n = behavior_state.record(sim_dir, events, scope)
+    traits = None
+    try:
+        people, _ = _people(simulation_id)
+        traits = _traits_by_agent(people)
+    except Exception:  # noqa: BLE001 - traits fall back to name-derived ones
+        traits = None
+    n = behavior_state.record(sim_dir, events, scope, mode=_emotion_mode(data), traits_by_agent=traits)
     return jsonify({"success": True, "data": {"scope": scope, "events_recorded": n, **behavior_state.summary(sim_dir, scope)}})
 
 

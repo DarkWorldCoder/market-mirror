@@ -2564,7 +2564,8 @@ def interview_agents_batch():
             optimized_interview = interview.copy()
             prompt = interview.get('prompt', '')
             if mem_data is not None:
-                block = behavior_state.prompt_block(sim_dir, interview['agent_id'], str(memory_scope), data=mem_data)
+                block = behavior_state.prompt_block(sim_dir, interview['agent_id'], str(memory_scope), data=mem_data,
+                                                    mode=data.get('emotions'))
                 prompt = (block + "\n" + prompt) if block else prompt
             optimized_interview['prompt'] = optimize_interview_prompt(prompt)
             optimized_interviews.append(optimized_interview)
