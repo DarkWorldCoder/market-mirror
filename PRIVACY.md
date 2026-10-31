@@ -72,4 +72,3 @@ This notice does not describe an independently operated hosted service, GitHub's
 
 For a non-sensitive question, open an issue at https://github.com/DarkWorldCoder/market-mirror/issues.
 Report security problems privately as described in [SECURITY.md](SECURITY.md); do not publish customer data or credentials.
-
