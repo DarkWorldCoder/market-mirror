@@ -266,7 +266,211 @@ def _cell_means(rows: List[Dict[str, Any]]) -> Dict[Any, float]:
     return out
 
 
-def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment") -> Dict[str, Any]:
+# --------------------------------------------------------------------------
+# Prediction-powered inference (PPI++): a valid interval from a small real sample plus the simulated panel
+# --------------------------------------------------------------------------
+#
+# Angelopoulos et al., "Prediction-powered inference" (Science 2023) and "PPI++: efficient prediction-powered
+# inference" (arXiv 2311.01453); effective sample size as in Broska, Howes & van Loon, "The mixed subjects design"
+# (Sociological Methods & Research 2025).
+#
+# The simulated panel is turned into a predictor f(x) of the answer from demographics (cell means with back-off to
+# the segment and to everyone). f is fit on simulated answers only, so it is independent of the real answers.
+#   labeled   = the real answers Y_i with f(X_i)                     (n)
+#   unlabeled = the simulated people with f(X~_j) and their weight   (N, the target audience's composition)
+#   theta     = mean(Y) + lambda * (mean_w f(X~) - mean f(X))
+#   var       = Var(Y - lambda f(X)) / n + lambda^2 Var_w(f(X~)) / N_eff
+# lambda = Cov(Y, f) / ((1 + n / N_eff) Var(f)), clipped to [0, 1]: when the panel predicts nothing, lambda -> 0
+# and the interval is the real-only interval (never worse, up to estimation noise). Validity needs the real
+# answers to be a random sample of the audience the simulated panel's weights describe; stratifying by segment
+# relaxes that to within each segment.
+
+
+def _wmean(xs: Sequence[float], ws: Sequence[float]) -> float:
+    tot = sum(ws)
+    return sum(x * w for x, w in zip(xs, ws)) / tot if tot else 0.0
+
+
+def _var(xs: Sequence[float]) -> float:
+    xs = list(xs)
+    if len(xs) < 2:
+        return 0.0
+    m = sum(xs) / len(xs)
+    return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+
+
+def _cov(xs: Sequence[float], ys: Sequence[float]) -> float:
+    xs, ys = list(xs), list(ys)
+    if len(xs) < 2:
+        return 0.0
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    return sum((a - mx) * (b - my) for a, b in zip(xs, ys)) / (len(xs) - 1)
+
+
+def panel_predictor(synthetic: List[Dict[str, Any]], min_cell: int = 3):
+    """f(row): the simulated panel's mean answer for that person's cell (segment, country, gender, age band),
+    backing off to the segment and then to everyone when a cell has fewer than `min_cell` simulated people."""
+    cells: Dict[Any, List[float]] = defaultdict(list)
+    segs: Dict[str, List[float]] = defaultdict(list)
+    for r in synthetic:
+        cells[_cell(r)].append(float(r["y"]))
+        segs[str(r.get("segment") or "")].append(float(r["y"]))
+    overall = _mean([r["y"] for r in synthetic])
+
+    def f(row: Dict[str, Any]) -> float:
+        c = cells.get(_cell(row))
+        if c and len(c) >= min_cell:
+            return sum(c) / len(c)
+        s = segs.get(str(row.get("segment") or ""))
+        if s and len(s) >= min_cell:
+            return sum(s) / len(s)
+        return overall
+    return f
+
+
+def _kish(ws: Sequence[float]) -> float:
+    s1, s2 = sum(ws), sum(w * w for w in ws)
+    return (s1 * s1 / s2) if s2 else 0.0
+
+
+def ppi_mean(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], lam: Any = "auto", z: float = 1.96,
+             predictor=None) -> Dict[str, Any]:
+    """PPI++ estimate of the audience mean of y with a z-interval, the real-only interval, lambda and the
+    effective sample size (how many real answers alone would give the same precision)."""
+    n = len(real)
+    if n < 10 or len(synthetic) < 10:
+        return {"estimate": None, "reason": "need at least 10 real and 10 simulated answers", "n_real": n,
+                "n_synthetic": len(synthetic)}
+    f = predictor or panel_predictor(synthetic)
+    y = [float(r["y"]) for r in real]
+    fl = [f(r) for r in real]
+    fu = [f(r) for r in synthetic]
+    wu = [max(0.0, float(r.get("weight") or 1.0)) for r in synthetic]
+    if not sum(wu):
+        wu = [1.0] * len(synthetic)
+    n_u = _kish(wu)
+    mu_u = _wmean(fu, wu)
+    var_fu = sum(w * (x - mu_u) ** 2 for x, w in zip(fu, wu)) / sum(wu) * (len(fu) / max(1, len(fu) - 1))
+    var_fl, cov_yf, var_y = _var(fl), _cov(y, fl), _var(y)
+    if lam == "auto":
+        denom = (1 + n / n_u) * var_fl
+        lam_v = cov_yf / denom if denom > 1e-12 else 0.0
+    else:
+        lam_v = float(lam)
+    lam_v = max(0.0, min(1.0, lam_v))
+    theta = _mean(y) + lam_v * (mu_u - _mean(fl))
+    resid_var = _var([a - lam_v * b for a, b in zip(y, fl)])
+    se = math.sqrt(max(0.0, resid_var / n + lam_v ** 2 * var_fu / n_u))
+    se_real = math.sqrt(var_y / n) if var_y > 0 else 0.0
+    eff = (var_y / (se * se)) if se > 0 and var_y > 0 else float(n)
+    corr = cov_yf / math.sqrt(var_y * var_fl) if var_y > 0 and var_fl > 0 else 0.0
+
+    def clip(v: float) -> float:
+        return max(0.0, min(1.0, v))
+    return {"estimate": round(clip(theta), 4), "se": round(se, 4),
+            "ci": [round(clip(theta - z * se), 4), round(clip(theta + z * se), 4)],
+            "lambda": round(lam_v, 3), "correlation": round(corr, 3),
+            "real_only": {"estimate": round(_mean(y), 4), "se": round(se_real, 4),
+                          "ci": [round(clip(_mean(y) - z * se_real), 4), round(clip(_mean(y) + z * se_real), 4)]},
+            "panel_mean": round(mu_u, 4), "n_real": n, "n_synthetic": len(synthetic), "n_synthetic_effective": round(n_u, 1),
+            "effective_n": round(eff, 1), "worth_extra_real": round(max(0.0, eff - n), 1),
+            "_parts": {"var_y": var_y, "cov": cov_yf, "var_fl": var_fl, "var_fu": var_fu, "n_u": n_u, "z": z}}
+
+
+def ppi_stratified(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key: str = "segment",
+                   z: float = 1.96, min_real: int = 10) -> Dict[str, Any]:
+    """PPI++ per stratum (the simulated panel's weights give each stratum's share of the audience), combined.
+    Strata with fewer than `min_real` real answers are left out and listed; the combined estimate then covers only
+    the rest of the audience, and says so."""
+    def k(r):
+        return str(r.get(key) or "?")
+    strata = sorted({k(r) for r in synthetic})
+    share: Dict[str, float] = {}
+    tot = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic) or 1.0
+    for st in strata:
+        share[st] = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic if k(r) == st) / tot
+    by: Dict[str, Any] = {}
+    skipped = []
+    for st in strata:
+        rs, ss = [r for r in real if k(r) == st], [r for r in synthetic if k(r) == st]
+        if len(rs) < min_real or len(ss) < 10:
+            skipped.append({"stratum": st, "real": len(rs), "simulated": len(ss), "share": round(share[st], 3)})
+            continue
+        res = ppi_mean(rs, ss, z=z)
+        res.pop("_parts", None)
+        by[st] = {**res, "share": round(share[st], 3)}
+    covered = sum(v["share"] for v in by.values())
+    if not by or covered <= 0:
+        return {"estimate": None, "reason": f"no {key} has {min_real}+ real answers", "skipped": skipped}
+    est = sum(v["share"] * v["estimate"] for v in by.values()) / covered
+    se = math.sqrt(sum((v["share"] / covered) ** 2 * v["se"] ** 2 for v in by.values()))
+    eff = sum(v["effective_n"] for v in by.values())
+    return {"key": key, "estimate": round(est, 4), "se": round(se, 4),
+            "ci": [round(max(0.0, est - z * se), 4), round(min(1.0, est + z * se), 4)],
+            "audience_covered": round(covered, 3), "by_stratum": by, "skipped": skipped,
+            "effective_n": round(eff, 1), "n_real": sum(v["n_real"] for v in by.values())}
+
+
+def _ppi_var_at(parts: Dict[str, float], n: int) -> float:
+    """Variance of the PPI++ estimate with n real answers, lambda re-tuned for that n (never above real-only)."""
+    vy, cov, vf, vfu, nu = parts["var_y"], parts["cov"], parts["var_fl"], parts["var_fu"], parts["n_u"]
+    lam = max(0.0, min(1.0, cov / (vf * (1 + n / nu)))) if vf > 1e-12 else 0.0
+    with_lam = (vy - 2 * lam * cov + lam * lam * vf) / n + lam * lam * vfu / nu
+    return min(with_lam, vy / n)
+
+
+def plan_humans(res: Dict[str, Any], halfwidth: float = 0.05) -> Dict[str, Any]:
+    """How many real answers in total (and how many more) give a +-halfwidth interval with this panel (PPI++,
+    lambda re-tuned for each sample size, the variances held at today's estimates) and with real answers alone."""
+    parts = res.get("_parts") or {}
+    if res.get("estimate") is None or not parts:
+        return {"halfwidth": halfwidth, "reason": res.get("reason") or "no PPI estimate"}
+    target = (halfwidth / parts["z"]) ** 2
+    n_real = res["n_real"]
+    alone = math.ceil(parts["var_y"] / target) if parts["var_y"] > 0 else None
+    with_panel = None
+    if parts["var_y"] > 0:
+        lo, hi = 1, max(2, alone or 2)
+        if _ppi_var_at(parts, hi) <= target:
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if _ppi_var_at(parts, mid) <= target:
+                    hi = mid
+                else:
+                    lo = mid + 1
+            with_panel = lo
+    out = {"halfwidth": halfwidth, "real_needed_with_panel": with_panel, "real_needed_alone": alone,
+           "more_with_panel": max(0, with_panel - n_real) if with_panel else None,
+           "more_alone": max(0, alone - n_real) if alone else None}
+    return out
+
+
+def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key: str = "segment",
+                halfwidth: float = 0.05) -> Dict[str, Any]:
+    """The PPI block for calibration.json: overall, by stratum, the sample planner and a plain reading."""
+    overall = ppi_mean(real, synthetic)
+    plan = plan_humans(overall, halfwidth)
+    strat = ppi_stratified(real, synthetic, key)
+    overall.pop("_parts", None)
+    reading = None
+    if overall.get("estimate") is not None:
+        lo, hi = overall["ci"]
+        reading = (f"With {overall['n_real']} real answers and this panel the audience rate is "
+                   f"{100 * overall['estimate']:.1f}% (95% interval {100 * lo:.1f}-{100 * hi:.1f}%). The panel adds the "
+                   f"precision of about {overall['worth_extra_real']:.0f} more real answers "
+                   f"(lambda {overall['lambda']}, correlation {overall['correlation']}).")
+        if plan.get("more_with_panel") is not None:
+            reading += (f" For +-{100 * halfwidth:.0f} points: {plan['more_with_panel']} more real answers with the panel"
+                        + (f", {plan['more_alone']} without it." if plan.get("more_alone") is not None else "."))
+    return {"method": "PPI++ (Angelopoulos et al. 2023)", "overall": overall, "stratified": strat, "plan": plan,
+            "reading": reading,
+            "assumption": ("The real answers are a random sample of the audience the simulated panel's weights describe "
+                           "(within each segment for the stratified estimate). The interval is about that audience's "
+                           "stated answer, not about purchases.")}
+
+
+def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
+             halfwidth: float = 0.05) -> Dict[str, Any]:
     """The full check: overlap, conditional calibration per subgroup, an overall verdict and the AIPW correction."""
     ov = overlap(synthetic, real)
     cal = conditional_calibration(synthetic, real, key)
@@ -281,7 +485,7 @@ def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: s
         overall = "correct"
     corr = correct(synthetic, real)
     return {"n_synthetic": len(synthetic), "n_real": len(real), "overlap": {k: v for k, v in ov.items() if k not in ("weights", "model")},
-            "calibration": cal, "verdict": overall, "corrected": corr,
+            "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth),
             "reading": {"trust": "the synthetic panel can stand in for the real sample on this question",
                         "correct": "use the corrected estimate, not the raw synthetic number",
                         "mixed": "some audiences are usable after correction, others are not: see by_group",
