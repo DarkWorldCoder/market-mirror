@@ -4,7 +4,9 @@ MarketMirror MCP server (stdio or authenticated loopback HTTP, stdlib only).
 
 Exposes MarketMirror as tools for any MCP client. It wraps mm.sh,
 so it works before the engine is installed: call `setup` first. Long work (setup, market tests,
-surveys, feed tests) runs as background jobs; poll `job_status`.
+surveys, feed tests) runs as background jobs; poll `job_status`, or, for clients that negotiate tasks
+(MCP 2025-11-25 tasks, or the 2026-07-28 Tasks extension), poll the task. A market test without
+approve_spend asks the user through elicitation when the client supports it.
 
 Register (Claude Code):  claude mcp add market-mirror -- python3 /path/to/mcp_server.py
 The plugin registers it automatically.
@@ -15,7 +17,12 @@ from __future__ import annotations
 import json
 import argparse
 import hmac
+import itertools
+import math
 import os
+import queue
+import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -27,7 +34,8 @@ from typing import Any, Dict, List, Optional
 HERE = os.path.dirname(os.path.abspath(__file__))
 MM = os.path.join(HERE, "mm.sh")
 PROTOCOL = "2025-03-26"
-SUPPORTED_PROTOCOLS = {"2024-11-05", "2025-03-26", "2025-06-18"}
+SUPPORTED_PROTOCOLS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
+STATELESS_PROTOCOLS = {"2026-07-28"}          # per-request _meta, server/discover, no initialize
 JOBS: Dict[str, Dict[str, Any]] = {}
 LIVE: Dict[str, Any] = {}
 
@@ -65,8 +73,9 @@ def job(args: List[str], label: str) -> Dict[str, Any]:
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump({"id": jid, "label": label, "args": args, "log": log_path, "out": out_path,
                    "started": started, "status": "running"}, f)
+    # own process group, so a cancelled task can stop the worker and the engine under it together
     proc = subprocess.Popen([sys.executable, os.path.join(HERE, "job_worker.py"), MM, meta_path, out_path, log_path, *args],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     JOBS[jid] = {"id": jid, "label": label, "args": args, "proc": proc, "log": log_path, "out": out_path,
                  "started": started, "meta": meta_path}
     return {"job_id": jid, "label": label, "status": "running",
@@ -168,6 +177,148 @@ def results(run: str) -> Dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------
+# resources: run files, and the dashboard as an MCP Apps UI resource
+# --------------------------------------------------------------------------
+
+RUN_RESOURCES = {"dashboard.html": "text/html", "summary.json": "application/json", "market_report.md": "text/markdown",
+                 "report.md": "text/markdown", "calibration.json": "application/json", "focus_group.json": "application/json",
+                 "ideas.md": "text/markdown", "ad_patterns.md": "text/markdown", "intake.md": "text/markdown"}
+UI_URI = "ui://market-mirror/dashboard"
+UI_MIME = "text/html;profile=mcp-app"          # MCP Apps (ext-apps): hosts render this resource inline
+LAST_RUN: Dict[str, str] = {}
+
+
+def _runs_root() -> str:
+    return os.path.join(home(), "mirofish_runs")
+
+
+def _run_dir(name: str) -> str:
+    """A run folder by name; refuses anything that is not a plain folder name under mirofish_runs."""
+    if not name or name != os.path.basename(name) or name in (".", "..") or "\\" in name:
+        raise ValueError(f"not a run name: {name!r}")
+    path = os.path.join(_runs_root(), name)
+    if not os.path.isdir(path):
+        raise ValueError(f"no run named {name!r}")
+    return path
+
+
+def list_resources() -> List[Dict[str, Any]]:
+    out = [{"uri": UI_URI, "name": "MarketMirror dashboard", "mimeType": UI_MIME,
+            "description": "The dashboard of the run last opened with `results` (else the newest run), as an MCP App."}]
+    root = _runs_root()
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        for f, mime in RUN_RESOURCES.items():
+            if os.path.isfile(os.path.join(root, name, f)):
+                out.append({"uri": f"marketmirror://runs/{name}/{f}", "name": f"{name}/{f}", "mimeType": mime,
+                            "description": f"{f} of run {name} (simulated results)"})
+    return out
+
+
+def _newest_run() -> Optional[str]:
+    root = _runs_root()
+    runs = [n for n in os.listdir(root) if os.path.isfile(os.path.join(root, n, "dashboard.html"))] if os.path.isdir(root) else []
+    return max(runs, key=lambda n: os.path.getmtime(os.path.join(root, n, "dashboard.html"))) if runs else None
+
+
+def read_resource(uri: str) -> Dict[str, Any]:
+    if uri == UI_URI:
+        run = LAST_RUN.get("run") or _newest_run()
+        if not run:
+            text = "<!doctype html><meta charset=utf-8><p>No MarketMirror run with a dashboard yet.</p>"
+        else:
+            with open(os.path.join(_run_dir(run), "dashboard.html"), encoding="utf-8") as f:
+                text = f.read()
+        return {"contents": [{"uri": uri, "mimeType": UI_MIME, "text": text}]}
+    prefix = "marketmirror://runs/"
+    if not uri.startswith(prefix) or uri.count("/") != 4:
+        raise ValueError(f"unknown resource: {uri}")
+    run, f = uri[len(prefix):].split("/", 1)
+    if f not in RUN_RESOURCES:
+        raise ValueError(f"not an exposed run file: {f}")
+    path = os.path.join(_run_dir(run), f)
+    if not os.path.isfile(path):
+        raise ValueError(f"{f} does not exist in run {run}")
+    with open(path, encoding="utf-8") as fh:
+        return {"contents": [{"uri": uri, "mimeType": RUN_RESOURCES[f], "text": fh.read()}]}
+
+
+# --------------------------------------------------------------------------
+# prompts: recipes an agent (or a user's slash menu) can start from
+# --------------------------------------------------------------------------
+
+def _arg(name: str, description: str, required: bool = True) -> Dict[str, Any]:
+    return {"name": name, "description": description, "required": required}
+
+
+PROMPTS: Dict[str, Dict[str, Any]] = {
+    "test_an_ad": {
+        "description": "Test ad copy (and its image or video) on simulated buyers before spending on media.",
+        "arguments": [_arg("product", "what is sold, one line"), _arg("ads", "the ad texts, and image/video paths if any"),
+                      _arg("audience", "who should see it", False)],
+        "text": ("Use MarketMirror to test these ads for {product}.\nAds: {ads}\nAudience: {audience}\n\nRun `doctor`; "
+                 "if needed `quickstart` with these answers. Give each creative its real image or video path so the buyers "
+                 "see the picture (`creative_check` first for a pre-flight look). Show me the planned personas and the "
+                 "estimated cost before any paid step, then run `market_test` with a feed test (seeds 3) and a survey. "
+                 "Report each ad's simulated thumb-stop and CTR as directions with their seed ranges, the top objections, "
+                 "and the next small real test to run.")},
+    "price_check": {
+        "description": "Compare price points on simulated buyers, with what is held fixed stated.",
+        "arguments": [_arg("product", "what is sold"), _arg("prices", "the price points, e.g. USD 4.99, 7.99, 9.99"),
+                      _arg("held_fixed", "what stays the same across prices", False)],
+        "text": ("Run a MarketMirror price test for {product} at {prices} with `run_test` (type price, held_fixed: "
+                 "{held_fixed}). Before paying, show me the personas and the cost estimate. Report the share who would "
+                 "convert at each price as simulated directions (and the shrunk differences), the price objections, and "
+                 "say plainly that stated willingness to pay runs optimistic.")},
+    "calibrate_with_real_data": {
+        "description": "Check a run against real survey answers and get a valid interval and a sample plan.",
+        "arguments": [_arg("run", "run name"), _arg("real_csv", "absolute path to real answers (segment, country, gender, age, y)")],
+        "text": ("Calibrate MarketMirror run {run} with the real answers in {real_csv} using the `calibrate` tool. Report "
+                 "the verdict (trust / correct / walk-away), the PPI++ interval for the audience rate with its "
+                 "assumption, what the panel is worth in real answers, and how many more real answers a +-5 point "
+                 "interval needs.")},
+    "pull_real_results": {
+        "description": "Fetch real campaign results from a connected ads, analytics or CRM server and use them as evidence.",
+        "arguments": [_arg("source", "meta_ads | google_ads | ga4 | tiktok_ads | hubspot | klaviyo | shopify"),
+                      _arg("run", "the MarketMirror run to compare with", False),
+                      _arg("period", "date range, e.g. last 30 days", False)],
+        "text": ("Using the {source} tools this host already has connected (do not ask me for keys; if none are "
+                 "connected, say so and ask me for an export instead), fetch real results for {period}: per ad or campaign "
+                 "the impressions, clicks, conversions, spend and currency, with the date range and market. Save them as a "
+                 "CSV and normalise it with MarketMirror `actuals_import`, keeping the source. Then compare with run {run} "
+                 "through `backtest` (ads) or `holdout_backtest` (independent experiments). Never change the ad account: "
+                 "if a winning variant should go live, prepare it as a paused draft only after I approve it explicitly.")},
+    "focus_group_after_run": {
+        "description": "Hold a moderated focus group with the simulated buyers of a run.",
+        "arguments": [_arg("simulation_id", "the run's simulation id"), _arg("questions", "the discussion guide, one per line"),
+                      _arg("segment", "only this segment", False)],
+        "text": ("Hold a MarketMirror focus group with `ask_buyers` (action focus_group) on simulation {simulation_id}"
+                 "{segment_clause}, guide:\n{questions}\n\nReport the themes with their quotes, each person's private "
+                 "verdict before and after, and the conformity flag. Present it as qualitative exploration of simulated "
+                 "people, and trust the private first answers over the group's apparent agreement.")},
+}
+
+
+def list_prompts() -> List[Dict[str, Any]]:
+    return [{"name": n, "description": p["description"], "arguments": p["arguments"]} for n, p in PROMPTS.items()]
+
+
+def get_prompt(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    if name not in PROMPTS:
+        raise ValueError(f"unknown prompt: {name}")
+    p = PROMPTS[name]
+    missing = [a["name"] for a in p["arguments"] if a["required"] and not str(args.get(a["name"]) or "").strip()]
+    if missing:
+        raise ValueError(f"missing arguments: {', '.join(missing)}")
+    vals = {a["name"]: str(args.get(a["name"]) or "").strip() for a in p["arguments"]}
+    defaults = {"audience": "infer it from the product", "held_fixed": "the product, features, brand and terms",
+                "run": "(the newest run)", "period": "the last 30 days", "segment": ""}
+    vals = {k: v or defaults.get(k, "") for k, v in vals.items()}
+    vals["segment_clause"] = f", segment {vals['segment']}" if vals.get("segment") else ""
+    return {"description": p["description"],
+            "messages": [{"role": "user", "content": {"type": "text", "text": p["text"].format(**vals)}}]}
+
+
 def list_runs() -> List[Dict[str, Any]]:
     root = os.path.join(home(), "mirofish_runs")
     out = []
@@ -235,11 +386,14 @@ TOOLS = [
         "personas (persona spec object or absolute path) or auto_personas (int), creatives (feed-test object with creatives, "
         "landing, benchmarks), seeds_n (int, repeat the feed test with N seeds and report ranges), rounds (int), survey {offer, goal, messages (list), split, pricing}, panel {analysts, brief}, "
         "report (bool), simulation_id (reuse), approve_spend (bool). Without approve_spend it stops after creating the "
-        "personas so you can show them to the user; then call again with simulation_id and approve_spend true. Background job."),
+        "personas so you can show them to the user; then call again with simulation_id and approve_spend true. When the "
+        "client supports elicitation, the user is asked instead (planned people and a rough cost) and the answer decides. "
+        "Background job (a task for clients that negotiate tasks)."),
      "inputSchema": {"type": "object", "properties": {"config": {"type": "object"}}, "required": ["config"]}},
     {"name": "job_status", "description": "Status, log tail and final result of a background job.",
      "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
-    {"name": "results", "description": "Key results of a run: decision, verdicts, segments, objections, messages, pricing, feed-test metrics, ROI projections, files.",
+    {"name": "results", "_meta": {"ui": {"resourceUri": UI_URI}, "ui/resourceUri": UI_URI},
+     "description": "Key results of a run: decision, verdicts, segments, objections, messages, pricing, feed-test metrics, ROI projections, files. Hosts with MCP Apps also show the run's dashboard inline (resource ui://market-mirror/dashboard).",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string", "description": "run name under mirofish_runs or absolute path"}}, "required": ["run"]}},
     {"name": "list_runs", "description": "List previous runs with their decision.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "start_live", "description": "Serve the live dashboard at http://127.0.0.1:5050/ (newest run, or a given run).",
@@ -307,7 +461,49 @@ TOOLS = [
                                                       "rows": {"type": "array", "items": {"type": "object"}},
                                                       "run": {"type": "string"}, "engine": {"type": "string", "enum": ["auto", "llm", "jev", "supplied"]},
                                                       "brand": {"type": "string"}, "now": {"type": "string", "description": "collection date YYYY-MM-DD"},
-                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"}}}},
+                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"},
+                                                      "vision": {"type": "boolean", "description": "describe rows' image/video first (backend)"}}}},
+    {"name": "creative_check", "description": (
+        "Pre-flight look at real ad creatives before any simulated buyer sees them: what each image or video (keyframes via "
+        "ffmpeg) shows, the words on it, whether brand and call to action are visible, what a one-second scroller takes away, "
+        "platform checks (text density, brand early, legibility, safe zones, captions) and the measured aspect ratio. "
+        "creatives: [{id, platform, image|video (absolute path or https URL), text?, headline?, cta?}]. Needs the backend and a "
+        "vision-capable model. A model's reading plus measured facts, not an attention or recall score. In market_test, "
+        "creatives with image/video are seen by the buyers too ('vision': describe|direct|off). Background job."),
+     "inputSchema": {"type": "object", "properties": {"creatives": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string"}}, "required": ["creatives"]}},
+    {"name": "intake", "description": (
+        "Turn the owner's own customer material into grounded personas: call or interview transcripts, review exports, NPS / survey "
+        "verbatims, CRM or support notes (absolute paths: CSV, TSV, JSON, JSONL, txt, md, vtt, srt), or rows you fetched from a "
+        "connected CRM. Emails, phone and card numbers, links, @handles and names from name columns are removed before any model "
+        "call; quotes stay verbatim (a quote not in the source is dropped) and nothing unstated is invented. Writes a persona spec "
+        "with real_profiles (marked 'Grounded' in the dashboard) that market_test takes as its personas; synthetic people fill the "
+        "rest of the audience. engine: llm (backend) or supplied (offline, no model). Use customer data only with the owner's "
+        "permission and show them intake.md before running. Background job."),
+     "inputSchema": {"type": "object", "properties": {"files": {"type": "array", "items": {"type": "string"}},
+                                                      "rows": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string", "description": "persona spec path to write (absolute)"},
+                                                      "base": {"type": "string", "description": "persona spec to start from"},
+                                                      "engine": {"type": "string", "enum": ["llm", "supplied"]},
+                                                      "context": {"type": "string"}, "segment_field": {"type": "string"},
+                                                      "id_field": {"type": "string"}, "text_field": {"type": "string"},
+                                                      "segment": {"type": "string"}, "max_people": {"type": "integer"}}}},
+    {"name": "ask_buyers", "description": (
+        "Talk to the simulated buyers after a run, no live simulation needed. action 'ask': one person (agent_id from "
+        "results/profiles) answers a message, with optional history. action 'focus_group': 2-8 saved people (taken in turn "
+        "from each segment, or one segment, or agent_ids) give a private verdict, discuss the guide questions with a "
+        "moderator, then give a private verdict again; returns themes with checked quotes, the before/after shift and a "
+        "conformity flag, saves focus_group.json and adds a dashboard section (background job). Simulated people: "
+        "qualitative exploration, not real buyers."),
+     "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["ask", "focus_group"]},
+                                                      "simulation_id": {"type": "string"}, "agent_id": {"type": "integer"},
+                                                      "message": {"type": "string"},
+                                                      "history": {"type": "array", "items": {"type": "object"}},
+                                                      "guide": {"type": "array", "items": {"type": "string"}},
+                                                      "people": {"type": "integer"}, "segment": {"type": "string"},
+                                                      "offer": {"type": "string"}, "goal": {"type": "string"},
+                                                      "run": {"type": "string"}},
+                     "required": ["action", "simulation_id"]}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -368,7 +564,122 @@ TOOLS = [
 ]
 
 
-def call(name: str, a: Dict[str, Any]) -> Any:
+# --------------------------------------------------------------------------
+# spend approval: what a market test is about to cost, asked through elicitation
+# --------------------------------------------------------------------------
+
+USD_PER_CALL = float(os.environ.get("MARKET_MIRROR_USD_PER_CALL") or 0.005)   # ~ one claude-haiku-4-5 call
+
+
+def _planned_people(cfg: Dict[str, Any]) -> Optional[int]:
+    """People the run will simulate: auto_personas, the persona spec's segment counts, or an earlier run's profiles."""
+    if cfg.get("auto_personas"):
+        return int(cfg["auto_personas"])
+    spec = cfg.get("personas")
+    if isinstance(spec, str):
+        try:
+            with open(spec if os.path.isabs(spec) else os.path.join(home(), spec), encoding="utf-8") as f:
+                spec = json.load(f)
+        except (OSError, ValueError):
+            spec = None
+    if isinstance(spec, dict):
+        if spec.get("segments"):
+            return sum(max(1, int(seg.get("count") or 5)) for seg in spec["segments"] if isinstance(seg, dict))
+        if spec.get("auto"):
+            return int(spec.get("auto_total") or 24)
+    if cfg.get("simulation_id"):
+        name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(cfg.get("name") or "market_test"))
+        run = os.path.join(_runs_root(), name)
+        for f in sorted(os.listdir(run)) if os.path.isdir(run) else []:
+            if f.startswith("profiles_") and f.endswith(".json"):
+                try:
+                    with open(os.path.join(run, f), encoding="utf-8") as fh:
+                        rows = json.load(fh)
+                    rows = rows.get("profiles") if isinstance(rows, dict) else rows
+                    if isinstance(rows, list) and rows:
+                        return len(rows)
+                except (OSError, ValueError):
+                    pass
+    return None
+
+
+def spend_plan(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Planned people and a rough model-call count and cost for a market_test config (shown before spending)."""
+    people = _planned_people(cfg)
+    calls: Dict[str, int] = {}
+    if people:
+        if not cfg.get("simulation_id"):
+            # persona planner: 5 people per call, a life interview each, one follow-up call per 4 people
+            calls["people"] = math.ceil(people / 5) + (0 if cfg.get("personas_lite") else people + math.ceil(people / 4))
+        if cfg.get("rounds"):
+            calls["rounds"] = people * int(cfg["rounds"])
+        if cfg.get("creatives"):
+            calls["feed_test"] = people * max(1, int(cfg.get("seeds_n") or 1))
+        if cfg.get("survey"):
+            survey = cfg["survey"] if isinstance(cfg["survey"], dict) else {}
+            calls["survey"] = people * (2 if survey.get("split") and survey.get("messages") else 1)
+        if cfg.get("pitch"):
+            calls["pitch"] = people * 2
+        if cfg.get("emails"):
+            emails = cfg["emails"].get("emails") if isinstance(cfg["emails"], dict) else cfg["emails"]
+            calls["email_test"] = people * max(1, len(emails) if isinstance(emails, list) else 1)
+    if cfg.get("panel"):
+        calls["panel"] = int((cfg["panel"] if isinstance(cfg["panel"], dict) else {}).get("analysts") or 5)
+    if cfg.get("report", True):
+        calls["report"] = 12
+    total = sum(calls.values())
+    return {"people": people, "model_calls": calls, "total_calls": total if people else None,
+            "usd_estimate": round(total * USD_PER_CALL, 2) if people else None, "usd_per_call": USD_PER_CALL}
+
+
+def spend_question(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """elicitation/create params (form mode) for approving a market test's spend."""
+    plan = spend_plan(cfg)
+    reuse = bool(cfg.get("simulation_id"))
+    people = (f"{plan['people']} simulated people" + (" (already created)" if reuse else "")) if plan["people"] else \
+        ("the people of simulation " + str(cfg["simulation_id"]) if reuse else "as many people as the documents name")
+    cost = (f"about ${plan['usd_estimate']:.2f} (~{plan['total_calls']} model calls at ${USD_PER_CALL} each; "
+            "the real cost depends on the model and prompt lengths)") if plan["usd_estimate"] is not None else \
+        "unknown until the people exist"
+    steps = ", ".join(f"{k} {v}" for k, v in plan["model_calls"].items()) or "none"
+    options = [{"const": "run", "title": "Run everything now (spends on model calls)"}]
+    options.append({"const": "stop", "title": "Stop, run nothing"} if reuse else
+                   {"const": "people_first", "title": "Create the people only, so I can review them first"})
+    return {"mode": "form",
+            "message": (f"MarketMirror market test '{cfg.get('name') or 'market_test'}' wants to spend.\n"
+                        f"People: {people}.\nRough cost: {cost}.\nModel calls by step: {steps}.\n"
+                        "Results will be simulated directions, not measurements."),
+            "requestedSchema": {"type": "object", "properties": {"decision": {
+                "type": "string", "title": "What should MarketMirror do?", "oneOf": options,
+                "default": options[1]["const"]}}, "required": ["decision"]},
+            "_plan": plan}
+
+
+def market_test(cfg: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Dict[str, Any]:
+    """Start a market test. Unapproved spend asks the user first when the client can elicit; otherwise today's guard."""
+    approval = None
+    if not cfg.get("approve_spend") and ctx is not None and ctx.can_elicit():
+        q = spend_question(cfg)
+        plan = q.pop("_plan")
+        answer = ctx.elicit("approve_spend", q)
+        decision = (answer.get("content") or {}).get("decision") if answer.get("action") == "accept" else None
+        allowed = {o["const"] for o in q["requestedSchema"]["properties"]["decision"]["oneOf"]}
+        decision = decision if decision in allowed else None
+        approval = {"action": answer.get("action"), "decision": decision or "stop", "plan": plan}
+        if decision == "run":
+            cfg = {**cfg, "approve_spend": True}
+        elif decision != "people_first":
+            path = write_config(cfg)
+            return {"stage": "stopped", "approved": False, "approval": approval, "config": path,
+                    "next": "Nothing was started. Call market_test again when ready (approve_spend true skips the question)."}
+    path = write_config(cfg)
+    out = {**job(["cli", "market-test", path], "market-test"), "config": path}
+    if approval:
+        out["approval"] = approval
+    return out
+
+
+def call(name: str, a: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Any:
     if name == "website_test":
         directory = os.path.join(home(), "scenarios", "_website_tests")
         os.makedirs(directory, exist_ok=True)
@@ -395,12 +706,17 @@ def call(name: str, a: Dict[str, Any]) -> Any:
         r = sh(["start"], timeout=300)
         return _cli_result(r)
     if name == "market_test":
-        path = write_config(a["config"])
-        return {**job(["cli", "market-test", path], "market-test"), "config": path}
+        return market_test(dict(a["config"]), ctx)
     if name == "job_status":
         return job_status(a["job_id"])
     if name == "results":
-        return results(a["run"])
+        out = results(a["run"])
+        run = os.path.basename(os.path.normpath(a["run"]))
+        if isinstance(out, dict) and "error" not in out:
+            LAST_RUN["run"] = run
+            out["resources"] = {f: f"marketmirror://runs/{run}/{f}" for f in RUN_RESOURCES
+                                if os.path.isfile(os.path.join(os.path.dirname(out.get("dashboard") or ""), f))}
+        return out
     if name == "list_runs":
         return list_runs()
     if name == "start_live":
@@ -549,7 +865,69 @@ def call(name: str, a: Dict[str, Any]) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("max_ads"):
             args += ["--max-ads", str(int(a["max_ads"]))]
+        if a.get("vision"):
+            args.append("--vision")
         return job(args, "ad_patterns")
+    if name == "ask_buyers":
+        if a.get("action") == "ask":
+            if a.get("agent_id") is None or not a.get("message"):
+                raise ValueError("ask needs agent_id and message")
+            d = os.path.join(home(), "scenarios", "_ask")
+            os.makedirs(d, exist_ok=True)
+            hp = os.path.join(d, f"chat_{a['simulation_id']}_{int(a['agent_id'])}.json")
+            if a.get("history") is not None:
+                json.dump(a["history"], open(hp, "w", encoding="utf-8"), ensure_ascii=False)
+            elif not os.path.exists(hp):
+                json.dump([], open(hp, "w", encoding="utf-8"))
+            return _cli_result(sh(["cli", "ask", "--simulation", a["simulation_id"], "--person", str(int(a["agent_id"])),
+                                   "--history", "@" + hp, a["message"]], timeout=400))
+        if not a.get("guide"):
+            raise ValueError("focus_group needs guide (a list of questions)")
+        d = os.path.join(home(), "scenarios", "_focus_groups")
+        os.makedirs(d, exist_ok=True)
+        gp = os.path.join(d, f"guide_{uuid.uuid4().hex[:6]}.md")
+        open(gp, "w", encoding="utf-8").write("\n".join(str(q) for q in a["guide"]))
+        args = ["cli", "focus-group", "--simulation", a["simulation_id"], "--guide", "@" + gp]
+        for k in ("people",):
+            if a.get(k):
+                args += ["--" + k, str(int(a[k]))]
+        for k in ("segment", "offer", "goal"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        if a.get("run"):
+            run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
+            args += ["--run-dir", run_dir]
+        return job(args, "focus_group")
+    if name == "creative_check":
+        d = os.path.join(home(), "scenarios", "_creative_check")
+        os.makedirs(d, exist_ok=True)
+        tag = uuid.uuid4().hex[:6]
+        cp = os.path.join(d, f"creatives_{tag}.json")
+        json.dump({"creatives": a["creatives"]}, open(cp, "w", encoding="utf-8"), ensure_ascii=False)
+        return job(["cli", "creative-check", "--creatives", "@" + cp,
+                    "--out", a.get("out") or os.path.join(d, f"creative_check_{tag}.json")], "creative_check")
+    if name == "intake":
+        if not (a.get("rows") or a.get("files")):
+            raise ValueError("files or rows is required")
+        d = os.path.join(home(), "scenarios", "_intake")
+        os.makedirs(d, exist_ok=True)
+        args = ["cli", "intake", "--engine", str(a.get("engine") or "llm"),
+                "--out", a.get("out") or os.path.join(d, f"personas_{uuid.uuid4().hex[:6]}.json")]
+        if a.get("files"):
+            args += ["--files", *[str(f) for f in a["files"]]]
+        if a.get("rows"):
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            json.dump(a["rows"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        for k in ("base", "context", "segment"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        for k in ("id_field", "segment_field", "text_field"):
+            if a.get(k):
+                args += ["--" + k.replace("_", "-"), str(a[k])]
+        if a.get("max_people"):
+            args += ["--max-people", str(int(a["max_people"]))]
+        return job(args, "intake")
     if name == "push_context":
         args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
         if a.get("round") is not None:
@@ -635,53 +1013,421 @@ def call(name: str, a: Dict[str, Any]) -> Any:
     raise ValueError(f"unknown tool {name}")
 
 
-def reply(msg_id: Any, result: Any = None, error: Optional[Dict[str, Any]] = None) -> None:
-    out = {"jsonrpc": "2.0", "id": msg_id, **({"error": error} if error else {"result": result})}
-    sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+# --------------------------------------------------------------------------
+# protocol: sessions, requests to the client (elicitation), tasks
+# --------------------------------------------------------------------------
+#
+# Two protocol eras are served:
+# * handshake (initialize; 2024-11-05 .. 2025-11-25): client capabilities come from initialize. Elicitation is a
+#   server-to-client `elicitation/create` request (2025-06-18+), awaited on its own thread so the loop keeps reading.
+#   Tasks are the 2025-11-25 tasks utility: `capabilities.tasks.requests.tools.call`, `params.task`, tasks/get,
+#   tasks/result, tasks/cancel.
+# * stateless (2026-07-28): capabilities ride on each request's _meta. Elicitation is a multi round-trip request
+#   (an InputRequiredResult, retried with inputResponses). Tasks are the Tasks extension `io.modelcontextprotocol/tasks`
+#   (ext-tasks v0.2.2): resultType "task", tasks/get carries the result, tasks/update, tasks/cancel.
+# Spend approval is settled on the original tools/call, before a task exists (the extension's rule for input a server
+# needs "before returning a CreateTaskResult"), so MarketMirror tasks never sit in input_required.
+
+TASKS_EXT = "io.modelcontextprotocol/tasks"
+META_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_CAPS = "io.modelcontextprotocol/clientCapabilities"
+RELATED_TASK = "io.modelcontextprotocol/related-task"
+# tools that start a background job(); focus groups and choice tests join when their job-backed tools land
+LONG_TOOLS = {"market_test", "study", "run_test", "pitch", "email_test", "website_test", "ad_patterns", "quickstart",
+              "setup", "cli"}
+TASK_TTL_MS, TASK_MAX_TTL_MS, POLL_MS = 24 * 3600 * 1000, 7 * 24 * 3600 * 1000, 5000
+ELICIT_TIMEOUT = float(os.environ.get("MARKET_MIRROR_ELICIT_TIMEOUT") or 600)
+SERVER_INFO = {"name": "market-mirror", "version": "0.4.2"}
+INSTRUCTIONS = ("MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; run setup if "
+                "the engine is missing; use market_test for everything; show the user the personas before approving "
+                "spend; report results as simulated directions with their margins.")
 
 
-def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+class RpcError(Exception):
+    def __init__(self, code: int, message: str, data: Any = None):
+        super().__init__(message)
+        self.code, self.data = code, data
+
+    def body(self) -> Dict[str, Any]:
+        return {"code": self.code, "message": str(self), **({"data": self.data} if self.data is not None else {})}
+
+
+class NeedInput(Exception):
+    """Raised inside a stateless-era request that needs the user: answered with an InputRequiredResult."""
+
+    def __init__(self, requests: Dict[str, Any]):
+        super().__init__("input required")
+        self.requests = requests
+
+
+class Session:
+    """What one client negotiated in initialize (stdio has one; HTTP one per Mcp-Session-Id)."""
+
+    def __init__(self, sid: str = "anonymous"):
+        self.id, self.caps, self.protocol = sid, {}, None
+
+
+class Ctx:
+    """One incoming request: its session, how to reach the client (None: the transport cannot), and its era."""
+
+    def __init__(self, session: Optional[Session] = None, send=None):
+        self.session, self.send = session or Session(), send
+        self.meta: Dict[str, Any] = {}
+        self.responses: Dict[str, Any] = {}
+
+    def bind(self, params: Dict[str, Any]) -> "Ctx":
+        self.meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+        self.responses = params.get("inputResponses") if isinstance(params.get("inputResponses"), dict) else {}
+        return self
+
+    @property
+    def stateless(self) -> bool:
+        return META_VERSION in self.meta or META_CAPS in self.meta
+
+    @property
+    def caps(self) -> Dict[str, Any]:
+        caps = self.meta.get(META_CAPS) if self.stateless else self.session.caps
+        return caps if isinstance(caps, dict) else {}
+
+    @property
+    def owner(self) -> str:
+        return "stateless" if self.stateless else self.session.id
+
+    def can_elicit(self) -> bool:
+        e = self.caps.get("elicitation")
+        if not isinstance(e, dict) or (e and "form" not in e):       # {} means form mode only
+            return False
+        return self.stateless or self.send is not None
+
+    def tasks(self) -> Optional[str]:
+        """'v2' (Tasks extension, per request), 'v1' (2025-11-25 tasks, from initialize) or None."""
+        if self.stateless:
+            return "v2" if TASKS_EXT in (self.caps.get("extensions") or {}) else None
+        declared = isinstance(self.caps.get("tasks"), dict) or TASKS_EXT in (self.caps.get("extensions") or {})
+        return "v1" if declared and self.session.protocol == "2025-11-25" else None
+
+    def elicit(self, key: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        if self.stateless:
+            answer = self.responses.get(key)
+            if isinstance(answer, dict):
+                return answer
+            raise NeedInput({key: {"method": "elicitation/create", "params": params}})
+        return ask_client(self.send, "elicitation/create", params)
+
+
+PENDING: Dict[str, Dict[str, Any]] = {}
+_request_ids = itertools.count(1)
+
+
+def ask_client(send, method: str, params: Dict[str, Any], timeout: Optional[float] = None) -> Dict[str, Any]:
+    """Send a request to the client and wait for its response on this thread only (others keep being served)."""
+    rid = f"mm-{next(_request_ids)}"
+    slot: Dict[str, Any] = {"done": threading.Event(), "msg": None}
+    PENDING[rid] = slot
+    try:
+        send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        if not slot["done"].wait(ELICIT_TIMEOUT if timeout is None else timeout):
+            return {"action": "cancel", "reason": "no answer from the client"}
+    finally:
+        PENDING.pop(rid, None)
+    msg = slot["msg"] or {}
+    if "error" in msg:
+        return {"action": "cancel", "reason": (msg.get("error") or {}).get("message") or "client error"}
+    return msg.get("result") if isinstance(msg.get("result"), dict) else {}
+
+
+def route_response(msg: Dict[str, Any]) -> bool:
+    slot = PENDING.get(str(msg.get("id")))
+    if slot is None:
+        return False
+    slot["msg"] = msg
+    slot["done"].set()
+    return True
+
+
+def drop_pending(reason: str) -> None:
+    for slot in list(PENDING.values()):
+        slot["msg"] = {"error": {"code": -32000, "message": reason}}
+        slot["done"].set()
+
+
+def tool_result(res: Any, is_error: bool = False) -> Dict[str, Any]:
+    text = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False, indent=2, default=str)
+    out: Dict[str, Any] = {"content": [{"type": "text", "text": text}], "isError": is_error}
+    if isinstance(res, (dict, list)):
+        out["structuredContent"] = res
+    return out
+
+
+# ---- tasks: a durable handle over a job() ----------------------------------
+
+TASKS: Dict[str, Dict[str, Any]] = {}
+TASK_LOCK = threading.Lock()
+CLOSED = threading.Event()
+TERMINAL = {"completed", "failed", "cancelled"}
+
+
+def _jobs_dir() -> str:
+    return os.path.join(os.path.expanduser("~"), ".market-mirror", "jobs")
+
+
+def _iso(ts: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def _write_json(path: str, data: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _save_task(t: Dict[str, Any]) -> None:
+    _write_json(os.path.join(_jobs_dir(), "tasks", t["taskId"] + ".json"), t)
+
+
+def create_task(era: str, owner: str, ttl_ms: int, job_id: Optional[str] = None,
+                final: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    now = time.time()
+    proc = (JOBS.get(job_id) or {}).get("proc") if job_id else None
+    t = {"taskId": secrets.token_urlsafe(18), "era": era, "owner": owner, "created": now, "updated": now,
+         "ttl_ms": ttl_ms, "job_id": job_id, "pid": proc.pid if proc else None, "final": final,
+         "cancelled": False, "status": "working"}
+    with TASK_LOCK:
+        TASKS[t["taskId"]] = t
+    _save_task(t)        # durable before the CreateTaskResult goes out
+    return t
+
+
+def get_task(task_id: Any, ctx: Ctx) -> Dict[str, Any]:
+    t = TASKS.get(str(task_id or ""))
+    if t is None and str(task_id or "").replace("-", "").replace("_", "").isalnum():
+        try:
+            with open(os.path.join(_jobs_dir(), "tasks", f"{task_id}.json"), encoding="utf-8") as f:
+                t = TASKS.setdefault(str(task_id), json.load(f))      # a task from before a server restart
+        except (OSError, ValueError):
+            t = None
+    if t is None or t.get("owner") != ctx.owner:
+        raise RpcError(-32602, "Failed to retrieve task: Task not found")
+    if t["ttl_ms"] is not None and time.time() > t["created"] + t["ttl_ms"] / 1000:
+        raise RpcError(-32602, "Failed to retrieve task: Task has expired")
+    return t
+
+
+def task_state(t: Dict[str, Any]) -> tuple:
+    """(status, CallToolResult or None, statusMessage) of a task, read from its job."""
+    if t["cancelled"]:
+        return "cancelled", None, "The task was cancelled by request."
+    res = t["final"]
+    if res is None:
+        js = job_status(t["job_id"])
+        if js.get("status") == "running":
+            tail = js.get("log_tail") or []
+            return "working", None, (tail[-1] if tail else f"{js.get('label')} is running")[-300:]
+        if js.get("status") == "cancelled":
+            return "cancelled", None, "The job was cancelled."
+        res = tool_result(js, is_error=js.get("status") != "done")
+    # 2025-11-25: a tool result with isError fails the task; the extension keeps it completed (failed = JSON-RPC errors)
+    status = "failed" if res.get("isError") and t["era"] == "v1" else "completed"
+    return status, res, ("The tool reported an error; see the result." if res.get("isError") else "Finished.")
+
+
+def task_view(t: Dict[str, Any]) -> tuple:
+    status, res, message = task_state(t)
+    with TASK_LOCK:
+        if status != t["status"]:
+            t["status"], t["updated"] = status, time.time()
+            if status in TERMINAL and res is not None:
+                t["final"] = res
+            _save_task(t)
+    view: Dict[str, Any] = {"taskId": t["taskId"], "status": status, "statusMessage": message,
+                            "createdAt": _iso(t["created"]), "lastUpdatedAt": _iso(t["updated"])}
+    if t["era"] == "v1":
+        view.update(ttl=t["ttl_ms"], pollInterval=POLL_MS)
+    else:
+        view.update(ttlMs=t["ttl_ms"], pollIntervalMs=POLL_MS)
+        if status == "completed":
+            view["result"] = res
+    return view, res
+
+
+def cancel_task(t: Dict[str, Any]) -> None:
+    proc = (JOBS.get(t["job_id"]) or {}).get("proc") if t["job_id"] else None
+    pid = proc.pid if proc else t.get("pid")
+    if pid and hasattr(os, "killpg"):
+        try:
+            os.killpg(pid, signal.SIGTERM)         # the worker leads its own process group (see job())
+        except OSError:
+            pass
+    if t["job_id"]:
+        meta = os.path.join(_jobs_dir(), f"{t['job_id']}.json")
+        try:
+            with open(meta, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("status") == "running":
+                data.update(status="cancelled", finished=time.time(), elapsed_s=round(time.time() - data["started"], 2))
+                _write_json(meta, data)
+        except (OSError, ValueError, KeyError):
+            pass
+    with TASK_LOCK:
+        t["cancelled"], t["status"], t["updated"] = True, "cancelled", time.time()
+        _save_task(t)
+
+
+def tasks_method(method: str, p: Dict[str, Any], ctx: Ctx) -> Dict[str, Any]:
+    era = ctx.tasks()
+    if era is None and ctx.stateless:
+        raise RpcError(-32021, "Missing required client capability",
+                       {"requiredCapabilities": {"extensions": {TASKS_EXT: {}}}})
+    if era is None or (era == "v1" and method == "tasks/update") or (era == "v2" and method == "tasks/result"):
+        raise RpcError(-32601, f"method not found: {method}")
+    t = get_task(p.get("taskId"), ctx)
+    if method == "tasks/get":
+        return task_view(t)[0]
+    if method == "tasks/update":
+        return {}                     # MarketMirror tasks never ask for input mid-flight; stray responses are ignored
+    if method == "tasks/cancel":
+        view, _ = task_view(t)
+        if view["status"] in TERMINAL:
+            if era == "v1":
+                raise RpcError(-32602, f"Cannot cancel task: already in terminal status '{view['status']}'")
+            return {}
+        cancel_task(t)
+        return task_view(t)[0] if era == "v1" else {}
+    # tasks/result (2025-11-25): block this request's thread until the task is terminal
+    while True:
+        view, res = task_view(t)
+        if view["status"] in TERMINAL:
+            res = res or tool_result({"status": "cancelled", "taskId": t["taskId"]}, is_error=True)
+            return {**res, "_meta": {RELATED_TASK: {"taskId": t["taskId"]}}}
+        if CLOSED.wait(1.0):
+            raise RpcError(-32603, "server shutting down")
+        get_task(t["taskId"], ctx)        # raises once the task expires
+
+
+def call_tool(p: Dict[str, Any], ctx: Ctx) -> Dict[str, Any]:
+    name, args = p.get("name"), p.get("arguments") or {}
+    era = ctx.tasks()
+    if era == "v1" and p.get("task") is not None and name not in LONG_TOOLS:
+        raise RpcError(-32601, f"tool {name} does not support task-augmented calls")
+    as_task = (era == "v1" and isinstance(p.get("task"), dict)) or (era == "v2" and name in LONG_TOOLS)
+    try:
+        res, err = call(name, args, ctx), False
+    except NeedInput:
+        raise
+    except Exception as e:  # noqa: BLE001 - surfaced to the client as a tool error
+        res, err = {"error": str(e), "error_type": type(e).__name__}, True
+    job_id = res.get("job_id") if isinstance(res, dict) and not err and "result_path" in res else None
+    if not as_task or (era == "v2" and not job_id):
+        # the extension lets the server answer synchronously; nothing ran in the background (e.g. spend declined)
+        out = tool_result(res, err)
+        if err:
+            out["content"][0]["text"] = f"{res['error_type']}: {res['error']}"
+        return out
+    ttl = TASK_TTL_MS
+    if era == "v1" and isinstance(p["task"].get("ttl"), (int, float)):
+        ttl = int(min(max(p["task"]["ttl"], 60_000), TASK_MAX_TTL_MS))
+    t = create_task(era, ctx.owner, ttl, job_id=job_id, final=None if job_id else tool_result(res, err))
+    view, _ = task_view(t)
+    if era == "v1":
+        return {"task": view, "_meta": {"io.modelcontextprotocol/model-immediate-response":
+                                         f"{name} is running as task {t['taskId']}; its result comes from tasks/result."}}
+    return {**view, "resultType": "task"}
+
+
+def _route(method: str, p: Dict[str, Any], ctx: Ctx) -> Dict[str, Any]:
+    if method == "initialize":
+        requested = p.get("protocolVersion")
+        ctx.session.protocol = requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL
+        ctx.session.caps = p.get("capabilities") if isinstance(p.get("capabilities"), dict) else {}
+        caps: Dict[str, Any] = {"tools": {}, "resources": {}, "prompts": {}}
+        if ctx.tasks() == "v1":           # only to clients that declared tasks on a protocol that has them
+            caps["tasks"] = {"cancel": {}, "requests": {"tools": {"call": {}}}}
+        return {"protocolVersion": ctx.session.protocol, "capabilities": caps, "serverInfo": SERVER_INFO,
+                "instructions": INSTRUCTIONS}
+    if method == "server/discover":
+        return {"supportedVersions": sorted(SUPPORTED_PROTOCOLS | STATELESS_PROTOCOLS),
+                "capabilities": {"tools": {}, "resources": {}, "prompts": {}, "extensions": {TASKS_EXT: {}}},
+                "_meta": {"io.modelcontextprotocol/serverInfo": SERVER_INFO}, "instructions": INSTRUCTIONS}
+    if method == "ping":
+        return {}
+    if method == "tools/list":
+        if ctx.tasks() != "v1":
+            return {"tools": TOOLS}
+        return {"tools": [{**t, "execution": {"taskSupport": "optional"}} if t["name"] in LONG_TOOLS else t for t in TOOLS]}
+    if method in ("resources/list", "resources/read", "resources/templates/list", "prompts/list", "prompts/get"):
+        try:
+            if method == "resources/list":
+                return {"resources": list_resources()}
+            if method == "resources/templates/list":
+                return {"resourceTemplates": [{"uriTemplate": "marketmirror://runs/{run}/{file}", "name": "Run file",
+                                               "description": "A file of a MarketMirror run: " + ", ".join(RUN_RESOURCES)}]}
+            if method == "resources/read":
+                return read_resource(str(p.get("uri") or ""))
+            if method == "prompts/list":
+                return {"prompts": list_prompts()}
+            return get_prompt(str(p.get("name") or ""), p.get("arguments") or {})
+        except (ValueError, OSError) as e:
+            raise RpcError(-32602, str(e))
+    if method == "tools/call":
+        return call_tool(p, ctx)
+    if method in ("tasks/get", "tasks/result", "tasks/cancel", "tasks/update"):
+        return tasks_method(method, p, ctx)
+    raise RpcError(-32601, f"method not found: {method}")
+
+
+def dispatch(msg: Dict[str, Any], ctx: Optional[Ctx] = None) -> Optional[Dict[str, Any]]:
     method, mid = msg.get("method"), msg.get("id")
     if mid is None:
         return None  # notification
-    if method == "initialize":
-        requested = (msg.get("params") or {}).get("protocolVersion")
-        result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "market-mirror", "version": "0.4.0"},
-                    "instructions": "MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; "
-                                    "run setup if the engine is missing; use market_test for everything; show the user the "
-                                    "personas before approving spend; report results as simulated directions with their margins."}
-    elif method == "ping":
-        result = {}
-    elif method == "tools/list":
-        result = {"tools": TOOLS}
-    elif method == "tools/call":
-        p = msg.get("params") or {}
-        try:
-            res = call(p.get("name"), p.get("arguments") or {})
-            text = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False, indent=2, default=str)
-            result = {"content": [{"type": "text", "text": text}], "isError": False}
-            if isinstance(res, (dict, list)):
-                result["structuredContent"] = res
-        except Exception as e:  # noqa: BLE001 - surfaced to the client as a tool error
-            result = {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True,
-                      "structuredContent": {"error": str(e), "error_type": type(e).__name__}}
-    else:
-        return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"method not found: {method}"}}
+    p = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    ctx = (ctx or Ctx()).bind(p)
+    try:
+        result = _route(method, p, ctx)
+    except RpcError as e:
+        return {"jsonrpc": "2.0", "id": mid, "error": e.body()}
+    except NeedInput as e:
+        result = {"resultType": "input_required", "inputRequests": e.requests}
+    if ctx.stateless and isinstance(result, dict):
+        result.setdefault("resultType", "complete")
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def handle(msg: Dict[str, Any]) -> None:
-    out = dispatch(msg)
-    if out is not None:
-        sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+# ---- stdio ------------------------------------------------------------------
+
+STDIO = Session("stdio")
+_stdout_lock = threading.Lock()
+THREADED = {"tools/call", "tasks/result"}     # may wait on the user or a job; everything else answers inline
+
+
+def write_out(msg: Dict[str, Any]) -> None:
+    with _stdout_lock:
+        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
         sys.stdout.flush()
 
 
+def reply(msg_id: Any, result: Any = None, error: Optional[Dict[str, Any]] = None) -> None:
+    write_out({"jsonrpc": "2.0", "id": msg_id, **({"error": error} if error else {"result": result})})
+
+
+def handle(msg: Dict[str, Any]) -> None:
+    if "method" not in msg and "id" in msg:      # the client's answer to one of our requests
+        route_response(msg)
+        return
+    out = dispatch(msg, Ctx(STDIO, write_out))
+    if out is not None:
+        write_out(out)
+
+
+# ---- loopback HTTP ------------------------------------------------------------
+
+SESSIONS: Dict[str, Session] = {}
+
+
 def serve_http(port: int, token: str) -> None:
-    """Stateless MCP Streamable HTTP on authenticated loopback only."""
+    """MCP Streamable HTTP on authenticated loopback only. A request that needs the user is answered as an SSE
+    stream carrying our elicitation/create first; the client POSTs its answer, then the result follows."""
     if not token or len(token) < 24:
         raise ValueError("MCP bearer token must contain at least 24 characters")
 
@@ -707,20 +1453,61 @@ def serve_http(port: int, token: str) -> None:
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise ValueError("JSON-RPC request must be an object")
-                out = dispatch(body)
             except (ValueError, UnicodeDecodeError) as e:
                 self.send_error(400, str(e))
                 return
-            if out is None:
+            if "method" not in body:
+                if route_response(body):
+                    self.send_response(202)
+                    self.end_headers()
+                else:
+                    self.send_error(400, "no pending request with this id")
+                return
+            sid = self.headers.get("Mcp-Session-Id")
+            if sid and sid not in SESSIONS:
+                self.send_error(404, "unknown session")
+                return
+            initialize = body.get("method") == "initialize"
+            session = Session(secrets.token_urlsafe(24)) if initialize else SESSIONS.get(sid or "") or Session()
+            if body.get("id") is None:
+                dispatch(body, Ctx(session))
                 self.send_response(202)
                 self.end_headers()
                 return
-            payload = json.dumps(out, ensure_ascii=False).encode("utf-8")
+            outbox: "queue.Queue[tuple]" = queue.Queue()
+            sse_ok = "text/event-stream" in self.headers.get("Accept", "")
+            ctx = Ctx(session, (lambda m: outbox.put(("msg", m))) if sse_ok else None)
+
+            def work():
+                try:
+                    out = dispatch(body, ctx)
+                except Exception as e:  # noqa: BLE001 - reported as a JSON-RPC internal error
+                    out = {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32603, "message": str(e)}}
+                outbox.put(("final", out))
+
+            threading.Thread(target=work, daemon=True).start()
+            kind, item = outbox.get()
+            if kind == "final":
+                payload = json.dumps(item, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                if initialize and "result" in item:
+                    SESSIONS[session.id] = session
+                    self.send_header("Mcp-Session-Id", session.id)
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            self.wfile.write(payload)
+            while True:
+                self.wfile.write(b"event: message\ndata: " + json.dumps(item, ensure_ascii=False).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+                if kind == "final":
+                    return
+                kind, item = outbox.get()
 
         def do_GET(self):
             self.send_error(405)
@@ -744,7 +1531,6 @@ def main() -> None:
             token = f.read().strip()
         serve_http(opts.port, token)
         return
-    lock = threading.Lock()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -753,8 +1539,14 @@ def main() -> None:
             msg = json.loads(line)
         except ValueError:
             continue
-        with lock:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("method") in THREADED and msg.get("id") is not None:
+            threading.Thread(target=handle, args=(msg,)).start()   # waits on the user or a job off the read loop
+        else:
             handle(msg)
+    CLOSED.set()                       # stdin closed: release waiters; finished calls still write their answers
+    drop_pending("client closed the connection")
 
 
 if __name__ == "__main__":

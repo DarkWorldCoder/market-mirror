@@ -178,7 +178,9 @@ def test_market_report_api(tmp_path, monkeypatch):
     sim = tmp_path / "sim_r"
     sim.mkdir()
     (sim / "state.json").write_text(json.dumps({"simulation_id": "sim_r", "project_id": "p", "graph_id": "g", "status": "ready"}))
-    monkeypatch.setattr(market, "_client", lambda: FakeClient(GOOD))
+    bad = json.loads(json.dumps(GOOD))
+    bad["what_we_tested"] = "Sales rose 437%."
+    monkeypatch.setattr(market, "_client", lambda: FakeClient(bad))
     app = create_app()
     app.config.update(TESTING=True)
     c = app.test_client()
@@ -197,6 +199,7 @@ def test_market_report_api(tmp_path, monkeypatch):
     assert raw.get("data"), (raw, st)
     got = raw["data"]
     assert got["method"] == "llm" and "## Action plan" in got["markdown"]
+    assert {"text": "Sales rose 437%.", "unknown_numbers": ["437"]} in got["number_guard"]
     assert "# Fitloop: market test report" in got["markdown"]          # brand came from the compacted facts
 
 
@@ -227,3 +230,50 @@ def test_unwrap_markdown():
     assert mr.unwrap_markdown('{"markdown": "# Hi"}') == "# Hi"
     assert mr.unwrap_markdown("```markdown\n# Hi\n```") == "# Hi"
     assert mr.unwrap_markdown("# Plain") == "# Plain"
+
+
+def test_generated_report_records_removed_sentences_and_logs_only_count(monkeypatch):
+    from unittest.mock import Mock
+    info = Mock()
+    monkeypatch.setattr(mr.logger, "info", info)
+    data = {"executive_summary": {"headline": "Use the evidence."},
+            "what_we_tested": "We tested 28 people. Sales rose 437% and costs fell 12,345%."}
+    out = mr.generate(FakeClient(data), "m", {"people": 28})
+    assert out["number_guard"] == [
+        {"text": "Sales rose 437% and costs fell 12,345%.", "unknown_numbers": ["437", "12345"]}]
+    assert out["sections"]["what_we_tested"] == "We tested 28 people."
+    assert "437" not in out["markdown"]
+    info.assert_called_once_with("Number guard removed %d sentence(s) or table cell(s)", 1)
+
+
+def test_markdown_guard_records_whole_removed_cells_and_prose():
+    removed = []
+    md = """| Result |
+|---|
+| 28 people. Sales rose 437%. |
+
+- Costs fell 99%. Keep 2 seeds."""
+    cleaned = mr.check_numbers_markdown(md, {"28"}, removed)
+    assert "| – |" in cleaned and "- Keep 2 seeds." in cleaned
+    assert removed == [
+        {"text": "28 people. Sales rose 437%.", "unknown_numbers": ["437"]},
+        {"text": "Costs fell 99%.", "unknown_numbers": ["99"]},
+    ]
+
+
+def test_report_number_guard_is_empty_without_drops_and_on_fallback():
+    for body in ({"executive_summary": {"headline": "Test 2 variants in 2026."}}, "invalid JSON"):
+        out = mr.generate(FakeClient(body), "m", {})
+        assert out["number_guard"] == []
+
+
+def test_study_report_returns_number_guard(monkeypatch):
+    from app import create_app
+    from app.api import market
+    monkeypatch.setattr(market, "_client", lambda: FakeClient("Simulated people saw 2 ads. Sales rose 437%."))
+    client = create_app().test_client()
+    response = client.post("/api/simulation/study-report", json={"summary": {"scenarios": [{"name": "demo"}]}})
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["number_guard"] == [{"text": "Sales rose 437%.", "unknown_numbers": ["437"]}]
+    assert data["markdown"] == "Simulated people saw 2 ads."

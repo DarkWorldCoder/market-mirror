@@ -58,10 +58,26 @@ AGE_BANDS = [(0, 17, "Under 18"), (18, 24, "18-24"), (25, 34, "25-34"), (35, 44,
 # Survey prompt and answer parsing
 # --------------------------------------------------------------------------
 
+VERDICTS = ["No", "Probably not", "Maybe", "Probably yes", "Yes, definitely"]
+# several wordings per question: each person gets one (seeded by who they are), the retest another. Varying wording
+# and option order per call reduces the order and phrasing artefacts that make LLM answer distributions too narrow
+# (Dominguez-Olmedo et al., NeurIPS 2024; Jang et al. 2026, "prompt-perturbed" sampling).
+PARAPHRASES = {
+    "interest": ["are you interested in this?", "does this catch your interest?", "how interested are you in this?"],
+    "trust": ["do you trust it?", "does it seem trustworthy to you?", "would you believe what it promises?"],
+    "purchase": ["would you actually {goal}?", "realistically, would you {goal}?", "if you could right now, would you {goal}?"],
+    "recommend": ["would you tell a friend or family member about it?", "would you mention it to someone you know?",
+                  "would you recommend it to a friend?"],
+}
+
+
 def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]] = None,
-                  assigned: Optional[int] = None, currency: Optional[str] = None) -> str:
+                  assigned: Optional[int] = None, currency: Optional[str] = None,
+                  variant: Optional[int] = None) -> str:
     """The questionnaire. `assigned` (0-based) = split test: this person sees only that message.
-    `currency` adds four price-sensitivity questions (Van Westendorp)."""
+    `currency` adds four price-sensitivity questions (Van Westendorp).
+    `variant` (e.g. the agent id) picks one wording per question and the verdict order; None = the first wording,
+    verdicts from No to Yes. The JSON keys and the verdict words never change, so parsing and SSR are unaffected."""
     about = f" about {offer}" if offer else " about the brand, product or offer you saw"
     goal_txt = goal or "take the action the offer asks for (sign up, buy, book or download)"
     msg_block, msg_fields = "", ""
@@ -72,6 +88,9 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         msg_block = "Here are the messages/ads being tested:\n" + "\n".join(
             f"{i + 1}. {m}" for i, m in enumerate(messages)) + "\n\n"
         msg_fields = '"best_message": "the number of the message that works best for you, or none", '
+    k = int(variant) if variant is not None else 0
+    q = {s: opts[k % len(opts)].format(goal=goal_txt) for s, opts in PARAPHRASES.items()}
+    verdicts = " / ".join(VERDICTS if k % 2 == 0 else list(reversed(VERDICTS)))
     price_fields = ""
     if currency:
         price_fields = (f'"price_too_cheap": "price in {currency} so low you would doubt the quality", '
@@ -85,16 +104,16 @@ def survey_prompt(offer: str = "", goal: str = "", messages: Optional[List[str]]
         f"{msg_block}"
         f"The action we care about: {goal_txt}.\n\n"
         "First answer the four *_text questions in your own words, as \"Verdict: reason\". The verdict is "
-        "exactly one of: No / Probably not / Maybe / Probably yes / Yes, definitely. The reason is one "
+        f"exactly one of: {verdicts}. The reason is one "
         "sentence. Write the whole answer, reason included, in plain English or entirely in your language's "
         "own script (for example Devanagari for Hindi). Do not write Hindi, Tagalog or any other language in "
         "Latin letters and do not mix languages (no Hinglish or Taglish) in these four answers. Say how you "
         "really feel; do not be polite. Then give the quick numbers.\n"
         "Reply with only this JSON, no other text (numbers as plain numbers):\n"
-        '{"interest_text": "verdict: are you interested in this? then why", '
-        '"trust_text": "verdict: do you trust it? then why or why not", '
-        f'"purchase_text": "verdict: would you actually {goal_txt}? then why", '
-        '"recommend_text": "verdict: would you tell a friend or family member about it? then why", '
+        f'{{"interest_text": "verdict: {q["interest"]} then why", '
+        f'"trust_text": "verdict: {q["trust"]} then why or why not", '
+        f'"purchase_text": "verdict: {q["purchase"]} then why", '
+        f'"recommend_text": "verdict: {q["recommend"]} then why", '
         '"noticed": true, "interest": 0-10, "trust": 0-10, "would_click": "yes|maybe|no", '
         '"would_convert": "yes|maybe|no", '
         '"chances": {"click": {"yes": 0-100, "maybe": 0-100, "no": 0-100}, "convert": {"yes": 0-100, "maybe": 0-100, "no": 0-100}} '
@@ -391,6 +410,53 @@ def pool_ssr(rows: List[Dict[str, Any]], scale: str) -> Optional[Dict[str, Any]]
     return out
 
 
+SPLIT_SHRINK_PRIOR = 0.55     # simulated effects run large (Hewitt et al. 2024: r = .85 with real effects, but inflated)
+
+
+def _tv(a: List[float], b: List[float]) -> float:
+    return 0.5 * sum(abs(x - y) for x, y in zip(a, b))
+
+
+def _pmf_mean(p: List[float]) -> float:
+    return sum((k + 1) * x for k, x in enumerate(p))
+
+
+def distribution_check(rows: List[Dict[str, Any]], estimate: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Per segment and scale: the pooled per-person SSR distribution, the segment-level described one (when the
+    survey asked for it), their blend and distance, and whether the answers are distinguishable from uniform."""
+    by_seg: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_seg[r["segment"]].append(r)
+    described = (estimate or {}).get("by_segment") or {}
+    out = []
+    for seg, rs in sorted(by_seg.items()):
+        for sc in SSR_SCALES:
+            pooled = pool_ssr(rs, sc)
+            desc = ((described.get(seg) or {}).get(sc) or {}).get("pmf")
+            if not pooled and not desc:
+                continue
+            row: Dict[str, Any] = {"segment": seg, "scale": sc, "n": len(rs)}
+            if pooled:
+                row.update({"ssr_mean": pooled["mean"], "ssr_sd": pooled["sd"],
+                            "uniform_gap": round(_tv(pooled["pmf"], [0.2] * 5), 3)})
+                row["no_better_than_uniform"] = row["uniform_gap"] < 0.1 and len(rs) >= 5
+            if desc:
+                row["described_mean"] = round(_pmf_mean(desc), 2)
+            if pooled and desc:
+                blended = [(a + b) / 2 for a, b in zip(pooled["pmf"], desc)]
+                row.update({"blended_pmf": [round(x, 3) for x in blended], "blended_mean": round(_pmf_mean(blended), 2),
+                            "method_gap": round(_tv(pooled["pmf"], desc), 3),
+                            "mean_margin": round(abs(pooled["mean"] - _pmf_mean(desc)) / 2, 2)})
+            out.append(row)
+    if not out:
+        return None
+    return {"rows": out, "methods": 2 if described else 1,
+            "uniform_segments": sorted({r["segment"] for r in out if r.get("no_better_than_uniform")}),
+            "note": ("SSR pools each person's own words; the described estimate asks for the segment's spread directly. "
+                     "Their average is the blended estimate and half their mean difference an extra margin. Both are "
+                     "simulated. A segment whose answers are no better than uniform carries no signal on that scale.")}
+
+
 def _sd(xs: List[float]) -> float:
     import math
     if not xs:
@@ -616,6 +682,16 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         if not split:
             v = msg_rows[m["key"]]
             m["convert_yes"] = _pct(sum(conv_probs(r)[0] for r in v), len(v))
+    if split and len(out["messages_ranked"]) > 1:
+        # simulated differences between messages run large: shrink each arm toward the arms' average
+        k = float((survey.get("shrink") or {}).get("factor") or SPLIT_SHRINK_PRIOR)
+        vals = [m["convert_yes"] for m in out["messages_ranked"] if m.get("convert_yes") is not None]
+        base_cv = sum(vals) / len(vals) if vals else None
+        for m in out["messages_ranked"]:
+            if base_cv is not None and m.get("convert_yes") is not None:
+                m["convert_yes_shrunk"] = round(base_cv + k * (m["convert_yes"] - base_cv), 1)
+        out["split_shrink"] = {"factor": k, "basis": (survey.get("shrink") or {}).get("basis") or
+                               "prior: simulated effects run larger than real ones (Hewitt et al. 2024)"}
 
     # segment x message grid: which message for which audience
     grid: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
@@ -630,6 +706,7 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
                  for seg_, cells in sorted(grid.items())],
     } if grid else None
 
+    out["distribution_check"] = distribution_check(rows, survey.get("estimate"))
     out["pricing"] = pricing(rows)
     out["playbook"] = playbook(out, rows)
 
@@ -1101,11 +1178,23 @@ def ssr_section(a: Dict[str, Any], insight: Optional[str] = None) -> Optional[Tu
                '(semantic similarity rating, arXiv 2510.08338, with Jev in place of embeddings).')
         model = (f' Rated by {info.get("method") or engine}.'
                  + (f' {failed} answers could not be rated and are left out.' if failed else ""))
+    dc = a.get("distribution_check") or {}
+    dc_rows = [r for r in dc.get("rows") or [] if r.get("scale") == "purchase"]
+    dc_html = ""
+    if dc_rows:
+        dc_html = ('<h3 style="margin-top:18px">Two ways of asking (purchase intent)</h3>'
+                   + _table_view(["Segment", "People", "Per person (SSR)", "Described for the segment", "Blended", "Margin",
+                                  "Signal"],
+                                 [[r["segment"], r["n"], _num(r.get("ssr_mean")), _num(r.get("described_mean")),
+                                   _num(r.get("blended_mean")), f'±{r["mean_margin"]}' if r.get("mean_margin") is not None else "–",
+                                   "no better than uniform" if r.get("no_better_than_uniform") else "ok"] for r in dc_rows],
+                                 "Show both estimates by segment")
+                   + f'<p class="muted small">{_e(dc.get("note") or "")}</p>')
     return ("ratings", "Ratings", ui.section_head("How they rate it, in their own words", insight=insight) + '<div class="card">'
             f'<p class="muted small">Every person first answered in one or two sentences. {how} Direct '
             f'numeric answers from simulated people bunch up and run positive; they are shown only for comparison.{_e(model)}</p>'
             + dist + _table_view(["Scale", "1", "2", "3", "4", "5", "Mean ± spread", "Stated 0-10"], overall_rows,
-                                 "Show the distributions") + seg_html + "</div>")
+                                 "Show the distributions") + seg_html + dc_html + "</div>")
 
 
 def hero_stats(a: Dict[str, Any]) -> str:
@@ -1266,13 +1355,20 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
                                    "values": [m["convert_yes"] or 0 for m in msgs], "unit": "%", "max": 100,
                                    "highlight": 0, "notes": [f'{m["votes"]} people' for m in msgs]},
                           40 + 38 * len(msgs), "Would convert by message")
-        head = (["Message", "Shown to", "Would convert", "Would click", "Reaction"] if split
+        shrink = a.get("split_shrink") or {}
+        head = (["Message", "Shown to", "Would convert", "Shrunk", "Would click", "Reaction"] if split and shrink
+                else ["Message", "Shown to", "Would convert", "Would click", "Reaction"] if split
                 else ["Message", "Picked by", "Share", "Of them would convert"])
-        rows_ = ([[m["label"], m["votes"], _fmt_pct(m["convert_yes"]), _fmt_pct(m.get("click_yes")), _num(m.get("reaction"))]
+        rows_ = ([[m["label"], m["votes"], _fmt_pct(m["convert_yes"])]
+                  + ([_fmt_pct(m.get("convert_yes_shrunk"))] if shrink else [])
+                  + [_fmt_pct(m.get("click_yes")), _num(m.get("reaction"))]
                   for m in msgs] if split else
                  [[m["label"], m["votes"], _fmt_pct(m["share"]), _fmt_pct(m["convert_yes"])] for m in msgs])
         note = ("Each person saw one message, assigned at random in equal groups, so the bars compare like with like."
                 if split else "People saw every message and picked the one that works best for them.")
+        if split and shrink:
+            note += (f' "Shrunk" pulls each message toward the average by a factor of {shrink.get("factor")} '
+                     f'({shrink.get("basis")}): read the order, not the size of the gaps.')
         grid = a.get("message_grid") or {}
         heat = ""
         if grid.get("rows") and grid.get("messages"):

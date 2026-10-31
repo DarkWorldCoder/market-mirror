@@ -104,9 +104,13 @@ Rules in the code:
   say that longevity is observational.
 - `caveats` and `credit` travel with every file.
 
+## Pictures (`--vision`)
+
+With `--vision`, rows that carry `image`, `image_url`, `thumbnail_url` (a local path, data URI or https URL) or `video` (a local file; keyframes need ffmpeg) are described first by the backend's `creative-check` endpoint. The description and the words on the picture become the row's `visual_notes`, so the labels read the picture as well as the copy.
+
 ## Not in this version
 
-- Reading images or video frames (Claude vision through `utils/anthropic_native`).
+
 - Collecting from the Ad Library through an API or a scraper.
 - Feeding the findings into `ideas`, and a market-test config key.
 - Perceptual (image) families.

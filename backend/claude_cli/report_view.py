@@ -558,6 +558,78 @@ def choice_section(bundle: Dict[str, Any], insight: Optional[str] = None) -> Opt
     return ("choice", "Choice tests", head + "".join(parts))
 
 
+def focus_group_section(fg: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Focus group': private verdicts before and after a moderated discussion, themes, and the transcript."""
+    if not isinstance(fg, dict) or not fg.get("transcript"):
+        return None
+    scale = fg.get("verdict_scale") or ["No", "Probably not", "Maybe", "Probably yes", "Yes, definitely"]
+    name = lambda v: scale[v - 1] if isinstance(v, int) and 1 <= v <= len(scale) else "–"
+    sh = fg.get("shift") or {}
+    tiles = [("People", len(fg.get("participants") or []), ", ".join(sorted({p.get("segment") or "" for p in fg.get("participants") or []}))[:80]),
+             ("Private verdict before", sh.get("mean_pre") if sh.get("mean_pre") is not None else "–", "1 = No, 5 = Yes, definitely"),
+             ("After the discussion", sh.get("mean_post") if sh.get("mean_post") is not None else "–",
+              f'{sh.get("changed", 0)} of {sh.get("n", 0)} changed'),
+             ("Group pull", "converged" if sh.get("conformity_flag") else "no convergence", sh.get("reading") or "")]
+    rows = [[p.get("id"), p.get("segment"), name(p.get("pre")), name(p.get("post")), _t(p.get("post_text"), 140)]
+            for p in fg.get("participants") or []]
+    themes = "".join(
+        f'<li><b>{_e(t.get("title"))}</b> {_pill(t.get("tone"), "mint" if t.get("tone") == "positive" else "orchid" if t.get("tone") == "negative" else "")}'
+        f' <span class="muted small">{_e(", ".join(t.get("who") or []))}</span>'
+        + (f'<br><span class="small">“{_e(t.get("quote"))}”</span>' if t.get("quote") else "") + "</li>"
+        for t in fg.get("themes") or [])
+    guide = fg.get("guide") or []
+    lines = "".join(
+        f'<p class="small"><b>{_e(t.get("speaker"))}</b>'
+        + (f' <span class="muted">({_e(t.get("segment"))})</span>' if t.get("segment") else "") + f': {_e(t.get("text"))}</p>'
+        for t in fg["transcript"])
+    body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + (f'<div class="card"><h3>Themes</h3><ul>{themes}</ul></div>' if themes else "")
+            + ui.table(["Who", "Segment", "Private before", "Private after", "Why, after"], rows, sortable=True)
+            + f'<details class="tv"><summary>Transcript ({len(guide)} questions)</summary>{lines}</details>'
+            + f'<p class="muted small">{_e(fg.get("note") or "")}</p>')
+    head = ui.section_head("Focus group", "Saved simulated people in a moderated discussion. Each gave a private verdict "
+                           "before and after, so you can see how much the group moved them.", insight)
+    return ("focusgroup", "Focus group", head + body)
+
+
+def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
+    """'Real-sample check': the calibrate verdict, the AIPW-corrected rate, and the PPI++ interval with the
+    effective sample size and how many more real answers a target precision needs."""
+    if not isinstance(cal, dict) or not cal.get("verdict"):
+        return None
+    pct = lambda v: "–" if ui.num(v) is None else f"{100 * float(v):.1f}%"
+    ppi = cal.get("ppi") if isinstance(cal.get("ppi"), dict) else {}
+    ov = ppi.get("overall") if isinstance(ppi.get("overall"), dict) else {}
+    plan = ppi.get("plan") if isinstance(ppi.get("plan"), dict) else {}
+    corr = cal.get("corrected") if isinstance(cal.get("corrected"), dict) else {}
+    tiles = [("Verdict", str(cal.get("verdict")), cal.get("reading") or ""),
+             ("Real answers", cal.get("n_real"), f'vs {cal.get("n_synthetic")} simulated'),
+             ("Audience rate (PPI++)", pct(ov.get("estimate")),
+              f'95% {pct((ov.get("ci") or [None])[0])}–{pct((ov.get("ci") or [None, None])[1])}' if ov.get("ci") else "needs 10+ real answers"),
+             ("Panel worth", f'+{ov.get("worth_extra_real"):.0f} real answers' if ui.num(ov.get("worth_extra_real")) is not None else "–",
+              f'lambda {ov.get("lambda")}, correlation {ov.get("correlation")}' if ov.get("lambda") is not None else "")]
+    rows = []
+    for st, v in ((ppi.get("stratified") or {}).get("by_stratum") or {}).items():
+        rows.append([st, v.get("n_real"), pct(v.get("estimate")), f'{pct(v["ci"][0])}–{pct(v["ci"][1])}' if v.get("ci") else "–",
+                     f'{100 * float(v.get("share") or 0):.0f}%', v.get("lambda")])
+    skipped = (ppi.get("stratified") or {}).get("skipped") or []
+    plan_txt = ""
+    if plan.get("halfwidth") is not None and (plan.get("more_with_panel") is not None or plan.get("more_alone") is not None):
+        plan_txt = (f'<p class="small">For ±{100 * float(plan["halfwidth"]):.0f} points: '
+                    + (f'<b>{plan["more_with_panel"]}</b> more real answers with this panel' if plan.get("more_with_panel") is not None else "the panel alone cannot get there")
+                    + (f', {plan["more_alone"]} without it.' if plan.get("more_alone") is not None else ".") + "</p>")
+    body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + (f'<p class="small">{_e(ppi.get("reading"))}</p>' if ppi.get("reading") else "") + plan_txt
+            + (f'<p class="small">AIPW-corrected rate: {pct(corr.get("estimate"))} (simulated {pct(corr.get("naive_syn"))}, '
+               f'real sample {pct(corr.get("real_mean"))}).</p>' if corr.get("estimate") is not None else "")
+            + (ui.table(["Segment", "Real", "Rate", "95% interval", "Audience share", "Lambda"], rows, sortable=True) if rows else "")
+            + (f'<p class="muted small">Not enough real answers (10+) for: {_e(", ".join(s["stratum"] for s in skipped))}.</p>' if skipped else "")
+            + f'<p class="muted small">{_e(ppi.get("assumption") or "")}</p>')
+    head = ui.section_head("Real-sample check", "Your real answers against the simulated panel: how far to trust it, and "
+                           "an interval that stays valid however good or bad the panel is (PPI++).", insight)
+    return ("calibration", "Real-sample check", head + body)
+
+
 def ad_patterns_section(ap: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Ad patterns': real ads labelled on seven creative dimensions, which labels stay in market 60+ days, real
     results when the rows had metrics, and the run's simulated creatives on the same labels (kept apart)."""
