@@ -195,7 +195,7 @@ Each run produces one self-contained HTML dashboard: no server, no external requ
 </tr>
 </table>
 
-Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy.
+Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy. The report JSON includes a `number_guard` list of removed sentences (or study-report table cells), each with `text` and `unknown_numbers`, so you can inspect what the guard dropped. These entries are unverified model output, not report evidence; logs record only the removal count.
 
 ## How it works
 
@@ -765,7 +765,7 @@ MarketMirror's source code is available under [AGPL-3.0](LICENSE). Running it ma
 
 ### Can I bring real research and campaign data?
 
-Yes. You can supply product documents, linked feedback, and campaign exports. MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
+Yes. You can supply product documents, linked feedback, and campaign exports. `intake` turns your own call transcripts, reviews, NPS verbatims and CRM notes into grounded personas that quote your customers word for word. Contact details are removed on your machine first ([formats](docs/INPUT_FORMATS.md)). MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
 
 ### What do the technical terms mean?
 

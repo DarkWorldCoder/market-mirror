@@ -307,7 +307,33 @@ TOOLS = [
                                                       "rows": {"type": "array", "items": {"type": "object"}},
                                                       "run": {"type": "string"}, "engine": {"type": "string", "enum": ["auto", "llm", "jev", "supplied"]},
                                                       "brand": {"type": "string"}, "now": {"type": "string", "description": "collection date YYYY-MM-DD"},
-                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"}}}},
+                                                      "max_ads": {"type": "integer"}, "out": {"type": "string"},
+                                                      "vision": {"type": "boolean", "description": "describe rows' image/video first (backend)"}}}},
+    {"name": "creative_check", "description": (
+        "Pre-flight look at real ad creatives before any simulated buyer sees them: what each image or video (keyframes via "
+        "ffmpeg) shows, the words on it, whether brand and call to action are visible, what a one-second scroller takes away, "
+        "platform checks (text density, brand early, legibility, safe zones, captions) and the measured aspect ratio. "
+        "creatives: [{id, platform, image|video (absolute path or https URL), text?, headline?, cta?}]. Needs the backend and a "
+        "vision-capable model. A model's reading plus measured facts, not an attention or recall score. In market_test, "
+        "creatives with image/video are seen by the buyers too ('vision': describe|direct|off). Background job."),
+     "inputSchema": {"type": "object", "properties": {"creatives": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string"}}, "required": ["creatives"]}},
+    {"name": "intake", "description": (
+        "Turn the owner's own customer material into grounded personas: call or interview transcripts, review exports, NPS / survey "
+        "verbatims, CRM or support notes (absolute paths: CSV, TSV, JSON, JSONL, txt, md, vtt, srt), or rows you fetched from a "
+        "connected CRM. Emails, phone and card numbers, links, @handles and names from name columns are removed before any model "
+        "call; quotes stay verbatim (a quote not in the source is dropped) and nothing unstated is invented. Writes a persona spec "
+        "with real_profiles (marked 'Grounded' in the dashboard) that market_test takes as its personas; synthetic people fill the "
+        "rest of the audience. engine: llm (backend) or supplied (offline, no model). Use customer data only with the owner's "
+        "permission and show them intake.md before running. Background job."),
+     "inputSchema": {"type": "object", "properties": {"files": {"type": "array", "items": {"type": "string"}},
+                                                      "rows": {"type": "array", "items": {"type": "object"}},
+                                                      "out": {"type": "string", "description": "persona spec path to write (absolute)"},
+                                                      "base": {"type": "string", "description": "persona spec to start from"},
+                                                      "engine": {"type": "string", "enum": ["llm", "supplied"]},
+                                                      "context": {"type": "string"}, "segment_field": {"type": "string"},
+                                                      "id_field": {"type": "string"}, "text_field": {"type": "string"},
+                                                      "segment": {"type": "string"}, "max_people": {"type": "integer"}}}},
     {"name": "push_context", "description": (
         "While a simulation is running (or before it starts), push what people are saying today into every persona card from the next "
         "round on: a news item, a competitor's move, a real thread you just read with your browser, a price change. Each update is "
@@ -548,7 +574,39 @@ def call(name: str, a: Dict[str, Any]) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("max_ads"):
             args += ["--max-ads", str(int(a["max_ads"]))]
+        if a.get("vision"):
+            args.append("--vision")
         return job(args, "ad_patterns")
+    if name == "creative_check":
+        d = os.path.join(home(), "scenarios", "_creative_check")
+        os.makedirs(d, exist_ok=True)
+        tag = uuid.uuid4().hex[:6]
+        cp = os.path.join(d, f"creatives_{tag}.json")
+        json.dump({"creatives": a["creatives"]}, open(cp, "w", encoding="utf-8"), ensure_ascii=False)
+        return job(["cli", "creative-check", "--creatives", "@" + cp,
+                    "--out", a.get("out") or os.path.join(d, f"creative_check_{tag}.json")], "creative_check")
+    if name == "intake":
+        if not (a.get("rows") or a.get("files")):
+            raise ValueError("files or rows is required")
+        d = os.path.join(home(), "scenarios", "_intake")
+        os.makedirs(d, exist_ok=True)
+        args = ["cli", "intake", "--engine", str(a.get("engine") or "llm"),
+                "--out", a.get("out") or os.path.join(d, f"personas_{uuid.uuid4().hex[:6]}.json")]
+        if a.get("files"):
+            args += ["--files", *[str(f) for f in a["files"]]]
+        if a.get("rows"):
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            json.dump(a["rows"], open(rp, "w", encoding="utf-8"), ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        for k in ("base", "context", "segment"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        for k in ("id_field", "segment_field", "text_field"):
+            if a.get(k):
+                args += ["--" + k.replace("_", "-"), str(a[k])]
+        if a.get("max_people"):
+            args += ["--max-people", str(int(a["max_people"]))]
+        return job(args, "intake")
     if name == "push_context":
         args = ["cli", "context", "--simulation", a["simulation_id"], "--text", a["text"]]
         if a.get("round") is not None:
@@ -648,7 +706,7 @@ def dispatch(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         requested = (msg.get("params") or {}).get("protocolVersion")
         result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "market-mirror", "version": "0.4.0"},
+                    "serverInfo": {"name": "market-mirror", "version": "0.4.2"},
                     "instructions": "MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; "
                                     "run setup if the engine is missing; use market_test for everything; show the user the "
                                     "personas before approving spend; report results as simulated directions with their margins."}

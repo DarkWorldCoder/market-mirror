@@ -79,6 +79,93 @@ def _image_data_uri(path: str, base_dir: str) -> Optional[str]:
         return f"data:{mime};base64,{base64.b64encode(f.read()).decode()}"
 
 
+def video_frames(path: str, base_dir: str, n: int = 4, width: int = 720) -> List[str]:
+    """Keyframes of a local video as JPEG data URIs: 0 s, 1 s, 3 s and the middle (needs ffmpeg on PATH)."""
+    import shutil
+    import subprocess
+    import tempfile
+    full = path if os.path.isabs(path) else os.path.join(base_dir, path)
+    if not os.path.isfile(full):
+        raise ValueError(f"video not found: {path}")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise ValueError("video creatives need ffmpeg on PATH to take keyframes (or pass 'image' / 'frames' instead)")
+    duration = 0.0
+    probe = shutil.which("ffprobe")
+    if probe:
+        try:
+            out = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", full],
+                                 capture_output=True, text=True, timeout=60).stdout.strip()
+            duration = float(out or 0)
+        except (ValueError, subprocess.SubprocessError, OSError):
+            duration = 0.0
+    stamps = [0.0, 1.0, 3.0] + ([duration / 2] if duration > 6 else [])
+    stamps = [t for t in stamps if not duration or t < duration][:n]
+    frames = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for k, t in enumerate(stamps):
+            dest = os.path.join(tmp, f"f{k}.jpg")
+            subprocess.run([ffmpeg, "-v", "error", "-ss", f"{t:.2f}", "-i", full, "-frames:v", "1",
+                            "-vf", f"scale='min({width},iw)':-2", "-q:v", "4", "-y", dest],
+                           capture_output=True, timeout=120)
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                uri = _image_data_uri(dest, tmp)
+                if uri:
+                    frames.append(uri)
+    if not frames:
+        raise ValueError(f"ffmpeg could not read frames from {path}")
+    return frames
+
+
+def load_visuals(creatives: List[Dict[str, Any]], base_dir: str, log) -> Dict[str, str]:
+    """Turn each creative's local image / video into data URIs in place (image, frames); returns {id: thumbnail}."""
+    thumbs: Dict[str, str] = {}
+    for i, cr in enumerate(creatives):
+        cr.setdefault("id", f"ad{i + 1}")
+        img = cr.get("image")
+        if img and not str(img).startswith(("data:image/", "https://")):
+            uri = _image_data_uri(str(img), base_dir)
+            if uri:
+                cr["image"] = uri
+            else:
+                cr.pop("image")
+                log(f"image for {cr['id']} not found or too large (4 MB max), using the text description")
+        video = cr.pop("video", None)
+        if video and not cr.get("frames"):
+            cr["frames"] = video_frames(str(video), base_dir)
+            cr.setdefault("format", "video")
+            log(f"{cr['id']}: {len(cr['frames'])} keyframes from {os.path.basename(str(video))}")
+        thumb = cr.get("image") or (cr.get("frames") or [None])[0]
+        if thumb:
+            thumbs[cr["id"]] = thumb
+    return thumbs
+
+
+def creative_check(c, log, spec_arg: str, out: Optional[str] = None) -> Dict[str, Any]:
+    """Pre-flight look at the real creatives (image or video keyframes): what they show, words on them, brand and
+    CTA visibility, platform checks and measured aspect ratio. No simulated people needed."""
+    spec = _load_json_arg(spec_arg)
+    base_dir = os.path.dirname(os.path.abspath(spec_arg[1:])) if spec_arg.startswith("@") else os.getcwd()
+    creatives = [dict(cr) for cr in ((spec.get("creatives") if isinstance(spec, dict) else spec) or [])]
+    if not creatives:
+        raise ValueError("--creatives must be a JSON list of ads or {creatives: [...]}")
+    thumbs = load_visuals(creatives, base_dir, log)
+    if not thumbs:
+        raise ValueError("creative-check: no creative has an image, video or frames")
+    data = c.data("POST", "/api/simulation/creative-check", json={"creatives": creatives}, timeout=900)
+    for cr in data.get("creatives") or []:
+        if cr.get("id") in thumbs:
+            cr["image"] = thumbs[cr["id"]]
+    path = out or "creative_check.json"
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    summary = {cr.get("id"): {"first_glance": (cr.get("visual") or {}).get("first_glance"),
+                              "failed_checks": (cr.get("visual") or {}).get("failed")} for cr in data.get("creatives") or []}
+    log(f"creative-check: {data.get('described')} creatives described -> {path}")
+    return {"creative_check": os.path.abspath(path), "creatives": summary, "usage": data.get("usage"), "note": data.get("note")}
+
+
 def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval: float = 5,
               timeout: float = 6 * 3600, max_errors: int = 10) -> Dict[str, Any]:
     """Follow a backend task until it completes. Large markets take hours (a 3,000-person feed test or pitch is
@@ -115,7 +202,8 @@ def wait_task(c, task_id: str, label: str, log: Callable[[str], None], interval:
 def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_arg: Optional[str] = None,
              bench_arg: Optional[str] = None, waves: int = 3, organic: int = 5, limit: Optional[int] = None,
              parallel: int = 8, exposures: int = 2, attention_gate: bool = True, seeds: int = 1, seed: int = 5,
-             competitor_arg: Optional[str] = None, generic_baseline: Optional[bool] = None) -> Dict[str, Any]:
+             competitor_arg: Optional[str] = None, generic_baseline: Optional[bool] = None,
+             vision: Optional[str] = None) -> Dict[str, Any]:
     """seeds > 1 repeats the test with different seeds and reports each creative's mean and min-max range; seed = the base seed.
     competitor_arg: @competitor.json or inline JSON {name, offer|text|headline, price?} shown in the same feeds (price
     shock); generic_baseline: also score the ads with one zero-persona generic reader. Both can also come from the
@@ -126,19 +214,13 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
         spec = {"creatives": spec}
     if not isinstance(spec, dict) or not spec.get("creatives"):
         raise ValueError("--creatives must be a JSON list of ads or {creatives, landing?, benchmarks?}")
-    images = {}
-    creatives = []
-    for i, cr in enumerate(spec["creatives"]):
-        cr = dict(cr)
-        img = cr.pop("image", None)
-        cr.setdefault("id", f"ad{i + 1}")
-        if img:
-            uri = img if str(img).startswith("data:image/") else _image_data_uri(str(img), base_dir)
-            if uri:
-                images[cr["id"]] = uri
-            else:
-                log(f"feedtest: image for {cr['id']} not found or too large, using the text description")
-        creatives.append(cr)
+    creatives = [dict(cr) for cr in spec["creatives"]]
+    images = load_visuals(creatives, base_dir, lambda m: log("feedtest: " + m))
+    vision = (vision or spec.get("vision") or "describe").lower()
+    if vision == "off":
+        for cr in creatives:                     # the backend never sees the pictures; thumbnails stay
+            cr.pop("image", None)
+            cr.pop("frames", None)
     landing = _load_json_arg(landing_arg) if landing_arg else spec.get("landing")
     bench = _load_json_arg(bench_arg) if bench_arg else spec.get("benchmarks")
     if isinstance(bench, dict) and "benchmarks" in bench:
@@ -150,7 +232,7 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
         generic_baseline = bool(spec.get("generic_baseline") or spec.get("include_generic_baseline"))
     payload = {"simulation_id": simulation_id, "creatives": creatives, "waves": waves, "organic_per_feed": organic,
                "exposures": exposures, "attention_gate": attention_gate, "seeds": max(1, int(seeds or 1)), "seed": int(seed or 5),
-               "parallel": parallel, **({"landing": landing} if landing else {}),
+               "parallel": parallel, "vision": vision, **({"landing": landing} if landing else {}),
                **({"benchmarks": bench} if bench else {}), **({"max_personas": limit} if limit else {}),
                **({"competitor": competitor} if competitor else {}),
                **({"include_generic_baseline": True} if generic_baseline else {})}
@@ -158,7 +240,8 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     log(f"feedtest: {started.get('feeds')} person-platform pairs x {exposures} exposures, {started.get('personas')} personas, "
         f"{started.get('creatives')} creatives, {waves} waves. Only exposures that catch the eye call Claude"
         + (", plus one call per click for the landing page" if landing else "")
-        + (f". Repeated with {seeds} seeds: about {seeds}x the calls of one run" if seeds > 1 else ""))
+        + (f". Repeated with {seeds} seeds: about {seeds}x the calls of one run" if seeds > 1 else "")
+        + (f". Vision {vision}: {len(images)} creatives with a picture" if images and vision != "off" else ""))
     wait_task(c, started["task_id"], "feedtest", log)
     result = c.data("GET", f"/api/simulation/{simulation_id}/feed-test")
     log_cost(result, log)
@@ -168,6 +251,9 @@ def feedtest(c, simulation_id: str, spec_arg: str, out_dir: str, log, landing_ar
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "feed_test.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
+    vp = result.get("vision_pass") or {}
+    if vp.get("failed"):
+        log(f"feedtest: no vision description for {', '.join(map(str, vp['failed']))}; those used their text")
     out = {"feed_test": os.path.join(os.path.abspath(out_dir), "feed_test.json"),
            "personas": result.get("personas_tested"), "feeds": result.get("feeds"), "failed": result.get("failed"),
            "ranked": (result.get("summary") or {}).get("ranked"), "usage": result.get("usage")}
@@ -672,14 +758,21 @@ def load_service(name: str):
 
 def ad_patterns(c, log, ads_path: Optional[str] = None, ads_rows: Optional[List[Dict[str, Any]]] = None,
                 run_dir: Optional[str] = None, out: Optional[str] = None, engine: str = "auto", brand: str = "",
-                max_ads: int = 300, now: Optional[str] = None) -> Dict[str, Any]:
+                max_ads: int = 300, now: Optional[str] = None, vision: bool = False) -> Dict[str, Any]:
     """Label a library of real ads on seven creative dimensions and find the patterns (ad_patterns.json/.md/.csv).
-    engine 'supplied' uses labels already in the rows and runs offline; the others call the backend."""
+    engine 'supplied' uses labels already in the rows and runs offline; the others call the backend.
+    vision: rows with an image / video (local path, data URI or https URL) are described first and the
+    description becomes their visual_notes, so the labels read the picture, not only the copy."""
     rows = list(ads_rows or [])
     if ads_path:
         rows += read_rows(ads_path)
     if not rows:
         raise ValueError("ad-patterns: give --ads (CSV/JSON of ads) or --rows (JSON list)")
+    if vision:
+        if c is None:
+            raise ValueError("ad-patterns --vision needs the backend (start_server.sh)")
+        base_dir = os.path.dirname(os.path.abspath(ads_path)) if ads_path else os.getcwd()
+        _describe_ad_rows(c, log, rows[:max_ads], base_dir)
     feed = None
     if run_dir:
         try:
@@ -731,8 +824,96 @@ def ad_patterns(c, log, ads_path: Optional[str] = None, ads_rows: Optional[List[
 
 
 # --------------------------------------------------------------------------
+# customer intake
+# --------------------------------------------------------------------------
+
+def intake(c, log, files: Optional[List[str]] = None, rows: Optional[List[Dict[str, Any]]] = None,
+           out: Optional[str] = None, base: Optional[str] = None, engine: str = "llm", context: str = "",
+           id_field: str = "", segment_field: str = "", text_field: str = "", segment: str = "",
+           max_people: int = 200, replace: bool = False) -> Dict[str, Any]:
+    """Customer material (transcripts, reviews, NPS/survey verbatims, CRM notes) -> grounded personas in a persona
+    spec (real_profiles), plus intake.json / intake.md next to it. 'supplied' runs offline without a model."""
+    svc = load_service("intake")
+    raw = list(rows or [])
+    if files:
+        raw += svc.read_sources(files)
+    if not raw:
+        raise ValueError("intake: give --files (CSV/JSON exports, txt/md/vtt transcripts) or --rows")
+    log(f"intake: {len(raw)} rows from {len(files or [])} files, engine {engine}")
+    kw = {"id_field": id_field, "segment_field": segment_field, "text_field": text_field, "segment": segment,
+          "max_people": max_people}
+    if engine == "supplied":
+        data = svc.run(raw, engine="supplied", **kw)
+    else:
+        if c is None:
+            raise ValueError("intake: engine llm needs the backend (start_server.sh), or use --engine supplied")
+        people, local = svc.prepare(raw, **kw)     # scrub here, so contact details never leave this process
+        scrubbed_rows = [{"id": f"p{p['n']}", "text": p["material"], "_source": ", ".join(p["sources"]), **p["meta"]}
+                         for p in people]
+        data = c.data("POST", "/api/simulation/intake",
+                      json={"rows": scrubbed_rows, "engine": "llm", "context": context, "id_field": "id",
+                            "max_people": max_people}, timeout=1800)
+        data.setdefault("counts", {}).update({k: local[k] for k in ("rows", "rows_with_text", "scrubbed")})
+    out_spec = out or "personas.json"
+    spec: Dict[str, Any] = {}
+    for path in (base, out_spec):
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+            break
+    spec = svc.merge_into_spec(data.get("records") or [], spec, replace=replace)
+    os.makedirs(os.path.dirname(os.path.abspath(out_spec)), exist_ok=True)
+    with open(out_spec, "w", encoding="utf-8") as f:
+        json.dump(spec, f, ensure_ascii=False, indent=2)
+    report = os.path.join(os.path.dirname(os.path.abspath(out_spec)), "intake.json")
+    with open(report, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(os.path.splitext(report)[0] + ".md", "w", encoding="utf-8") as f:
+        f.write(svc.render_markdown(data))
+    counts = data.get("counts") or {}
+    log(f"intake: {counts.get('records')} grounded records from {counts.get('people')} people; "
+        f"{counts.get('excerpts_dropped', 0)} quotes dropped (not in the source); personas -> {out_spec}")
+    return {"personas": os.path.abspath(out_spec), "intake": report, "markdown": os.path.splitext(report)[0] + ".md",
+            "engine": data.get("engine"), "counts": counts, "usage": data.get("usage"),
+            "real_profiles": len(spec.get("real_profiles") or []), "note": data.get("note")}
+
+
+# --------------------------------------------------------------------------
 # emailtest
 # --------------------------------------------------------------------------
+
+def _describe_ad_rows(c, log, rows: List[Dict[str, Any]], base_dir: str, batch: int = 8) -> None:
+    """Fill visual_notes from the picture for rows that carry image / image_url / video (in place)."""
+    todo = []
+    for i, r in enumerate(rows):
+        img = r.get("image") or r.get("image_url") or r.get("thumbnail_url")
+        if not (img or r.get("video")) or r.get("visual_notes"):
+            continue
+        todo.append((r, {"id": f"row{i}", "platform": str(r.get("platform") or "facebook").lower(),
+                         "text": str(r.get("text") or r.get("body") or r.get("ad_creative_body") or "(image only)")[:2000],
+                         "headline": str(r.get("headline") or r.get("title") or "")[:300],
+                         **({"image": img} if img else {}), **({"video": r["video"]} if r.get("video") else {})}))
+    if not todo:
+        log("ad-patterns: --vision found no rows with an image or video")
+        return
+    for cr in [cr for _, cr in todo]:
+        if cr["platform"] not in ("facebook", "instagram", "reddit", "tiktok", "linkedin", "x"):
+            cr["platform"] = "facebook"
+    load_visuals([cr for _, cr in todo], base_dir, lambda m: log("ad-patterns: " + m))
+    described = 0
+    for k in range(0, len(todo), batch):
+        chunk = [(r, cr) for r, cr in todo[k:k + batch] if cr.get("image") or cr.get("frames")]
+        if not chunk:
+            continue
+        data = c.data("POST", "/api/simulation/creative-check", json={"creatives": [cr for _, cr in chunk]}, timeout=900)
+        by_id = {d.get("id"): d.get("visual") for d in data.get("creatives") or []}
+        for r, cr in chunk:
+            v = by_id.get(cr["id"])
+            if isinstance(v, dict) and v.get("description"):
+                r["visual_notes"] = (v["description"] + (f' Words on it: "{v["on_image_text"]}".' if v.get("on_image_text") else ""))[:700]
+                described += 1
+    log(f"ad-patterns: described {described} of {len(todo)} ads with pictures")
+
 
 def emailtest(c, simulation_id: str, spec_arg: str, run_dir: str, log, seed: int = 5, parallel: int = 8,
               list_size: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:

@@ -99,7 +99,7 @@ class MCPServerTest(unittest.TestCase):
         out = {m["id"]: m for m in map(json.loads, p.stdout.splitlines())}
         self.assertEqual(out[1]["result"]["serverInfo"]["name"], "market-mirror")
         names = [t["name"] for t in out[2]["result"]["tools"]]
-        for n in ("market_test", "job_status", "results", "ads_import", "backtest", "start_live", "setup", "quickstart", "pitch", "ideas", "understand", "calibrate", "email_test", "run_test", "study", "predict", "research", "push_context", "ad_patterns"):
+        for n in ("market_test", "job_status", "results", "ads_import", "backtest", "start_live", "setup", "quickstart", "pitch", "ideas", "understand", "calibrate", "email_test", "run_test", "study", "predict", "research", "push_context", "ad_patterns", "creative_check", "intake"):
             self.assertIn(n, names)
         self.assertEqual(json.loads(out[3]["result"]["content"][0]["text"]), [])
         self.assertTrue(out[4]["result"]["isError"])
