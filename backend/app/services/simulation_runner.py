@@ -65,9 +65,11 @@ class AgentAction:
     action_args: Dict[str, Any] = field(default_factory=dict)
     result: Optional[str] = None
     success: bool = True
+    thought: Optional[str] = None   # the agent's one-line reason, when the action logger recorded one
+    mood: Optional[str] = None      # the round mood the agent acted in (agent_context.round_flavour)
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "round_num": self.round_num,
             "timestamp": self.timestamp,
             "platform": self.platform,
@@ -78,6 +80,11 @@ class AgentAction:
             "result": self.result,
             "success": self.success,
         }
+        if self.thought:
+            d["thought"] = self.thought
+        if self.mood:
+            d["mood"] = self.mood
+        return d
 
 
 @dataclass
@@ -343,6 +350,8 @@ class SimulationRunner:
                     action_args=a.get("action_args", {}),
                     result=a.get("result"),
                     success=a.get("success", True),
+                    thought=a.get("thought"),
+                    mood=a.get("mood"),
                 ))
             
             return state
@@ -858,6 +867,8 @@ class SimulationRunner:
                                 action_args=action_data.get("action_args", {}),
                                 result=action_data.get("result"),
                                 success=action_data.get("success", True),
+                                thought=action_data.get("thought"),
+                                mood=action_data.get("mood"),
                             )
                             state.add_action(action)
                             
@@ -1143,6 +1154,8 @@ class SimulationRunner:
                         action_args=data.get("action_args", {}),
                         result=data.get("result"),
                         success=data.get("success", True),
+                    thought=data.get("thought"),
+                    mood=data.get("mood"),
                     ))
                     
                 except json.JSONDecodeError:

@@ -150,11 +150,37 @@ def persona_cards(config: Dict[str, Any]) -> Dict[int, str]:
     return cards
 
 
+_EMOTION = None
+
+
+def _emotion():
+    """app/services/emotion.py, loaded by path (stdlib only), so the runner does not import the whole services package."""
+    global _EMOTION
+    if _EMOTION is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "services", "emotion.py")
+        spec = importlib.util.spec_from_file_location("_mm_emotion", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _EMOTION = mod
+    return _EMOTION
+
+
 def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
                   activity: Optional[Dict[int, float]] = None,
                   occupation: str = "",
-                  bstate: Optional[Dict[str, Any]] = None) -> Tuple[int, str]:
-    """(action budget 1-3, mood) for one agent this round. More active people and evening hours get bigger budgets."""
+                  bstate: Optional[Dict[str, Any]] = None,
+                  emotions: Optional[str] = None) -> Tuple[int, str]:
+    """(action budget 1-3, mood) for one agent this round. More active people and evening hours get bigger budgets.
+    With emotions "on" and a stored mood (behavior_state.json v2), the mood word comes from how the person feels and
+    arousal / sadness nudge the budget (emotion.COUPLING["actions"]); the same random numbers are drawn either way."""
+    snap: Dict[str, Any] = {}
+    mult = 1.0
+    if bstate and isinstance(bstate.get("affect"), dict):
+        emo = _emotion()
+        if emo.mode(emotions) == "on":
+            snap = emo.at_next_test(bstate, bstate.get("_affect_traits"))
+            mult = emo.effects(snap, "on")["actions"]
     act = (activity if activity is not None else _STATE["activity"]).get(agent_id, 0.5)
     occ = (occupation or "").lower()
     if "night shift" in occ:
@@ -163,11 +189,13 @@ def round_flavour(agent_id: int, round_num: int, hour: int, rng: random.Random,
         peak = 1.0 if (13 <= hour <= 15 or 19 <= hour <= 23) else 0.65 if 8 <= hour <= 18 else 0.4
     else:
         peak = 1.0 if 18 <= hour <= 23 or 12 <= hour <= 13 else 0.7 if 7 <= hour <= 17 else 0.4
-    x = rng.random() * act * peak
+    x = rng.random() * act * peak * mult
     budget = 3 if x > 0.55 else 2 if x > 0.25 else 1
     mood = rng.choice(MOODS)
     if 0 <= hour <= 5 and "night shift" not in occ:
         mood = rng.choice(["tired", "can't sleep", "bored"])
+    elif snap.get("mood"):
+        mood = snap["mood"]
     if bstate:
         fat = float(bstate.get("fatigue", 0.0))
         tru = float(bstate.get("trust", 0.5))
@@ -218,7 +246,8 @@ def begin_round(round_num: int, hour: int, platform: Optional[str] = None) -> No
     for aid in list(st["cards"]):
         st["budgets"][aid], st["moods"][aid] = round_flavour(
             aid, round_num, hour, rng, st["activity"],
-            occupation=st["occupations"].get(aid, ""), bstate=st["behavior_states"].get(aid))
+            occupation=st["occupations"].get(aid, ""), bstate=st["behavior_states"].get(aid),
+            emotions=st.get("emotions"))
 
 
 def occupations(config: Dict[str, Any]) -> Dict[int, str]:
@@ -249,7 +278,7 @@ def behavior_states(sim_dir: Optional[str], scope: str = "default") -> Dict[int,
         try:
             st = rec.get("state") if isinstance(rec, dict) else None
             if isinstance(st, dict):
-                out[int(aid)] = st
+                out[int(aid)] = {**st, "_affect_traits": rec.get("affect_traits")} if st.get("affect") else st
         except (TypeError, ValueError):
             continue
     return out
@@ -352,6 +381,7 @@ def install(agent_graph: Any, config: Dict[str, Any], seed: int = 7, platform: O
     st["behavior_states"] = {}
     st["rng"] = random.Random(seed)
     st["config_path"] = config_path or (config or {}).get("_config_path")
+    st["emotions"] = (config or {}).get("emotions")        # None: MM_EMOTIONS from the environment, else "observe"
     st["context"] = []
     begin_round(0, 12, platform)
     n = 0

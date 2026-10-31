@@ -620,9 +620,12 @@ def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000, engi
         log(f"survey: free-text rating (SSR) unavailable, using the stated numbers instead: {e}")
         return {"used": False, "reason": str(e)[:300], **({"engine": engine} if engine else {})}
     mapped = marketing.attach_ssr(responses, results)
+    feelings = step_affect_ssr(c, responses)
     used_engine = info.get("engine") or "embeddings"
     out = {"used": True, "engine": used_engine, "model": info.get("model"), "anchors_version": info.get("anchors_version"),
            "temperature": info.get("temperature"), "mapped": mapped, "counts": counts or None}
+    if feelings:
+        out["feelings"] = feelings
     if used_engine == "embeddings":
         out["method"] = "semantic similarity rating, arXiv 2510.08338"
         log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
@@ -634,6 +637,38 @@ def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000, engi
         log(f"survey: mapped {len(results)} free-text answers from {mapped} people to rating distributions "
             f"(SSR, {out['method']}; {counts.get('failed', 0)} answers not rated)")
     return out
+
+
+def step_affect_ssr(c: Client, responses: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Each feeling_text read on valence and arousal by the same local embeddings (answer["feeling_ssr"]), and how
+    often the self-reported pleasantness agrees with those words. None when no one described a feeling."""
+    items = []
+    for i, r in enumerate(responses):
+        ans = r.get("answer") or {}
+        if str(ans.get("feeling_text") or "").strip():
+            pl = (ans.get("feel") or {}).get("pleasant") if isinstance(ans.get("feel"), dict) else None
+            items.append({"id": str(i), "text": ans["feeling_text"],
+                          **({"pleasant": float(pl)} if isinstance(pl, (int, float)) else {})})
+    if not items:
+        return None
+    try:
+        res = c.data("POST", "/api/simulation/affect-ssr", json={"items": items}, timeout=600) or {}
+    except CLIError as e:
+        log(f"survey: feelings rating skipped: {e}")
+        return {"used": False, "reason": str(e)[:300]}
+    for row in res.get("results") or []:
+        try:
+            ans = responses[int(row["id"])].get("answer")
+        except (KeyError, ValueError, IndexError, TypeError):
+            continue
+        if isinstance(ans, dict):
+            ans["feeling_ssr"] = {k: row[k] for k in ("valence", "arousal") if k in row}
+    check = res.get("words_check") or {}
+    if check.get("n"):
+        log(f"survey: feelings: self-reported pleasantness matched the person's own words for "
+            f"{round(100 * check.get('sign_agreement', 0))}% of {check['n']} answers (local embeddings)")
+    return {"used": True, "anchors_version": res.get("anchors_version"), "words_check": check,
+            "rated": len(res.get("results") or [])}
 
 
 def step_objection_check(c: Client, responses: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

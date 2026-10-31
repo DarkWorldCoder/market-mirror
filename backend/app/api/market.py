@@ -261,8 +261,31 @@ def _with_history(people, simulation_id: str, scope: str, mode: str = None):
         return people
     data = behavior_state.load(sim_dir)
     brand = _brand(simulation_id) if emo_mode == "on" else ""
-    return [{**p, "history": behavior_state.prompt_block(sim_dir, p["agent_id"], scope, data=data, mode=emo_mode, brand=brand)}
-            for p in people]
+    out = [{**p, "history": behavior_state.prompt_block(sim_dir, p["agent_id"], scope, data=data, mode=emo_mode, brand=brand)}
+           for p in people]
+    if emo_mode == "on":                      # the mood when this test reaches them drives the couplings
+        agents = ((data.get("scopes") or {}).get(scope) or {})
+        for p in out:
+            rec = agents.get(str(p["agent_id"])) or {}
+            now = emotion.at_next_test(rec.get("state"), p.get("affect_traits"))
+            if now:
+                p["affect_now"] = now
+    return out
+
+
+def _words_check(result) -> None:
+    """Check each recorded feeling's pleasantness against the person's own words (local embeddings, no model call)."""
+    emo = result.get("emotion") if isinstance(result, dict) else None
+    if not isinstance(emo, dict) or emo.get("mode") in (None, "off"):
+        return
+    from ..services import emotion, ssr
+    pairs = emotion.feel_pairs({k: v for k, v in result.items() if k != "emotion"})
+    if not pairs:
+        return
+    try:
+        emo["words_check"] = ssr.affect_agreement(pairs)
+    except Exception as e:  # noqa: BLE001 - an extra quality check, never fails a test
+        logger.info(f"feelings words check skipped: {e}")
 
 
 def _record_memory(kind: str, simulation_id: str, result, scope: str, emotions: str = None, traits=None) -> None:
@@ -286,6 +309,7 @@ def _start(kind: str, simulation_id: str, work, memory_scope: str = "", emotions
             tm.update_task(task_id, status=TaskStatus.PROCESSING, progress=1, message=f"{kind} started")
             result = work(lambda done, total: tm.update_task(
                 task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}"))
+            _words_check(result)
             _record_memory(kind, simulation_id, result, memory_scope, emotions, traits)
             path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
             with open(path, "w", encoding="utf-8") as f:
@@ -506,9 +530,20 @@ def start_focus_group():
         return jsonify({"success": False, "error": "fewer than 2 matching people"}), 400
     complete = _plain_complete()
 
+    emo_mode = _emotion_mode(data)
+
     def work(progress):
-        return focus_group.run_group(group, guide, complete, str(data.get("offer") or "")[:600],
-                                     str(data.get("goal") or "")[:200], int(data.get("rounds") or 1))
+        res = focus_group.run_group(group, guide, complete, str(data.get("offer") or "")[:600],
+                                    str(data.get("goal") or "")[:200], int(data.get("rounds") or 1))
+        if emo_mode != "off":
+            from ..services import ssr
+            try:
+                split = focus_group.affect_split(res, lambda texts: ssr.rate_affect(texts, ("valence",)))
+                if split:
+                    res["affect"] = split
+            except Exception as e:  # noqa: BLE001 - an extra check, never fails the group
+                logger.info(f"focus group feelings check skipped: {e}")
+        return res
 
     task_id = _start("focus-group", sid, work)
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(group),
@@ -600,6 +635,28 @@ def semantic_similarity_rating():
         **info, "anchors_version": ssr.ANCHORS_VERSION, "scales": list(ssr.SCALES), "temperature": temperature,
         "results": [{"id": r.get("id"), "scale": r.get("scale"), **res, **({"engine": eng} if per_item else {})}
                     for r, res, eng in zip(rows, rated, engines) if res]}})
+
+
+@simulation_bp.route('/affect-ssr', methods=['POST'])
+def affect_ssr():
+    """How free-text feelings read on valence and arousal (local embeddings, no model call), plus how well the
+    self-reported pleasantness agrees with the words. POST {items:[{id, text, pleasant?}]} (max 5000)."""
+    from ..services import ssr
+    data = request.get_json() or {}
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 5000:
+        return jsonify({"success": False, "error": "items must be a list of {id, text, pleasant?} (max 5000)"}), 400
+    rows = [it for it in items if isinstance(it, dict) and str(it.get("text") or "").strip()]
+    try:
+        rated = ssr.rate_affect([str(r["text"])[:400] for r in rows], ("valence", "arousal"))
+        pairs = [(r["pleasant"], r["text"]) for r in rows if isinstance(r.get("pleasant"), (int, float))]
+        check = ssr.affect_agreement(pairs) if pairs else {"n": 0}
+    except ssr.SSRUnavailable as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+    return jsonify({"success": True, "data": {
+        "anchors_version": ssr.AFFECT_ANCHORS_VERSION, "words_check": check,
+        "results": [{"id": r.get("id"), **{k: {"mean": v["mean"], "signed": v["signed"]} for k, v in res.items()}}
+                    for r, res in zip(rows, rated) if res]}})
 
 
 @simulation_bp.route('/objection-check', methods=['POST'])

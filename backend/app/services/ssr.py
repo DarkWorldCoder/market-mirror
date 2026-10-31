@@ -95,6 +95,42 @@ ANCHORS: Dict[str, List[List[str]]] = {
 }
 SCALES = tuple(ANCHORS)
 
+# How something made a person feel, rated from their own words instead of trusting the label the model picked.
+# Same method as above (Maier et al. 2025): one statement per point, 1 = lowest, 5 = highest.
+AFFECT_ANCHORS_VERSION = "2026-10-affect-v1"
+AFFECT_ANCHORS: Dict[str, List[List[str]]] = {
+    "valence": [
+        ["This made me feel awful.", "This left me feeling a bit bad.", "I feel nothing much either way.",
+         "This made me feel a bit good.", "This made me feel really good."],
+        ["I'm upset by this.", "It's slightly unpleasant.", "It's neither pleasant nor unpleasant.",
+         "It's quite pleasant.", "I'm delighted by this."],
+        ["I hate this.", "I don't like how this feels.", "Meh, it's fine.", "I like this.", "I love this."],
+    ],
+    "arousal": [
+        ["I feel completely calm about it, almost bored.", "I'm fairly relaxed about it.", "It stirs me a little.",
+         "I feel quite stirred up by this.", "I'm really worked up, my heart is racing."],
+        ["It leaves me cold and sleepy.", "It barely moves me.", "It gets my attention a bit.",
+         "It really gets my attention.", "I'm buzzing, I can't ignore this."],
+    ],
+    "ad_liking": [
+        ["I really dislike this ad.", "I don't like this ad much.", "The ad is okay.", "I like this ad.",
+         "I love this ad."],
+        ["This ad is annoying and I want it gone.", "This ad is a bit irritating.", "I don't mind the ad.",
+         "This ad is nice to see.", "This is a great ad, I'd happily watch it again."],
+    ],
+    "skepticism": [
+        ["I believe every word of it.", "It sounds mostly believable.", "I'm not sure what to believe.",
+         "I doubt a lot of what it claims.", "I don't believe any of it, it's too good to be true."],
+        ["It feels completely honest.", "It seems honest enough.", "Some of it might be spin.",
+         "It feels like they're overselling.", "It feels like a manipulative trick."],
+    ],
+}
+AFFECT_SCALES = tuple(AFFECT_ANCHORS)
+
+
+def _anchor_sets(scale: str) -> Optional[List[List[str]]]:
+    return ANCHORS.get(scale) or AFFECT_ANCHORS.get(scale)
+
 # Latin sentence ends need a following space (keeps "4.5" whole); script-specific stops do not.
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[\u0964\u0965\u3002\uff01\uff1f\u06d4\u061f\u104b])\s*")
 
@@ -159,7 +195,7 @@ def anchor_matrix(embedder, scale: str) -> np.ndarray:
         cached = _anchor_cache.setdefault(key, {})
         if scale in cached:
             return cached[scale]
-    sets = ANCHORS[scale]
+    sets = _anchor_sets(scale)
     flat = _embed(embedder, [s for st in sets for s in st])
     m = flat.reshape(len(sets), POINTS, -1)
     with _lock:
@@ -198,7 +234,7 @@ def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1
         raise SSRUnavailable("no embedding model configured")
     out: List[Optional[Dict[str, Any]]] = [None] * len(items)
     todo = [(i, scale, str(text).strip()) for i, (scale, text) in enumerate(items)
-            if scale in ANCHORS and text is not None and str(text).strip()]
+            if _anchor_sets(scale) and text is not None and str(text).strip()]
     if not todo:
         return out
     vecs = _embed(embedder, [verdict_clause(t) if lead_only else t for _, _, t in todo])
@@ -207,6 +243,59 @@ def rate(items: Sequence[Tuple[str, str]], embedder=None, temperature: float = 1
         sims = anchors @ v                                                  # (sets, points)
         out[i] = describe(pmf_from_similarities(sims, temperature, epsilon))
     return out
+
+
+def rate_affect(texts: Sequence[str], scales: Sequence[str] = ("valence", "arousal"), embedder=None,
+                temperature: float = 1.0) -> List[Optional[Dict[str, Any]]]:
+    """Free-text feelings ("pushy again", "felt relieved") -> {scale: {pmf, mean, sd, score10, signed}} per text, from
+    local embeddings only (no model call). signed is the mean moved onto -1..1 (3 on the 1-5 scale is 0).
+    Raises SSRUnavailable when the embedding model cannot be used."""
+    scales = [sc for sc in scales if sc in AFFECT_ANCHORS]
+    items = [(sc, t) for t in texts for sc in scales]
+    flat = rate(items, embedder=embedder, temperature=temperature, lead_only=False) if items else []
+    out: List[Optional[Dict[str, Any]]] = []
+    for i in range(len(texts)):
+        row = {}
+        for j, sc in enumerate(scales):
+            r = flat[i * len(scales) + j]
+            if r:
+                row[sc] = {**r, "signed": round((r["mean"] - 3.0) / 2.0, 3)}
+        out.append(row or None)
+    return out
+
+
+def _corr(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
+    n = len(xs)
+    if n < 3:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sx = math.sqrt(sum((x - mx) ** 2 for x in xs))
+    sy = math.sqrt(sum((y - my) ** 2 for y in ys))
+    if sx == 0 or sy == 0:
+        return None
+    return round(sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sx * sy), 3)
+
+
+def affect_agreement(pairs: Sequence[Tuple[float, str]], embedder=None, band: float = 0.15) -> Dict[str, Any]:
+    """Does the pleasantness the model reported (-1..1) match what its own words say? [(pleasant, words)] -> how often
+    the signs agree (both inside +-band counts as agreeing on 'nothing much') and the correlation. A low agreement
+    means the self-reported feelings are not tracking the person's own words: treat them with extra caution."""
+    pairs = [(float(p), str(w).strip()) for p, w in pairs if w is not None and str(w).strip() and p is not None]
+    if not pairs:
+        return {"n": 0}
+    rated = rate_affect([w for _, w in pairs], scales=("valence",), embedder=embedder)
+    got = [(p, r["valence"]["signed"]) for (p, _), r in zip(pairs, rated) if r and r.get("valence")]
+    if not got:
+        return {"n": 0}
+
+    def sign(x: float) -> int:
+        return 0 if abs(x) < band else (1 if x > 0 else -1)
+    agree = sum(1 for p, v in got if sign(p) == sign(v)) / len(got)
+    return {"n": len(got), "sign_agreement": round(agree, 3), "corr": _corr([p for p, _ in got], [v for _, v in got]),
+            "self_valence_mean": round(sum(p for p, _ in got) / len(got), 3),
+            "words_valence_mean": round(sum(v for _, v in got) / len(got), 3),
+            "low_agreement_flag": bool(len(got) >= 10 and agree < 0.5),
+            "basis": f"local embeddings vs {AFFECT_ANCHORS_VERSION} anchors; no model call"}
 
 
 # --------------------------------------------------------------------------
