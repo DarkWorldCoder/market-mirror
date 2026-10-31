@@ -1243,10 +1243,18 @@ def cmd_feedtest(c: Client, a) -> Any:
     try:
         res = market_cli.feedtest(c, a.simulation, a.creatives, out_dir, log, a.landing, a.benchmarks, a.waves,
                                   a.organic, a.limit, a.parallel, a.exposures, not a.no_attention_gate, a.seeds,
-                                  competitor_arg=a.competitor, generic_baseline=True if a.generic_baseline else None)
+                                  competitor_arg=a.competitor, generic_baseline=True if a.generic_baseline else None,
+                                  vision=a.vision)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     return _reexport(c, a, out_dir, res)
+
+
+def cmd_creative_check(c: Client, a) -> Any:
+    try:
+        return market_cli.creative_check(c, log, a.creatives, a.out)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_website_test(c: Client, a) -> Any:
@@ -1488,11 +1496,18 @@ def cmd_market_test(c: Client, a) -> Any:
             log("market-test: reusing completed feed test in this study cell")
         else:
             cpath = _cfg_path(base, creatives)
+            if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
+                inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
+                for cr in inline or []:
+                    for k in ("image", "video"):
+                        v = cr.get(k) if isinstance(cr, dict) else None
+                        if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
+                            cr[k] = os.path.join(base, v)
             arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
             state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
                 c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
                 int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5)), log)
+                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
         steps.append("feed_test")
         checkpoint()
     emails = cfg.get("emails")
@@ -1670,7 +1685,8 @@ def cmd_ad_patterns(c: Optional[Client], a) -> Any:
             rows = rows.get("ads") or rows.get("rows") or rows
         if rows is not None and not isinstance(rows, list):
             raise ValueError("--rows must be a JSON list of ad objects (or @file with one)")
-        res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now)
+        res = market_cli.ad_patterns(c, log, a.ads, rows, a.run_dir, a.out, a.engine, a.brand or "", a.max_ads, a.now,
+                                     vision=a.vision)
     except (ValueError, RuntimeError, OSError) as e:
         raise CLIError(str(e))
     if a.run_dir and os.path.exists(os.path.join(a.run_dir, "run_manifest.json")):
@@ -2357,6 +2373,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="repeat with N different seeds and report each creative's range (N x the cost; default %(default)s)")
     s.add_argument("--competitor", help="@competitor.json or JSON {name, offer|text|headline, price?}: a rival "
                                          "counter-offer / price shock shown in the same feeds (summary.competitor_shock)")
+    s.add_argument("--vision", choices=["describe", "direct", "off"],
+                   help="creatives with image / video / frames: describe (default) = one vision call per creative writes "
+                        "what it shows and a pre-flight checklist, then every buyer reads that; direct = every buyer's "
+                        "scroll call also carries the picture (API providers; cached per creative); off = text only")
     s.add_argument("--generic-baseline", action="store_true",
                    help="also rank the ads with one zero-persona generic reader (summary.generic_baseline; one extra call)")
     s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL)
@@ -2476,7 +2496,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--brand")
     s.add_argument("--now", help="collection date (YYYY-MM-DD) for rows without collected_at (default today)")
     s.add_argument("--max-ads", type=int, default=300)
+    s.add_argument("--vision", action="store_true", help="describe each row's image / video (image, image_url, "
+                                                         "thumbnail_url or video) first, so labels read the picture (backend)")
     s.add_argument("--out", help="ad_patterns.json path (default: <run-dir>/ad_patterns.json or ./ad_patterns.json)")
+
+    s = sub.add_parser("creative-check", help="pre-flight look at real ad images / videos: what they show, words on "
+                                              "them, brand and CTA visibility, platform checks, measured aspect ratio")
+    s.add_argument("--creatives", required=True, help="@creatives.json (each with image, video or frames, plus platform)")
+    s.add_argument("--out", help="creative_check.json path (default ./creative_check.json)")
 
     s = sub.add_parser("intake", help="turn your customer material (call transcripts, reviews, NPS/survey verbatims, CRM notes) "
                                       "into grounded personas (personas.json real_profiles); contact details are removed first")
@@ -2855,7 +2882,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "intake": cmd_intake, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -2871,7 +2898,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
         offline = offline_export or offline_live or offline_search or a.cmd in ("ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
-            (a.cmd == "ad-patterns" and a.engine == "supplied") or (a.cmd == "intake" and a.engine == "supplied")
+            (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":
             try:
                 Client(a.base_url, lang=a.lang).get("/health")

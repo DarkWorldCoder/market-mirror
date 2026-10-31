@@ -75,6 +75,14 @@ Grounded people are a small, self-selected sample: the customers who wrote a rev
 
 Platforms: `facebook`, `instagram`, `reddit`, `tiktok`, `linkedin`, `x`. Several creatives on one platform are split-tested automatically.
 
+**Pictures.** `image` (a local path up to 4 MB, or an https URL) or `video` (a local file: keyframes at 0 s, 1 s, 3 s and the middle are taken with ffmpeg) let the simulated buyers react to the real creative.
+
+- **`"vision": "describe"`** (the default). One vision call per creative writes what it shows, the words on it, brand and CTA visibility and a pre-flight checklist into `media`; the brief's own `media` is kept as `media_brief`. Every provider, including the local login gateway, then works from that.
+- **`"vision": "direct"`.** Every scroll call also carries the picture. It sits in the cached shared part of the prompt, so a crowd pays for it about once on Claude's API.
+- **`"off"`** keeps the run text-only.
+
+The dashboard card shows "What the buyers saw". `creative-check --creatives @creatives.json` runs the same check without a simulation.
+
 In the `market-test` config, `seeds` lists your documents and `seeds_n` is how many times to repeat the feed test with different random seeds (same as `feedtest --seeds N`).
 
 ## One experiment
