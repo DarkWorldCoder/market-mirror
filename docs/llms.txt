@@ -6,6 +6,8 @@ MarketMirror is built on MiroFish (knowledge graph -> LLM agents -> report), whi
 
 ## Start here
 
+- [From simulated objection to real experiment](https://darkworldcoder.github.io/market-mirror/guides/first-real-test/): a worked fictional Fitloop example, a truthful comparison and a real-test worksheet
+
 - [README](https://github.com/DarkWorldCoder/market-mirror/blob/main/README.md): what it is, what you can test, quick start, limits
 - [Live demo](https://darkworldcoder.github.io/market-mirror/demo/): the dashboard of a 2,999-person simulated run for an invented app (Fitloop); every number is simulated
 - [Agent install guide](https://github.com/DarkWorldCoder/market-mirror/blob/main/llms-install.md): MCP server setup for agents (`uvx marketmirror`)

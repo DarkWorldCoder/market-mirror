@@ -12,3 +12,5 @@
 @media(max-width:800px){.hero{padding-top:40px}.hero-preview{margin-top:40px}}
 @media(max-width:580px){.hero{padding-top:34px}.hero-preview{margin-top:32px}}
 .decision-badge{color:#806418}.image-topline{color:#756a7b}.workflow-tabs button span{color:#7c6884}.workflow-tabs button[aria-selected=true] span{color:#90616c}.step-number{color:#8d6654}.footer-bottom a{color:#786580}
+
+.footer-top nav{flex-wrap:wrap}

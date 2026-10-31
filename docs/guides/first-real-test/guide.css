@@ -1,0 +1,51 @@
+.guide-page{--guide-text:#515258;font-size:1rem;line-height:1.6}
+.guide-page p{color:var(--guide-text);text-wrap:pretty}
+.guide-page h1,.guide-page h2,.guide-page h3{text-wrap:balance;letter-spacing:-.02em}
+.guide-page h1{font-size:clamp(2.15rem,4.7vw,3.9rem);line-height:1.1;max-width:19ch;margin:0}
+.guide-page h2{font-size:1.9rem;line-height:1.25;margin-bottom:1.1rem}
+.guide-page h3{font-size:1.25rem;line-height:1.3;margin:1.6rem 0 .65rem}
+.guide-page .site-header{border-bottom:1px solid var(--line)}
+.guide-page .site-header nav{display:flex;align-items:center;gap:1.3rem;font-size:.875rem}
+.guide-skip{position:fixed;top:10px;left:10px;z-index:10;transform:translateY(-200%);background:#fff;padding:10px 16px;border:2px solid #202124}
+.guide-skip:focus{transform:none}
+.guide-hero{padding:4.5rem 0 3rem}
+.guide-kicker{font-size:.875rem;margin-bottom:1.4rem;color:var(--guide-text)}
+.guide-deck{font-size:1.15rem;line-height:1.6;max-width:63ch;margin-top:1.6rem}
+.guide-meta{font-size:.8125rem;margin-top:1.5rem;max-width:75ch}
+.guide-hero-actions{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-top:1.7rem}
+.guide-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:3.2rem;align-items:start;padding-bottom:4rem}
+.guide-toc{position:sticky;top:2rem;border-top:1px solid var(--line);padding-top:1.2rem;font-size:.875rem}
+.guide-toc p{font-weight:600;color:var(--ink);margin-bottom:.6rem}
+.guide-toc ol{list-style:none;padding:0;margin:0}
+.guide-toc a{display:block;min-height:44px;padding:.6rem 0;text-decoration:none;color:#5d5e64}
+.guide-toc a:hover{color:#111;text-decoration:underline;text-underline-offset:4px}
+.guide-reading{min-width:0;max-width:70ch}
+.guide-reading section{padding:2.7rem 0;border-top:1px solid var(--line);scroll-margin-top:2rem}
+.guide-reading p+p{margin-top:1rem}
+.guide-reading a:not(.button){text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.guide-quote{margin:1.6rem 0;padding:1.6rem 1.7rem;border-left:4px solid #e6c63e;background:#fcfbf6}
+.guide-quote blockquote{margin:0;color:#202124;font-size:1.35rem;line-height:1.5;letter-spacing:-.01em}
+.guide-quote figcaption{font-size:.8125rem;line-height:1.6;color:#5d5e64;margin-top:.9rem}
+.guide-screenshot{margin-top:1.7rem}
+.guide-image-window{max-height:410px;overflow:hidden;border:1px solid var(--line);border-radius:6px}
+.guide-image-window img{width:100%;height:auto}
+.guide-screenshot figcaption{font-size:.8125rem;line-height:1.6;margin-top:.75rem;color:#5d5e64}
+.guide-variants{margin:1.6rem 0;border-block:1px solid var(--line)}
+.guide-variant{display:grid;grid-template-columns:100px 1fr;gap:1rem;padding:1.3rem 0}
+.guide-variant+.guide-variant{border-top:1px solid var(--line)}
+.guide-variant dt{font-size:.875rem;font-weight:600}
+.guide-variant dd{margin:0;font-size:1.15rem;line-height:1.55}
+.guide-example-note{font-size:.875rem}
+.guide-metric{padding:1.35rem 0;border-block:1px solid var(--line);margin:1.4rem 0}
+.guide-metric strong{font-weight:600;display:block;margin-bottom:.5rem}
+.guide-metric p{font-size:.9375rem}
+.guide-worksheet-actions{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin:1.25rem 0 .6rem}
+.guide-copy-status{min-height:1.6em;font-size:.8125rem;color:#4c4d53!important}
+.guide-template{background:#fafafa;border:1px solid var(--line);padding:1.3rem;border-radius:6px;font-size:.875rem;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word;margin-top:1rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.guide-source-note{font-size:.875rem;margin-top:1.5rem}
+.guide-next{padding:1.6rem;border:1px solid var(--line);border-radius:6px;margin-top:1.7rem}
+.guide-next h3{margin-top:0}
+.guide-next .button{margin-top:1.1rem}
+.guide-page .footer-top nav{flex-wrap:wrap}
+@media(max-width:850px){.guide-layout{grid-template-columns:1fr;gap:1.5rem}.guide-toc{position:static}.guide-toc ol{display:flex;gap:.5rem 1.5rem;flex-wrap:wrap}.guide-toc a{padding:.5rem 0}.guide-hero{padding-top:3rem}.guide-reading{max-width:70ch}.guide-page .site-header{height:auto;min-height:88px;flex-wrap:wrap;padding-block:1.2rem}}
+@media(max-width:580px){.guide-page .site-header nav{gap:.9rem;font-size:.8125rem}.guide-page .site-header .button{font-size:.75rem;min-height:40px}.guide-hero{padding:2.6rem 0 2rem}.guide-deck{font-size:1rem}.guide-hero-actions{gap:.7rem}.guide-page h2{font-size:1.6rem}.guide-reading section{padding-block:2.1rem}.guide-quote{padding:1.1rem 1.2rem}.guide-quote blockquote{font-size:1.15rem}.guide-variant{grid-template-columns:1fr;gap:.35rem}.guide-variant dd{font-size:1.05rem}.guide-image-window{max-height:330px}.guide-template{font-size:.8125rem;padding:1rem}.guide-next{padding:1.2rem}.guide-page .footer-top nav{gap:1rem 1.5rem}}
