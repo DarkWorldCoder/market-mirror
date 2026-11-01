@@ -8,11 +8,14 @@ whom to call first. Pure functions here; the API in market.py runs the interview
 """
 
 import json
+import logging
 import re
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional
 
 from . import emotion, say_do
+
+logger = logging.getLogger(__name__)
 
 FEEL_JSON = ('"feel": {"emotion": "neutral|interest|joy|trust|surprise|fomo|irritation|anxiety|sadness|disgust|regret|pressured", '
              '"intensity": 0-1, "pleasant": -1 to 1, "novel": 0-1, "relevant": 0-1, "control": 0-1, '
@@ -412,7 +415,11 @@ def run(interview_batch: Callable[[List[Dict[str, Any]]], Dict[int, str]], peopl
     out["channel"] = channel
     out["rebuttals"] = rebuttals
     out["emotion"] = {"mode": emo_mode, "version": emotion.VERSION}
-    sd = say_do_split(out, people, script, product)
+    try:
+        sd = say_do_split(out, people, script, product)
+    except Exception as e:  # noqa: BLE001 - an extra view, never fails the pitch
+        logger.warning(f"pitch: say-do split skipped: {e}")
+        sd = None
     if sd:
         out["say_do"] = sd
     return out

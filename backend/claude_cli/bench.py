@@ -384,12 +384,17 @@ def run_upworthy(path: str, n: int, complete: Optional[Complete], methods: Seque
         if m == "persona_panel_feel":
             res["feelings"] = feel_checks(sample, feels)
         out["methods"][m] = res
+    ids = [t["id"] for t in sample]
+
+    def full(per: Dict[str, int]) -> Dict[str, int]:      # a test a method failed to score counts as a miss
+        return {i: per.get(i, 0) for i in ids}
     for m in PANEL_VARIANTS:
         if m != "persona_panel" and "per_test" in out["methods"].get(m, {}):
             for base in ("persona_panel", "generic_reader"):
                 if "per_test" in out["methods"].get(base, {}):
-                    out["methods"][m][f"vs_{base}"] = paired_diff(out["methods"][m]["per_test"],
-                                                                  out["methods"][base]["per_test"], salt=f"{SALT}:{m}:{base}")
+                    out["methods"][m][f"vs_{base}"] = paired_diff(full(out["methods"][m]["per_test"]),
+                                                                  full(out["methods"][base]["per_test"]),
+                                                                  salt=f"{SALT}:{m}:{base}")
     return out
 
 
@@ -580,6 +585,7 @@ def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], m
 # the gate for turning emotions "on" by default
 # --------------------------------------------------------------------------
 
+MIN_COVERAGE = 0.9        # the feelings panel must score at least 90% of the sampled tests
 GATE_RULE = ("Emotions stay 'observe' by default. 'on' may become the default only if every check passes: "
              "(1) on Upworthy, the feelings panel is at least as accurate as both persona_panel and generic_reader; "
              "(2) on Twin-2K-500, twin_affect's accuracy is not lower and its Brier score not higher than twin's; "
@@ -596,13 +602,16 @@ def flip_gate(upworthy: Optional[Dict[str, Any]], twin: Optional[Dict[str, Any]]
     def add(name: str, ok: Optional[bool], detail: Any) -> None:
         checks.append({"check": name, "pass": bool(ok), "detail": detail if ok is not None else "not run"})
     feel = um.get("persona_panel_feel") or {}
+    tests = (upworthy or {}).get("tests") or 0
+    covered = bool(tests) and (feel.get("n") or 0) >= MIN_COVERAGE * tests
     for base in ("persona_panel", "generic_reader"):
         d = feel.get(f"vs_{base}")
-        add(f"feelings panel >= {base} (Upworthy)", None if not d else d["diff"] >= 0, d)
+        add(f"feelings panel >= {base} (Upworthy)", None if not d else (d["diff"] >= 0 and covered),
+            None if not d else {**d, "scored": feel.get("n"), "tests": tests, "coverage_ok": covered})
     tw, ta = tm.get("twin") or {}, tm.get("twin_affect") or {}
     if tw.get("accuracy") is not None and ta.get("accuracy") is not None:
-        ok = ta["accuracy"] >= tw["accuracy"] and (ta.get("brier_purchase") is None or tw.get("brier_purchase") is None
-                                                   or ta["brier_purchase"] <= tw["brier_purchase"])
+        ok = (ta["accuracy"] >= tw["accuracy"] and ta.get("brier_purchase") is not None
+              and tw.get("brier_purchase") is not None and ta["brier_purchase"] <= tw["brier_purchase"])
         add("twin_affect >= twin (Twin-2K-500)", ok, {"accuracy": [ta["accuracy"], tw["accuracy"]],
                                                      "brier": [ta.get("brier_purchase"), tw.get("brier_purchase")],
                                                      "paired": ta.get("vs_twin")})
@@ -614,13 +623,15 @@ def flip_gate(upworthy: Optional[Dict[str, Any]], twin: Optional[Dict[str, Any]]
     neg = feel.get("feelings") or {}
     add("negativity sign matches", None if "negativity_sign_matches" not in neg else neg["negativity_sign_matches"],
         {"valence_ctr_spearman": neg.get("valence_ctr_spearman"), "ci95": neg.get("ci95")} if neg else None)
-    return {"pass": all(c["pass"] for c in checks), "checks": checks, "rule": GATE_RULE,
-            "default": "on" if all(c["pass"] for c in checks) else "observe"}
+    ok = all(c["pass"] for c in checks)
+    return {"pass": ok, "checks": checks, "rule": GATE_RULE, "eligible_default": "on" if ok else "observe",
+            "note": "The gate reports; it does not change emotion.DEFAULT_MODE."}
 
 
 def render_gate(g: Dict[str, Any]) -> str:
     lines = ["# Emotion layer: default-flip gate", "", g["rule"], "",
-             f"Result: **{'pass' if g['pass'] else 'not passed'}**, so the default is **{g['default']}**.", "",
+             (f"Result: **pass**: 'on' is eligible to become the default (change emotion.DEFAULT_MODE in a reviewed PR)."
+              if g["pass"] else "Result: **not passed**: the default stays **observe**."), "",
              "| check | pass | detail |", "|---|---|---|"]
     for c in g["checks"]:
         lines.append(f"| {c['check']} | {'yes' if c['pass'] else 'no'} | {json.dumps(c['detail'], ensure_ascii=False)} |")

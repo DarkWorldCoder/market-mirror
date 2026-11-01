@@ -144,7 +144,15 @@ class EmotionAblation(unittest.TestCase):
         self.assertIn("Result:", bench.render_gate(g))
         none = bench.flip_gate(None, None)
         self.assertFalse(none["pass"])
-        self.assertEqual(none["default"], "observe")
+        self.assertEqual(none["eligible_default"], "observe")
+        self.assertIn("stays **observe**", bench.render_gate(none))
+        # a feelings panel that skipped tests, or a missing Brier score, does not pass
+        thin = json.loads(json.dumps(up))
+        thin["methods"]["persona_panel_feel"]["n"] = 1
+        self.assertFalse(bench.flip_gate(thin, twin)["checks"][0]["pass"])
+        no_brier = json.loads(json.dumps(twin))
+        no_brier["methods"]["twin_affect"]["brier_purchase"] = None
+        self.assertFalse(next(c for c in bench.flip_gate(up, no_brier)["checks"] if "Twin" in c["check"])["pass"])
         self.assertTrue(all(c["detail"] == "not run" for c in none["checks"]))
 
     def test_bootstrap_is_reproducible(self):

@@ -1888,7 +1888,7 @@ def _bench_gate(out_dir: str) -> Optional[Dict[str, Any]]:
     with open(stem + ".md", "w", encoding="utf-8") as f:
         f.write(bench.render_gate(gate))
     log(f"bench: emotion default-flip gate {'passed' if gate['pass'] else 'not passed'} -> {stem}.md")
-    return {"pass": gate["pass"], "default": gate["default"], "file": os.path.abspath(stem + ".md")}
+    return {"pass": gate["pass"], "eligible_default": gate["eligible_default"], "file": os.path.abspath(stem + ".md")}
 
 
 def cmd_intake(c: Optional[Client], a) -> Any:

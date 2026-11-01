@@ -94,5 +94,5 @@ def test_dashboard_section():
     bundle = _bundle(60, seeds=(3, 67))
     bundle["pitch"] = {"say_do": {"n": 10, "stated_yes_pct": 70.0, "after_rules_yes_pct": 40.0, "dropped": {"wallet_limit": 3}}}
     anchor, title, html = report_view.evidence_section(bundle)
-    assert anchor == "evidence" and "Evidence C" in html and "wallet limit 3" in html and "assumption" in html
+    assert anchor == "how-sure" and "Evidence C" in html and "wallet limit 3" in html and "assumption" in html
     assert report_view.evidence_section({}) is None

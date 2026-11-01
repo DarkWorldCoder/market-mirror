@@ -217,7 +217,7 @@ def evidence_section(bundle: Dict[str, Any], states: Optional[Dict[str, Any]] = 
               "providers, feelings flags). A or B needs more than a simulation can give on its own.</p>")
     head = ui.section_head("How sure is this", "How much this run can carry, and what people said next to what they would "
                            "likely do.")
-    return ("evidence", "How sure is this", head + body)
+    return ("how-sure", "How sure is this", head + body)
 
 
 def _couplings_moved(tests: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[List[Any]]:
