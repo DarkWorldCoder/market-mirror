@@ -64,7 +64,10 @@ def load_or_build(simulation_id: str, refresh: bool = False):
     if not any(os.path.exists(os.path.join(sim_dir, DB_FILES[p])) for p in PLATFORMS):
         raise FileNotFoundError("no simulation database yet: start the simulation first")
     config = SimulationManager().get_simulation_config(simulation_id) or {}
-    story = build_feed_story(sim_dir, config)
+    from ..services import jev_labels
+    labeler = (jev_labels.sentiment_labeler(os.path.join(sim_dir, jev_labels.CACHE_FILE))
+               if jev_labels.enabled() else None)       # Jev labels reply sentiment when a key is set
+    story = build_feed_story(sim_dir, config, labeler=labeler)
     tmp = cache + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:

@@ -470,7 +470,14 @@ def run_sales_battlecard(client, model: str, people: List[Dict[str, Any]], offer
     _need(client)
     meter = _meter(client)
     o = offer_dict(offer, profile)
-    objs = [x for x in gather_objections(survey_data, pitch_data, feed_data) if x["type"]]
+    objs = gather_objections(survey_data, pitch_data, feed_data)
+    try:                                            # ad comments carry no type: Jev labels them when a key is set
+        from . import jev_labels
+        if jev_labels.enabled():
+            jev_labels.label_concerns(objs)
+    except Exception:  # noqa: BLE001 - unlabelled comments are left out, as before
+        pass
+    objs = [x for x in objs if x["type"]]
     asked: List[Dict[str, Any]] = []
     cohort = sample_people(people, cohort_size, seed)
     if len(objs) < 5:                               # no run data yet: ask the cohort what would stop them

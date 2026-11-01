@@ -44,7 +44,7 @@ import re
 import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 PLATFORMS = ("twitter", "reddit")
 DB_FILES = {"twitter": "twitter_simulation.db", "reddit": "reddit_simulation.db"}
@@ -328,7 +328,8 @@ def _hour_label(hour: Any) -> Optional[str]:
 
 def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: Dict[str, Any],
                     people: Dict[Any, Dict[str, Any]], injected: List[Dict[str, Any]],
-                    max_posts: Optional[int]) -> Dict[str, Any]:
+                    max_posts: Optional[int], sent: Callable[[Any], str] = None) -> Dict[str, Any]:
+    sent = sent or sentiment_label
     user_to_agent = {}
     for u in data["users"]:
         user_to_agent[u.get("user_id")] = _int(u.get("agent_id") if u.get("agent_id") is not None else u.get("user_id"))
@@ -409,7 +410,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             comments.append({"comment_id": cid, "author": who(c.get("user_id")), "content": c.get("content") or "",
                              "round": crnd, "hour": _hour_label(rounds_meta.get(crnd)) if crnd is not None else None,
                              "likes": max(int(c.get("num_likes") or 0), clikes.get(cid, 0)),
-                             "sentiment": sentiment_label(c.get("content"))})
+                             "sentiment": sent(c.get("content"))})
         likers = [who(lk.get("user_id")) for lk in likes_by_post.get(pid, [])]
         dislikers = [who(dk.get("user_id")) for dk in dislikes_by_post.get(pid, [])]
         quotes = [_int(ch.get("post_id")) for ch in children.get(pid, []) if ch.get("quote_content")]
@@ -429,7 +430,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
                     reach |= followers.get(uid, set())
         reach.discard(aid)
         reply_texts = [c["content"] for c in comments] + [ch.get("quote_content") or "" for ch in children.get(pid, []) if ch.get("quote_content")]
-        reply_sent = Counter(sentiment_label(t) for t in reply_texts)
+        reply_sent = Counter(sent(t) for t in reply_texts)
         views[pid] = {
             "post_id": pid, "platform": platform, "kind": kind, "author": author, "round": rnd,
             "hour": _hour_label(rounds_meta.get(rnd)) if rnd is not None else None,
@@ -441,7 +442,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             "engagement": {"by_segment": dict(by_segment.most_common()), "by_country": dict(by_country.most_common())},
             "reach_proxy": len(reach),
             "reply_sentiment": {"pos": reply_sent.get("pos", 0), "neg": reply_sent.get("neg", 0), "neu": reply_sent.get("neu", 0)},
-            "sentiment": sentiment_label(content),
+            "sentiment": sent(content),
             "score": likes_n + 2 * len(quotes) + len(reposters) + 2 * len(comments) - dislikes_n,
         }
 
@@ -490,8 +491,11 @@ def _best_worst(post: Dict[str, Any], platform_posts: Dict[Any, Dict[str, Any]])
     return strip(best), (strip(worst) if worst is not best else None)
 
 
-def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[int] = 300) -> Dict[str, Any]:
-    """The whole story for one simulation folder. Platforms without a database are skipped."""
+def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[int] = 300,
+                     labeler: Optional[Callable[[List[str]], List[Optional[str]]]] = None) -> Dict[str, Any]:
+    """The whole story for one simulation folder. Platforms without a database are skipped.
+    labeler: texts -> 'pos' | 'neg' | 'neu' (or None) per text, e.g. jev_labels.sentiment_labeler; every post, quote and
+    comment text is labelled in one batch, and a text the labeler leaves out keeps its word-list label."""
     config = config or {}
     users: List[Dict[str, Any]] = []
     loaded: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
@@ -502,11 +506,21 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
             users.extend(loaded[platform]["users"])
     people = _people(config, users)
     injected = _injected_posts(config)
+    sent, method, basis = sentiment_label, SENTIMENT_METHOD, None
+    if labeler is not None:
+        texts = sorted({str(t) for d in loaded.values() for t in
+                        [r.get("content") for r in d["posts"]] + [r.get("quote_content") for r in d["posts"]] +
+                        [r.get("content") for r in d["comments"]] if t and str(t).strip()})
+        got = dict(zip(texts, labeler(texts))) if texts else {}
+        hits = {t: v for t, v in got.items() if v in ("pos", "neg", "neu")}
+        sent = (lambda t: hits.get(str(t)) or sentiment_label(t)) if hits else sentiment_label
+        method = getattr(labeler, "method_name", None) or "labeler"
+        basis = {"texts": len(texts), "labelled": len(hits), "kept_word_list": len(texts) - len(hits)}
     platforms: Dict[str, Any] = {}
     brand_posts: List[Dict[str, Any]] = []
     for platform, data in loaded.items():
         ridx = round_index(sim_dir, platform)
-        pv = _build_platform(platform, data, ridx, people, injected, max_posts)
+        pv = _build_platform(platform, data, ridx, people, injected, max_posts, sent)
         platforms[platform] = pv
         by_id = {v["post_id"]: v for v in pv["posts"]}
         for v in pv["posts"]:
@@ -515,7 +529,7 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
                 brand_posts.append({**v, "source": v.get("brand_source") or "injected", "best_reply": best, "worst_reply": worst})
     return {"platforms": platforms, "brand_posts": brand_posts,
             "people": {str(aid): a for aid, a in sorted(people.items(), key=lambda kv: str(kv[0]))},
-            "sentiment_method": SENTIMENT_METHOD, "max_posts": max_posts,
+            "sentiment_method": method, **({"sentiment_basis": basis} if basis else {}), "max_posts": max_posts,
             "generated_at": datetime.now().isoformat(timespec="seconds")}
 
 

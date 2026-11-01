@@ -239,7 +239,10 @@ def pick_voices(store: List[Dict[str, Any]], n: int = 4, country: str = "", sent
 # --------------------------------------------------------------------------
 
 def run(query: str, sources: List[str], out_dir: str, country: str = "us", subreddits: Optional[List[str]] = None,
-        urls: Optional[List[str]] = None, limit: int = 30, get: Callable = _get, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        urls: Optional[List[str]] = None, limit: int = 30, get: Callable = _get, log: Optional[Callable[[str], None]] = None,
+        labeler: Optional[Callable[[List[str]], List[Optional[str]]]] = None) -> Dict[str, Any]:
+    """labeler: texts -> 'pos' | 'neg' | 'neu' (or None) per text, e.g. jev_labels.sentiment_labeler; a quote it
+    leaves out keeps its word-list sentiment."""
     os.makedirs(out_dir, exist_ok=True)
     quotes: List[Dict[str, Any]] = []
     notes: List[str] = []
@@ -276,7 +279,20 @@ def run(query: str, sources: List[str], out_dir: str, country: str = "us", subre
             q["quality"] = "public_review_unverified" if q.get("kind") == "review" else \
                            "public_listing" if q.get("kind") == "listing" else "public_feedback_unverified"
             uniq.append(q)
+    method = None
+    if labeler is not None and uniq:
+        labs = labeler([q["text"] for q in uniq])
+        n = 0
+        for q, lab in zip(uniq, labs):
+            if lab in ("pos", "neg", "neu"):
+                q["sentiment"], q["sentiment_by"] = lab, "model"
+                n += 1
+        if n:
+            method = f"{getattr(labeler, 'method_name', None) or 'a classifier'} for {n} of {len(uniq)} quotes, word list for the rest"
+            say(f"research: sentiment by {method}")
     summary = summarize(query, uniq, notes)
+    if method:
+        summary["sentiment_method"] = method
     with open(os.path.join(out_dir, "research.json"), "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "quotes": uniq}, f, ensure_ascii=False, indent=2)
     with open(os.path.join(out_dir, "research.md"), "w", encoding="utf-8") as f:

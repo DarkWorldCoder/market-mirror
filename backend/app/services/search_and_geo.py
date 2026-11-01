@@ -59,39 +59,9 @@ CLASSIFIER_SYSTEM = (
     "You label short texts for a market study. Read the text exactly as given and pick the one concern it mainly "
     "expresses, or none. Copy phrases word for word; never rewrite or add facts. Reply with JSON only.")
 
-# Concern types as Jev `choice` criteria (classifier="jev"): the same labels the model classifier returns
-CONCERN_CRITERIA = {
-    "price": "Cost or value for money, or doubt that it is really free",
-    "trust": "Doubt that it is legitimate, safe or honest; fear of a scam or a hidden catch",
-    "relevance": "It does not fit the person's needs or situation",
-    "effort": "Too much time, work or hassle to start or to use",
-    "timing": "Not the right time; maybe later",
-    "unclear": "Not clear what it is, what it does or what happens next",
-    "privacy": "Worry about personal data, tracking or being contacted",
-    "competitor": "Already uses or prefers another product or a free alternative",
-    "authority": "Needs someone else's approval or advice before deciding",
-    "habit": "Content with the current way of doing things and does not want to change",
-    "other": "A concern that fits none of the other types",
-    "none": "No concern: praise, a plain description or an unrelated remark",
-}
-JEV_CONCERN_INSTRUCTIONS = ("The state is a short text from a market study, quoted exactly. Pick the one concern it "
-                            "mainly expresses, or none when it expresses no concern.")
+from .jev_labels import CONCERN_CRITERIA, JEV_CONCERN_INSTRUCTIONS, jev_label_texts  # noqa: E402,F401 (shared)
+
 CLASSIFIERS = ("model", "jev")
-
-
-def jev_label_texts(texts: List[str], criteria: Dict[str, str], instructions: str,
-                    usage: Optional[jev.JevUsage] = None, parallel: Optional[int] = None) -> List[Dict[str, Any]]:
-    """One Jev `choice` question per text -> [{ok, label, confidence, model, error}] in order. A failed request, or a
-    choice outside the criteria, stays unlabelled. Raises jev.JevUnavailable without a key."""
-    jobs = [(t, {"label": jev.choice_question(criteria, instructions)}) for t in texts]
-    out = []
-    for r in jev.ask_many(jobs, parallel=parallel, usage=usage) if jobs else []:
-        ans = (r.get("answers") or {}).get("label") if r.get("ok") else None
-        label = jev.choice_label(ans, list(criteria))
-        out.append({"ok": label is not None, "label": label, "model": r.get("model"),
-                    "confidence": ans.get("confidence") if isinstance(ans, dict) else None,
-                    "error": r.get("error") or (None if label else "Jev chose a label outside the criteria")})
-    return out
 
 
 def run_objection_check(items: List[Dict[str, Any]], criteria: Dict[str, str],
