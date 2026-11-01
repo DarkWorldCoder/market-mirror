@@ -30,7 +30,10 @@ SYSTEM = (
     "predictive uncertainty when the facts supply its held-out calibration basis. Recommend a small randomized real "
     "experiment with audience, control, treatment, exposure context and outcome metric. Feelings in the facts are "
     "simulated appraisals produced by the model and mapped by fixed rules; never write that real customers will feel "
-    "something, only that the simulated people did. Return only valid JSON."
+    "something, only that the simulated people did. The facts carry an evidence grade (A-D) with its reasons: never "
+    "state a C or D result as firm, say what it would take to raise it, and set limits.confidence no higher than the "
+    "grade allows (A high, B medium, C or D low). say_do shows stated yeses next to what is left after fixed say-do "
+    "rules; call the second an assumption. Return only valid JSON."
 )
 
 SECTION_ORDER = [
@@ -171,10 +174,24 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "real_voices": _research_facts(bundle.get("research") or {}),
         "pitch": _pitch_facts(bundle.get("pitch") or {}),
         "emotions": _emotion_facts(bundle, ads),
+        "evidence": _evidence(bundle),
+        "say_do": {k: v for k, v in (("survey", (bundle.get("survey") or {}).get("say_do")),
+                                     ("pitch", (bundle.get("pitch") or {}).get("say_do"))) if v},
         "email": _email_facts(bundle.get("email_test") or {}),
         "reliability": _reliability(mk, bundle),
         "budget": _budget_facts(ads, bundle),
     }
+
+
+def _evidence(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """The run's A-D evidence grade and why (app/services/evidence.py), with the feelings' quality flags folded in."""
+    from . import emotion, evidence
+    bs = bundle.get("behavior_state") or {}
+    summ = bundle.get("emotion_summary") or (emotion.summarize(bs) if isinstance(bs, dict) and bs.get("scopes") else {})
+    try:
+        return evidence.grade(bundle, (summ or {}).get("flags"))
+    except Exception:  # noqa: BLE001 - the report is written without a grade rather than not at all
+        return {}
 
 
 def _research_facts(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -520,7 +537,23 @@ def clean_sections(data: Dict[str, Any], material: Dict[str, Any],
     ex = out.get("executive_summary") or {}
     if isinstance(ex, dict):
         ex["decision"] = str(ex.get("decision") or (material.get("decision") or {}).get("decision") or "iterate").lower()
+    cap_confidence(out, material)
     return out
+
+
+CONFIDENCE_CAP = {"A": "high", "B": "medium", "C": "low", "D": "low"}
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def cap_confidence(sections: Dict[str, Any], material: Dict[str, Any]) -> None:
+    """The stated confidence never exceeds what the evidence grade allows (A high, B medium, C and D low)."""
+    g = (material.get("evidence") or {}).get("grade")
+    lim = sections.get("limits")
+    if not g or not isinstance(lim, dict):
+        return
+    cap = CONFIDENCE_CAP.get(g, "low")
+    if _CONF_RANK.get(str(lim.get("confidence") or "low").lower(), 0) > _CONF_RANK[cap]:
+        lim["confidence"] = cap
 
 
 def fallback_sections(m: Dict[str, Any]) -> Dict[str, Any]:
@@ -766,8 +799,16 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
     rk = sec.get("risks") or []
     if rk:
         out += ["## Risks", ""] + [f"- **{r.get('risk')}** ({r.get('likelihood') or '?'}): {r.get('mitigation') or ''}" for r in rk] + [""]
+    cap_confidence(sec, material)
     lim = sec.get("limits") or {}
     out += ["## Limits and evidence", "", f"Model assessment: **{lim.get('confidence') or 'low'}**, based on simulated evidence.", ""]
+    ev = material.get("evidence") or {}
+    if ev.get("grade"):
+        out += [f"Evidence grade: **{ev['grade']}**, {ev.get('meaning')}.", "", _bullets(ev.get("reasons")), ""]
+    for name, sd in (material.get("say_do") or {}).items():
+        if isinstance(sd, dict) and sd.get("n"):
+            out += [f"Say vs do ({name}): {sd.get('stated_yes_pct')}% said yes; {sd.get('after_rules_yes_pct')}% after the "
+                    "say-do rules (budget, dealbreakers, polite yes-sayers backing out). The second figure is an assumption.", ""]
     if lim.get("reliability_note"):
         out += [f"Reliability: {lim['reliability_note']}", ""]
     out += [_bullets(lim.get("caveats")),
