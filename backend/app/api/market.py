@@ -288,6 +288,35 @@ def _words_check(result) -> None:
         logger.info(f"feelings words check skipped: {e}")
 
 
+def _jev_extras(kind: str, simulation_id: str, result) -> None:
+    """After-the-fact Jev labels (when a key is set): grouped landing-page drop causes for a feed test, and an
+    independent check of the pitch's objection tags. Never fails a test."""
+    if not isinstance(result, dict) or kind not in ("feed-test", "pitch"):
+        return
+    from ..services import jev_labels
+    try:
+        if not jev_labels.enabled():
+            return
+        cache = os.path.join(_sim_dir(simulation_id), jev_labels.CACHE_FILE)
+        if kind == "feed-test":
+            dc = jev_labels.drop_causes(result, cache)
+            if dc:
+                result["drop_causes"] = dc
+                for cid, causes in dc["per_creative"].items():     # next to each ad's landing funnel
+                    lf = (((result.get("summary") or {}).get("per_creative") or {}).get(cid) or {}).get("landing")
+                    if isinstance(lf, dict) and causes:
+                        lf["drop_causes"] = causes
+                        lf["drop_causes_basis"] = {"labelled": sum(c["count"] for c in causes),
+                                                   "reasons": dc["per_creative_reasons"].get(cid, 0)}
+        else:
+            from ..services import pitch as pitch_mod
+            chk = jev_labels.pitch_objection_check(result, pitch_mod.OBJECTION_TYPES)
+            if chk:
+                result["objection_check"] = chk
+    except Exception as e:  # noqa: BLE001 - an extra, never fails a test
+        logger.info(f"{kind}: Jev labels skipped: {e}")
+
+
 def _record_memory(kind: str, simulation_id: str, result, scope: str, emotions: str = None, traits=None) -> None:
     if not scope or kind not in MEMORY_EVENTS or not isinstance(result, dict):
         return
@@ -310,6 +339,7 @@ def _start(kind: str, simulation_id: str, work, memory_scope: str = "", emotions
             result = work(lambda done, total: tm.update_task(
                 task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}"))
             _words_check(result)
+            _jev_extras(kind, simulation_id, result)
             _record_memory(kind, simulation_id, result, memory_scope, emotions, traits)
             path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
             with open(path, "w", encoding="utf-8") as f:

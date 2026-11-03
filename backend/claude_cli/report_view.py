@@ -675,6 +675,7 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str
             + (f'<div class="card"><h3>Fix in the pitch first</h3><ul>{fixes}</ul></div>' if fixes else "")
             + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table class="sortable"><thead><tr><th>Objection</th><th class="num">Share</th>'
                f'<th>Rebuttal used</th><th class="num">Moved them</th><th>Questions they asked back</th></tr></thead><tbody>{obj_rows}</tbody></table></div></div>' if obj_rows else "")
+            + _objection_check_note(p.get("objection_check"))
             + (f'<div class="card"><h3>By audience</h3><div class="tbl"><table class="sortable"><thead><tr><th>Audience</th><th class="num">n</th><th>Yes / maybe / no</th>'
                f'<th class="num">Lead score</th><th>Top objection</th></tr></thead><tbody>{seg_rows}</tbody></table></div></div>' if seg_rows else "")
             + (f'<div class="card"><h3>Call these first</h3><div class="tbl"><table class="sortable"><thead><tr><th>Who</th><th class="num">Lead score</th><th>Verdict</th>'
@@ -682,6 +683,18 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str
             + (f'<div class="card"><h3>In their words</h3><div class="voices">{quotes}</div></div>' if quotes else "")
             + f'<details class="card"><summary>The pitch that was tested</summary><pre class="script">{_e(p.get("script") or "")}</pre></details>')
     return ("pitch", "Sales rehearsal", html)
+
+
+def _objection_check_note(oc: Any) -> str:
+    """One line: how often Jev, a model that did not play the buyers, gave the same objection type as their own tag."""
+    ag = (oc or {}).get("agreement") if isinstance(oc, dict) else None
+    if not isinstance(ag, dict) or not ag.get("n"):
+        return ""
+    pct = lambda x: "–" if ui.num(x) is None else f"{float(x):.0f}%"
+    return (f'<p class="muted small">Check: the Jev decision model ({_e(oc.get("model") or "jev")}) gave the same objection '
+            f'type as the buyer\'s own tag for {_e(pct(ag.get("pct")))} of {_e(ag["n"])} objections (95% range '
+            f'{_e(pct(ag.get("lo")))}–{_e(pct(ag.get("hi")))})' + (f'; {_e(oc["failed"])} not labelled' if oc.get("failed") else "")
+            + '. The buyer\'s own tag chose the rebuttal.</p>')
 
 
 def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:

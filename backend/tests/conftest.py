@@ -22,6 +22,11 @@ def _isolated_local_graph_db(tmp_path, monkeypatch):
     monkeypatch.setattr(fast_population, "BREAK_PAUSE_S", 0)
     # Tests never download an embedding model; embedding tests inject a fake.
     monkeypatch.setattr(Config, "MEMORY_EMBEDDINGS", False)
+    # ...and never call the real Jev: no key from the environment or a .env file (Jev tests pass env or a fake)
+    for k in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY", "JEV_VIA", "JEV_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    (tmp_path / "no.env").write_text("")
+    monkeypatch.setenv("MIROFISH_ENV_FILE", str(tmp_path / "no.env"))
     local_graph.clear_local_zep_clients()
     yield
     local_graph.clear_local_zep_clients()

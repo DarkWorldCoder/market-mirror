@@ -2244,7 +2244,16 @@ def cmd_research(c: Optional[Client], a) -> Any:
     except Exception as e:  # noqa: BLE001
         raise CLIError(f"research needs the backend package importable (run from the repo with its venv): {e}")
     out_dir = a.out or os.path.join("scenarios", re.sub(r"[^A-Za-z0-9._-]+", "_", a.query)[:40], "research")
-    res = research.run(a.query, [s.strip().lower() for s in a.sources.split(",")], out_dir, a.country, a.subreddit, a.url, a.limit, log=log)
+    labeler = None
+    try:
+        from app.services import jev_labels
+        if jev_labels.enabled():
+            labeler = jev_labels.sentiment_labeler(os.path.join(out_dir, jev_labels.CACHE_FILE))
+    except Exception:  # noqa: BLE001 - the word list still labels every quote
+        labeler = None
+    os.makedirs(out_dir, exist_ok=True)
+    res = research.run(a.query, [s.strip().lower() for s in a.sources.split(",")], out_dir, a.country, a.subreddit, a.url,
+                       a.limit, log=log, labeler=labeler)
     summ = res["summary"]
     return {"files": res["files"], "quotes": summ["quotes"], "by_source": summ["by_source"], "sentiment": summ["sentiment"],
             "avg_rating": summ.get("avg_rating"), "themes": [f"{t['theme']} ({t['mentions']})" for t in summ.get("themes") or []],

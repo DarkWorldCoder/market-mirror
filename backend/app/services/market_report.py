@@ -109,7 +109,8 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
                     "shown_to": m.get("impressions"), "noticed_pct": _n(m.get("noticed")), "thumb_stop_pct": _n(m.get("thumb_stop")),
                     "ctr_pct": _n(m.get("ctr")), "expected_ctr_pct": _n(m.get("expected_ctr")), "hide_pct": _n(m.get("hide_rate")),
                     "comments": m.get("comments"), "sample_comments": [c.get("text") for c in (m.get("comments_list") or [])[:3]],
-                    "landing": {k: lf.get(k) for k in ("clicks", "page_loaded", "form_started", "converted", "drop_reasons") if lf.get(k) is not None},
+                    "landing": {k: lf.get(k) for k in ("clicks", "page_loaded", "form_started", "converted", "drop_reasons",
+                                                       "drop_causes") if lf.get(k) is not None},
                     "projection": {k: _n(pr.get(k), 2) for k in ("budget", "currency", "clicks", "cpc", "conversions", "cpl",
                                                                     "cost_per_conversion", "cac", "roas", "roi_pct", "break_even_cpl") if pr.get(k) is not None}})
     seeds = ft.get("multi_seed") or {}
