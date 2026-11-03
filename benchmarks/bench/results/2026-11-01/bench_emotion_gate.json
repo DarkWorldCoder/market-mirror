@@ -1,0 +1,82 @@
+{
+  "pass": false,
+  "checks": [
+    {
+      "check": "feelings panel >= persona_panel (Upworthy)",
+      "pass": false,
+      "detail": {
+        "n": 50,
+        "diff": -0.08,
+        "ci95": [
+          -0.22,
+          0.06
+        ],
+        "scored": 50,
+        "tests": 50,
+        "coverage_ok": true
+      }
+    },
+    {
+      "check": "feelings panel >= generic_reader (Upworthy)",
+      "pass": false,
+      "detail": {
+        "n": 50,
+        "diff": -0.28,
+        "ci95": [
+          -0.44,
+          -0.1
+        ],
+        "scored": 50,
+        "tests": 50,
+        "coverage_ok": true
+      }
+    },
+    {
+      "check": "twin_affect >= twin (Twin-2K-500)",
+      "pass": true,
+      "detail": {
+        "accuracy": [
+          0.61,
+          0.598
+        ],
+        "brier": [
+          0.39,
+          0.403
+        ],
+        "paired": {
+          "n": 20,
+          "diff": 0.012,
+          "ci95": [
+            -0.025,
+            0.047
+          ]
+        }
+      }
+    },
+    {
+      "check": "feelings look human",
+      "pass": true,
+      "detail": {
+        "n": 1630,
+        "neutral_share": 0.685,
+        "caricature": false,
+        "uniform": false,
+        "positive_skew": false
+      }
+    },
+    {
+      "check": "negativity sign matches",
+      "pass": false,
+      "detail": {
+        "valence_ctr_spearman": 0.003,
+        "ci95": [
+          -0.194,
+          0.212
+        ]
+      }
+    }
+  ],
+  "rule": "Emotions stay 'observe' by default. 'on' may become the default only if every check passes: (1) on Upworthy, the feelings panel is at least as accurate as both persona_panel and generic_reader; (2) on Twin-2K-500, twin_affect's accuracy is not lower and its Brier score not higher than twin's; (3) the feelings look human: at least 30% 'nothing much' and no caricature flag; (4) pleasantness runs against real clicks the way the negativity effect says (negative sign).",
+  "eligible_default": "observe",
+  "note": "The gate reports; it does not change emotion.DEFAULT_MODE."
+}

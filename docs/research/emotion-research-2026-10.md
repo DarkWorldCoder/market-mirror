@@ -67,6 +67,8 @@ The **default-flip gate** in `bench.flip_gate` keeps `observe` as the default un
 
 The results go into the findings and the article whichever way they come out.
 
+**First run, 1 November 2026: the gate did not pass.** The feelings panel picked the real Upworthy winner 36% of the time against 44% for the plain panel and 64% for the generic reader; pleasantness had no relationship with real clicks (Spearman 0.003). The feelings themselves looked human (69% "nothing much", no caricature flag), and on Twin-2K-500 noting feelings first was no worse than the plain twin. So the default stays `observe`. Full numbers: [benchmarks/bench/RESULTS.md](../../benchmarks/bench/RESULTS.md).
+
 ## 5. What is not proven
 
 - Coupling sizes are assumptions. Their directions come from human studies, but the sizes have not been fitted to MarketMirror's people.
