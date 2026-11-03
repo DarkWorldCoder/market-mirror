@@ -198,7 +198,8 @@ def drop_causes(result: Dict[str, Any], cache_path: Optional[str] = None) -> Opt
     per = {}
     for cid in sorted({cid for cid, _ in rows if cid is not None}, key=str):
         per[str(cid)] = rank([(row, lab) for row, lab in pairs if row[0] == cid])
-    return {"overall": rank(pairs), "per_creative": per, "reasons": len(rows),
+    per_n = Counter(str(cid) for cid, _ in rows if cid is not None)
+    return {"overall": rank(pairs), "per_creative": per, "per_creative_reasons": dict(per_n), "reasons": len(rows),
             "labelled": sum(1 for x in labs if x), "method": method(labs),
             "note": "Simulated people's reasons, grouped by Jev; counts are simulated."}
 

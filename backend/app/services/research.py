@@ -185,7 +185,9 @@ def summarize(query: str, quotes: List[Dict[str, Any]], notes: List[str]) -> Dic
 def render_markdown(summary: Dict[str, Any]) -> str:
     out = [f"# What real people say about: {summary['query']}", "",
            f"{summary['quotes']} quotes from {', '.join(f'{k} ({v})' for k, v in summary['by_source'].items())}, fetched {summary['fetched_at']}. "
-           f"Sentiment counts come from a word list ({summary['sentiment']}).", ""]
+           f"Sentiment counts come from a word list ({summary['sentiment']})."
+           + (f" A model labelled them too: {summary['sentiment_model']['counts']} ({summary['sentiment_model']['method']})."
+              if summary.get("sentiment_model") else ""), ""]
     if summary.get("avg_rating") is not None:
         out += [f"Average app-store rating across {summary['ratings']} recent reviews: {summary['avg_rating']} / 5.", ""]
     if summary.get("themes"):
@@ -279,20 +281,21 @@ def run(query: str, sources: List[str], out_dir: str, country: str = "us", subre
             q["quality"] = "public_review_unverified" if q.get("kind") == "review" else \
                            "public_listing" if q.get("kind") == "listing" else "public_feedback_unverified"
             uniq.append(q)
-    method = None
+    model_counts, method = Counter(), None
     if labeler is not None and uniq:
         labs = labeler([q["text"] for q in uniq])
-        n = 0
         for q, lab in zip(uniq, labs):
             if lab in ("pos", "neg", "neu"):
-                q["sentiment"], q["sentiment_by"] = lab, "model"
-                n += 1
+                q["sentiment_model"] = lab           # reporting only: q["sentiment"] (word list) still picks voices
+                model_counts[lab] += 1
+        n = sum(model_counts.values())
         if n:
-            method = f"{getattr(labeler, 'method_name', None) or 'a classifier'} for {n} of {len(uniq)} quotes, word list for the rest"
+            method = f"{getattr(labeler, 'method_name', None) or 'a classifier'} for {n} of {len(uniq)} quotes"
             say(f"research: sentiment by {method}")
     summary = summarize(query, uniq, notes)
     if method:
-        summary["sentiment_method"] = method
+        summary["sentiment_model"] = {"counts": dict(model_counts), "method": method, "labelled": sum(model_counts.values()),
+                                      "quotes": len(uniq)}
     with open(os.path.join(out_dir, "research.json"), "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "quotes": uniq}, f, ensure_ascii=False, indent=2)
     with open(os.path.join(out_dir, "research.md"), "w", encoding="utf-8") as f:

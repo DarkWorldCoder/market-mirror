@@ -485,8 +485,10 @@ def _best_worst(post: Dict[str, Any], platform_posts: Dict[Any, Dict[str, Any]])
             replies.append({"author": q["author"], "content": q["content"], "sentiment": q["sentiment"], "score": sentiment_score(q["content"])})
     if not replies:
         return None, None
-    best = max(replies, key=lambda r: r["score"])
-    worst = min(replies, key=lambda r: r["score"])
+    rank = {"pos": 1, "neu": 0, "neg": -1}                # the label shown; the word-list score breaks ties,
+    key = lambda r: (rank.get(r["sentiment"], 0), r["score"], -len(r["content"] or ""))  # noqa: E731  then shorter text
+    best = max(replies, key=key)
+    worst = min(replies, key=key)
     strip = lambda r: {"author": r["author"], "content": r["content"], "sentiment": r["sentiment"]}  # noqa: E731
     return strip(best), (strip(worst) if worst is not best else None)
 

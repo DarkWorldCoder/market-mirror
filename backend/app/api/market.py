@@ -306,6 +306,8 @@ def _jev_extras(kind: str, simulation_id: str, result) -> None:
                     lf = (((result.get("summary") or {}).get("per_creative") or {}).get(cid) or {}).get("landing")
                     if isinstance(lf, dict) and causes:
                         lf["drop_causes"] = causes
+                        lf["drop_causes_basis"] = {"labelled": sum(c["count"] for c in causes),
+                                                   "reasons": dc["per_creative_reasons"].get(cid, 0)}
         else:
             from ..services import pitch as pitch_mod
             chk = jev_labels.pitch_objection_check(result, pitch_mod.OBJECTION_TYPES)

@@ -76,6 +76,8 @@ def test_feed_story_uses_the_labeler_and_keeps_the_word_list_as_fallback(fake, s
     assert story["sentiment_basis"]["labelled"] == story["sentiment_basis"]["texts"]
     asha = _fs.by_id(story, "twitter")[2]
     assert asha["sentiment"] == "pos"                # 'bahut accha' is Hindi; the word list cannot read it
+    bp = next(b for b in story["brand_posts"] if b["platform"] == "twitter")
+    assert bp["best_reply"]["sentiment"] != "neg" and bp["worst_reply"]["sentiment"] != "pos"   # ranked by the shown label
     brand = _fs.by_id(story, "twitter")[1]
     rs = brand["reply_sentiment"]
     assert rs["neg"] >= 1 and rs["pos"] >= 1
@@ -100,7 +102,10 @@ def test_research_quotes_get_model_sentiment(fake, tmp_path):
     res = research.run("fitness app", [], str(tmp_path), urls=["https://a.example", "https://b.example"], get=get,
                        labeler=jev_labels.sentiment_labeler(str(tmp_path / "c.json")))
     s = res["summary"]
-    assert s["sentiment"] == {"neg": 1, "pos": 1} and "jev (jev-test)" in s["sentiment_method"]
+    assert s["sentiment_model"]["counts"] == {"neg": 1, "pos": 1} and "jev (jev-test)" in s["sentiment_model"]["method"]
+    assert s["sentiment_method"] == "word list, not a model"          # the word list still picks the voices
+    assert all("sentiment_model" in q for q in __import__("json").load(open(res["files"]["json"]))["quotes"])
+    assert "A model labelled them too" in open(res["files"]["md"]).read()
 
 
 def test_drop_causes_ranked_overall_and_per_ad(fake, tmp_path):
@@ -121,6 +126,9 @@ def test_ad_comments_get_a_concern_type(fake):
              {"type": "price", "text": "too expensive", "source": "survey"}]
     assert jev_labels.label_concerns(items) == 2
     assert items[0]["type"] == "trust" and items[0]["type_by"] == "jev" and items[2]["type"] == "price"
+    extra = gtm_suite._ad_comment_concerns([{"type": "", "text": "looks like a scam", "source": "ad comment"},
+                                            {"type": "price", "text": "too expensive", "source": "survey"}])
+    assert extra["by_type"] == {"trust": 1} and "not used to choose rebuttals" in extra["note"]
     assert [x for x in gtm_suite.gather_objections(None, None, {"sessions": [{"ad": {"comment": "scam?"}}]})][0]["type"] == ""
 
 
@@ -143,3 +151,8 @@ def test_dashboard_shows_the_checks():
     html = feed_view._landing_html({"clicks": 10, "page_loaded": 8, "form_started": 4, "converted": 1,
                                     "drop_causes": [{"cause": "form", "count": 3, "share_pct": 60.0, "examples": ["phone?"]}]})
     assert "form" in html and "60" in html and "Jev" in html
+    part = feed_view._landing_html({"clicks": 10, "page_loaded": 8, "form_started": 4, "converted": 1,
+                                    "drop_reasons": [{"reason": "no idea why", "count": 1}],
+                                    "drop_causes": [{"cause": "form", "count": 1, "share_pct": 100.0}],
+                                    "drop_causes_basis": {"labelled": 1, "reasons": 2}})
+    assert "1 of 2 reasons" in part and "no idea why" in part

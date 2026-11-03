@@ -206,11 +206,16 @@ def _landing_html(lf: Optional[Dict[str, Any]]) -> str:
                       for r in lf.get("drop_reasons") or [] if isinstance(r, dict) and r.get("reason"))
     causes = [c for c in lf.get("drop_causes") or [] if isinstance(c, dict) and c.get("cause")]
     if causes:                                     # Jev grouped the free-text reasons into causes
+        basis = lf.get("drop_causes_basis") if isinstance(lf.get("drop_causes_basis"), dict) else {}
+        done, total = ui.num(basis.get("labelled")), ui.num(basis.get("reasons"))
+        partial = done is not None and total is not None and done < total
         reasons = ("".join(f'<li><b>{_e(str(c["cause"]).replace("_", " "))}</b> {_e(ui.fnum(c.get("share_pct")))}% '
                            f'<span class="muted">×{_e(ui.fnum(c.get("count")))}'
                            + (f' · “{_e(str((c.get("examples") or [""])[0])[:90])}”' if c.get("examples") else "")
                            + '</span></li>' for c in causes[:6])
-                   + '<li class="muted small">Causes grouped by the Jev decision model.</li>')
+                   + '<li class="muted small">Causes grouped by the Jev decision model'
+                   + (f' for {_e(ui.fnum(done))} of {_e(ui.fnum(total))} reasons; shares are of those.' if partial else ".")
+                   + "</li>" + (reasons if partial else ""))
     nets = ", ".join(f"{k} {v}" for k, v in (lf.get("networks") or {}).items()) if isinstance(lf.get("networks"), dict) else ""
     friction_pills = []
     for key, label, tone in (("say_do_gap", "Say-vs-Do gap", "accent"), ("price_blocked", "Wallet cap blocked", "orchid"),
