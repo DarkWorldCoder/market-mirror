@@ -34,4 +34,4 @@ The sample is fixed: ids are hashed with a salt. The same command picks the same
 
 - Both datasets predate current models' training data, so memorisation is possible. In particular, Upworthy headlines were public, so a model may recall which headline won.
 - A good score here is evidence for these tasks only, not for a particular market.
-- No results are published yet. The first paid run waits for the maintainer's approval of the budget and the model.
+- Results of every paid run are in [RESULTS.md](RESULTS.md), misses included. The first run (1 November 2026) found a plain no-persona prompt beat the persona panel at picking Upworthy winners (64% vs 44%).

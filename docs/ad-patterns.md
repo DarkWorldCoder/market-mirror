@@ -69,6 +69,14 @@ The labelling request sees only the copy, headline, CTA button, visual notes and
 status or metrics. A label outside the taxonomy becomes `unknown`. An ad the model leaves out, or a failed call,
 is marked `failed` and gets no invented label.
 
+#### Jev on the 77-ad sample (1 November 2026)
+
+With the sample's labels removed, Jev (jev-1.14.0) labelled all 77 ads in about 13 seconds (77 requests, none
+failed). Its labels matched the sample's reference labels for 76% of the 539 labels: format 100%, hook 91%, offer
+88%, objection 75%, CTA 66%, angle 57%, proof 51%. Confidence tracked agreement: 88% when Jev's confidence was 0.8 or
+higher, 68% between 0.6 and 0.8, 58% below 0.6. The ads and reference labels are invented examples written by one
+person, so this measures consistency with one reading, not accuracy.
+
 ### Output (`ad_patterns.json`)
 
 ```json
