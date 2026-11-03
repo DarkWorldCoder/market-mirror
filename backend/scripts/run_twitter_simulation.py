@@ -475,6 +475,10 @@ class TwitterSimulationRunner:
         _cfg = {'max_tokens': 4096} if (_provider == 'claude' or 'anthropic' in os.environ.get('OPENAI_API_BASE_URL', '')) else None
         import agent_context  # MarketMirror speed knobs
         agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s
+        native = agent_context.claude_native_model(llm_model, os.environ.get('OPENAI_API_BASE_URL'),
+                                                   os.environ.get('OPENAI_API_KEY'), _cfg)
+        if native is not None:
+            return native
         
         return ModelFactory.create(
         

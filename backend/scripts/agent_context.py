@@ -420,11 +420,46 @@ def _pool_slots(env: Optional[Dict[str, str]] = None) -> List[Any]:
     return list(pool.slots) if pool.is_multi else []
 
 
+def claude_native_model(model: str, base_url: Optional[str], api_key: Optional[str],
+                        cfg: Optional[Dict[str, Any]] = None) -> Any:
+    """The camel backend on Claude's native Messages API (prompt caching) when this is Claude on api.anthropic.com
+    with a key and MM_CLAUDE_NATIVE is not off; None otherwise (login gateways and other providers keep the
+    OpenAI-compatible model)."""
+    try:
+        from app.utils.anthropic_camel import native_model_for
+    except ImportError:  # pragma: no cover - camel or the backend package missing
+        return None
+    return native_model_for(model, base_url, api_key, dict(cfg or {"max_tokens": 4096}))
+
+
+def record_cache_usage(simulation_dir: Optional[str], platform: str, stage: str, log: Any = None) -> None:
+    """Write what the platform's Claude agents read from and wrote to the prompt cache since the last stage
+    (claude_cache_usage.json in the simulation folder); silent when no native Claude call was made."""
+    try:
+        from app.utils.anthropic_camel import record_stage
+        record_stage(simulation_dir, platform, stage, log)
+    except Exception:  # noqa: BLE001 - accounting must never stop a run
+        pass
+
+
+def tag_cache_usage(agent_graph: Any, platform: str) -> None:
+    try:
+        from app.utils.anthropic_camel import tag_models
+        tag_models(agent_graph, platform)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _camel_model(slot: Any) -> Any:
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
     from app.utils.model_pool import provider_family
     cfg = {"max_tokens": 4096} if provider_family(slot.provider) == "claude" else None
+    if provider_family(slot.provider) == "claude":
+        # Claude with an API key: the native Messages API, so the rounds and interviews are cached
+        native = claude_native_model(slot.model, slot.base_url, slot.api_key, cfg)
+        if native is not None:
+            return native
     return ModelFactory.create(model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL, model_type=slot.model,
                                model_config_dict=cfg, url=slot.base_url, api_key=slot.api_key)
 
