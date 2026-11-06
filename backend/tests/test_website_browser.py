@@ -60,6 +60,59 @@ def browser():
         instance.close()
 
 
+def _assert_dashboard_fits_phone(page):
+    viewport_width = page.viewport_size['width']
+    scroll_width = page.evaluate('document.documentElement.scrollWidth')
+    if scroll_width <= viewport_width + 1:
+        return
+
+    wide_elements = page.evaluate("""width => {
+        const wide = [];
+        for (const element of document.body.querySelectorAll('*')) {
+            const rect = element.getBoundingClientRect();
+            if (rect.width > width) {
+                const id = element.id ? '#' + element.id : '';
+                const classes = Array.from(element.classList, name => '.' + name).join('');
+                wide.push(element.localName + id + classes + ' (' + Math.round(rect.width) + 'px)');
+            }
+        }
+        return wide;
+    }""", viewport_width)
+    raise AssertionError(
+        f'Dashboard scroll width {scroll_width}px exceeds {viewport_width + 1}px. '
+        f'Elements wider than the viewport: {", ".join(wide_elements)}'
+    )
+
+
+def test_exported_dashboard_on_phone(browser, tmp_path):
+    from claude_cli.exporter import export_run_dir
+
+    fixture = Path(__file__).resolve().parents[1] / 'claude_cli/tests/fixtures/sample_run'
+    exported = export_run_dir(str(fixture), str(tmp_path / 'dashboard.html'))
+    page = browser.new_page(viewport={'width': 375, 'height': 812}, color_scheme='light')
+    try:
+        page.goto(Path(exported['html']).as_uri())
+        _assert_dashboard_fits_phone(page)
+        light_background = page.evaluate('getComputedStyle(document.body).backgroundColor')
+
+        page.emulate_media(color_scheme='dark')
+        page.reload()
+        _assert_dashboard_fits_phone(page)
+        dark_background = page.evaluate('getComputedStyle(document.body).backgroundColor')
+        assert dark_background not in (light_background, 'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)')
+
+        page.evaluate("""() => {
+            const probe = document.createElement('div');
+            probe.id = 'mobile-overflow-probe';
+            probe.style.cssText = 'width: 800px; height: 1px';
+            document.body.append(probe);
+        }""")
+        with pytest.raises(AssertionError, match=r'div#mobile-overflow-probe \(800px\)'):
+            _assert_dashboard_fits_phone(page)
+    finally:
+        page.close()
+
+
 def test_controls_across_tabs_frames_and_navigation(browser, catalog):
     url, state = catalog
     spec = wt.normalize({'url':url,'goal':'add_to_cart'})
