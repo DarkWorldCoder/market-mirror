@@ -20,6 +20,13 @@ def test_zh_full_tag_wins_over_later_en(app):
         assert get_locale() == 'zh'
 
 
+def test_regional_tag_beats_later_full_tag(app):
+    # A regional tag earlier in the header keeps priority over a different
+    # supported full tag that appears later: en-GB falls back to en before zh.
+    with app.test_request_context(headers={'Accept-Language': 'en-GB,zh'}):
+        assert get_locale() == 'en'
+
+
 def test_missing_header_defaults_to_en(app):
     with app.test_request_context():
         assert get_locale() == 'en'
