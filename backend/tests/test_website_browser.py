@@ -61,6 +61,7 @@ def browser():
 
 
 def _assert_dashboard_fits_phone(page):
+    """Report elements responsible for horizontal document overflow."""
     viewport_width = page.viewport_size['width']
     scroll_width = page.evaluate('document.documentElement.scrollWidth')
     if scroll_width <= viewport_width + 1:
@@ -68,23 +69,25 @@ def _assert_dashboard_fits_phone(page):
 
     wide_elements = page.evaluate("""width => {
         const wide = [];
-        for (const element of document.body.querySelectorAll('*')) {
+        for (const element of document.querySelectorAll('*')) {
             const rect = element.getBoundingClientRect();
-            if (rect.width > width) {
+            if (rect.width > width || rect.right > width + 1) {
                 const id = element.id ? '#' + element.id : '';
                 const classes = Array.from(element.classList, name => '.' + name).join('');
-                wide.push(element.localName + id + classes + ' (' + Math.round(rect.width) + 'px)');
+                wide.push(element.localName + id + classes + ' (width=' + Math.round(rect.width)
+                    + 'px, left=' + Math.round(rect.left) + 'px, right=' + Math.round(rect.right) + 'px)');
             }
         }
         return wide;
     }""", viewport_width)
     raise AssertionError(
         f'Dashboard scroll width {scroll_width}px exceeds {viewport_width + 1}px. '
-        f'Elements wider than the viewport: {", ".join(wide_elements)}'
+        f'Elements extending past the viewport: {", ".join(wide_elements)}'
     )
 
 
 def test_exported_dashboard_on_phone(browser, tmp_path):
+    """Check both themes and verify the overflow diagnostic catches regressions."""
     from claude_cli.exporter import export_run_dir
 
     fixture = Path(__file__).resolve().parents[1] / 'claude_cli/tests/fixtures/sample_run'
@@ -101,14 +104,26 @@ def test_exported_dashboard_on_phone(browser, tmp_path):
         dark_background = page.evaluate('getComputedStyle(document.body).backgroundColor')
         assert dark_background not in (light_background, 'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)')
 
-        page.evaluate("""() => {
-            const probe = document.createElement('div');
-            probe.id = 'mobile-overflow-probe';
-            probe.style.cssText = 'width: 800px; height: 1px';
-            document.body.append(probe);
-        }""")
-        with pytest.raises(AssertionError, match=r'div#mobile-overflow-probe \(800px\)'):
-            _assert_dashboard_fits_phone(page)
+        for style, diagnostic in (
+            ('width: 800px; height: 1px', r'div#mobile-overflow-probe \(width=800px,'),
+            ('position: absolute; left: 300px; width: 200px; height: 1px',
+             r'div#mobile-overflow-probe \(width=200px, left=300px, right=500px\)'),
+        ):
+            page.reload()
+            page.evaluate("""style => {
+                const probe = document.createElement('div');
+                probe.id = 'mobile-overflow-probe';
+                probe.style.cssText = style;
+                document.body.append(probe);
+            }""", style)
+            with pytest.raises(AssertionError, match=diagnostic):
+                _assert_dashboard_fits_phone(page)
+
+        for tag in ('html', 'body'):
+            page.reload()
+            page.evaluate("tag => { document.querySelector(tag).style.minWidth = '800px' }", tag)
+            with pytest.raises(AssertionError, match=rf'{tag} \('):
+                _assert_dashboard_fits_phone(page)
     finally:
         page.close()
 
