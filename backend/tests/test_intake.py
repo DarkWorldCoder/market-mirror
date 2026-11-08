@@ -184,3 +184,100 @@ def test_intake_api(monkeypatch):
     assert d["engine"] == "llm" and d["counts"]["records"] == 2 and d["usage"]["calls"] == 1
     off = c.post("/api/simulation/intake", json={"rows": REVIEWS, "engine": "supplied"}).get_json()["data"]
     assert off["engine"] == "supplied" and "model" not in off
+
+def test_vtt_transcript_removes_metadata_and_preserves_speakers():
+    text = """WEBVTT
+
+NOTE Internal recording note
+Do not include this note.
+
+intro
+00:00:01.000 --> 00:00:04.000 align:start
+<v Alice>Hello <i>everyone</i>.</v>
+Welcome to the interview.
+
+2
+00:00:04.000 --> 00:00:07.000
+<v Bob>The setup took too long.</v>
+"""
+    rows = intake._rows_from_text(text, "interview.vtt")
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "interview"
+    assert rows[0]["_transcript"] is True
+    assert rows[0]["text"].split() == (
+        "Alice: Hello everyone. "
+        "Welcome to the interview. "
+        "Bob: The setup took too long."
+    ).split()
+
+
+def test_srt_transcript_removes_cue_numbers_and_timestamps():
+    text = """1
+00:00:01,000 --> 00:00:04,000
+The onboarding took
+<i>too long</i>.
+
+2
+00:00:04,000 --> 00:00:07,000
+Support helped me later.
+"""
+    rows = intake._rows_from_text(text, "interview.srt")
+
+    assert len(rows) == 1
+    assert rows[0]["text"].split() == (
+        "The onboarding took too long. "
+        "Support helped me later."
+    ).split()
+
+
+def test_plain_text_transcript_is_preserved():
+    text = (
+        "WEBVTT\n\n"
+        "NOTE This is ordinary text in a txt file.\n"
+        "1\n"
+        "00:00:01.000 --> 00:00:04.000\n"
+        "<v Alice>Hello <i>everyone</i>.</v>\n"
+    )
+
+    rows = intake._rows_from_text(text, "notes.txt")
+
+    assert rows == [
+        {"id": "notes", "text": text, "_transcript": True}
+    ]
+
+def test_srt_preserves_numeric_caption_text():
+    text = (
+        "1\n"
+        "00:00:01,000 --> 00:00:03,000\n"
+        "42\n"
+        "That is my answer.\n"
+    )
+
+    rows = intake._rows_from_text(text, "numbers.srt")
+
+    assert rows[0]["text"].split() == [
+        "42", "That", "is", "my", "answer."
+    ]
+
+
+def test_read_sources_parses_vtt_with_bom_and_windows_newlines(tmp_path):
+    path = tmp_path / "interview.VTT"
+    path.write_bytes(
+        (
+            "\ufeffWEBVTT\r\n\r\n"
+            "00:01.000 --> 00:04.000\r\n"
+            "<v Alice>Setup was slow &amp; confusing.</v>\r\n"
+        ).encode("utf-8")
+    )
+
+    rows = intake.read_sources([str(path)])
+
+    assert rows == [
+        {
+            "id": "interview",
+            "text": "Alice: Setup was slow & confusing.",
+            "_transcript": True,
+            "_source": "interview.VTT",
+        }
+    ]
