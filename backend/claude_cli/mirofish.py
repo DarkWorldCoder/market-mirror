@@ -24,6 +24,7 @@ Only the stdlib and `requests` are used (requests is imported lazily, so
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import re
 import os
@@ -1413,6 +1414,48 @@ def _prepare_timeout(persona_spec: Any) -> float:
     return float(max(3600, 6 * n))
 
 
+def arm_spend_cap(c: Client, limit: Any, label: str) -> Optional[Dict[str, Any]]:
+    """Arm the server's run spend cap (estimated US dollars) for this run; it is lifted when the run ends or exits."""
+    if limit in (None, "", 0, False):
+        return None
+    try:
+        usd = float(limit)
+    except (TypeError, ValueError):
+        raise CLIError("max_spend_usd must be a number of US dollars, e.g. 5")
+    st = c.data("POST", "/api/simulation/spend-cap", json={"max_spend_usd": usd, "label": label})
+    atexit.register(disarm_spend_cap, c, label)
+    log(f"market-test: spend cap ${usd:.2f} armed (estimated from token usage; no new model call starts once it is reached)")
+    return st
+
+
+def disarm_spend_cap(c: Client, label: str) -> Optional[Dict[str, Any]]:
+    """Lift the run spend cap if this run armed it; never raises."""
+    try:
+        st = c.data("GET", "/api/simulation/spend-cap", retries=1)
+        if isinstance(st, dict) and st.get("label") == label:
+            return c.data("DELETE", "/api/simulation/spend-cap", retries=1)
+    except Exception:          # the server may already be gone at exit
+        pass
+    return None
+
+
+def save_spend_cap(c: Client, limit: Any, out_dir: str, state: Dict[str, Any]) -> None:
+    """Write spend_cap.json (what was spent against the cap) into the run folder for the dashboard."""
+    if limit in (None, "", 0, False):
+        return
+    try:
+        st = c.data("GET", "/api/simulation/spend-cap", retries=1)
+    except CLIError as e:
+        log(f"spend cap: could not read it ({e})")
+        return
+    if isinstance(st, dict) and st.get("label") == state.get("out_dir"):
+        state["spend_cap"] = {k: st.get(k) for k in ("limit_usd", "spent_usd", "calls", "reached")}
+        save_json(out_dir, "spend_cap", st)
+        if st.get("reached"):
+            log(f"market-test: spend cap reached (about ${float(st.get('spent_usd') or 0):.2f} of ${float(st['limit_usd']):.2f}); "
+                "steps after it kept what they had")
+
+
 def cmd_market_test(c: Client, a) -> Any:
     """All-in-one market test from one JSON config: personas -> feed test -> rounds -> survey -> panel -> dashboard.
 
@@ -1449,6 +1492,8 @@ def cmd_market_test(c: Client, a) -> Any:
         save_json(out_dir, "run_manifest", state)
 
     state.pop("finished_at", None)
+    state.pop("spend_cap", None)
+    arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
     sid = cfg.get("simulation_id") or state.get("simulation_id")
     research_ref = cfg.get("research")
     if isinstance(research_ref, str):
@@ -1539,7 +1584,12 @@ def cmd_market_test(c: Client, a) -> Any:
         prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
         people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
                   for p in (prof.get("profiles") or [])][:60]
+        if cfg.get("max_spend_usd"):
+            save_spend_cap(c, cfg["max_spend_usd"], out_dir, state)
+            disarm_spend_cap(c, state["out_dir"])
+            checkpoint()
         return {"stage": "personas_ready", "simulation_id": sid, "out_dir": state["out_dir"], "people": people,
+                "spend_cap": state.get("spend_cap"),
                 "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
 
     steps = []
@@ -1662,6 +1712,7 @@ def cmd_market_test(c: Client, a) -> Any:
     collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
     if cfg.get("study_cell"):
         market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
+    save_spend_cap(c, cfg.get("max_spend_usd"), out_dir, state)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
         try:
@@ -1672,7 +1723,10 @@ def cmd_market_test(c: Client, a) -> Any:
             log(f"report skipped: {e}")
             state.setdefault("errors", []).append(f"report: {e}")
         collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
+        save_spend_cap(c, cfg.get("max_spend_usd"), out_dir, state)
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    if cfg.get("max_spend_usd"):
+        disarm_spend_cap(c, state["out_dir"])
     state["finished_at"] = datetime.now().isoformat()
     checkpoint()
     summary = {}
@@ -1683,6 +1737,8 @@ def cmd_market_test(c: Client, a) -> Any:
         pass
     result = {"stage": "done", "steps": steps, "simulation_id": sid, "dashboard": state["export"]["html"],
               "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
+    if state.get("spend_cap"):
+        result["spend_cap"] = state["spend_cap"]
     hook = notify_webhook({"event": "market_test.finished", "name": cfg.get("name"), "title": cfg.get("title"), "run_dir": state["out_dir"],
                            "simulation_id": sid, "decision": summary.get("decision"), "steps": steps,
                            "files": {k: v for k, v in (state.get("export") or {}).items() if isinstance(v, str)}},
@@ -2674,7 +2730,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("market-test", help="all-in-one: personas -> feed test -> rounds -> survey -> panel -> dashboard")
     s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, seeds_n "
-                                  "(feed-test repeats), survey, panel, approve_spend (see README)")
+                                  "(feed-test repeats), survey, panel, approve_spend, max_spend_usd (see README)")
 
     s = sub.add_parser("pitch", help="sales rehearsal: pitch every simulated buyer, answer their objections with rebuttals")
     s.add_argument("--simulation", required=True)

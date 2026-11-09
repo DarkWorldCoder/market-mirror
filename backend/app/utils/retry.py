@@ -49,6 +49,8 @@ def retry_with_backoff(
                     return func(*args, **kwargs)
                     
                 except exceptions as e:
+                    if getattr(e, "no_retry", False):   # e.g. a reached spend cap: retrying cannot help
+                        raise
                     last_exception = e
                     
                     if attempt == max_retries:
@@ -102,6 +104,8 @@ def retry_with_backoff_async(
                     return await func(*args, **kwargs)
                     
                 except exceptions as e:
+                    if getattr(e, "no_retry", False):   # e.g. a reached spend cap: retrying cannot help
+                        raise
                     last_exception = e
                     
                     if attempt == max_retries:

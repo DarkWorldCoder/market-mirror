@@ -385,7 +385,8 @@ TOOLS = [
         "All-in-one market test. Config keys: name, title, seeds (absolute paths to documents), requirement (text), "
         "personas (persona spec object or absolute path) or auto_personas (int), creatives (feed-test object with creatives, "
         "landing, benchmarks), seeds_n (int, repeat the feed test with N seeds and report ranges), rounds (int), survey {offer, goal, messages (list), split, pricing}, panel {analysts, brief}, "
-        "report (bool), simulation_id (reuse), approve_spend (bool). Without approve_spend it stops after creating the "
+        "report (bool), simulation_id (reuse), approve_spend (bool), max_spend_usd (number: a hard cap in US dollars, "
+        "estimated from token usage; no new model call starts once it is reached and partial results are kept). Without approve_spend it stops after creating the "
         "personas so you can show them to the user; then call again with simulation_id and approve_spend true. When the "
         "client supports elicitation, the user is asked instead (planned people and a rough cost) and the answer decides. "
         "Background job (a task for clients that negotiate tasks)."),

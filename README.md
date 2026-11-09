@@ -522,6 +522,8 @@ Inspect the generated files and profiles. To continue, retain the returned `simu
 ./mm live --run-dir mirofish_runs/acme
 ```
 
+To put a hard limit on spend, add `"max_spend_usd": 5` to the same file. The cost is estimated from token usage at list prices. Once the cap is reached, no new model call starts, and the run keeps and shows what it already has. `MM_MAX_SPEND_USD` sets the same kind of cap for each server process.
+
 The live viewer runs at [127.0.0.1:5050](http://127.0.0.1:5050), and its control room at [127.0.0.1:5050/live](http://127.0.0.1:5050/live) shows every stage, every simulated person lighting up as they act, what they post, and the progress log, updated every two seconds. Use the actual run directory printed by the pipeline if its name differs. The saved `dashboard.html` also opens directly without a server. To generate templates without preparing people, use `./mm cli quickstart --no-run`.
 
 <details>

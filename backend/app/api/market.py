@@ -1642,3 +1642,34 @@ def get_simulation_search(simulation_id: str):
                                                 doc_type=args.get("type") or None, segment=args.get("segment") or None,
                                                 concept=args.get("concept") or None)
     return jsonify({"success": True, "data": res})
+
+
+@simulation_bp.route('/spend-cap', methods=['GET', 'POST', 'DELETE'])
+def spend_cap_route():
+    """The run spend cap (estimated US dollars; see app/utils/spend_cap.py). POST {max_spend_usd, label?} arms it,
+    GET reads it (data null when none is armed), DELETE ends it and returns its final state."""
+    from ..utils import spend_cap
+    if request.method == 'GET':
+        return jsonify({"success": True, "data": spend_cap.status()})
+    if request.method == 'DELETE':
+        return jsonify({"success": True, "data": spend_cap.disarm()})
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "request body must be an object"}), 400
+    try:
+        state = spend_cap.arm(data.get("max_spend_usd"), str(data.get("label") or ""))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    return jsonify({"success": True, "data": state})
+
+
+def _spend_cap_reached(e):
+    return jsonify({"success": False, "error": str(e), "spend_cap_reached": True}), 409
+
+
+def _register_spend_cap_handler():
+    from ..utils.spend_cap import SpendCapReached
+    simulation_bp.register_error_handler(SpendCapReached, _spend_cap_reached)
+
+
+_register_spend_cap_handler()

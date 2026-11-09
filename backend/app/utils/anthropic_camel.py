@@ -44,6 +44,7 @@ from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall, Function
 from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 
+from . import spend_cap
 from .anthropic_native import effort_supported, is_anthropic_api, native_claude_available
 
 _FINISH = {"end_turn": "stop", "stop_sequence": "stop", "tool_use": "tool_calls", "max_tokens": "length",
@@ -330,6 +331,7 @@ def to_chat_completion(msg: Any, tag: str = "agents") -> ChatCompletion:
     uncached = int(getattr(u, "input_tokens", 0) or 0)
     output = int(getattr(u, "output_tokens", 0) or 0)
     _add_usage(tag, uncached, read, write, output)
+    spend_cap.charge_tokens(getattr(msg, "model", None), uncached + read + write, output, read, write)
     usage = CompletionUsage.model_construct(
         prompt_tokens=uncached + read + write, completion_tokens=output, total_tokens=uncached + read + write + output,
         prompt_tokens_details=PromptTokensDetails(cached_tokens=read),
@@ -386,11 +388,13 @@ class ClaudeNativeModel(OpenAICompatibleModel):
     def _run(self, messages, response_format=None, tools=None):
         if response_format is not None or (self.model_config_dict or {}).get("response_format"):
             return super()._run(messages, response_format, tools)    # structured output: not used by OASIS
+        spend_cap.check()
         return to_chat_completion(self.native_client.messages.create(**self._params(messages, tools)), self.usage_tag)
 
     async def _arun(self, messages, response_format=None, tools=None):
         if response_format is not None or (self.model_config_dict or {}).get("response_format"):
             return await super()._arun(messages, response_format, tools)
+        spend_cap.check()
         msg = await self.async_native_client.messages.create(**self._params(messages, tools))
         return to_chat_completion(msg, self.usage_tag)
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from . import spend_cap
+
 
 def is_gpt5_family(model: Optional[str]) -> bool:
     """Return True when model belongs to GPT-5 family aliases/snapshots."""
@@ -139,7 +141,10 @@ def create_chat_completion(
     if not getattr(client, "supports_cache_break", False) and not hasattr(client, "slots") and not hasattr(client, "pool"):
         from .anthropic_native import strip_cache_break
         kwargs["messages"] = strip_cache_break(kwargs.get("messages") or [])
-    return client.chat.completions.create(**kwargs)
+    spend_cap.check()                       # a reached spend cap stops the call before anything is sent
+    response = client.chat.completions.create(**kwargs)
+    spend_cap.charge(response, model)
+    return response
 
 
 def extract_chat_completion_text(response: Any) -> str:
