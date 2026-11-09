@@ -24,6 +24,7 @@ DL_LABELS = {
     "feed_test_creatives.csv": "Creatives + ROI (CSV)", "leads.csv": "Lead scores (CSV)",
     "analyst_panel.json": "Analyst panel (JSON)", "feed_story.json": "Social feed (JSON)",
     "summary.json": "All numbers (JSON)",
+    "real_check.md": "Check with real people (Markdown)", "real_check.csv": "Real answers sheet (CSV)",
 }
 
 
