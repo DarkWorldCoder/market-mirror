@@ -13,10 +13,13 @@ Points (the reasons list says which applied):
   more than one model provider answered        -> 1
   feelings look too uniform / caricatured / too positive  -> -1 each, at most -2
 Grade: A 7+ (and only with a real-data check), B 5+, C 3+, D below.
+Then one grade lower when most people are in markets the models represent less well (see market_coverage) and
+no real answers checked the run.
 
 Stdlib only and no package-relative imports: the offline dashboard exporter loads this file by path.
 """
 
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 GRADES = (("A", 7), ("B", 5), ("C", 3), ("D", -99))
@@ -24,6 +27,52 @@ MEANING = {"A": "firm enough to act on, within the stated margins",
            "B": "a solid direction; confirm the decision with a small real test",
            "C": "a direction only; test with real people before spending",
            "D": "a sketch; do not act on it without real data"}
+
+
+# Markets where a plain persona prompt tracks real people best: the models' default respondent already sits close to
+# them. Elsewhere, naming the country moves answers only part of the way (Ghana vs the UK in arXiv 2605.16193), and
+# fluency in a language does not predict cultural fit (arXiv 2502.16534). A rough split, not a measured ranking.
+WELL_COVERED = {"united states", "usa", "us", "u.s.", "america", "united kingdom", "uk", "u.k.", "great britain",
+                "britain", "england", "scotland", "wales", "northern ireland", "canada", "australia", "new zealand",
+                "ireland"}
+COVERAGE_SOURCES = ("arXiv 2605.16193", "arXiv 2502.16534")
+
+
+def _profiles(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    for key in ("profiles_reddit", "profiles_twitter", "profiles"):
+        v = (bundle or {}).get(key)
+        if isinstance(v, dict):
+            v = v.get("profiles")
+        if isinstance(v, list) and v:
+            return [r for r in v if isinstance(r, dict)]
+    return []
+
+
+def _grounded(r: Dict[str, Any]) -> bool:
+    prov = r.get("provenance")
+    vals = prov.values() if isinstance(prov, dict) else [prov]
+    return any(str(v or "").strip().lower().startswith("real_intake") for v in vals)
+
+
+def market_coverage(bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """How many simulated people sit in markets the models represent less well; None when no country was recorded.
+    flagged: at least half of them do."""
+    people = [r for r in _profiles(bundle) if str(r.get("country") or "").strip()]
+    if not people:
+        return None
+    less = Counter(str(r["country"]).strip() for r in people if str(r["country"]).strip().lower() not in WELL_COVERED)
+    n_less = sum(less.values())
+    share = round(100 * n_less / len(people))
+    grounded = sum(1 for r in people if _grounded(r) and str(r["country"]).strip().lower() not in WELL_COVERED)
+    out = {"people": len(people), "less_covered": n_less, "less_covered_pct": share,
+           "markets": [m for m, _ in less.most_common(6)], "grounded_less_covered": grounded,
+           "flagged": n_less > 0 and share >= 50, "sources": list(COVERAGE_SOURCES)}
+    if n_less:
+        out["note"] = (f"{share}% of the simulated people are in markets the models represent less well "
+                       f"({', '.join(out['markets'])}). Answers there lean toward a generic Western respondent, so expect "
+                       "more bias. Grounding personas in local customer data (intake) or country survey data helps; "
+                       "a small real test in that market helps most.")
+    return out
 
 
 def _answered(survey: Optional[Dict[str, Any]]) -> int:
@@ -78,7 +127,13 @@ def grade(bundle: Dict[str, Any], emotion_flags: Optional[Dict[str, Any]] = None
     if g == "A" and not real:
         g = "B"
         reasons.append("capped at B: no check against real answers")
-    return {"grade": g, "points": pts, "reasons": reasons, "meaning": MEANING[g],
+    cov = market_coverage(b)
+    if cov and cov["flagged"] and not real:
+        letters = [letter for letter, _ in GRADES]
+        g = letters[min(len(letters) - 1, letters.index(g) + 1)]
+        reasons.append(f"one grade lower: {cov['less_covered_pct']}% of people are in markets the models represent less well "
+                       f"({', '.join(cov['markets'][:3])})")
+    return {"grade": g, "points": pts, "reasons": reasons, "meaning": MEANING[g], "market_coverage": cov,
             "basis": "computed from what this run recorded; see app/services/evidence.py for the points"}
 
 

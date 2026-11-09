@@ -208,8 +208,11 @@ def evidence_section(bundle: Dict[str, Any], states: Optional[Dict[str, Any]] = 
              ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in (sd.get("dropped") or {}).items()) or "–"]
             for name, sd in (("Survey", (bundle.get("survey") or {}).get("say_do")), ("Sales pitch", (bundle.get("pitch") or {}).get("say_do")))
             if isinstance(sd, dict) and sd.get("n")]
+    cov = ev.get("market_coverage") or {}
+    market_note = (f'<p class="callout">{_pill("Market coverage", "neg" if cov.get("flagged") else "neu")} {_e(cov["note"])}</p>'
+                   if cov.get("note") else "")
     body = (f'<p>{_pill("Evidence " + ev["grade"], tone)} {_e(ev["meaning"])}.</p>'
-            + "<ul>" + "".join(f"<li>{_e(r)}</li>" for r in ev["reasons"]) + "</ul>"
+            + "<ul>" + "".join(f"<li>{_e(r)}</li>" for r in ev["reasons"]) + "</ul>" + market_note
             + (ui.table(["Test", "People", "Said yes", "After say-do rules", "Removed by"], rows) if rows else "")
             + ('<p class="muted small">"After say-do rules" applies fixed rules from each person\'s decision card (budget, '
                "dealbreakers, polite yes-sayers backing out at payment). It is an assumption, not a measurement.</p>" if rows else "")
