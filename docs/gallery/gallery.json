@@ -1,0 +1,8 @@
+[
+  {"slug": "fitloop-3000", "link": "../demo/", "title": "Fitloop: 3,000 buyers, three AI models",
+   "about": "A fitness-app launch tested on 2,999 simulated buyers written by Claude, Codex and Gemini: feed test, survey, sales pitch and the go / iterate / no-go call.",
+   "people": 2999, "tests": "feed test, survey, pitch"},
+  {"slug": "fitloop-launch", "run_dir": "mirofish_runs/fitloop", "brand": "Fitloop", "title": "Fitloop launch: 150 buyers",
+   "about": "The same invented fitness app at a smaller size: two ads in realistic feeds, a buyer survey with a price question, an analyst panel and a sales rehearsal.",
+   "tests": "feed test, survey, analyst panel, pitch"}
+]

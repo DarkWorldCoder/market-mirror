@@ -19,7 +19,7 @@ English · [简体中文](README.zh-CN.md)
 
 Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](https://github.com/camel-ai/oasis) · listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`
 
-**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
+**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.) More finished examples: [the example gallery](https://darkworldcoder.github.io/market-mirror/gallery/).
 
 </div>
 
