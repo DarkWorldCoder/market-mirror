@@ -96,3 +96,41 @@ def test_dashboard_section():
     anchor, title, html = report_view.evidence_section(bundle)
     assert anchor == "how-sure" and "Evidence C" in html and "wallet limit 3" in html and "assumption" in html
     assert report_view.evidence_section({}) is None
+
+
+def _with_countries(bundle, countries, grounded=0):
+    bundle["profiles_reddit"] = [{"agent_id": i, "country": c,
+                                  **({"provenance": {"profile": "real_intake: reviews"}} if i < grounded else {})}
+                                 for i, c in enumerate(countries)]
+    return bundle
+
+
+def test_market_coverage_flags_less_represented_markets():
+    assert evidence.market_coverage(_bundle(10)) is None                      # no country recorded
+    us = evidence.market_coverage(_with_countries(_bundle(10), ["United States"] * 8 + ["UK", "Canada"]))
+    assert us["less_covered"] == 0 and not us["flagged"] and "note" not in us
+    gh = evidence.market_coverage(_with_countries(_bundle(10), ["Ghana"] * 6 + ["Nigeria"] * 2 + ["USA"] * 2, grounded=3))
+    assert gh["flagged"] and gh["less_covered_pct"] == 80 and gh["markets"] == ["Ghana", "Nigeria"]
+    assert gh["grounded_less_covered"] == 3 and "Ghana, Nigeria" in gh["note"]
+    few = evidence.market_coverage(_with_countries(_bundle(10), ["Nepal"] * 2 + ["usa"] * 8))
+    assert not few["flagged"] and "20%" in few["note"]
+
+
+def test_grade_drops_one_step_unless_real_answers_checked_it():
+    base = evidence.grade(_bundle(60, seeds=(3, 67)))
+    ghana = evidence.grade(_with_countries(_bundle(60, seeds=(3, 67)), ["Ghana"] * 60))
+    assert base["grade"] == "C" and ghana["grade"] == "D"
+    assert any("one grade lower" in r and "Ghana" in r for r in ghana["reasons"])
+    checked = evidence.grade(_with_countries(_bundle(250, seeds=(3, 100), retest=80, calibration={"overlap": {"n": 40}}),
+                                             ["Ghana"] * 250))
+    assert checked["grade"] == "A"                                              # real answers already checked it
+    sketch = evidence.grade(_with_countries(_bundle(20), ["Ghana"] * 20))
+    assert sketch["grade"] == "D"                                               # D stays D
+
+
+def test_report_and_dashboard_show_the_market_note():
+    bundle = _with_countries({**_bundle(60, seeds=(3, 67)), "summary": {"marketing": {}}, "config": {}}, ["Ghana"] * 60)
+    md = mr.render_markdown({"limits": {}}, mr.compact_material(bundle))
+    assert "Markets: 100% of the simulated people" in md
+    _, _, html = report_view.evidence_section(bundle)
+    assert "Market coverage" in html and "Ghana" in html

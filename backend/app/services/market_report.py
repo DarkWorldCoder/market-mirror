@@ -806,6 +806,9 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
     ev = material.get("evidence") or {}
     if ev.get("grade"):
         out += [f"Evidence grade: **{ev['grade']}**, {ev.get('meaning')}.", "", _bullets(ev.get("reasons")), ""]
+    cov = ev.get("market_coverage") or {}
+    if cov.get("note"):
+        out += [f"Markets: {cov['note']}", ""]
     for name, sd in (material.get("say_do") or {}).items():
         if isinstance(sd, dict) and sd.get("n"):
             out += [f"Say vs do ({name}): {sd.get('stated_yes_pct')}% said yes; {sd.get('after_rules_yes_pct')}% after the "
