@@ -167,3 +167,18 @@ def test_cli_cap_helpers():
     assert mirofish.disarm_spend_cap(fc, None) is None
     assert mirofish.spend_cap_stopped(mirofish.CLIError("POST /x -> HTTP 409: spend cap reached: about $5.01"))
     assert not mirofish.spend_cap_stopped(mirofish.CLIError("POST /x -> HTTP 500: boom"))
+
+
+def test_market_test_lifts_its_cap_when_it_fails(monkeypatch):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "claude_cli"))
+    import mirofish
+    lifted = []
+
+    def failing_run(c, a, armed):
+        armed.append("cap-1")
+        raise mirofish.CLIError("upload failed")
+    monkeypatch.setattr(mirofish, "_market_test", failing_run)
+    monkeypatch.setattr(mirofish, "disarm_spend_cap", lambda c, cid: lifted.append(cid))
+    with pytest.raises(mirofish.CLIError, match="upload failed"):
+        mirofish.cmd_market_test(object(), SimpleNamespace(config="x.json"))
+    assert lifted == ["cap-1"]

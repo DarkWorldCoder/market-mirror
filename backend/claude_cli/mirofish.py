@@ -1469,6 +1469,17 @@ def spend_cap_stopped(e: Exception) -> bool:
 
 
 def cmd_market_test(c: Client, a) -> Any:
+    """All-in-one market test from one JSON config (see _market_test). A spend cap the run arms is lifted on every
+    exit path, so a failed cell of a study does not leave it armed for the next one."""
+    armed: List[str] = []
+    try:
+        return _market_test(c, a, armed)
+    finally:
+        for cid in armed:
+            disarm_spend_cap(c, cid)
+
+
+def _market_test(c: Client, a, armed: List[str]) -> Any:
     """All-in-one market test from one JSON config: personas -> feed test -> rounds -> survey -> panel -> dashboard.
 
     Spend guard: unless the config has "approve_spend": true, it stops after creating the personas and prints
@@ -1506,6 +1517,8 @@ def cmd_market_test(c: Client, a) -> Any:
     state.pop("finished_at", None)
     state.pop("spend_cap", None)
     cap_id = arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
+    if cap_id:
+        armed.append(cap_id)
     sid = cfg.get("simulation_id") or state.get("simulation_id")
     research_ref = cfg.get("research")
     if isinstance(research_ref, str):
@@ -1639,10 +1652,16 @@ def cmd_market_test(c: Client, a) -> Any:
         if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
             guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
             survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
-            state["focus_group"] = _try("focus group", lambda: market_cli.focus_group(
-                c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
-                str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
-                int(fg.get("rounds") or 1)))
+            try:
+                state["focus_group"] = market_cli.focus_group(
+                    c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
+                    str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
+                    int(fg.get("rounds") or 1))
+            except CLIError as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise
+                log(f"collect: skipped focus group: {e}")
+                state["focus_group"] = None
             steps.append("focus_group")
             checkpoint()
         emails = cfg.get("emails")
@@ -1655,6 +1674,8 @@ def cmd_market_test(c: Client, a) -> Any:
                     cfg.get("list_size")), log)
                 steps.append("email_test")
             except (ValueError, RuntimeError, CLIError) as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
                 log(f"email test skipped: {e}")
             checkpoint()
         survey = cfg.get("survey")
@@ -1705,6 +1726,8 @@ def cmd_market_test(c: Client, a) -> Any:
                     str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
                 steps.append("pitch")
             except (ValueError, RuntimeError, CLIError) as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
                 log(f"pitch skipped: {e}")
             checkpoint()
         panel_cfg = cfg.get("panel")
@@ -1716,6 +1739,8 @@ def cmd_market_test(c: Client, a) -> Any:
                     load_bundle=exporter.load_run_dir), log)
                 steps.append("panel")
             except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
                 log(f"panel skipped: {e}")
                 state.setdefault("errors", []).append(f"panel: {e}")
         if cfg.get("report") == "upstream" or cfg.get("engine_report"):
