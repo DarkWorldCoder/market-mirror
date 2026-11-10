@@ -136,6 +136,7 @@ Keep private inputs (seed documents, questions, campaign data) in `scenarios/<na
 
 ## 5. Cost tips
 
+- Hard cap: `"max_spend_usd": 5` in `market_test.json` (or the MCP `market_test` config) stops new model calls once the estimated spend reaches it; calls in flight finish, so it can overshoot slightly; one capped run per server, `spend-cap --clear` lifts a cap left by a killed run (`app/utils/spend_cap.py`, list prices, `MM_USD_PER_MTOK` to override; `GET|POST|DELETE /api/simulation/spend-cap`; `spend_cap.json` in the run folder). `MM_MAX_SPEND_USD` caps each server process.
 - Start small: `--max-rounds 3-5`, one platform (`--platform reddit`), and a short seed document.
 - Agent count equals the number of graph entities. Use `--entity-types` (on `run` or `prepare`) to limit which types become agents.
 - `claude-haiku-4-5` is fine for exploration. Switch `LLM_MODEL_NAME` only for the final run.

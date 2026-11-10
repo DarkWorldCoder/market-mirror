@@ -646,3 +646,31 @@ Request body:
 ```
 
 Returns: {status, progress, message, result}
+
+### `POST /api/simulation/spend-cap`
+
+Arm a spend cap for a run (estimated US dollars; 409 while another run's cap is armed).
+
+Request body:
+
+```json
+{
+  "max_spend_usd": 5,
+  "label": "mirofish_runs/acme",
+  "replace": false
+}
+```
+
+Returns: {cap_id, limit_usd, spent_usd, calls, reached, label}
+
+### `GET /api/simulation/spend-cap`
+
+The armed spend cap and what was spent (null when none).
+
+Returns: {limit_usd, spent_usd, calls, input_tokens, output_tokens, reached}
+
+### `DELETE /api/simulation/spend-cap`
+
+Lift the spend cap (?cap_id= lifts only that cap); returns its final state.
+
+Returns: {limit_usd, spent_usd, calls, reached}

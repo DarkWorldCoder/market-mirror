@@ -84,6 +84,16 @@ def _echarts_inline() -> str:
         return ""
 
 
+def spend_cap_row(bundle: Dict[str, Any]) -> str:
+    """'about $0.42 of $5.00 (estimated, 120 calls)', with a note when the cap stopped the run; '' without a cap."""
+    sc = bundle.get("spend_cap") or {}
+    if not isinstance(sc, dict) or not sc.get("limit_usd"):
+        return ""
+    text = (f"about ${float(sc.get('spent_usd') or 0):.2f} of ${float(sc['limit_usd']):.2f} "
+            f"(estimated from token usage, {int(sc.get('calls') or 0)} model calls)")
+    return text + (" · reached: later steps stopped and partial results are shown" if sc.get("reached") else "")
+
+
 RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
@@ -91,7 +101,7 @@ RUN_FILES = [
     "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "choice_maxdiff", "choice_conjoint", "choice_gabor_granger", "focus_group", "calibration", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
-    "geo_visibility", "voc_grounding", "dark_social", "search_index",
+    "geo_visibility", "voc_grounding", "dark_social", "search_index", "spend_cap",
 ]
 
 
@@ -1386,6 +1396,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         ("Hot topics", ", ".join(map(str, as_list(ev.get("hot_topics")))) or "–"),
         ("Report", f"{report.get('report_id') or '–'} · {report.get('status') or ''}"),
     ]
+    if spend_cap_row(bundle):
+        meta_rows.append(("Spend cap", spend_cap_row(bundle)))
     meta_html = '<dl class="kv">' + "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in meta_rows) + "</dl>"
     if project.get("analysis_summary"):
         meta_html += f'<details><summary>Ontology analysis</summary><p>{esc(project.get("analysis_summary"))}</p></details>'

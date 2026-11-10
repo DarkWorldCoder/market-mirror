@@ -1724,6 +1724,95 @@
           }
         }
       }
+    },
+    "/api/simulation/spend-cap": {
+      "post": {
+        "summary": "Arm a spend cap for a run (estimated US dollars; 409 while another run's cap is armed)",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{cap_id, limit_usd, spent_usd, calls, reached, label}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "max_spend_usd": 5,
+                "label": "mirofish_runs/acme",
+                "replace": false
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "The armed spend cap and what was spent (null when none)",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{limit_usd, spent_usd, calls, input_tokens, output_tokens, reached}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Lift the spend cap (?cap_id= lifts only that cap); returns its final state",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{limit_usd, spent_usd, calls, reached}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
     }
   }
 }
