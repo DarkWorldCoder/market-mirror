@@ -52,6 +52,7 @@ try:  # marketing layer (stdlib only)
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
+    import real_check  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
@@ -62,6 +63,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
+    from . import real_check  # type: ignore
 try:  # social feed section (Phase 2, optional until wired)
     import social_feed  # type: ignore
 except ImportError:  # pragma: no cover
@@ -1297,6 +1299,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel", "cro_lab"):
         if bundle.get(name):
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
+    kit = _safe("real check", lambda: real_check.build(bundle, mk))
+    if kit:                                   # the questions that decided the run, to ask real people
+        files["real_check.md"], files["real_check.csv"] = kit["markdown"], kit["csv"]
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
         cockpit = _safe("decision cockpit", lambda: overview.cockpit_bento(bundle, mk, decision, dec[2]), dec[2])
