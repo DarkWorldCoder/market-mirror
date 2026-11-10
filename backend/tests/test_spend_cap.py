@@ -60,6 +60,7 @@ def test_run_cap_stops_new_calls_and_records_spend():
     assert client.sent == 1                       # nothing was sent once the cap was reached
     final = spend_cap.disarm()
     assert final["label"] == "run-a" and spend_cap.status() is None
+    assert os.path.exists(os.environ["MM_SPEND_FILE"]) and os.path.getsize(os.environ["MM_SPEND_FILE"]) == 0   # kept, empty
     openai_chat_compat.create_chat_completion(client, model="claude-haiku-4-5", messages=msgs)
     assert client.sent == 2
 
@@ -111,9 +112,13 @@ def test_api_arms_reads_and_lifts_the_cap():
         headers["Authorization"] = f"Bearer {token}"
     c = app.test_client()
     assert c.post("/api/simulation/spend-cap", json={"max_spend_usd": "x"}, headers=headers).status_code == 400
-    assert c.post("/api/simulation/spend-cap", json={"max_spend_usd": 2, "label": "r"}, headers=headers).get_json()["data"]["limit_usd"] == 2
+    armed = c.post("/api/simulation/spend-cap", json={"max_spend_usd": 2, "label": "r"}, headers=headers).get_json()["data"]
+    assert armed["limit_usd"] == 2 and armed["cap_id"]
+    busy = c.post("/api/simulation/spend-cap", json={"max_spend_usd": 3, "label": "other"}, headers=headers)
+    assert busy.status_code == 409 and busy.get_json()["cap_busy"]
     assert c.get("/api/simulation/spend-cap", headers=headers).get_json()["data"]["label"] == "r"
-    assert c.delete("/api/simulation/spend-cap", headers=headers).get_json()["data"]["label"] == "r"
+    assert c.delete("/api/simulation/spend-cap?cap_id=nope", headers=headers).get_json()["data"] is None
+    assert c.delete(f"/api/simulation/spend-cap?cap_id={armed['cap_id']}", headers=headers).get_json()["data"]["label"] == "r"
     assert c.get("/api/simulation/spend-cap", headers=headers).get_json()["data"] is None
 
 
@@ -123,3 +128,42 @@ def test_dashboard_row():
     assert exporter.spend_cap_row({}) == ""
     row = exporter.spend_cap_row({"spend_cap": {"limit_usd": 5, "spent_usd": 5.2, "calls": 300, "reached": True}})
     assert "$5.20 of $5.00" in row and "300 model calls" in row and "reached" in row
+
+
+def test_bad_ttl_env_falls_back(monkeypatch):
+    monkeypatch.setenv("MM_SPEND_CAP_TTL_S", "a day")
+    assert spend_cap._ttl() == 24 * 3600
+
+
+def test_a_second_run_cannot_replace_an_armed_cap_and_cleanup_is_by_id():
+    first = spend_cap.arm(1.0, "run-a")
+    with pytest.raises(spend_cap.CapBusy, match="run-a"):
+        spend_cap.arm(2.0, "run-b")
+    second = spend_cap.arm(2.0, "run-b", replace=True)
+    assert spend_cap.disarm(first["cap_id"]) is None              # run-a's late cleanup leaves run-b's cap alone
+    assert spend_cap.status()["cap_id"] == second["cap_id"]
+    assert spend_cap.disarm(second["cap_id"])["label"] == "run-b" and spend_cap.status() is None
+    spend_cap.arm(1.0, "run-c")                                    # free again
+
+
+def test_cli_cap_helpers():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "claude_cli"))
+    import mirofish
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def data(self, method, path, **kw):
+            self.calls.append((method, kw.get("params"), kw.get("json")))
+            if method == "POST":
+                raise mirofish.CLIError("POST /api/simulation/spend-cap -> HTTP 409: another run's spend cap is armed")
+            return None
+    fc = FakeClient()
+    with pytest.raises(mirofish.CLIError, match="spend-cap --clear"):
+        mirofish.arm_spend_cap(fc, 5, "/runs/x")
+    mirofish.disarm_spend_cap(fc, "abc")
+    assert fc.calls[-1] == ("DELETE", {"cap_id": "abc"}, None)
+    assert mirofish.disarm_spend_cap(fc, None) is None
+    assert mirofish.spend_cap_stopped(mirofish.CLIError("POST /x -> HTTP 409: spend cap reached: about $5.01"))
+    assert not mirofish.spend_cap_stopped(mirofish.CLIError("POST /x -> HTTP 500: boom"))

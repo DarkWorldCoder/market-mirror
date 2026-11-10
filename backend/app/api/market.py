@@ -1646,18 +1646,21 @@ def get_simulation_search(simulation_id: str):
 
 @simulation_bp.route('/spend-cap', methods=['GET', 'POST', 'DELETE'])
 def spend_cap_route():
-    """The run spend cap (estimated US dollars; see app/utils/spend_cap.py). POST {max_spend_usd, label?} arms it,
-    GET reads it (data null when none is armed), DELETE ends it and returns its final state."""
+    """The run spend cap (estimated US dollars; see app/utils/spend_cap.py). POST {max_spend_usd, label?, replace?}
+    arms it (409 while another run's cap is armed, unless replace), GET reads it (data null when none is armed),
+    DELETE ?cap_id= lifts that cap only (without cap_id: whatever cap is armed) and returns its final state."""
     from ..utils import spend_cap
     if request.method == 'GET':
         return jsonify({"success": True, "data": spend_cap.status()})
     if request.method == 'DELETE':
-        return jsonify({"success": True, "data": spend_cap.disarm()})
+        return jsonify({"success": True, "data": spend_cap.disarm(request.args.get("cap_id") or None)})
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"success": False, "error": "request body must be an object"}), 400
     try:
-        state = spend_cap.arm(data.get("max_spend_usd"), str(data.get("label") or ""))
+        state = spend_cap.arm(data.get("max_spend_usd"), str(data.get("label") or ""), replace=bool(data.get("replace")))
+    except spend_cap.CapBusy as e:
+        return jsonify({"success": False, "error": str(e), "cap_busy": True}), 409
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
     return jsonify({"success": True, "data": state})

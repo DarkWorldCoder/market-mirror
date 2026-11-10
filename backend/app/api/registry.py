@@ -80,11 +80,11 @@ ENDPOINTS = [
      "body": {"summary": {}, "brand": "Brand"}, "returns": "{markdown, method}"},
     {"method": "POST", "path": "/api/simulation/market-task/status", "tag": "tasks", "summary": "Status of a background task", "body": {"task_id": "..."},
      "returns": "{status, progress, message, result}"},
-    {"method": "POST", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Arm a hard spend cap for a run (estimated US dollars)",
-     "body": {"max_spend_usd": 5, "label": "mirofish_runs/acme"}, "returns": "{limit_usd, spent_usd, calls, reached, label}"},
+    {"method": "POST", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Arm a spend cap for a run (estimated US dollars; 409 while another run's cap is armed)",
+     "body": {"max_spend_usd": 5, "label": "mirofish_runs/acme", "replace": False}, "returns": "{cap_id, limit_usd, spent_usd, calls, reached, label}"},
     {"method": "GET", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "The armed spend cap and what was spent (null when none)",
      "returns": "{limit_usd, spent_usd, calls, input_tokens, output_tokens, reached}"},
-    {"method": "DELETE", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Lift the spend cap; returns its final state",
+    {"method": "DELETE", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Lift the spend cap (?cap_id= lifts only that cap); returns its final state",
      "returns": "{limit_usd, spent_usd, calls, reached}"},
 ]
 

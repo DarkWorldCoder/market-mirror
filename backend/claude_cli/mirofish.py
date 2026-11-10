@@ -1414,46 +1414,58 @@ def _prepare_timeout(persona_spec: Any) -> float:
     return float(max(3600, 6 * n))
 
 
-def arm_spend_cap(c: Client, limit: Any, label: str) -> Optional[Dict[str, Any]]:
-    """Arm the server's run spend cap (estimated US dollars) for this run; it is lifted when the run ends or exits."""
+def arm_spend_cap(c: Client, limit: Any, label: str) -> Optional[str]:
+    """Arm the server's run spend cap (estimated US dollars) for this run and return its cap_id; it is lifted when
+    the run ends or the process exits. Refused while another run's cap is armed."""
     if limit in (None, "", 0, False):
         return None
     try:
         usd = float(limit)
     except (TypeError, ValueError):
         raise CLIError("max_spend_usd must be a number of US dollars, e.g. 5")
-    st = c.data("POST", "/api/simulation/spend-cap", json={"max_spend_usd": usd, "label": label})
-    atexit.register(disarm_spend_cap, c, label)
-    log(f"market-test: spend cap ${usd:.2f} armed (estimated from token usage; no new model call starts once it is reached)")
-    return st
-
-
-def disarm_spend_cap(c: Client, label: str) -> Optional[Dict[str, Any]]:
-    """Lift the run spend cap if this run armed it; never raises."""
     try:
-        st = c.data("GET", "/api/simulation/spend-cap", retries=1)
-        if isinstance(st, dict) and st.get("label") == label:
-            return c.data("DELETE", "/api/simulation/spend-cap", retries=1)
+        st = c.data("POST", "/api/simulation/spend-cap", json={"max_spend_usd": usd, "label": label})
+    except CLIError as e:
+        if "HTTP 409" in str(e):
+            raise CLIError(f"market-test: {e}. If that run was stopped, lift its cap with: mirofish.py spend-cap --clear")
+        raise
+    cap_id = (st or {}).get("cap_id")
+    atexit.register(disarm_spend_cap, c, cap_id)
+    log(f"market-test: spend cap ${usd:.2f} armed (estimated from token usage; no new model call starts once it is "
+        "reached, and calls already running finish)")
+    return cap_id
+
+
+def disarm_spend_cap(c: Client, cap_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lift this run's spend cap (only that cap: the server compares cap_id under its lock); never raises."""
+    if not cap_id:
+        return None
+    try:
+        return c.data("DELETE", "/api/simulation/spend-cap", params={"cap_id": cap_id}, retries=1)
     except Exception:          # the server may already be gone at exit
-        pass
-    return None
+        return None
 
 
-def save_spend_cap(c: Client, limit: Any, out_dir: str, state: Dict[str, Any]) -> None:
-    """Write spend_cap.json (what was spent against the cap) into the run folder for the dashboard."""
-    if limit in (None, "", 0, False):
+def save_spend_cap(c: Client, cap_id: Optional[str], out_dir: str, state: Dict[str, Any]) -> None:
+    """Write spend_cap.json (what was spent against this run's cap) into the run folder for the dashboard."""
+    if not cap_id:
         return
     try:
         st = c.data("GET", "/api/simulation/spend-cap", retries=1)
     except CLIError as e:
         log(f"spend cap: could not read it ({e})")
         return
-    if isinstance(st, dict) and st.get("label") == state.get("out_dir"):
+    if isinstance(st, dict) and st.get("cap_id") == cap_id:
         state["spend_cap"] = {k: st.get(k) for k in ("limit_usd", "spent_usd", "calls", "reached")}
         save_json(out_dir, "spend_cap", st)
         if st.get("reached"):
             log(f"market-test: spend cap reached (about ${float(st.get('spent_usd') or 0):.2f} of ${float(st['limit_usd']):.2f}); "
                 "steps after it kept what they had")
+
+
+def spend_cap_stopped(e: Exception) -> bool:
+    """The error is a reached spend cap (HTTP 409 with spend_cap_reached), not an ordinary failure."""
+    return "spend cap reached" in str(e) or "spend_cap_reached" in str(e)
 
 
 def cmd_market_test(c: Client, a) -> Any:
@@ -1493,7 +1505,7 @@ def cmd_market_test(c: Client, a) -> Any:
 
     state.pop("finished_at", None)
     state.pop("spend_cap", None)
-    arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
+    cap_id = arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
     sid = cfg.get("simulation_id") or state.get("simulation_id")
     research_ref = cfg.get("research")
     if isinstance(research_ref, str):
@@ -1585,134 +1597,141 @@ def cmd_market_test(c: Client, a) -> Any:
         people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
                   for p in (prof.get("profiles") or [])][:60]
         if cfg.get("max_spend_usd"):
-            save_spend_cap(c, cfg["max_spend_usd"], out_dir, state)
-            disarm_spend_cap(c, state["out_dir"])
+            save_spend_cap(c, cap_id, out_dir, state)
+            disarm_spend_cap(c, cap_id)
             checkpoint()
         return {"stage": "personas_ready", "simulation_id": sid, "out_dir": state["out_dir"], "people": people,
                 "spend_cap": state.get("spend_cap"),
                 "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
 
     steps = []
-    posts = cfg.get("posts")
-    events = cfg.get("events")
-    if isinstance(posts, str):
-        posts = load_json_list("@" + str(_cfg_path(base, posts)), "posts")
-    if isinstance(events, str):
-        events = load_json_list("@" + str(_cfg_path(base, events)), "events")
-    if posts is not None or events is not None:
-        step_events(c, sid, posts, events)
-        steps.append("events")
-    creatives = cfg.get("creatives")
-    if creatives:
-        if cfg.get("resume_steps") and state.get("feed_test") and market_cli.saved_step_usable(out_dir, "feed_test"):
-            log("market-test: reusing completed feed test in this study cell")
-        else:
-            cpath = _cfg_path(base, creatives)
-            if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
-                inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
-                for cr in inline or []:
-                    for k in ("image", "video"):
-                        v = cr.get(k) if isinstance(cr, dict) else None
-                        if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
-                            cr[k] = os.path.join(base, v)
-            arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
-            state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
-                c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
-        steps.append("feed_test")
-        checkpoint()
-    fg = cfg.get("focus_group")
-    if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
-        guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
-        survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
-        state["focus_group"] = _try("focus group", lambda: market_cli.focus_group(
-            c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
-            str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
-            int(fg.get("rounds") or 1)))
-        steps.append("focus_group")
-        checkpoint()
-    emails = cfg.get("emails")
-    if emails:
-        epath = _cfg_path(base, emails)
-        earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
-        try:
-            state["email_test"] = quota.guarded("the email test", lambda: market_cli.emailtest(
-                c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
-                cfg.get("list_size")), log)
-            steps.append("email_test")
-        except (ValueError, RuntimeError, CLIError) as e:
-            log(f"email test skipped: {e}")
-        checkpoint()
-    survey = cfg.get("survey")
-    rounds = int(cfg.get("rounds") or 0)
-    if survey and rounds < 1:
-        rounds = 1                      # the survey interviews a live simulation environment
-    if rounds:
-        live = _try("environment", lambda: c.data("POST", "/api/simulation/env-status", json={"simulation_id": sid})) if cfg.get("resume_steps") else None
-        if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
-            log("market-test: reusing live interview environment in this study cell")
-        else:
-            rs = quota.guarded("the social rounds", lambda: step_start(
-                c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True), log)
-            state["runner_status"] = rs.get("runner_status")
-        steps.append(f"{rounds} rounds")
-        checkpoint()
-    if survey:
-        if cfg.get("resume_steps") and state.get("survey") and market_cli.saved_step_usable(out_dir, "survey"):
-            log("market-test: reusing completed survey in this study cell")
-        else:
-            msgs = survey.get("messages")
-            if isinstance(msgs, str):
-                mp = _cfg_path(base, msgs)
-                # Study cells use absolute paths. They still denote files even when
-                # _cfg_path returns the same string, so always read an existing file.
-                msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
-            state["survey"] = quota.guarded("the survey", lambda: step_survey(
-                c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
-                survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
-                seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
-                objection_check=bool(survey.get("objection_check")),
-                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
-                estimate=survey.get("estimate", True) is not False), log)
-        steps.append("survey")
-        checkpoint()
-    pitch_cfg = cfg.get("pitch")
-    if pitch_cfg:
-        script = pitch_cfg.get("script") or ""
-        sp = _cfg_path(base, script)
-        script = read_text_arg("@" + sp) if isinstance(sp, str) and os.path.isfile(sp) else read_text_arg(script)
-        rb = pitch_cfg.get("rebuttals")
-        if isinstance(rb, str):
-            rp = _cfg_path(base, rb)
-            rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
-        try:
-            state["pitch"] = quota.guarded("the sales pitch", lambda: market_cli.pitch(
-                c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
-                str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
-            steps.append("pitch")
-        except (ValueError, RuntimeError, CLIError) as e:
-            log(f"pitch skipped: {e}")
-        checkpoint()
-    panel_cfg = cfg.get("panel")
-    if panel_cfg:
-        collect(c, out_dir, state.get("project_id"), sid)
-        try:
-            state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
-                c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
-                load_bundle=exporter.load_run_dir), log)
-            steps.append("panel")
-        except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
-            log(f"panel skipped: {e}")
-            state.setdefault("errors", []).append(f"panel: {e}")
-    if cfg.get("report") == "upstream" or cfg.get("engine_report"):
-        rep = step_report(c, sid)
-        state["report_id"] = rep.get("report_id")
-        steps.append("engine report")
+    try:   # a reached spend cap stops the steps; what they finished is still collected and exported
+        posts = cfg.get("posts")
+        events = cfg.get("events")
+        if isinstance(posts, str):
+            posts = load_json_list("@" + str(_cfg_path(base, posts)), "posts")
+        if isinstance(events, str):
+            events = load_json_list("@" + str(_cfg_path(base, events)), "events")
+        if posts is not None or events is not None:
+            step_events(c, sid, posts, events)
+            steps.append("events")
+        creatives = cfg.get("creatives")
+        if creatives:
+            if cfg.get("resume_steps") and state.get("feed_test") and market_cli.saved_step_usable(out_dir, "feed_test"):
+                log("market-test: reusing completed feed test in this study cell")
+            else:
+                cpath = _cfg_path(base, creatives)
+                if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
+                    inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
+                    for cr in inline or []:
+                        for k in ("image", "video"):
+                            v = cr.get(k) if isinstance(cr, dict) else None
+                            if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
+                                cr[k] = os.path.join(base, v)
+                arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
+                state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
+                    c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
+                    int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
+                    int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
+            steps.append("feed_test")
+            checkpoint()
+        fg = cfg.get("focus_group")
+        if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
+            guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
+            survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
+            state["focus_group"] = _try("focus group", lambda: market_cli.focus_group(
+                c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
+                str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
+                int(fg.get("rounds") or 1)))
+            steps.append("focus_group")
+            checkpoint()
+        emails = cfg.get("emails")
+        if emails:
+            epath = _cfg_path(base, emails)
+            earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
+            try:
+                state["email_test"] = quota.guarded("the email test", lambda: market_cli.emailtest(
+                    c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
+                    cfg.get("list_size")), log)
+                steps.append("email_test")
+            except (ValueError, RuntimeError, CLIError) as e:
+                log(f"email test skipped: {e}")
+            checkpoint()
+        survey = cfg.get("survey")
+        rounds = int(cfg.get("rounds") or 0)
+        if survey and rounds < 1:
+            rounds = 1                      # the survey interviews a live simulation environment
+        if rounds:
+            live = _try("environment", lambda: c.data("POST", "/api/simulation/env-status", json={"simulation_id": sid})) if cfg.get("resume_steps") else None
+            if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
+                log("market-test: reusing live interview environment in this study cell")
+            else:
+                rs = quota.guarded("the social rounds", lambda: step_start(
+                    c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True), log)
+                state["runner_status"] = rs.get("runner_status")
+            steps.append(f"{rounds} rounds")
+            checkpoint()
+        if survey:
+            if cfg.get("resume_steps") and state.get("survey") and market_cli.saved_step_usable(out_dir, "survey"):
+                log("market-test: reusing completed survey in this study cell")
+            else:
+                msgs = survey.get("messages")
+                if isinstance(msgs, str):
+                    mp = _cfg_path(base, msgs)
+                    # Study cells use absolute paths. They still denote files even when
+                    # _cfg_path returns the same string, so always read an existing file.
+                    msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
+                state["survey"] = quota.guarded("the survey", lambda: step_survey(
+                    c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
+                    survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
+                    seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
+                    objection_check=bool(survey.get("objection_check")),
+                    settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
+                    estimate=survey.get("estimate", True) is not False), log)
+            steps.append("survey")
+            checkpoint()
+        pitch_cfg = cfg.get("pitch")
+        if pitch_cfg:
+            script = pitch_cfg.get("script") or ""
+            sp = _cfg_path(base, script)
+            script = read_text_arg("@" + sp) if isinstance(sp, str) and os.path.isfile(sp) else read_text_arg(script)
+            rb = pitch_cfg.get("rebuttals")
+            if isinstance(rb, str):
+                rp = _cfg_path(base, rb)
+                rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
+            try:
+                state["pitch"] = quota.guarded("the sales pitch", lambda: market_cli.pitch(
+                    c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
+                    str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
+                steps.append("pitch")
+            except (ValueError, RuntimeError, CLIError) as e:
+                log(f"pitch skipped: {e}")
+            checkpoint()
+        panel_cfg = cfg.get("panel")
+        if panel_cfg:
+            collect(c, out_dir, state.get("project_id"), sid)
+            try:
+                state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
+                    c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
+                    load_bundle=exporter.load_run_dir), log)
+                steps.append("panel")
+            except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
+                log(f"panel skipped: {e}")
+                state.setdefault("errors", []).append(f"panel: {e}")
+        if cfg.get("report") == "upstream" or cfg.get("engine_report"):
+            rep = step_report(c, sid)
+            state["report_id"] = rep.get("report_id")
+            steps.append("engine report")
+    except (CLIError, RuntimeError) as e:
+        if not (cap_id and spend_cap_stopped(e)):
+            raise
+        log(f"market-test: spend cap reached during the steps ({e}); exporting what finished")
+        state.setdefault("errors", []).append(f"spend cap reached: {e}")
+        state["stopped_by_spend_cap"] = True
     collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
     if cfg.get("study_cell"):
         market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
-    save_spend_cap(c, cfg.get("max_spend_usd"), out_dir, state)
+    save_spend_cap(c, cap_id, out_dir, state)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
         try:
@@ -1723,10 +1742,9 @@ def cmd_market_test(c: Client, a) -> Any:
             log(f"report skipped: {e}")
             state.setdefault("errors", []).append(f"report: {e}")
         collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
-        save_spend_cap(c, cfg.get("max_spend_usd"), out_dir, state)
+        save_spend_cap(c, cap_id, out_dir, state)
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
-    if cfg.get("max_spend_usd"):
-        disarm_spend_cap(c, state["out_dir"])
+    disarm_spend_cap(c, cap_id)
     state["finished_at"] = datetime.now().isoformat()
     checkpoint()
     summary = {}
@@ -2103,6 +2121,13 @@ def cmd_holdout_backtest(c: Optional[Client], a) -> Any:
             json.dump(result, f, ensure_ascii=False, indent=2)
         result["file"] = os.path.abspath(a.out)
     return result
+
+
+def cmd_spend_cap(c: Client, a) -> Any:
+    """The armed run spend cap (estimated US dollars), or lift it with --clear."""
+    if a.clear:
+        return {"cleared": c.data("DELETE", "/api/simulation/spend-cap")}
+    return {"spend_cap": c.data("GET", "/api/simulation/spend-cap")}
 
 
 def cmd_calibrate(c: Client, a) -> Any:
@@ -2892,6 +2917,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--halfwidth", type=float, default=0.05,
                    help="target interval half-width for the sample planner (0.05 = +-5 points)")
 
+    s = sub.add_parser("spend-cap", help="show the server's run spend cap, or lift it (--clear) after a capped run was stopped")
+    s.add_argument("--clear", action="store_true", help="lift whatever cap is armed")
+
     s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
     s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
     s.add_argument("--docs", nargs="*", help="local .md/.txt files (no project needed)")
@@ -3195,7 +3223,7 @@ COMMANDS = {
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
     "geo-audit": cmd_gtm, "voc-grounding": cmd_gtm, "dark-social": cmd_gtm, "search": cmd_search,

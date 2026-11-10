@@ -2,15 +2,17 @@
 
 Two caps, both estimates from token usage and the price table below (US dollars per million tokens):
 
-- a run cap: `arm(limit_usd)` writes a small ledger file (spend_cap.json in the uploads folder, or MM_SPEND_FILE).
+- a run cap: `arm(limit_usd)` (refused while another run's cap is armed) writes a small ledger file (spend_cap.json in the uploads folder, or MM_SPEND_FILE).
   Every model call checks it first and adds its estimated cost after, under a file lock, so the server and the
   simulation subprocesses it starts count against the same cap. `market-test` arms it from `max_spend_usd` and
   disarms it when the run ends.
   A cap left behind by a run that was killed lapses after MM_SPEND_CAP_TTL_S (a day).
 - a process cap: MM_MAX_SPEND_USD stops one process (the server, or one simulation subprocess) after that much.
 
-Once a cap is reached, `check()` raises SpendCapReached before any request is sent, so no new model call starts;
-steps that catch per-person errors finish at once and the run keeps what it already has. Prices are list prices
+Once a cap is reached, `check()` raises SpendCapReached before any request is sent, so no new model call starts.
+Calls already in flight when the cap is reached still finish and are charged, so the final spend can run a little
+past the cap (by up to one call per worker running in parallel): it is a stop on new calls, not an exact ceiling.
+Steps that catch per-person errors finish at once and the run keeps what it already has. Prices are list prices
 and can be overridden with MM_USD_PER_MTOK="input,output". Calls through a login gateway are counted at the same
 prices, although they are not billed per token. Stdlib only.
 """
@@ -22,6 +24,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
 try:
@@ -132,7 +135,18 @@ def _ledger(create: bool = False) -> Iterator[Tuple[Any, Optional[Callable[[Opti
                     fcntl.flock(f, fcntl.LOCK_UN)
 
 
-TTL_S = float(os.environ.get("MM_SPEND_CAP_TTL_S") or 24 * 3600)   # a cap left by a killed run lapses after a day
+def _ttl() -> float:
+    try:
+        return float(os.environ.get("MM_SPEND_CAP_TTL_S") or 24 * 3600)
+    except ValueError:
+        return 24 * 3600.0
+
+
+TTL_S = _ttl()   # a cap left by a killed run lapses after a day
+
+
+class CapBusy(ValueError):
+    """Another run's cap is armed and has not lapsed."""
 
 
 def _armed(state: Any) -> bool:
@@ -140,37 +154,52 @@ def _armed(state: Any) -> bool:
             and time.time() < float(state.get("armed_at") or 0) + TTL_S)
 
 
-def arm(limit_usd: float, label: str = "") -> Dict[str, Any]:
-    """Start a run cap of `limit_usd` (replaces any earlier one)."""
+def _has_ledger() -> bool:
+    """A cap may be armed: the ledger file exists and is not empty (a lifted cap leaves it empty)."""
+    try:
+        return os.path.getsize(_path()) > 0
+    except OSError:
+        return False
+
+
+def arm(limit_usd: float, label: str = "", replace: bool = False) -> Dict[str, Any]:
+    """Start a run cap of `limit_usd`. Refused (CapBusy) while another run's cap is armed, unless replace=True; the
+    check and the write happen under the ledger lock. The state's `cap_id` is what disarm() needs."""
     try:
         limit = float(limit_usd)
     except (TypeError, ValueError):
         limit = 0.0
     if not limit > 0:
         raise ValueError("max_spend_usd must be a positive number of US dollars")
-    state = {"limit_usd": round(limit, 4), "spent_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0,
-             "reached": False, "label": str(label or "")[:120], "armed_at": time.time(), "estimate": True}
-    with _ledger(create=True) as (_, write):
+    state = {"cap_id": uuid.uuid4().hex, "limit_usd": round(limit, 4), "spent_usd": 0.0, "calls": 0,
+             "input_tokens": 0, "output_tokens": 0, "reached": False, "label": str(label or "")[:500],
+             "armed_at": time.time(), "estimate": True}
+    with _ledger(create=True) as (current, write):
+        if _armed(current) and not replace:
+            raise CapBusy(f"another run's spend cap is armed ({current.get('label') or 'no label'}); lift it first "
+                          "(mirofish.py spend-cap --clear) or wait for that run to end")
         write(state)
     return state
 
 
 def status() -> Optional[Dict[str, Any]]:
     """The run cap and what has been spent against it, or None when no cap is armed."""
+    if not _has_ledger():
+        return None
     with _ledger() as (state, _):
         return state if _armed(state) else None
 
 
-def disarm() -> Optional[Dict[str, Any]]:
-    """End the run cap; returns its final state."""
+def disarm(cap_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Lift the run cap and return its final state. With cap_id, only that cap is lifted (compared under the lock), so
+    a run's cleanup never lifts a cap another run armed since. The ledger file stays (empty) so every process keeps
+    locking the same file."""
     with _ledger() as (state, write):
-        if write is None:
+        if write is None or not isinstance(state, dict):
+            return None
+        if cap_id is not None and state.get("cap_id") != cap_id:
             return None
         write(None)
-    try:
-        os.remove(_path())
-    except OSError:
-        pass
     return state if _armed(state) else None
 
 
@@ -184,7 +213,7 @@ def check() -> None:
     if limit is not None and _PROCESS["spent_usd"] >= limit:
         raise SpendCapReached(f"spend cap reached: about {_usd(_PROCESS['spent_usd'])} of the {_usd(limit)} "
                               "allowed for this process (MM_MAX_SPEND_USD)")
-    if not os.path.exists(_path()):
+    if not _has_ledger():
         return
     st = status()
     if st and (st.get("reached") or float(st.get("spent_usd") or 0) >= float(st["limit_usd"])):
@@ -198,7 +227,7 @@ def charge_tokens(model: Optional[str], input_tokens: int, output_tokens: int, c
     with _LOCK:
         _PROCESS["spent_usd"] += usd
         _PROCESS["calls"] += 1
-    if not os.path.exists(_path()):
+    if not _has_ledger():
         return usd
     with _ledger() as (state, write):
         if _armed(state):

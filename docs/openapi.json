@@ -1727,13 +1727,13 @@
     },
     "/api/simulation/spend-cap": {
       "post": {
-        "summary": "Arm a hard spend cap for a run (estimated US dollars)",
+        "summary": "Arm a spend cap for a run (estimated US dollars; 409 while another run's cap is armed)",
         "tags": [
           "Background tasks"
         ],
         "responses": {
           "200": {
-            "description": "{limit_usd, spent_usd, calls, reached, label}",
+            "description": "{cap_id, limit_usd, spent_usd, calls, reached, label}",
             "content": {
               "application/json": {
                 "schema": {
@@ -1758,7 +1758,8 @@
               },
               "example": {
                 "max_spend_usd": 5,
-                "label": "mirofish_runs/acme"
+                "label": "mirofish_runs/acme",
+                "replace": false
               }
             }
           }
@@ -1789,7 +1790,7 @@
         }
       },
       "delete": {
-        "summary": "Lift the spend cap; returns its final state",
+        "summary": "Lift the spend cap (?cap_id= lifts only that cap); returns its final state",
         "tags": [
           "Background tasks"
         ],
