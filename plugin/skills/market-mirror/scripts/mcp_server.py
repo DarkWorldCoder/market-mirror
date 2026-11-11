@@ -296,11 +296,13 @@ PROMPTS: Dict[str, Dict[str, Any]] = {
                  "is connected, say so and ask me to export the frames as PNG instead), fetch each of these frames as an "
                  "image (PNG, at most 4 MB):\n{frames}\n\nSave the images in a new scenario folder under the MarketMirror "
                  "home (`scenarios/<name>/`) and write `creatives.json` there with one creative per frame and platform "
-                 "({platforms}): id, platform, the image's absolute path as `image`, and the frame's own text, headline and "
-                 "CTA where it has them (leave out what it does not show). Never edit the Figma file. Run `creative_check` "
-                 "on those creatives and show me what it found for each frame. Only then propose a `market_test` with "
-                 "`creatives.json` as its feed test (seeds 3), and show me the planned personas and the estimated cost "
-                 "before any paid step.")},
+                 "({platforms}): id, platform, the image's absolute path as `image`, and the copy that runs around the "
+                 "frame in the post as `text`, `headline` and `cta`. Ask me for that copy: the words on the frame stay in "
+                 "the image, so never copy them into these fields and never invent copy (each creative needs a text or a "
+                 "headline). Never edit the Figma file. `creative_check` makes one vision-model call per creative, so tell "
+                 "me how many it will make and wait for my OK, then run it and show me what it found for each frame. Only "
+                 "then propose a `market_test` whose `creatives` is the absolute path of that `creatives.json` (seeds 3), "
+                 "and show me the planned personas and the estimated cost before any paid step.")},
     "focus_group_after_run": {
         "description": "Hold a moderated focus group with the simulated buyers of a run.",
         "arguments": [_arg("simulation_id", "the run's simulation id"), _arg("questions", "the discussion guide, one per line"),

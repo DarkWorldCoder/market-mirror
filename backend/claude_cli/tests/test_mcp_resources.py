@@ -94,7 +94,10 @@ class Resources(unittest.TestCase):
         self.assertIn("creatives.json", text)
         self.assertIn("`image`", text)
         self.assertIn("Never edit the Figma file", text)
-        # creative_check comes before the market_test is proposed.
+        self.assertIn("never copy them into these fields", text)
+        self.assertIn("absolute path of that `creatives.json`", text)
+        # Asking before creative_check's vision calls, and creative_check before the market_test is proposed.
+        self.assertLess(text.index("wait for my OK"), text.index("then run it"))
         self.assertLess(text.index("creative_check"), text.index("market_test"))
         self.assertIn("the platforms the product's buyers use", out[3]["result"]["messages"][0]["content"]["text"])
         self.assertNotIn("{", out[3]["result"]["messages"][0]["content"]["text"])
