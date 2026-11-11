@@ -4,6 +4,7 @@ retest ceiling, metrics, dry runs that spend nothing, and the CLI."""
 import contextlib
 import io
 import json
+import math
 import os
 import shutil
 import sys
@@ -194,6 +195,31 @@ class Twin(unittest.TestCase):
         bench.run_twin(rows, 4, c, ["twin"], items_per_person=3, approve_spend=True, cache_dir=d)
         self.assertEqual(sum(1 for s, _ in c.calls if s == bench.SUMMARY_SYSTEM), 4)   # summaries cached
         self.assertTrue(bench.run_twin(rows, 4, None, ["twin"])["dry_run"])
+
+    def test_rank_correlation_and_sd_ratio_across_people(self):
+        opts = ["Yes, I would purchase the product", "No, I would not purchase the product"]
+        people = [{"pid": p, "items": [{"id": "Q0", "options": opts, "answer": a0, "retest": None},
+                                       {"id": "Q1", "options": opts, "answer": a1, "retest": None},
+                                       {"id": "Q2", "options": opts, "answer": 1, "retest": None}]}
+                  for p, (a0, a1) in enumerate([(1, 1), (1, 2), (2, 1), (2, 2)])]
+        real = {(p["pid"], it["id"]): it["answer"] for p in people for it in p["items"]}
+        exact = bench.score_twin(people, real)
+        # Q2 has one real answer for everyone, so only Q0 and Q1 count.
+        self.assertEqual(exact["rank_correlation"], 1.0)
+        self.assertEqual(exact["sd_ratio"], 1.0)
+        # Everyone predicted to buy: right on half the answers, but no one told apart and no spread at all.
+        flat = bench.score_twin(people, {k: 1 for k in real})
+        self.assertIsNone(flat["rank_correlation"])
+        self.assertEqual(flat["sd_ratio"], 0.0)
+        # Q0 ranked right with less spread (1,1,1,2 against 1,1,2,2); Q1 ranked backwards (2,1,2,1 against 1,2,1,2).
+        mixed = {**real, (2, "Q0"): 1, (0, "Q1"): 2, (1, "Q1"): 1, (2, "Q1"): 2, (3, "Q1"): 1}
+        got = bench.score_twin(people, mixed)
+        rho_q0 = bench.spearman([1, 1, 1, 2], [1, 1, 2, 2])
+        self.assertEqual(got["rank_correlation"], round((rho_q0 - 1.0) / 2, 3))
+        self.assertEqual(got["sd_ratio"], round((math.sqrt(3) / 2 + 1.0) / 2, 3))
+        # Questions answered by one person only can't rank anyone.
+        self.assertIsNone(bench.score_twin(people[:1], real)["rank_correlation"])
+        self.assertIsNone(bench.score_twin(people[:1], real)["sd_ratio"])
 
     def test_spearman_and_pick(self):
         self.assertEqual(bench.spearman([1, 2, 3], [10, 20, 30]), 1.0)

@@ -46,3 +46,4 @@ does not match. Details: `results/2026-11-01/bench_emotion_gate.md`.
 - The model may remember which Upworthy headlines won; both datasets predate it.
 - The panel's personas were built for another product.
 - A good score on these tasks is not evidence for a particular market.
+- Twin-2K-500 rank correlation and SD ratio (#181) were added after this run. The run kept no per-answer predictions, so they can't be computed for it; the next paid run's table has them.
