@@ -3211,6 +3211,24 @@ def _load_jev():
     return mod
 
 
+def _load_jev_labels():
+    """backend/app/services/jev_labels.py by path, like _load_jev: the services directory stands in as a throwaway
+    package so the module's `from . import jev` resolves to the sibling file, without importing the backend's
+    packages (app/__init__ pulls in the web framework)."""
+    import importlib.util
+    import types
+    services = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services")
+    if "mm_services" not in sys.modules:
+        pkg = types.ModuleType("mm_services")
+        pkg.__path__ = [services]  # type: ignore[attr-defined]
+        sys.modules["mm_services"] = pkg
+    spec = importlib.util.spec_from_file_location("mm_services.jev_labels", os.path.join(services, "jev_labels.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["mm_services.jev_labels"] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def cmd_jev(c: Optional[Client], a) -> Any:
     """Whether a Jev key is configured and which route and model would be used. Calls the API only with --ping."""
     jv = _load_jev()
@@ -3219,9 +3237,15 @@ def cmd_jev(c: Optional[Client], a) -> Any:
         "configured": cfg["configured"], "route": cfg["route"], "endpoint": cfg["endpoint"], "model": cfg["model"],
         "key": f"{cfg['key_env']} is set" if cfg["configured"] else cfg["reason"],
         "ssr_engine": cfg["ssr_engine"], "parallel": cfg["parallel"],
+        "jev_labels_mode": _load_jev_labels().mode(),
         "used_for": ["survey rating distributions (SSR_ENGINE=jev or survey --ssr-engine jev)",
                      "real vs simulated concerns (gtm voc --classifier jev)",
-                     "survey objection check (survey --objection-check)"]}
+                     "survey objection check (survey --objection-check)",
+                     "post and reply sentiment in the social feed (jev_labels)",
+                     "research voice sentiment (jev_labels)",
+                     "landing-page drop causes, grouped into ranked causes (jev_labels)",
+                     "battlecard ad comments with no objection type (jev_labels)",
+                     "pitch objection check, against the person's own tag (jev_labels)"]}
     if not a.ping:
         return out
     if not cfg["configured"]:
