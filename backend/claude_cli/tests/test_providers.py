@@ -155,6 +155,15 @@ def test_provider_check_shows_the_configured_providers_privacy_link():
     assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": "compatible"})
 
 
+def test_configured_provider_reads_the_catalog_key_or_the_gateway():
+    assert providers.configured_provider({"MARKET_MIRROR_PROVIDER": "deepseek", "LLM_GATEWAY": "claude"}) == "deepseek"
+    assert providers.configured_provider({"LLM_GATEWAY": "gemini"}) == "gemini_cli"
+    assert providers.configured_provider({"LLM_GATEWAY": "multi"}) == ""
+    assert providers.configured_provider({}) == ""
+
+
+# These go through check(settings=...) on purpose: write_config's os.replace of an open temp .env fails on Windows
+# (WinError 32), so tests built on it would fail there for reasons unrelated to the privacy field.
 def test_provider_check_maps_login_gateways_to_their_catalog_entry():
     # `mm.sh gateway start` writes LLM_GATEWAY and no MARKET_MIRROR_PROVIDER
     def offline(*args, **kwargs):
