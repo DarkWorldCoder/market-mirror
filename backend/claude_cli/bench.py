@@ -546,7 +546,7 @@ def person_ranking(people: List[Dict[str, Any]],
     for p in people:
         for it in p["items"]:
             pr = preds.get((p["pid"], it["id"]))
-            if pr is not None:
+            if pr is not None and 1 <= pr <= len(it["options"]):   # a model may answer 0 or past the last option
                 by_item[it["id"]].append((pr, it["answer"]))
     rhos, ratios = [], []
     for pairs in by_item.values():

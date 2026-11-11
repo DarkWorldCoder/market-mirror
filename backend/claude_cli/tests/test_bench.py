@@ -217,6 +217,10 @@ class Twin(unittest.TestCase):
         rho_q0 = bench.spearman([1, 1, 1, 2], [1, 1, 2, 2])
         self.assertEqual(got["rank_correlation"], round((rho_q0 - 1.0) / 2, 3))
         self.assertEqual(got["sd_ratio"], round((math.sqrt(3) / 2 + 1.0) / 2, 3))
+        # An option number the question doesn't have (0, 3) is left out, not read as a wide spread.
+        bad = bench.score_twin(people, {**real, (0, "Q0"): 0, (3, "Q0"): 3})
+        self.assertEqual(bad["rank_correlation"], 1.0)
+        self.assertEqual(bad["sd_ratio"], 1.0)
         # Questions answered by one person only can't rank anyone.
         self.assertIsNone(bench.score_twin(people[:1], real)["rank_correlation"])
         self.assertIsNone(bench.score_twin(people[:1], real)["sd_ratio"])
