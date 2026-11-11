@@ -20,7 +20,8 @@ MarketMirror has no analytics, tracking or telemetry.
   sends prompts (which include parts of your brief, documents and data) to the LLM provider you chose: for example Anthropic,
   OpenAI, Google Gemini or OpenRouter with your own key, a local model (Ollama, LM Studio) that never leaves your machine, or the
   optional local login gateway, which passes prompts to the Claude Code or Codex CLI you are signed in to. That provider's own
-  privacy policy and data-retention terms apply to those prompts.
+  privacy policy and data-retention terms apply to those prompts; [Provider data handling](docs/PROVIDERS_AND_SCALE.md#provider-data-handling)
+  summarises what each provider's pages say about retention, DPAs, regions and training.
 - **Public pages for research.** The `research` step fetches public web pages (for example Reddit, Hacker News search, app-store
   reviews or URLs you give it) to collect what real people say. It sends only the search query or URL, not your files.
 - **Downloads during setup.** Setup clones this repository from GitHub and installs Python packages; the first run downloads

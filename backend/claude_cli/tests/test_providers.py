@@ -126,3 +126,30 @@ def test_gemini_chatgpt_codex_and_multi_provider_catalog(tmp_path):
     gem_reg = agent_install.configuration(root, "gemini")
     assert gem_reg["registration_args"][:3] == ["gemini", "mcp", "add"]
 
+
+
+def test_every_catalog_entry_carries_a_privacy_link():
+    for name, spec in providers.CATALOG.items():
+        assert "privacy" in spec, name
+        if name in ("compatible", "multi"):  # no single vendor: the chosen server's or each pool member's terms apply
+            assert spec["privacy"] == "", name
+        else:
+            assert spec["privacy"].startswith("https://"), name
+
+
+def test_provider_check_shows_the_configured_providers_privacy_link():
+    settings = {"MARKET_MIRROR_PROVIDER": "anthropic", "LLM_PROVIDER": "claude",
+                "LLM_BASE_URL": "https://api.anthropic.com/v1", "LLM_API_KEY": "secret-sentinel"}
+    link = providers.CATALOG["anthropic"]["privacy"]
+    reachable = providers.check(None, lambda request, timeout: io.BytesIO(b'{"data":[]}'), settings=settings)
+    assert reachable["status"] == "reachable" and reachable["privacy"] == link
+    def denied(*args, **kwargs):
+        raise HTTPError("https://example.com", 401, "secret-sentinel", {}, io.BytesIO(b"secret-sentinel"))
+    failed = providers.check(None, denied, settings=settings)
+    assert failed["status"] == "authentication_failed" and failed["privacy"] == link
+    def offline(*args, **kwargs):
+        raise OSError("offline")
+    assert providers.check(None, offline, settings=settings)["privacy"] == link
+    # no configured catalog provider (or the generic server): no privacy field rather than a wrong one
+    assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": ""})
+    assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": "compatible"})

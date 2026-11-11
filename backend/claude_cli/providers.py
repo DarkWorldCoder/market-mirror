@@ -77,6 +77,27 @@ for _name, _guide in API_GUIDES.items():
 for _name, _prov in (("anthropic", "claude"), ("openai", "openai"), ("gemini", "gemini"), ("ollama", "ollama")):
     CATALOG[_name]["default_model"] = _POOL.PROVIDER_DEFAULTS[_prov]["model"]
 CATALOG["qwen"]["note"] = "Base URL: https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 (your workspace)"
+# Each provider's own privacy page (checked 2026-11-10); docs/PROVIDERS_AND_SCALE.md has retention, DPA and regions.
+# "" where no single vendor applies: the server you point at, or each member of a pool.
+PRIVACY_LINKS = {
+    "ollama": "https://ollama.com/privacy", "lmstudio": "https://lmstudio.ai/app-privacy",
+    "anthropic": "https://www.anthropic.com/legal/privacy", "openai": "https://openai.com/policies/privacy-policy/",
+    "gemini": "https://policies.google.com/privacy", "compatible": "",
+    "chatgpt": "https://openai.com/policies/privacy-policy/", "siwc": "https://openai.com/policies/privacy-policy/",
+    "codex": "https://openai.com/policies/privacy-policy/", "claude": "https://www.anthropic.com/legal/privacy",
+    "gemini_cli": "https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/tos-privacy.md",
+    "antigravity": "https://policies.google.com/privacy", "multi": "",
+    "deepseek": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+    "kimi": "https://platform.kimi.ai/docs/agreement/userprivacy", "mistral": "https://legal.mistral.ai/terms/privacy-policy",
+    "xai": "https://x.ai/legal/privacy-policy", "groq": "https://groq.com/privacy-policy",
+    "together": "https://www.together.ai/privacy", "fireworks": "https://fireworks.ai/privacy-policy",
+    "openrouter": "https://openrouter.ai/privacy",
+    "qwen": "https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
+    "zhipu": "https://docs.z.ai/legal-agreement/privacy-policy", "cerebras": "https://www.cerebras.ai/privacy-policy",
+    "minimax": "https://platform.minimax.io/protocol/privacy-policy",
+}
+for _name, _spec in CATALOG.items():
+    _spec["privacy"] = PRIVACY_LINKS[_name]
 # the generic entry stays last in listings
 CATALOG["compatible"] = CATALOG.pop("compatible")
 # the LLM_PROVIDER value written for each catalog entry (anything else is a generic OpenAI-format server)
@@ -271,6 +292,9 @@ def check(root: Path, opener=None, settings=None) -> dict:
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     request = urllib.request.Request(endpoint + "/models", headers=headers)
     opener = opener or urllib.request.build_opener(_NoRedirect).open
+    # the configured provider's privacy page, shown whether or not the endpoint answers
+    privacy = CATALOG.get(env.get("MARKET_MIRROR_PROVIDER") or "", {}).get("privacy")
+    extra = {"privacy": privacy} if privacy else {}
     try:
         with opener(request, timeout=15) as response:
             data = json.loads(response.read(2_000_000))
@@ -280,12 +304,12 @@ def check(root: Path, opener=None, settings=None) -> dict:
         norm_selected = selected.split("/", 1)[1] if isinstance(selected, str) and selected.startswith("models/") else selected
         return {"status": "reachable", "models": models, "selected_model": selected,
                 "model_listed": bool(norm_selected and (norm_selected in models or selected in raw_models)), "inference_tested": False,
-                "note": "Model discovery does not prove tool-calling support; run a small fixture before a large simulation."}
+                "note": "Model discovery does not prove tool-calling support; run a small fixture before a large simulation.", **extra}
     except urllib.error.HTTPError as error:
         reason = {401: "authentication_failed", 403: "access_denied", 429: "rate_limited"}.get(error.code, "provider_error")
-        return {"status": reason, "http_status": error.code, "inference_tested": False}
+        return {"status": reason, "http_status": error.code, "inference_tested": False, **extra}
     except (OSError, ValueError):
-        return {"status": "unreachable_or_invalid_response", "inference_tested": False}
+        return {"status": "unreachable_or_invalid_response", "inference_tested": False, **extra}
 
 
 def configure(root: Path, args) -> dict:
