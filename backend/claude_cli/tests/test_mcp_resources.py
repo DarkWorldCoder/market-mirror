@@ -68,7 +68,8 @@ class Resources(unittest.TestCase):
                                                 "arguments": {"simulation_id": "sim_x", "questions": "Why?", "segment": "Nurses"}})],
                    self.home)
         names = {p["name"] for p in out[1]["result"]["prompts"]}
-        self.assertEqual(names, {"test_an_ad", "price_check", "calibrate_with_real_data", "pull_real_results", "focus_group_after_run"})
+        self.assertEqual(names, {"test_an_ad", "price_check", "calibrate_with_real_data", "pull_real_results", "focus_group_after_run",
+                                 "test_figma_frames"})
         text = out[2]["result"]["messages"][0]["content"]["text"]
         self.assertIn("meta_ads", text)
         self.assertIn("paused draft", text)
@@ -76,6 +77,28 @@ class Resources(unittest.TestCase):
         self.assertIn("missing arguments: ads", out[3]["error"]["message"])
         self.assertEqual(out[4]["error"]["code"], -32602)
         self.assertIn("segment Nurses", out[5]["result"]["messages"][0]["content"]["text"])
+
+    def test_figma_frames_prompt(self):
+        frames = "Hero v2\nhttps://www.figma.com/design/abc/Ads?node-id=1-2"
+        out = call([self.rpc(1, "prompts/list"),
+                    self.rpc(2, "prompts/get", {"name": "test_figma_frames",
+                                                "arguments": {"frames": frames, "platforms": "instagram, tiktok"}}),
+                    self.rpc(3, "prompts/get", {"name": "test_figma_frames", "arguments": {"frames": "Hero v2"}}),
+                    self.rpc(4, "prompts/get", {"name": "test_figma_frames", "arguments": {"platforms": "x"}})],
+                   self.home)
+        prompt = next(p for p in out[1]["result"]["prompts"] if p["name"] == "test_figma_frames")
+        self.assertEqual([(a["name"], a["required"]) for a in prompt["arguments"]], [("frames", True), ("platforms", False)])
+        text = out[2]["result"]["messages"][0]["content"]["text"]
+        self.assertIn(frames, text)
+        self.assertIn("(instagram, tiktok)", text)
+        self.assertIn("creatives.json", text)
+        self.assertIn("`image`", text)
+        self.assertIn("Never edit the Figma file", text)
+        # creative_check comes before the market_test is proposed.
+        self.assertLess(text.index("creative_check"), text.index("market_test"))
+        self.assertIn("the platforms the product's buyers use", out[3]["result"]["messages"][0]["content"]["text"])
+        self.assertNotIn("{", out[3]["result"]["messages"][0]["content"]["text"])
+        self.assertIn("missing arguments: frames", out[4]["error"]["message"])
 
 
 if __name__ == "__main__":
