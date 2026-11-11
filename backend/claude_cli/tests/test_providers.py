@@ -153,3 +153,17 @@ def test_provider_check_shows_the_configured_providers_privacy_link():
     # no configured catalog provider (or the generic server): no privacy field rather than a wrong one
     assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": ""})
     assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": "compatible"})
+
+
+def test_provider_check_maps_login_gateways_to_their_catalog_entry():
+    # `mm.sh gateway start` writes LLM_GATEWAY and no MARKET_MIRROR_PROVIDER
+    def offline(*args, **kwargs):
+        raise OSError("offline")
+    gateway = {"LLM_PROVIDER": "openai", "LLM_BASE_URL": "http://127.0.0.1:5055/v1", "LLM_API_KEY": "gateway"}
+    for backend, key in (("claude", "claude"), ("codex", "codex"), ("gemini", "gemini_cli"), ("antigravity", "antigravity"),
+                         ("chatgpt", "chatgpt"), ("siwc", "siwc")):
+        result = providers.check(None, offline, settings={**gateway, "LLM_GATEWAY": backend})
+        assert result["privacy"] == providers.CATALOG[key]["privacy"], backend
+    # the Gemini CLI gateway must not borrow the Gemini API's entry, and a pool has no single page
+    assert providers.GATEWAY_CATALOG_KEY["gemini"] == "gemini_cli"
+    assert "privacy" not in providers.check(None, offline, settings={**gateway, "LLM_GATEWAY": "multi"})

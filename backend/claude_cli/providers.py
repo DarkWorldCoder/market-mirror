@@ -98,6 +98,9 @@ PRIVACY_LINKS = {
 }
 for _name, _spec in CATALOG.items():
     _spec["privacy"] = PRIVACY_LINKS[_name]
+# LLM_GATEWAY backend (mm.sh gateway start) -> catalog entry; multi has no single vendor
+GATEWAY_CATALOG_KEY = {"claude": "claude", "codex": "codex", "gemini": "gemini_cli", "antigravity": "antigravity",
+                       "chatgpt": "chatgpt", "siwc": "siwc"}
 # the generic entry stays last in listings
 CATALOG["compatible"] = CATALOG.pop("compatible")
 # the LLM_PROVIDER value written for each catalog entry (anything else is a generic OpenAI-format server)
@@ -292,8 +295,10 @@ def check(root: Path, opener=None, settings=None) -> dict:
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     request = urllib.request.Request(endpoint + "/models", headers=headers)
     opener = opener or urllib.request.build_opener(_NoRedirect).open
-    # the configured provider's privacy page, shown whether or not the endpoint answers
-    privacy = CATALOG.get(env.get("MARKET_MIRROR_PROVIDER") or "", {}).get("privacy")
+    # the configured provider's privacy page, shown whether or not the endpoint answers; `mm.sh gateway start`
+    # drops MARKET_MIRROR_PROVIDER and writes LLM_GATEWAY, whose names are not all catalog keys (gemini = the CLI)
+    catalog_key = env.get("MARKET_MIRROR_PROVIDER") or GATEWAY_CATALOG_KEY.get(env.get("LLM_GATEWAY") or "", "")
+    privacy = CATALOG.get(catalog_key, {}).get("privacy")
     extra = {"privacy": privacy} if privacy else {}
     try:
         with opener(request, timeout=15) as response:
