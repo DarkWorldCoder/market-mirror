@@ -800,6 +800,28 @@ def focus_group_section(fg: Optional[Dict[str, Any]], insight: Optional[str] = N
     return ("focusgroup", "Focus group", head + body)
 
 
+_SPREAD_TONE = {"too alike": "neg", "too spread out": "neg", "similar": "pos"}
+_SPREAD_LABEL = {"too alike": "Answers too alike", "too spread out": "Answers too spread out", "similar": "Spread like real answers",
+                 "unclear": "Spread unclear", "not checked": "Spread not checked"}
+
+
+def _spread_html(sp: Any) -> str:
+    """The spread check under the real-sample tiles: a verdict pill, the reading, and the answer shares side by side."""
+    if not isinstance(sp, dict) or not sp.get("verdict"):
+        return ""
+    v = str(sp["verdict"])
+    ans = sp.get("answers") if isinstance(sp.get("answers"), dict) else {}
+    names = {"0": "no", "0.5": "maybe", "1": "yes"}
+    shares = ""
+    ss, rs = ans.get("shares_simulated"), ans.get("shares_real")
+    if isinstance(ss, dict) and isinstance(rs, dict) and set(ss) | set(rs) <= set(names):
+        shares = ('<p class="muted small">Answer shares, simulated vs real: '
+                  + ", ".join(f'{names[k]} {round(100 * float(ss.get(k) or 0))}% vs {round(100 * float(rs.get(k) or 0))}%'
+                              for k in ("1", "0.5", "0") if k in ss or k in rs) + ".</p>")
+    return (f'<p class="callout">{_pill(_SPREAD_LABEL.get(v, v), _SPREAD_TONE.get(v, "neu"))} {_e(sp.get("reading") or "")}</p>'
+            + shares)
+
+
 def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Real-sample check': the calibrate verdict, the AIPW-corrected rate, and the PPI++ interval with the
     effective sample size and how many more real answers a target precision needs."""
@@ -827,14 +849,16 @@ def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = 
                     + (f'<b>{plan["more_with_panel"]}</b> more real answers with this panel' if plan.get("more_with_panel") is not None else "the panel alone cannot get there")
                     + (f', {plan["more_alone"]} without it.' if plan.get("more_alone") is not None else ".") + "</p>")
     body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + _spread_html(cal.get("spread"))
             + (f'<p class="small">{_e(ppi.get("reading"))}</p>' if ppi.get("reading") else "") + plan_txt
             + (f'<p class="small">AIPW-corrected rate: {pct(corr.get("estimate"))} (simulated {pct(corr.get("naive_syn"))}, '
                f'real sample {pct(corr.get("real_mean"))}).</p>' if corr.get("estimate") is not None else "")
             + (ui.table(["Segment", "Real", "Rate", "95% interval", "Audience share", "Lambda"], rows, sortable=True) if rows else "")
             + (f'<p class="muted small">Not enough real answers (10+) for: {_e(", ".join(s["stratum"] for s in skipped))}.</p>' if skipped else "")
             + f'<p class="muted small">{_e(ppi.get("assumption") or "")}</p>')
-    head = ui.section_head("Real-sample check", "Your real answers against the simulated panel: how far to trust it, and "
-                           "an interval that stays valid however good or bad the panel is (PPI++).", insight)
+    head = ui.section_head("Real-sample check", "Your real answers against the simulated panel: how far to trust it, whether "
+                           "its answers are as varied as real ones, and an interval that stays valid however good or bad the "
+                           "panel is (PPI++).", insight)
     return ("calibration", "Real-sample check", head + body)
 
 

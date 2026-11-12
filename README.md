@@ -287,7 +287,7 @@ It all lands in **one HTML dashboard** that opens without a server and works off
 Simulated numbers mean little until they are compared with real ones. Import your real ad results or survey answers and MarketMirror:
 
 - **backtests** its predictions against your past ads;
-- **calibrates** the simulated survey against real answers: overlap, per-audience trust, and a corrected conversion rate;
+- **calibrates** the simulated survey against real answers: overlap, per-audience trust, a corrected conversion rate, and whether the simulated answers are as varied as the real ones (simulated panels tend to answer too alike);
 - **forecasts** clicks or sign-ups for a budget, using what it learned from those comparisons;
 - suggests **the next tests** from your real ad export and the run.
 

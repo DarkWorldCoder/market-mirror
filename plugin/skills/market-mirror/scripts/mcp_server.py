@@ -572,7 +572,9 @@ TOOLS = [
     {"name": "calibrate", "description": (
         "Check a run's simulated survey against real answers (absolute path to a CSV with segment,country,gender,age,y where y is "
         "yes/maybe/no or 0-1; 50-300 rows is enough): covariate overlap, per-audience calibration, a trust / correct / walk-away "
-        "verdict and an AIPW-corrected rate. Writes calibration.json into the run folder."),
+        "verdict, an AIPW-corrected rate, a PPI++ interval and a spread check: are the simulated answers, and the gaps between "
+        "audiences, as varied as the real ones? When it says 'too alike', report differences between simulated people and "
+        "audiences as understated. Writes calibration.json into the run folder."),
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "real_csv": {"type": "string"},
                                                       "field": {"type": "string"}, "by": {"type": "string"},
                                                       "map": {"type": "array", "items": {"type": "string"}}}, "required": ["run", "real_csv"]}},

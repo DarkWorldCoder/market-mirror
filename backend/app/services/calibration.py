@@ -9,7 +9,9 @@ synthetic users?") in pure Python:
   3. (cross-LLM stability is run by the CLI: two panels, min Spearman rho; see `stability`)
 
 and a verdict per subgroup: trust / correct / walk-away. `correct()` returns the AIPW estimate of a rate
-(would-convert, CTR, open rate...) with 5-fold cross-fitting and a standard error.
+(would-convert, CTR, open rate...) with 5-fold cross-fitting and a standard error. `spread_check()` asks whether the
+simulated answers, and the gaps between audiences, are as varied as the real ones (simulated panels tend to answer
+too alike, which a matching average hides).
 
 Rows are dicts: {"segment", "country", "age", "gender", "y"} with y in [0, 1] (yes = 1, maybe = 0.5, no = 0,
 or any rate). Real rows come from the user's own survey / ad export / email stats.
@@ -469,9 +471,252 @@ def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key
                            "stated answer, not about purchases.")}
 
 
+# --------------------------------------------------------------------------
+# Spread: do the simulated people differ from each other as much as real people do?
+# --------------------------------------------------------------------------
+#
+# Simulated panels tend to answer more alike than real people: a lower SD than the matching humans in 154 of 164
+# outcomes across 19 studies (Peng et al., "Funhouse mirrors", arXiv 2509.19088), and far fewer distinct answer patterns
+# from demographic prompts than from real people (arXiv 2511.21218). A matching average can hide that, so two checks
+# run against the real answers:
+#   answers    the spread of individual answers (SD ratio, answer shares, Wasserstein-1 on the 0-1 scale). Only when
+#              both sides use the same answer scale and it is not yes/no: a yes/no answer's spread is fixed by its rate,
+#              which the level check already covers.
+#   audiences  how far apart the audiences' averages are. Each average's sampling noise is taken out first (method of
+#              moments), so a small real sample does not look more varied than it is.
+# Each ratio (simulated / real) gets a 90% stratified bootstrap interval. "Too alike" needs the ratio below 0.8 and
+# the whole interval below 1 (a material and a clear gap); "too spread out" the mirror image (above 1.25, interval
+# above 1). "Similar" needs the interval to rule out large gaps (inside 0.6-1.67); anything else is "unclear". The
+# studies above are mostly US opinion surveys and one survey (ANES) showed near-human spread, so this is measured per
+# run, never applied as a fixed correction.
+
+SPREAD_LOW, SPREAD_HIGH = 0.8, 1.25
+SIMILAR_BAND = (0.6, 1.67)
+
+
+def _scale(ys: Sequence[float]) -> str:
+    levels = {round(float(y), 4) for y in ys}
+    if levels <= {0.0, 1.0}:
+        return "yes/no"
+    if levels <= {0.0, 0.5, 1.0}:
+        return "yes/maybe/no"
+    return "scale"
+
+
+def _wsd(ys: Sequence[float], ws: Sequence[float]) -> float:
+    """Weighted SD (population form, weights normalised)."""
+    tot = sum(ws)
+    if not tot or len(ys) < 2:
+        return 0.0
+    m = sum(y * w for y, w in zip(ys, ws)) / tot
+    return math.sqrt(max(0.0, sum(w * (y - m) ** 2 for y, w in zip(ys, ws)) / tot))
+
+
+def _shares(ys: Sequence[float], ws: Sequence[float]) -> Dict[str, float]:
+    tot = sum(ws) or 1.0
+    out: Dict[str, float] = defaultdict(float)
+    for y, w in zip(ys, ws):
+        out[f"{round(float(y), 4):g}"] += w / tot
+    return {k: round(v, 3) for k, v in sorted(out.items(), key=lambda kv: float(kv[0]))}
+
+
+def _w1(a: Sequence[float], wa: Sequence[float], b: Sequence[float], wb: Sequence[float]) -> float:
+    """Wasserstein-1 distance between two weighted samples on the real line (area between the two CDFs)."""
+    ta, tb = sum(wa) or 1.0, sum(wb) or 1.0
+    ea = sorted(zip(a, wa))
+    eb = sorted(zip(b, wb))
+    pts = sorted({x for x, _ in ea} | {x for x, _ in eb})
+    i = j = 0
+    ca = cb = 0.0
+    dist = 0.0
+    for lo, hi in zip(pts, pts[1:]):
+        while i < len(ea) and ea[i][0] <= lo:
+            ca += ea[i][1] / ta
+            i += 1
+        while j < len(eb) and eb[j][0] <= lo:
+            cb += eb[j][1] / tb
+            j += 1
+        dist += abs(ca - cb) * (hi - lo)
+    return dist
+
+
+def _between_sd(groups: Sequence[Sequence[Tuple[float, float]]]) -> Optional[float]:
+    """SD of the groups' true averages: the variance of the observed (weighted) averages minus their mean squared
+    standard error, floored at 0. groups: [[(y, weight), ...], ...]; None with fewer than two groups."""
+    means, noise = [], []
+    for rows in groups:
+        ys, ws = [y for y, _ in rows], [w for _, w in rows]
+        tot = sum(ws)
+        if not tot:
+            continue
+        means.append(sum(y * w for y, w in rows) / tot)
+        n_eff = _kish(ws)
+        noise.append(_wsd(ys, ws) ** 2 / max(1.0, n_eff - 1))
+    if len(means) < 2:
+        return None
+    return math.sqrt(max(0.0, _var(means) - sum(noise) / len(noise)))
+
+
+def _interval(ratios: List[float]) -> List[Optional[float]]:
+    """90% percentile interval of bootstrap ratios (inf when the real side came out flat in a resample)."""
+    if not ratios:
+        return [None, None]
+    rs = sorted(ratios)
+    lo, hi = rs[int(0.05 * (len(rs) - 1))], rs[int(round(0.95 * (len(rs) - 1)))]
+    return [round(lo, 3) if math.isfinite(lo) else None, round(hi, 3) if math.isfinite(hi) else None]
+
+
+def _spread_verdict(ratio: Optional[float], ci: List[Optional[float]]) -> str:
+    if ratio is None:
+        return "unclear"
+    lo, hi = ci
+    if ratio < SPREAD_LOW and hi is not None and hi < 1.0:
+        return "too alike"
+    if ratio > SPREAD_HIGH and lo is not None and lo > 1.0:
+        return "too spread out"
+    if lo is not None and hi is not None and SIMILAR_BAND[0] <= lo and hi <= SIMILAR_BAND[1]:
+        return "similar"
+    return "unclear"
+
+
+def spread_check(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
+                 min_real: int = 10, min_syn: int = 10, boots: int = 400, seed: int = 11) -> Dict[str, Any]:
+    """Are the simulated answers as varied as the real ones? Individual answers and the gaps between audiences,
+    each as a simulated/real SD ratio with a 90% bootstrap interval, plus an overall verdict and a plain reading."""
+    rng = random.Random(seed)
+
+    def wt(r: Dict[str, Any]) -> float:
+        return max(0.0, float(r.get("weight") or 1.0))
+    sy, sw = [float(r["y"]) for r in synthetic], [wt(r) for r in synthetic]
+    ry = [float(r["y"]) for r in real]
+    rw = [1.0] * len(ry)
+
+    # 1. individual answers
+    scale_s, scale_r = (_scale(sy) if sy else None), (_scale(ry) if ry else None)
+    ans: Dict[str, Any] = {"scale_simulated": scale_s, "scale_real": scale_r, "n_simulated": len(sy), "n_real": len(ry),
+                           "levels_simulated": len({round(y, 4) for y in sy}), "levels_real": len({round(y, 4) for y in ry})}
+    if len(ry) < min_real or len(sy) < min_real:
+        ans.update(verdict="not checked", reason=f"needs {min_real}+ real and simulated answers")
+    elif scale_s != scale_r:
+        ans.update(verdict="not checked", reason=f"different answer scales (simulated {scale_s}, real {scale_r}); "
+                                                 "only the gaps between audiences are compared")
+    elif scale_r == "yes/no":
+        ans.update(verdict="not checked", reason="yes/no answers: their spread follows the rate, which the level check covers")
+    else:
+        sd_s, sd_r = _wsd(sy, sw), _wsd(ry, rw)
+        if sd_r <= 1e-9:
+            ans.update(verdict="not checked", reason="every real answer is the same")
+        else:
+            ratios = []
+            for _ in range(boots):
+                si = [rng.randrange(len(sy)) for _ in sy]
+                ri = [rng.randrange(len(ry)) for _ in ry]
+                b_r = _wsd([ry[i] for i in ri], [1.0] * len(ri))
+                ratios.append(_wsd([sy[i] for i in si], [sw[i] for i in si]) / b_r if b_r > 1e-9 else math.inf)
+            ratio = sd_s / sd_r
+            ci = _interval(ratios)
+            ans.update(sd_simulated=round(sd_s, 3), sd_real=round(sd_r, 3), sd_ratio=round(ratio, 3), ratio_interval=ci,
+                       wasserstein=round(_w1(sy, sw, ry, rw), 3), verdict=_spread_verdict(ratio, ci))
+            if ans["levels_simulated"] <= 11 and ans["levels_real"] <= 11:
+                ss, rs = _shares(sy, sw), _shares(ry, rw)
+                ans.update(shares_simulated=ss, shares_real=rs,
+                           total_variation=round(0.5 * sum(abs(ss.get(k, 0.0) - rs.get(k, 0.0)) for k in set(ss) | set(rs)), 3))
+
+    # 2. gaps between audiences
+    def grp(r: Dict[str, Any]) -> str:
+        return str((r.get(key) if key != "age_band" else (r.get("age_band") or age_band(r.get("age")))) or "?")
+    gs: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    gr: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    for r in synthetic:
+        gs[grp(r)].append((float(r["y"]), wt(r)))
+    for r in real:
+        gr[grp(r)].append((float(r["y"]), 1.0))
+    used = sorted(g for g in gr if g != "?" and len(gr[g]) >= min_real and len(gs.get(g, [])) >= min_syn)
+    left_out = sorted(g for g in set(gs) | set(gr) if g not in used)
+    aud: Dict[str, Any] = {"key": key, "groups": [], "left_out": left_out}
+    for g in used:
+        ms = sum(y * w for y, w in gs[g]) / (sum(w for _, w in gs[g]) or 1.0)
+        mr = sum(y for y, _ in gr[g]) / len(gr[g])
+        aud["groups"].append({"group": g, "n_simulated": len(gs[g]), "n_real": len(gr[g]), "mean_simulated": round(ms, 3),
+                              "mean_real": round(mr, 3)})
+    b_s = _between_sd([gs[g] for g in used]) if len(used) >= 2 else None
+    b_r = _between_sd([gr[g] for g in used]) if len(used) >= 2 else None
+    if b_s is None or b_r is None:
+        aud.update(verdict="not checked", reason=f"needs two or more {key}s with {min_real}+ real and {min_syn}+ simulated "
+                                                 "answers each")
+    else:
+        ms_all, mr_all = [x["mean_simulated"] for x in aud["groups"]], [x["mean_real"] for x in aud["groups"]]
+        aud.update(between_sd_simulated=round(b_s, 3), between_sd_real=round(b_r, 3),
+                   range_simulated=round(max(ms_all) - min(ms_all), 3), range_real=round(max(mr_all) - min(mr_all), 3))
+        if b_r <= 1e-9:
+            aud.update(verdict="unclear", reason=f"the real {key}s do not differ by more than their sampling noise")
+        else:
+            ratios = []
+            for _ in range(boots):
+                rs_s = [[rows[rng.randrange(len(rows))] for _ in rows] for rows in (gs[g] for g in used)]
+                rs_r = [[rows[rng.randrange(len(rows))] for _ in rows] for rows in (gr[g] for g in used)]
+                bs, br = _between_sd(rs_s) or 0.0, _between_sd(rs_r) or 0.0
+                ratios.append(bs / br if br > 1e-9 else math.inf)
+            ratio = b_s / b_r
+            ci = _interval(ratios)
+            aud.update(sd_ratio=round(ratio, 3), ratio_interval=ci, verdict=_spread_verdict(ratio, ci))
+
+    verdicts = [v for v in (ans["verdict"], aud["verdict"]) if v != "not checked"]
+    if not verdicts:
+        overall = "not checked"
+    elif "too alike" in verdicts:
+        overall = "too alike"
+    elif "too spread out" in verdicts:
+        overall = "too spread out"
+    elif all(v == "similar" for v in verdicts):
+        overall = "similar"
+    else:
+        overall = "unclear"
+    return {"verdict": overall, "flag": overall == "too alike", "answers": ans, "audiences": aud,
+            "reading": _spread_reading(overall, ans, aud), "thresholds": {"low": SPREAD_LOW, "high": SPREAD_HIGH},
+            "sources": ["arXiv 2509.19088", "arXiv 2511.21218"]}
+
+
+def _spread_reading(overall: str, ans: Dict[str, Any], aud: Dict[str, Any]) -> str:
+    def ci(d: Dict[str, Any]) -> str:
+        lo, hi = d.get("ratio_interval") or [None, None]
+        return f"90% interval {lo if lo is not None else '?'}-{hi if hi is not None else 'open'}"
+    bits = []
+    if ans.get("sd_ratio") is not None and ans["verdict"] in ("too alike", "too spread out"):
+        more_less = "less" if ans["verdict"] == "too alike" else "more"
+        s = (f"Simulated answers vary {more_less} than real ones (SD {ans['sd_simulated']} against {ans['sd_real']}, "
+             f"ratio {ans['sd_ratio']}, {ci(ans)}).")
+        mid_s, mid_r = (ans.get("shares_simulated") or {}).get("0.5"), (ans.get("shares_real") or {}).get("0.5")
+        if mid_s is not None and mid_r is not None and mid_s - mid_r >= 0.15:
+            s += f" {round(100 * mid_s)}% of simulated people said maybe, against {round(100 * mid_r)}% of real people."
+        bits.append(s)
+    if aud.get("sd_ratio") is not None and aud["verdict"] in ("too alike", "too spread out"):
+        closer = "closer together" if aud["verdict"] == "too alike" else "further apart"
+        span = (f"their averages span {round(100 * aud['range_simulated'])} points against {round(100 * aud['range_real'])}"
+                if aud["sd_ratio"] > 0 else
+                f"their averages ({round(100 * aud['range_simulated'])} points apart) differ by no more than noise, while the "
+                f"real ones span {round(100 * aud['range_real'])}")
+        bits.append(f"The simulated {aud['key']}s are {closer} than the real ones: {span} "
+                    f"(spread ratio {aud['sd_ratio']}, {ci(aud)}).")
+    if overall == "too alike":
+        bits.append("Treat differences between simulated people and audiences as understated, and check which audience "
+                    "to target against real answers before acting on it.")
+    elif overall == "too spread out":
+        bits.append("The simulated people disagree more than real ones; treat the extremes as exaggerated.")
+    elif overall == "similar":
+        bits.append("The simulated answers are about as varied as the real ones.")
+    elif overall == "unclear":
+        reason = aud.get("reason") if aud["verdict"] == "unclear" and aud.get("reason") else "the interval is still wide"
+        bits.append(f"Spread check unclear: {reason}; more real answers would settle it.")
+    else:
+        bits.append("Spread not checked: " + "; ".join(r for r in (ans.get("reason"), aud.get("reason")) if r) + ".")
+    return " ".join(bits)
+
+
 def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
              halfwidth: float = 0.05) -> Dict[str, Any]:
-    """The full check: overlap, conditional calibration per subgroup, an overall verdict and the AIPW correction."""
+    """The full check: overlap, conditional calibration per subgroup, an overall verdict, the AIPW correction, the
+    PPI++ interval and the spread check (are the simulated answers as varied as the real ones?)."""
     ov = overlap(synthetic, real)
     cal = conditional_calibration(synthetic, real, key)
     verdicts = [v.get("verdict") for v in cal["by_group"].values()]
@@ -486,6 +731,7 @@ def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: s
     corr = correct(synthetic, real)
     return {"n_synthetic": len(synthetic), "n_real": len(real), "overlap": {k: v for k, v in ov.items() if k not in ("weights", "model")},
             "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth),
+            "spread": spread_check(synthetic, real, key),
             "reading": {"trust": "the synthetic panel can stand in for the real sample on this question",
                         "correct": "use the corrected estimate, not the raw synthetic number",
                         "mixed": "some audiences are usable after correction, others are not: see by_group",

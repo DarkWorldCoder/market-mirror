@@ -542,7 +542,7 @@ Returns: {status, persona_mae, no_persona_baseline_mae}
 
 ### `POST /api/simulation/calibrate`
 
-Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate (synchronous).
+Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate, PPI++ interval, answer spread (synchronous).
 
 Request body:
 
@@ -563,7 +563,7 @@ Request body:
 }
 ```
 
-Returns: {verdict, overlap, calibration, corrected}
+Returns: {verdict, overlap, calibration, corrected, ppi, spread}
 
 ### `POST /api/simulation/predict`
 
