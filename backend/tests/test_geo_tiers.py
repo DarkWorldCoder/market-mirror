@@ -1,6 +1,7 @@
 """geo_tiers: aliases, known(), spread() rounding, city vs national mode and seed reuse."""
 
 import random
+from collections import Counter
 
 from app.services.geo_tiers import country_key, known, spread
 
@@ -41,7 +42,9 @@ def test_spread_returns_exactly_n_pairs_for_several_n_and_mixes():
     out = spread("India", ["Pune"], 13, random.Random(1), mode="national",
                  mix={"metro": 0.6, "city": 0.2, "town": 0.1, "rural": 0.1})
     assert len(out) == 13
-    assert {t for _, t in out} == set(SETTLEMENTS)
+    assert Counter(t for _, t in out) == Counter(
+        {"metro": 8, "city": 3, "town": 1, "rural": 1}
+    )
 
 
 def test_mode_cities_stays_in_the_given_cities():
