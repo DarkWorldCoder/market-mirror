@@ -1551,6 +1551,22 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
         with open(os.path.join(out_dir, "personas_intake.json"), encoding="utf-8") as f:
             grounded = json.load(f).get("real_profiles") or []
         persona_spec = {**(persona_spec or {}), "real_profiles": (persona_spec or {}).get("real_profiles", []) + grounded}
+    analytics_cfg = cfg.get("analytics")
+    if isinstance(analytics_cfg, dict) and (analytics_cfg.get("files") or analytics_cfg.get("rows")) and not state.get("analytics"):
+        files = [p if os.path.isabs(p) else os.path.join(base, p.lstrip("@")) for p in analytics_cfg.get("files") or []]
+        res = market_cli.analytics_audience(
+            log, files, analytics_cfg.get("rows"), os.path.join(out_dir, "personas_analytics.json"), None,
+            {str(k): str(v) for k, v in (analytics_cfg.get("map") or {}).items()}, int(analytics_cfg.get("people") or 24),
+            str(analytics_cfg.get("segment_by") or "country"), float(analytics_cfg.get("min_share") or 0.05),
+            int(analytics_cfg.get("max_segments") or 6), str(analytics_cfg.get("role") or ""),
+            str(analytics_cfg.get("period") or ""), False, bool(analytics_cfg.get("population_only")))
+        state["analytics"] = {k: res[k] for k in ("report", "source", "segments", "population")}
+        checkpoint()
+    if state.get("analytics"):
+        with open(os.path.join(out_dir, "personas_analytics.json"), encoding="utf-8") as f:
+            built = json.load(f)
+        persona_spec = market_cli.load_service("analytics_audience").merge_into_spec(
+            built, persona_spec, population_only=bool((analytics_cfg or {}).get("population_only")))
     if cfg.get("auto_personas"):
         persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
     if cfg.get("personas_lite") and persona_spec is not None:
@@ -1988,6 +2004,17 @@ def _bench_gate(out_dir: str) -> Optional[Dict[str, Any]]:
         f.write(bench.render_gate(gate))
     log(f"bench: emotion default-flip gate {'passed' if gate['pass'] else 'not passed'} -> {stem}.md")
     return {"pass": gate["pass"], "eligible_default": gate["eligible_default"], "file": os.path.abspath(stem + ".md")}
+
+
+def cmd_analytics_audience(c: Optional[Client], a) -> Any:
+    try:
+        rows = market_cli._load_json_arg(a.rows) if a.rows else None
+        field_map = dict(p.split("=", 1) for p in (a.map or []) if "=" in p)
+        return market_cli.analytics_audience(log, a.files, rows, a.out, a.base, field_map, a.people, a.segment_by,
+                                             a.min_share, a.max_segments, a.role or "", a.period or "", a.replace,
+                                             a.population_only)
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_intake(c: Optional[Client], a) -> Any:
@@ -2890,6 +2917,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-people", type=int, default=200)
     s.add_argument("--replace", action="store_true", help="replace earlier intake records in the spec instead of adding")
 
+    s = sub.add_parser("analytics-audience", help="build the simulated audience from your Google Analytics 4 or PostHog data: "
+                                                  "segments sized by share of users (country or channel) and age/gender "
+                                                  "shares for weighting, merged into personas.json (offline, no model)")
+    s.add_argument("--files", nargs="+", help="GA4 exports (UI CSV, Data API runReport JSON) or PostHog exports (HogQL "
+                                              "results JSON, persons/events CSV or JSON)")
+    s.add_argument("--rows", help="@file.json or inline JSON: rows an agent pulled through a GA4 or PostHog MCP server "
+                                  "(a list of rows, a GA4 runReport response or a PostHog {columns, results})")
+    s.add_argument("--out", help="persona spec to write (default ./personas.json; merged when it exists)")
+    s.add_argument("--base", help="persona spec to start from (your own segments, communities); --out is written")
+    s.add_argument("--map", nargs="*", help="field=column pairs for renamed columns, e.g. country=Market age='Age group' "
+                                            "(fields: country city age gender device channel returning language interest "
+                                            "users sessions count conversions revenue)")
+    s.add_argument("--people", type=int, default=24, help="simulated people to split over the segments (default 24)")
+    s.add_argument("--segment-by", default="country", choices=["country", "channel"])
+    s.add_argument("--min-share", type=float, default=0.05, help="leave out groups below this share of users (default 0.05)")
+    s.add_argument("--max-segments", type=int, default=6)
+    s.add_argument("--role", help="who they are, e.g. 'shoppers' or 'founders' (default: visitors)")
+    s.add_argument("--period", help="the date range the data covers, if the export does not say")
+    s.add_argument("--population-only", action="store_true", help="only add the age/gender shares for weighting; keep your segments")
+    s.add_argument("--replace", action="store_true", help="overwrite population shares the spec already gives for a country")
+
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
     s.add_argument("--text", help="the update, or @file")
@@ -3278,7 +3326,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -3292,7 +3340,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":

@@ -183,7 +183,8 @@ def results(run: str) -> Dict[str, Any]:
 
 RUN_RESOURCES = {"dashboard.html": "text/html", "summary.json": "application/json", "market_report.md": "text/markdown",
                  "report.md": "text/markdown", "calibration.json": "application/json", "focus_group.json": "application/json",
-                 "ideas.md": "text/markdown", "ad_patterns.md": "text/markdown", "intake.md": "text/markdown"}
+                 "ideas.md": "text/markdown", "ad_patterns.md": "text/markdown", "intake.md": "text/markdown",
+                 "analytics_audience.md": "text/markdown"}
 UI_URI = "ui://market-mirror/dashboard"
 UI_MIME = "text/html;profile=mcp-app"          # MCP Apps (ext-apps): hosts render this resource inline
 LAST_RUN: Dict[str, str] = {}
@@ -288,6 +289,21 @@ PROMPTS: Dict[str, Dict[str, Any]] = {
                  "CSV and normalise it with MarketMirror `actuals_import`, keeping the source. Then compare with run {run} "
                  "through `backtest` (ads) or `holdout_backtest` (independent experiments). Never change the ad account: "
                  "if a winning variant should go live, prepare it as a paused draft only after I approve it explicitly.")},
+    "audience_from_analytics": {
+        "description": "Build the simulated audience from a connected Google Analytics 4 or PostHog server, then propose a market test.",
+        "arguments": [_arg("source", "ga4 | posthog"), _arg("period", "date range, e.g. last 90 days", False)],
+        "text": ("Using the {source} tools this host already has connected (do not ask me for keys or tokens; if none is "
+                 "connected, say so and ask me for an export instead), read aggregate audience data for {period}. Read "
+                 "only: never change the property, project or its settings. For GA4, run one report per breakdown with "
+                 "the metrics activeUsers and keyEvents: country and city; country and userAgeBracket; country and "
+                 "userGender; country, deviceCategory and sessionDefaultChannelGroup; newVsReturning. For PostHog, run "
+                 "HogQL that counts distinct persons by properties.$geoip_country_name, properties.$geoip_city_name, "
+                 "properties.$device_type and person.properties.$initial_utm_source over that period. Pass the raw "
+                 "responses to MarketMirror `analytics_audience` as `reports` (one per breakdown) with the period. Show me "
+                 "analytics_audience.md: the segments, the age and gender shares used for weighting and the caveats (GA4 "
+                 "age and gender cover only part of the users; these are visitors, not the whole market). Only then "
+                 "propose a `market_test` whose `personas` is the absolute path of the persona spec it wrote, and show me "
+                 "the planned people and the estimated cost before any paid step.")},
     "test_figma_frames": {
         "description": "Turn Figma frames into feed-test creatives through a connected Figma server, check them, then propose a market test.",
         "arguments": [_arg("frames", "the Figma frames to test: names or links, one per line"),
@@ -399,7 +415,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "market_test", "description": (
         "All-in-one market test. Config keys: name, title, seeds (absolute paths to documents), requirement (text), "
-        "personas (persona spec object or absolute path) or auto_personas (int), creatives (feed-test object with creatives, "
+        "personas (persona spec object or absolute path) or auto_personas (int), analytics {files (absolute paths) or rows, "
+        "people, segment_by, population_only} (build the audience from GA4 / PostHog data, see analytics_audience), creatives (feed-test object with creatives, "
         "landing, benchmarks), seeds_n (int, repeat the feed test with N seeds and report ranges), rounds (int), survey {offer, goal, messages (list), split, pricing}, panel {analysts, brief}, "
         "report (bool), simulation_id (reuse), approve_spend (bool), max_spend_usd (number: a hard cap in US dollars, "
         "estimated from token usage; no new model call starts once it is reached and partial results are kept). Without approve_spend it stops after creating the "
@@ -489,6 +506,26 @@ TOOLS = [
         "creatives with image/video are seen by the buyers too ('vision': describe|direct|off). Background job."),
      "inputSchema": {"type": "object", "properties": {"creatives": {"type": "array", "items": {"type": "object"}},
                                                       "out": {"type": "string"}}, "required": ["creatives"]}},
+    {"name": "analytics_audience", "description": (
+        "Build the simulated audience from the owner's web analytics: Google Analytics 4 or PostHog. Give absolute paths "
+        "to exports (GA4 UI CSV or Data API runReport JSON; PostHog HogQL results, persons or events export), or the rows "
+        "or report responses you fetched through the host's GA4 or PostHog MCP server (read-only). Writes a persona spec "
+        "with one segment per top country (or channel) sized by share of users, with real cities, age range, share of "
+        "women and what the visitors did in its notes, plus per-country age/gender shares that weight the people; and "
+        "analytics_audience.md. Only known aggregate columns are read (emails or names in an export are ignored), "
+        "nothing missing is invented, offline and no model call. Show the owner analytics_audience.md, then use the spec "
+        "as market_test personas."),
+     "inputSchema": {"type": "object", "properties": {
+         "files": {"type": "array", "items": {"type": "string"}},
+         "rows": {"type": "array", "items": {"type": "object"}, "description": "aggregate or per-person rows"},
+         "reports": {"type": "array", "items": {"type": "object"},
+                     "description": "raw GA4 runReport responses or PostHog {columns, results} query results, one per breakdown"},
+         "out": {"type": "string", "description": "persona spec path to write (absolute)"},
+         "base": {"type": "string", "description": "persona spec to start from (the owner's own segments)"},
+         "people": {"type": "integer"}, "segment_by": {"type": "string", "enum": ["country", "channel"]},
+         "min_share": {"type": "number"}, "max_segments": {"type": "integer"}, "role": {"type": "string"},
+         "period": {"type": "string"}, "map": {"type": "object", "additionalProperties": {"type": "string"}},
+         "population_only": {"type": "boolean"}, "replace": {"type": "boolean"}}}},
     {"name": "intake", "description": (
         "Turn the owner's own customer material into grounded personas: call or interview transcripts, review exports, NPS / survey "
         "verbatims, CRM or support notes (absolute paths: CSV, TSV, JSON, JSONL, txt, md, vtt, srt), or rows you fetched from a "
@@ -925,6 +962,37 @@ def call(name: str, a: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Any:
         json.dump({"creatives": a["creatives"]}, open(cp, "w", encoding="utf-8"), ensure_ascii=False)
         return job(["cli", "creative-check", "--creatives", "@" + cp,
                     "--out", a.get("out") or os.path.join(d, f"creative_check_{tag}.json")], "creative_check")
+    if name == "analytics_audience":
+        if not (a.get("rows") or a.get("files") or a.get("reports")):
+            raise ValueError("files, rows or reports is required")
+        d = os.path.join(home(), "scenarios", "_analytics")
+        os.makedirs(d, exist_ok=True)
+        args = ["cli", "analytics-audience", "--out", a.get("out") or os.path.join(d, f"personas_{uuid.uuid4().hex[:6]}.json")]
+        if a.get("files"):
+            args += ["--files", *[str(f) for f in a["files"]]]
+        if a.get("rows") or a.get("reports"):
+            rp = os.path.join(d, f"rows_{uuid.uuid4().hex[:6]}.json")
+            payload = {"reports": list(a.get("reports") or []) + ([{"rows": a["rows"]}] if a.get("rows") else [])}
+            with open(rp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            args += ["--rows", "@" + rp]
+        for k in ("base", "role", "period"):
+            if a.get(k):
+                args += ["--" + k, str(a[k])]
+        for k, flag in (("people", "--people"), ("max_segments", "--max-segments")):
+            if a.get(k):
+                args += [flag, str(int(a[k]))]
+        if a.get("min_share") is not None:
+            args += ["--min-share", str(float(a["min_share"]))]
+        if a.get("segment_by"):
+            args += ["--segment-by", str(a["segment_by"])]
+        if a.get("map"):
+            args += ["--map", *[f"{k}={v}" for k, v in a["map"].items()]]
+        if a.get("population_only"):
+            args.append("--population-only")
+        if a.get("replace"):
+            args.append("--replace")
+        return _cli_result(sh(args, timeout=300))
     if name == "intake":
         if not (a.get("rows") or a.get("files")):
             raise ValueError("files or rows is required")
