@@ -310,7 +310,9 @@ def _reliability(mk: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
                               "corrected_rate_pct": _n(100 * corr["estimate"], 1) if corr.get("estimate") is not None else None,
                               "corrected_se_pct": _n(100 * corr["se"], 1) if corr.get("se") is not None else None,
                               "raw_simulated_pct": _n(100 * corr["naive_syn"], 1) if corr.get("naive_syn") is not None else None,
-                              "field": cal.get("field")}
+                              "field": cal.get("field"),
+                              "spread": (cal.get("spread") or {}).get("verdict"),
+                              "spread_reading": (cal.get("spread") or {}).get("reading")}
     seeds = (bundle.get("feed_test") or {}).get("multi_seed") or {}
     if seeds.get("n"):
         out["feed_test_seeds"] = {"n": seeds.get("n"), "winner_agreement_pct": seeds.get("winner_agreement")}
@@ -642,6 +644,8 @@ def _reliability_note(r: Dict[str, Any]) -> str:
         bits.append(f"{r['retest'].get('same_verdict_pct')}% of {r['retest'].get('people')} people gave the same verdict a week later")
     if r.get("calibration"):
         bits.append(f"calibration against {r['calibration'].get('real_answers')} real answers: {r['calibration'].get('verdict')}")
+        if r["calibration"].get("spread") in ("too alike", "too spread out"):
+            bits.append(f"simulated answers {r['calibration']['spread']} compared with the real ones")
     if r.get("collapsed_segments"):
         bits.append("audiences with near-identical stated odds: " + ", ".join(r["collapsed_segments"]))
     if r.get("feed_test_seeds"):

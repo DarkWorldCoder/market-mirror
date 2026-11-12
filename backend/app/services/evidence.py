@@ -116,6 +116,9 @@ def grade(bundle: Dict[str, Any], emotion_flags: Optional[Dict[str, Any]] = None
     real = bool(cal and (cal.get("overlap") or cal.get("ppi") or cal.get("n_real")))
     if real:
         add(2, f"checked against real answers")
+        spread = (cal.get("spread") or {}).get("verdict")
+        if spread in ("too alike", "too spread out"):
+            add(-1, f"simulated answers {spread} compared with the real ones")
     provs = [k for k, v in (feed.get("usage_by_provider") or {}).items() if isinstance(v, dict) and v.get("calls")]
     if len(provs) > 1:
         add(1, f"{len(provs)} model providers answered")

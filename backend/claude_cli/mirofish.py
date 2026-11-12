@@ -2201,12 +2201,18 @@ def cmd_calibrate(c: Client, a) -> Any:
     ppi = res.get("ppi") or {}
     if ppi.get("reading"):
         log("calibrate: " + ppi["reading"])
+    spread = res.get("spread") or {}
+    if spread.get("reading"):
+        log(f"calibrate: spread {spread.get('verdict')}: {spread['reading']}")
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         _try("dashboard", lambda: do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None))
     return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
             "ppi": {k: (ppi.get("overall") or {}).get(k) for k in ("estimate", "ci", "lambda", "effective_n", "worth_extra_real")},
             "plan": ppi.get("plan"), "ppi_reading": ppi.get("reading"),
+            "spread": {"verdict": spread.get("verdict"), "reading": spread.get("reading"),
+                       "answers_ratio": (spread.get("answers") or {}).get("sd_ratio"),
+                       "audiences_ratio": (spread.get("audiences") or {}).get("sd_ratio")} if spread else None,
             "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
 
 
@@ -2933,7 +2939,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-export", action="store_true")
     s.add_argument("--title")
 
-    s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away and a corrected rate")
+    s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away, a corrected "
+                                         "rate, and whether the simulated answers are as varied as the real ones")
     s.add_argument("--run-dir", required=True)
     s.add_argument("--real", required=True, help="CSV with columns segment,country,gender,age,y (yes/maybe/no or 0-1)")
     s.add_argument("--map", nargs="*", help="column mapping, e.g. segment=Audience y=Converted")

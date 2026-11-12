@@ -1439,13 +1439,13 @@
     },
     "/api/simulation/calibrate": {
       "post": {
-        "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate (synchronous)",
+        "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate, PPI++ interval, answer spread (synchronous)",
         "tags": [
           "Reliability and prediction"
         ],
         "responses": {
           "200": {
-            "description": "{verdict, overlap, calibration, corrected}",
+            "description": "{verdict, overlap, calibration, corrected, ppi, spread}",
             "content": {
               "application/json": {
                 "schema": {
