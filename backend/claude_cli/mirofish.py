@@ -1946,7 +1946,7 @@ def cmd_bench(c: Optional[Client], a) -> Any:
             for f in files:
                 with open(f, encoding="utf-8") as fh:
                     rows.append(json.load(fh))
-            methods = a.methods or ["no_persona", "twin"]
+            methods = a.methods or ["no_persona", "demographics_only", "twin"]
             res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
     except (ValueError, OSError) as e:
         raise CLIError(str(e))
@@ -2858,7 +2858,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--run-dir", help="upworthy persona_panel: a prepared run whose people vote")
     s.add_argument("--panel-size", type=int, default=10)
     s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel persona_panel_feel "
-                                                "persona_panel_mood; twin2k: no_persona twin twin_affect")
+                                                "persona_panel_mood; twin2k: no_persona demographics_only twin twin_affect")
     s.add_argument("--n", type=int, default=50, help="tests (upworthy) or people (twin2k) in the fixed sample")
     s.add_argument("--items", type=int, default=20, help="twin2k: questions per person")
     s.add_argument("--blocks", default="pricing", choices=["pricing", "all"], help="twin2k: which questions")

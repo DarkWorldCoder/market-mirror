@@ -5,7 +5,7 @@ Scores MarketMirror's simulated answers against what real people did, next to si
 | Suite | Human data | Task | Methods |
 |---|---|---|---|
 | `upworthy` | [Upworthy Research Archive](https://upworthy.natematias.com) (Matias et al. 2021, CC BY 4.0): real headline A/B tests with clicks | Pick the headline that got the most clicks | `chance`, `generic_reader` (no persona), `persona_panel` (people from a prepared run vote) |
-| `twin2k` | [Twin-2K-500](https://huggingface.co/datasets/LLM-Digital-Twin/Twin-2K-500) (Toubia et al. 2025, CC BY 4.0) | Predict each person's wave-4 answers from waves 1-3. The default slice is the 40 "would you buy this product at this price" questions | `majority` (leave-one-out), `no_persona`, `twin` |
+| `twin2k` | [Twin-2K-500](https://huggingface.co/datasets/LLM-Digital-Twin/Twin-2K-500) (Toubia et al. 2025, CC BY 4.0) | Predict each person's wave-4 answers from waves 1-3. The default slice is the 40 "would you buy this product at this price" questions | `majority` (leave-one-out), `no_persona`, `demographics_only` (the person's 14 demographic answers, no summary call), `twin` |
 
 The two suites report these metrics:
 
@@ -16,7 +16,8 @@ The two suites report these metrics:
   - Brier score on buy / don't buy;
   - predicted against real purchase share;
   - rank correlation: per question, the Spearman correlation across people between predicted and real answers, averaged over the questions where both vary. It says how well a method tells people apart, which accuracy hides;
-  - SD ratio: per question, the spread of the predicted answers across people divided by the spread of the real ones, averaged over the questions where the real answers vary. Below 1 means the simulated people are more alike than real people.
+  - SD ratio: per question, the spread of the predicted answers across people divided by the spread of the real ones, averaged over the questions where the real answers vary. Below 1 means the simulated people are more alike than real people;
+  - persona ladder: what each richer persona adds over the next simpler one that ran (no persona, then demographics only, then the full twin), as the accuracy gain on the same people with a paired 95% interval, plus the change in rank correlation and SD ratio. In 19 pre-registered studies, twins built from 500+ answers beat demographics-only twins on correlation with real answers (0.197 against 0.145) but not on individual accuracy (0.748 against 0.746) ([arXiv 2509.19088](https://arxiv.org/abs/2509.19088)), so the ladder reports both rather than assuming a richer persona helps.
 - **Both:** calls and tokens per method.
 
 ## Run
