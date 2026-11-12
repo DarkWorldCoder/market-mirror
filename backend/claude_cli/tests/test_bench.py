@@ -53,6 +53,22 @@ def twin_row(pid, buys):
             "wave4_Q_wave4_A": block(buys), "wave4_Q_wave1_3_A": block([buys[0], 2, 2])}
 
 
+def with_demographics(row, region):
+    """A Twin row with the waves 1-3 Demographics block; the region answer marks whose demographics a prompt carries."""
+    row = dict(row)
+    row["wave1_3_persona_json"] = json.dumps([
+        {"BlockName": "Demographics", "Questions": [
+            {"QuestionID": "QID11", "QuestionType": "MC", "QuestionText": "Which part of the United States do you live in?",
+             "Answers": {"SelectedByPosition": 2, "SelectedText": region}},
+            {"QuestionID": "QID13", "QuestionType": "MC", "QuestionText": "How old are you?",
+             "Answers": {"SelectedByPosition": 3, "SelectedText": "50-64"}},
+            {"QuestionID": "QID99", "QuestionType": "TE", "QuestionText": "Anything else?", "Answers": {}}]},
+        {"BlockName": "Personality", "Questions": [
+            {"QuestionID": "QID30", "QuestionType": "MC", "QuestionText": "I am outgoing.",
+             "Answers": {"SelectedByPosition": 1, "SelectedText": "Agree"}}]}])
+    return row
+
+
 class Upworthy(unittest.TestCase):
     def test_loader_keeps_clear_winners_and_pools_images(self):
         tests = {t["id"]: t for t in bench.load_upworthy(CSV)}
@@ -225,6 +241,75 @@ class Twin(unittest.TestCase):
         self.assertIsNone(bench.score_twin(people[:1], real)["rank_correlation"])
         self.assertIsNone(bench.score_twin(people[:1], real)["sd_ratio"])
 
+    def test_demographics_text_reads_only_the_demographics_block(self):
+        row = with_demographics(twin_row(1, [1, 2, 2]), "Midwest")
+        self.assertEqual(bench.twin_demographics(row),
+                         "- Which part of the United States do you live in? Midwest\n- How old are you? 50-64")
+        self.assertEqual(bench.twin_demographics(twin_row(1, [1, 2, 2])), "")             # no block on file
+        self.assertEqual(bench.twin_demographics({"wave1_3_persona_json": "not json"}), "")
+
+    def test_demographics_only_arm_and_persona_ladder(self):
+        buys = {0: [1, 2, 2], 1: [2, 1, 2], 2: [1, 1, 1], 3: [2, 2, 1], 4: [1, 2, 1]}
+        # people 0-3 have demographics on file; person 4 does not and must be left out of that arm, not guessed
+        rows = [with_demographics(twin_row(p, b), f"Region R{p}") if p < 4 else twin_row(p, b) for p, b in buys.items()]
+
+        def answer(system, user):
+            if system == bench.SUMMARY_SYSTEM:
+                return "Summary of P" + user.split("Person ")[1].split(" ")[0]
+            if "Summary of P" in user:                       # the full twin knows each answer
+                return json.dumps({"answers": buys[int(user.split("Summary of P")[1][0])]})
+            if "Region R" in user:                           # demographics alone get the first question right
+                return json.dumps({"answers": [buys[int(user.split("Region R")[1][0])][0], 2, 2]})
+            return json.dumps({"answers": [2, 2, 2]})        # a typical adult: never buys
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        c = fake(answer)
+        res = bench.run_twin(rows, 5, c, ["no_persona", "demographics_only", "twin"], items_per_person=3,
+                             approve_spend=True, cache_dir=d)
+        nop, demo, tw = (res["methods"][m] for m in ("no_persona", "demographics_only", "twin"))
+        self.assertEqual(demo["no_demographics"], 1)
+        self.assertEqual(demo["calls"], 4)                   # no call for the person without demographics
+        self.assertTrue(all("Personality" not in u and "outgoing" not in u for s, u in c.calls if "Region R" in u))
+        self.assertEqual(tw["accuracy"], 1.0)
+        self.assertAlmostEqual(demo["accuracy"], round(8 / 12, 3))
+        # the ladder: nothing -> demographics -> full twin, each step on the people both arms scored
+        ladder = res["persona_ladder"]
+        self.assertEqual([(s["from"], s["to"]) for s in ladder],
+                         [("no_persona", "demographics_only"), ("demographics_only", "twin")])
+        first, second = ladder
+        self.assertEqual(first["accuracy"], [nop["accuracy"], demo["accuracy"]])
+        self.assertEqual(first["accuracy_gain"]["n"], 4)
+        self.assertEqual(second["accuracy_gain"]["n"], 4)
+        self.assertEqual(second["accuracy_gain"]["diff"], round(1 - 8 / 12, 3))
+        self.assertIs(demo["vs_no_persona"], first["accuracy_gain"])
+        self.assertIs(tw["vs_demographics_only"], second["accuracy_gain"])
+        # demographics tell people apart on the one question they get right; the twin on all three
+        self.assertEqual([demo["rank_correlation"], tw["rank_correlation"]], [1.0, 1.0])
+        self.assertIsNone(first["rank_correlation_gain"])    # "never buys" ranks no one
+        self.assertEqual(second["rank_correlation_gain"], 0.0)
+        self.assertEqual(second["sd_ratio"], [demo["sd_ratio"], 1.0])
+        md = bench.render_markdown(res)
+        self.assertIn("## What each persona layer adds", md)
+        self.assertIn("| demographics_only -> twin | 0.667 -> 1.0 | +0.333 [", md)
+        self.assertIn("cannot tell the two apart", md)
+        self.assertNotIn("vs_", md.split("## What each")[0])
+
+    def test_ladder_steps_over_arms_that_did_not_run(self):
+        methods = {"majority": {"per_person": {1: 1.0, 2: 0.0}, "accuracy": 0.5},
+                   "no_persona": {"per_person": {1: 0.5, 2: 0.5}, "accuracy": 0.5, "rank_correlation": None, "sd_ratio": 0.0},
+                   "twin": {"per_person": {1: 1.0, 2: 0.5}, "accuracy": 0.75, "rank_correlation": 0.4, "sd_ratio": 0.8},
+                   "twin_affect": {"per_person": {1: 0.0, 2: 0.0}, "accuracy": 0.0}}
+        steps = bench.persona_ladder(methods)
+        self.assertEqual([(s["from"], s["to"]) for s in steps], [("no_persona", "twin")])
+        self.assertEqual(methods["twin"]["vs_no_persona"]["diff"], 0.25)
+        self.assertEqual(bench.persona_ladder({"twin": methods["twin"]}), [])
+        rows = [with_demographics(twin_row(p, [1, 2, 2]), f"R{p}") for p in range(5)]
+        dry = bench.run_twin(rows, 5, None, ["no_persona", "demographics_only", "twin"], items_per_person=3)
+        self.assertTrue(dry["dry_run"])
+        self.assertNotIn("persona_ladder", dry)
+        self.assertEqual(dry["estimate"]["calls"], 5 + 5 + 10)
+        self.assertEqual(dry["estimate"]["usd_at_haiku"], bench.cost(5 * (1500 * 3 + 30000), 5 * (300 * 3 + 1200)))
+
     def test_spearman_and_pick(self):
         self.assertEqual(bench.spearman([1, 2, 3], [10, 20, 30]), 1.0)
         self.assertEqual(bench.spearman([1, 2, 3], [3, 2, 1]), -1.0)
@@ -245,6 +330,20 @@ class CLI(unittest.TestCase):
         self.assertIn("Dry run", open(os.path.join(d, "bench_upworthy.md")).read())
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(mirofish.main(["bench", "--suite", "twin2k", "--cache", os.path.join(d, "none"), "--out", d]), 1)
+
+    def test_twin2k_default_methods_include_the_demographics_baseline(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        for p in range(3):
+            with open(os.path.join(d, f"twin_{p}.json"), "w") as f:
+                json.dump(with_demographics(twin_row(p, [1, 2, 2]), f"R{p}"), f)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = mirofish.main(["bench", "--suite", "twin2k", "--cache", d, "--out", d, "--n", "3", "--items", "3"])
+        self.assertEqual(code, 0, out.getvalue())
+        res = json.loads(out.getvalue())
+        self.assertTrue(res["dry_run"])
+        self.assertEqual(res["estimate"]["calls"], 3 + 3 + 6)        # no_persona, demographics_only, twin
 
 
 if __name__ == "__main__":

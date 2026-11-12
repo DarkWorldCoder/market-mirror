@@ -12,11 +12,14 @@ twin2k     Twin-2K-500 (Toubia et al. 2025, https://huggingface.co/datasets/LLM-
            people, waves 1-3 as the persona, wave 4 answers as ground truth; the same wave-4 questions answered in
            waves 1-3 give each person's test-retest ceiling. Default slice: the 40 "would you buy this product at
            this price" questions. Methods: majority (leave-one-out most common answer), no_persona (a typical US
-           adult) and twin (a summary of that person's waves 1-3, made once per person and cached).
+           adult), demographics_only (the person's own 14 demographic answers, no summary call) and twin (a summary
+           of that person's waves 1-3, made once per person and cached). persona_ladder compares each step on the
+           same people, so the report says what demographics add over nothing and what the full twin adds over them.
 
 Metrics: top-choice accuracy, Spearman between predicted and real ranking (upworthy); accuracy, accuracy
 normalised by test-retest, Brier score on purchase yes/no, the predicted-vs-real purchase share, and per question
-across people the rank correlation and the predicted/real SD ratio (twin2k);
+across people the rank correlation and the predicted/real SD ratio, and the persona ladder's paired accuracy
+gains (twin2k);
 calls and tokens per method. Misses are kept in the results: the point is an honest record, not a leaderboard.
 
 Spend: nothing calls a model unless `approve_spend` is set; otherwise `run` returns an estimate. The sample is
@@ -466,6 +469,26 @@ def twin_summary(row: Dict[str, Any], ask: Callable[[str, str], str], cache_dir:
     return text
 
 
+def twin_demographics(row: Dict[str, Any]) -> str:
+    """The person's own answers in the waves 1-3 Demographics block (region, sex, age, schooling, race, citizenship,
+    marital status, religion, party, income, views, household, employment), one line each. No model call: this is
+    the demographics_only persona, the comparator that says what the full twin adds over demographics alone."""
+    raw = row.get("wave1_3_persona_json")
+    try:
+        blocks = json.loads(raw) if isinstance(raw, str) else (raw or [])
+    except ValueError:
+        return ""
+    lines = []
+    for blk in blocks if isinstance(blocks, list) else []:
+        if not isinstance(blk, dict) or "demograph" not in str(blk.get("BlockName") or "").lower():
+            continue
+        for q in blk.get("Questions") or []:
+            text = str((q.get("Answers") or {}).get("SelectedText") or "").strip()
+            if text and q.get("QuestionText"):
+                lines.append(f"- {str(q['QuestionText']).strip()} {text}")
+    return "\n".join(lines)
+
+
 def answer_items(persona: str, items: List[Dict[str, Any]], ask: Callable[[str, str], str],
                  feel: bool = False) -> Dict[str, int]:
     qs = "\n".join(f"{k + 1}. {it['text']}\n   Options: " + " | ".join(f"{j + 1}) {o}" for j, o in enumerate(it["options"]))
@@ -590,33 +613,76 @@ def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], m
             if best:
                 maj[(p["pid"], it["id"])] = best[0]
     out["methods"]["majority"] = {**score_twin(people, maj), "calls": 0}
-    calls = {"no_persona": len(people), "twin": 2 * len(people), "twin_affect": 2 * len(people)}
-    est_in = len(people) * 1500 + (len(people) * 30000 if {"twin", "twin_affect"} & set(methods) else 0)
-    out["estimate"] = {"calls": sum(calls[m] for m in methods if m in calls), "usd_at_haiku": cost(est_in, len(people) * 1500)}
+    calls = {"no_persona": len(people), "demographics_only": len(people), "twin": 2 * len(people),
+             "twin_affect": 2 * len(people)}
+    answering = [m for m in methods if m in calls]
+    # one answer call per person per method (~1,500 tokens in, ~300 out), plus one cached summary per person (~30,000
+    # in, ~1,200 out) when a twin method runs; twin and twin_affect share the summary
+    twins = bool({"twin", "twin_affect"} & set(answering))
+    est_in = len(people) * (1500 * len(answering) + (30000 if twins else 0))
+    est_out = len(people) * (300 * len(answering) + (1200 if twins else 0))
+    out["estimate"] = {"calls": sum(calls[m] for m in answering), "usd_at_haiku": cost(est_in, est_out)}
     if not approve_spend or complete is None:
         out["dry_run"] = True
         return out
-    for m in methods:
-        if m not in calls:
-            continue
+    for m in answering:
         meter = Meter(complete)
 
         def one(p):
             try:
-                persona = ("A typical adult living in the United States." if m == "no_persona"
-                           else twin_summary(p["row"], meter, cache_dir))
+                if m == "no_persona":
+                    persona = "A typical adult living in the United States."
+                elif m == "demographics_only":
+                    demo = twin_demographics(p["row"])
+                    if not demo:
+                        return p["pid"], None        # no demographics on file: left out, not filled with a guess
+                    persona = "An adult living in the United States. What they said about themselves:\n" + demo
+                else:
+                    persona = twin_summary(p["row"], meter, cache_dir)
                 return p["pid"], answer_items(persona, p["items"], meter, feel=(m == "twin_affect"))
             except Exception:  # noqa: BLE001 - a failed person is counted as missing
                 return p["pid"], {}
         with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
             got = dict(pool.map(one, people))
-        preds = {(pid, qid): a for pid, ans in got.items() for qid, a in ans.items()}
+        preds = {(pid, qid): a for pid, ans in got.items() for qid, a in (ans or {}).items()}
         out["methods"][m] = {**score_twin(people, preds), **meter.usage(),
                              "usd_at_haiku": cost(meter.input_tokens, meter.output_tokens)}
+        if m == "demographics_only":
+            out["methods"][m]["no_demographics"] = sum(1 for ans in got.values() if ans is None)
     if "per_person" in out["methods"].get("twin_affect", {}) and "per_person" in out["methods"].get("twin", {}):
         out["methods"]["twin_affect"]["vs_twin"] = paired_diff(out["methods"]["twin_affect"]["per_person"],
                                                                out["methods"]["twin"]["per_person"], salt=f"{SALT}:twin_affect")
+    ladder = persona_ladder(out["methods"])
+    if ladder:
+        out["persona_ladder"] = ladder
     return out
+
+
+# from least to most persona: a generic adult, the person's demographics, a summary of everything they answered
+LADDER = ("no_persona", "demographics_only", "twin")
+
+
+def persona_ladder(methods: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """What each richer persona adds over the next simpler one that ran, on the same people.
+
+    accuracy_gain is the per-person accuracy difference with a paired bootstrap 95% interval; rank_correlation_gain
+    is the change in how well the method tells people apart (see person_ranking). Persona richness can raise the
+    second without the first, so both are reported. Each step's per-person diff is also stored on the richer method
+    as vs_<simpler>.
+    """
+    ran = [m for m in LADDER if "per_person" in (methods.get(m) or {})]
+    steps = []
+    for simpler, richer in zip(ran, ran[1:]):
+        a, b = methods[richer], methods[simpler]
+        gain = paired_diff(a["per_person"], b["per_person"], salt=f"{SALT}:{richer}-{simpler}")
+        a[f"vs_{simpler}"] = gain
+        ra, rb = a.get("rank_correlation"), b.get("rank_correlation")
+        steps.append({"from": simpler, "to": richer,
+                      "accuracy": [b.get("accuracy"), a.get("accuracy")], "accuracy_gain": gain,
+                      "rank_correlation": [rb, ra],
+                      "rank_correlation_gain": round(ra - rb, 3) if ra is not None and rb is not None else None,
+                      "sd_ratio": [b.get("sd_ratio"), a.get("sd_ratio")]})
+    return steps
 
 
 # --------------------------------------------------------------------------
@@ -687,11 +753,27 @@ def render_markdown(res: Dict[str, Any]) -> str:
         lines += [f"Dry run: about {e.get('calls')} model calls, roughly ${e.get('usd_at_haiku')} at Claude Haiku 4.5 prices. "
                   "Nothing was spent; rerun with --approve-spend.", ""]
     keys = sorted({k for m in res["methods"].values() for k, v in m.items()
-                   if k not in ("skipped",) and not isinstance(v, dict)})
+                   if k not in ("skipped",) and not k.startswith("vs_") and not isinstance(v, dict)})
     lines.append("| method | " + " | ".join(keys) + " |")
     lines.append("|---" * (len(keys) + 1) + "|")
     for name, m in res["methods"].items():
         lines.append(f"| {name} | " + " | ".join(str(m.get(k, "")) for k in keys) + " |")
+    ladder = res.get("persona_ladder") or []
+    if ladder:
+        def pair(v):
+            return " -> ".join("n/a" if x is None else str(x) for x in v)
+        lines += ["", "## What each persona layer adds", "",
+                  "| step | accuracy | accuracy gain [95% CI, paired by person] | rank correlation | SD ratio |",
+                  "|---|---|---|---|---|"]
+        for s in ladder:
+            g = s.get("accuracy_gain") or {}
+            ci = g.get("ci95")
+            gain = (f"{g['diff']:+.3f}" + (f" [{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else "")) if g else "n/a"
+            lines.append(f"| {s['from']} -> {s['to']} | {pair(s['accuracy'])} | {gain} | "
+                         f"{pair(s['rank_correlation'])} | {pair(s['sd_ratio'])} |")
+        lines += ["", "Accuracy is each arm's own; the gain is paired over the people both arms scored, so it can differ "
+                      "from the plain difference. An accuracy interval that includes 0 means this sample cannot tell the "
+                      "two apart. Rank correlation says how well a method tells people apart, which accuracy alone hides."]
     lines += ["", "Human data: CC BY 4.0. Simulated answers are compared with what real people did; a method that does "
                   "not beat the simpler comparators is reported as such."]
     return "\n".join(lines)
