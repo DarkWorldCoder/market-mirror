@@ -288,6 +288,21 @@ PROMPTS: Dict[str, Dict[str, Any]] = {
                  "CSV and normalise it with MarketMirror `actuals_import`, keeping the source. Then compare with run {run} "
                  "through `backtest` (ads) or `holdout_backtest` (independent experiments). Never change the ad account: "
                  "if a winning variant should go live, prepare it as a paused draft only after I approve it explicitly.")},
+    "test_figma_frames": {
+        "description": "Turn Figma frames into feed-test creatives through a connected Figma server, check them, then propose a market test.",
+        "arguments": [_arg("frames", "the Figma frames to test: names or links, one per line"),
+                      _arg("platforms", "facebook, instagram, reddit, tiktok, linkedin and/or x", False)],
+        "text": ("Using the Figma tools this host already has connected (do not ask me for a Figma token; if no Figma server "
+                 "is connected, say so and ask me to export the frames as PNG instead), fetch each of these frames as an "
+                 "image (PNG, at most 4 MB):\n{frames}\n\nSave the images in a new scenario folder under the MarketMirror "
+                 "home (`scenarios/<name>/`) and write `creatives.json` there with one creative per frame and platform "
+                 "({platforms}): id, platform, the image's absolute path as `image`, and the copy that runs around the "
+                 "frame in the post as `text`, `headline` and `cta`. Ask me for that copy: the words on the frame stay in "
+                 "the image, so never copy them into these fields and never invent copy (each creative needs a text or a "
+                 "headline). Never edit the Figma file. `creative_check` makes one vision-model call per creative, so tell "
+                 "me how many it will make and wait for my OK, then run it and show me what it found for each frame. Only "
+                 "then propose a `market_test` whose `creatives` is the absolute path of that `creatives.json` (seeds 3), "
+                 "and show me the planned personas and the estimated cost before any paid step.")},
     "focus_group_after_run": {
         "description": "Hold a moderated focus group with the simulated buyers of a run.",
         "arguments": [_arg("simulation_id", "the run's simulation id"), _arg("questions", "the discussion guide, one per line"),
@@ -312,7 +327,8 @@ def get_prompt(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"missing arguments: {', '.join(missing)}")
     vals = {a["name"]: str(args.get(a["name"]) or "").strip() for a in p["arguments"]}
     defaults = {"audience": "infer it from the product", "held_fixed": "the product, features, brand and terms",
-                "run": "(the newest run)", "period": "the last 30 days", "segment": ""}
+                "run": "(the newest run)", "period": "the last 30 days", "segment": "",
+                "platforms": "the platforms the product's buyers use"}
     vals = {k: v or defaults.get(k, "") for k, v in vals.items()}
     vals["segment_clause"] = f", segment {vals['segment']}" if vals.get("segment") else ""
     return {"description": p["description"],
