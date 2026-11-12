@@ -15,7 +15,8 @@ twin2k     Twin-2K-500 (Toubia et al. 2025, https://huggingface.co/datasets/LLM-
            adult) and twin (a summary of that person's waves 1-3, made once per person and cached).
 
 Metrics: top-choice accuracy, Spearman between predicted and real ranking (upworthy); accuracy, accuracy
-normalised by test-retest, Brier score on purchase yes/no and the predicted-vs-real purchase share (twin2k);
+normalised by test-retest, Brier score on purchase yes/no, the predicted-vs-real purchase share, and per question
+across people the rank correlation and the predicted/real SD ratio (twin2k);
 calls and tokens per method. Misses are kept in the results: the point is an honest record, not a leaderboard.
 
 Spend: nothing calls a model unless `approve_spend` is set; otherwise `run` returns an estimate. The sample is
@@ -512,6 +513,7 @@ def score_twin(people: List[Dict[str, Any]], preds: Dict[Tuple[Any, str], int]) 
                 brier.append((float(ys) - float(yr)) ** 2)
     acc = hit / n if n else None
     ceiling = retest_hit / retest_n if retest_n else None
+    rank, spread = person_ranking(people, preds)
     per_person: Dict[str, float] = {}
     for p in people:
         got = [int(preds[(p["pid"], it["id"])] == it["answer"]) for it in p["items"] if (p["pid"], it["id"]) in preds]
@@ -523,7 +525,43 @@ def score_twin(people: List[Dict[str, Any]], preds: Dict[Tuple[Any, str], int]) 
             "normalized_accuracy": round(acc / ceiling, 3) if acc is not None and ceiling else None,
             "brier_purchase": round(sum(brier) / len(brier), 3) if brier else None,
             "predicted_purchase_share": round(sim_yes / yn, 3) if yn else None,
-            "real_purchase_share": round(real_yes / yn, 3) if yn else None}
+            "real_purchase_share": round(real_yes / yn, 3) if yn else None,
+            "rank_correlation": rank, "sd_ratio": spread}
+
+
+def _sd(xs: Sequence[float]) -> float:
+    m = sum(xs) / len(xs)
+    return math.sqrt(sum((x - m) ** 2 for x in xs) / len(xs))
+
+
+def person_ranking(people: List[Dict[str, Any]],
+                   preds: Dict[Tuple[Any, str], int]) -> Tuple[Optional[float], Optional[float]]:
+    """How well a method tells people apart, per question across the people who got it (option positions as ranks).
+
+    rank_correlation: mean Spearman between predicted and real answers over questions where both vary.
+    sd_ratio: mean of predicted SD / real SD over questions where the real answers vary; below 1 means the
+    simulated people are less spread out than the real ones. Accuracy alone hides both.
+    """
+    by_item: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+    for p in people:
+        for it in p["items"]:
+            pr = preds.get((p["pid"], it["id"]))
+            if pr is not None and 1 <= pr <= len(it["options"]):   # a model may answer 0 or past the last option
+                by_item[it["id"]].append((pr, it["answer"]))
+    rhos, ratios = [], []
+    for pairs in by_item.values():
+        if len(pairs) < 2:
+            continue
+        sim, real = [float(a) for a, _ in pairs], [float(b) for _, b in pairs]
+        real_sd = _sd(real)
+        if not real_sd:
+            continue
+        ratios.append(_sd(sim) / real_sd)
+        rho = spearman(sim, real)
+        if rho is not None:
+            rhos.append(rho)
+    return (round(sum(rhos) / len(rhos), 3) if rhos else None,
+            round(sum(ratios) / len(ratios), 3) if ratios else None)
 
 
 def run_twin(rows: List[Dict[str, Any]], n: int, complete: Optional[Complete], methods: Sequence[str],

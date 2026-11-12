@@ -14,7 +14,9 @@ The two suites report these metrics:
   - accuracy;
   - accuracy normalised by each person's own test-retest agreement (the same questions in waves 1-3 against wave 4);
   - Brier score on buy / don't buy;
-  - predicted against real purchase share.
+  - predicted against real purchase share;
+  - rank correlation: per question, the Spearman correlation across people between predicted and real answers, averaged over the questions where both vary. It says how well a method tells people apart, which accuracy hides;
+  - SD ratio: per question, the spread of the predicted answers across people divided by the spread of the real ones, averaged over the questions where the real answers vary. Below 1 means the simulated people are more alike than real people.
 - **Both:** calls and tokens per method.
 
 ## Run
