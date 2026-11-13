@@ -920,7 +920,8 @@ def calibrate_panel():
     try:
         out = calibration.diagnose([r for r in syn if isinstance(r, dict) and "y" in r],
                                    [r for r in real if isinstance(r, dict) and "y" in r], str(data.get("key") or "segment"),
-                                   halfwidth=max(0.005, min(0.5, float(data.get("halfwidth") or 0.05))))
+                                   halfwidth=max(0.005, min(0.5, float(data.get("halfwidth") or 0.05))),
+                                   budget=max(0, min(100000, int(data["budget"]))) if data.get("budget") not in (None, "") else None)
         out["field"] = data.get("field")
         corr = out.get("corrected") or {}
         if corr.get("estimate") is not None and corr.get("naive_syn"):

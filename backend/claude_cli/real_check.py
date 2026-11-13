@@ -92,6 +92,10 @@ def build(bundle: Dict[str, Any], mk: Optional[Dict[str, Any]] = None) -> Option
     basis = ("the plan from your earlier calibration" if plan.get("more_with_panel")
              else f"a +-{int(HALFWIDTH * 100)} point margin on the yes-rate at 95%")
     audience = {"segments": [s["key"] for s in segs], "countries": countries}
+    alloc = (((b.get("calibration") or {}).get("ppi") or {}).get("allocation") or {})
+    quotas = {r["stratum"]: r["add"] for r in alloc.get("by_stratum") or [] if isinstance(r, dict) and r.get("add")}
+    if quotas and plan.get("more_with_panel") and alloc.get("extra") == n:
+        audience["quotas"] = quotas                                     # where the calibrate plan says to collect them
     md = render_markdown(questions, audience, n, basis, len(segs))
     return {"questions": questions, "audience": audience, "people_needed": n, "basis": basis,
             "markdown": md, "csv": answer_sheet(questions)}
@@ -113,7 +117,9 @@ def render_markdown(questions: List[Dict[str, Any]], audience: Dict[str, Any], n
              "of real people the questions that decided it, then compare.", "",
              "## Who to ask", "", f"- {who}{where}.",
              f"- About **{n} people** in total ({basis}).",
-             *([f"- To compare audiences, aim for about {n} in each of the {n_segments} you care most about."] if n_segments > 1 else []),
+             *([f"- Split them as your earlier calibration planned (more where the simulated panel predicted least): "
+                + ", ".join(f"{k} {v}" for k, v in audience["quotas"].items()) + "."] if audience.get("quotas") else
+               [f"- To compare audiences, aim for about {n} in each of the {n_segments} you care most about."] if n_segments > 1 else []),
              "- Customers, a mailing list, a short paid survey panel or a call list all work. Ask before you show the "
              "simulated answers.", "", "## Questions", ""]
     for i, q in enumerate(questions, 1):

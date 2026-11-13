@@ -559,11 +559,13 @@ Request body:
   ],
   "real": [],
   "key": "segment",
-  "field": "would_convert"
+  "field": "would_convert",
+  "halfwidth": 0.05,
+  "budget": 100
 }
 ```
 
-Returns: {verdict, overlap, calibration, corrected, ppi, spread}
+Returns: {verdict, overlap, calibration, corrected, ppi (incl. allocation), spread}
 
 ### `POST /api/simulation/predict`
 

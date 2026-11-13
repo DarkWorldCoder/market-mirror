@@ -613,10 +613,14 @@ TOOLS = [
         "audiences, as varied as the real ones? When it says 'too alike', report differences between simulated people and "
         "audiences as understated. Answers that built the personas never count: people on the persona-building side of a "
         "real_split (real_split.json next to the CSV, or `split`) are left out, that side's own file is refused, and a CSV that "
-        "also built the run's grounded personas is flagged. Writes calibration.json into the run folder."),
+        "also built the run's grounded personas is flagged. It also plans where to collect the next real answers (`budget`, "
+        "default: what a +-5 point interval needs): more where the panel predicts least. Writes calibration.json into "
+        "the run folder."),
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "real_csv": {"type": "string"},
                                                       "field": {"type": "string"}, "by": {"type": "string"},
                                                       "map": {"type": "array", "items": {"type": "string"}},
+                                                      "budget": {"type": "integer", "minimum": 0,
+                                                                 "description": "how many more real answers can be collected; the result says which audiences they should come from"},
                                                       "split": {"type": "string", "description": "absolute path of real_split.json"}},
                      "required": ["run", "real_csv"]}},
     {"name": "real_split", "description": (
@@ -1105,8 +1109,8 @@ def call(name: str, a: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Any:
     if name == "calibrate":
         run_dir = a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])
         args = ["cli", "calibrate", "--run-dir", run_dir, "--real", a["real_csv"]]
-        for k in ("field", "by"):
-            if a.get(k):
+        for k in ("field", "by", "budget"):
+            if a.get(k) not in (None, ""):
                 args += ["--" + k, str(a[k])]
         if a.get("map"):
             args += ["--map", *[str(x) for x in a["map"]]]
