@@ -28,7 +28,9 @@ import atexit
 import json
 import re
 import os
+import shutil
 import sys
+import tempfile
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -218,11 +220,78 @@ def read_text_arg(v: Optional[str]) -> Optional[str]:
     return v
 
 
+TEXT_SEED_EXT = {"md", "txt", "markdown"}
+
+
+def _seed_text(path: str) -> Tuple[Optional[str], str]:
+    """(text, "") for a text seed; (None, reason) for a PDF or other non-text file, or a text file that is not UTF-8."""
+    if os.path.splitext(path)[1].lower().lstrip(".") not in TEXT_SEED_EXT:
+        return None, "is a PDF or other non-text file"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read(), ""
+    except (OSError, UnicodeDecodeError):
+        return None, "is not readable as UTF-8 text"
+
+
+def seed_warnings(paths: List[str]) -> List[str]:
+    """One note per seed with contact details (counts per kind, nothing replaced) or that cannot be scanned."""
+    intake = market_cli.load_service("intake")
+    notes = []
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        name = os.path.basename(p)
+        text, reason = _seed_text(p)
+        if text is None:
+            notes.append(f"{name} {reason}, so its contents were not checked for personal data; check it by hand")
+            continue
+        _, counts = intake.scrub(text)
+        found = {k: v for k, v in counts.items() if v}
+        if found:
+            detail = ", ".join(f"{n} {k}" for k, n in sorted(found.items()))
+            notes.append(f"{name} contains personal data ({detail}); the text is sent to the LLM provider. "
+                         "Remove it first, or use --scrub-seeds / --no-pii-check")
+    return notes
+
+
+def scrub_seed_copies(paths: List[str], scrub_dir: str) -> List[str]:
+    """Write a cleaned copy of each text seed under scrub_dir (same file name). Refuses PDFs and unreadable files:
+    they cannot be cleaned, and uploading them unchanged would defeat --scrub-seeds."""
+    intake = market_cli.load_service("intake")
+    cleaned = []
+    for p in paths:
+        if not os.path.isfile(p):
+            cleaned.append(p)  # reported as not found by the upload loop
+            continue
+        text, reason = _seed_text(p)
+        if text is None:
+            raise CLIError(f"--scrub-seeds cannot clean {os.path.basename(p)}: it {reason}. "
+                           "Convert it to a text file first, or drop --scrub-seeds")
+        clean, _ = intake.scrub(text)
+        # keep the original file name: the upload and the project name use it
+        sub_dir = tempfile.mkdtemp(dir=scrub_dir)
+        dst = os.path.join(sub_dir, os.path.basename(p))
+        with open(dst, "w", encoding="utf-8") as f:
+            f.write(clean)
+        cleaned.append(dst)
+    return cleaned
+
+
 def step_upload(c: Client, seeds: List[str], requirement: str, name: Optional[str],
-                context: Optional[str] = None) -> Dict[str, Any]:
+                context: Optional[str] = None, scrub_seeds: bool = False, pii_check: bool = True) -> Dict[str, Any]:
+    """Upload seeds and build the ontology. Before sending, warn about contact details in text seeds
+    (emails, phones, handles, links) and about seeds that cannot be scanned (PDFs). scrub_seeds uploads cleaned
+    temp copies instead; pii_check=False skips the warnings."""
+    scrub_dir = tempfile.mkdtemp(prefix="mm_scrub_") if scrub_seeds else None
     files = []
     handles = []
     try:
+        if scrub_dir:
+            seeds = scrub_seed_copies(seeds, scrub_dir)
+        elif pii_check:
+            for note in seed_warnings(seeds):
+                log(f"warning: {note}")
         for p in seeds:
             if not os.path.isfile(p):
                 raise CLIError(f"seed file not found: {p}")
@@ -241,6 +310,8 @@ def step_upload(c: Client, seeds: List[str], requirement: str, name: Optional[st
     finally:
         for fh in handles:
             fh.close()
+        if scrub_dir:
+            shutil.rmtree(scrub_dir, ignore_errors=True)
     log(f"upload: project {data.get('project_id')} - {len((data.get('ontology') or {}).get('entity_types', []))} "
         f"entity types, {len((data.get('ontology') or {}).get('edge_types', []))} relation types")
     return data
@@ -1013,8 +1084,13 @@ def cmd_health(c: Client, a) -> Any:
     return c.get("/health", retries=1, timeout=10)
 
 
+def cmd_seed_check(c: Client, a) -> Any:
+    return {"warnings": seed_warnings(a.seed)}
+
+
 def cmd_upload(c: Client, a) -> Any:
-    return step_upload(c, a.seed, read_text_arg(a.requirement), a.name, read_text_arg(a.context))
+    return step_upload(c, a.seed, read_text_arg(a.requirement), a.name, read_text_arg(a.context),
+                       scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
 
 
 def cmd_build_graph(c: Client, a) -> Any:
@@ -2586,7 +2662,8 @@ def cmd_run(c: Client, a) -> Any:
 
     try:
         c.get("/health", retries=2, timeout=10)
-        up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context))
+        up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context),
+                         scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
         state["project_id"] = up["project_id"]
         save_json(out_dir, "ontology", up)
         checkpoint()
@@ -2680,6 +2757,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--platform", choices=["twitter", "reddit", "parallel"], default="parallel")
     s.add_argument("--max-rounds", type=int, default=10, help="cap simulation rounds (default %(default)s; cost!)")
     s.add_argument("--name", help="project name")
+    s.add_argument("--scrub-seeds", action="store_true",
+                   help="upload a copy of the text seeds with emails, phones, handles and links replaced")
+    s.add_argument("--no-pii-check", action="store_true", help="skip the warning about personal data in seeds")
     s.add_argument("--out", help="output dir (default ./mirofish_runs/<timestamp>)")
     s.add_argument("--title", help="dashboard title")
     s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, help="parallel profile generation (default: CPU count)")
@@ -2710,6 +2790,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--requirement", required=True, help="text or @file")
     s.add_argument("--context", help="text or @file")
     s.add_argument("--name")
+    s.add_argument("--scrub-seeds", action="store_true",
+                   help="upload a copy of the text seeds with emails, phones, handles and links replaced")
+    s.add_argument("--no-pii-check", action="store_true", help="skip the warning about personal data in seeds")
+
+    s = sub.add_parser("seed-check", help="warn about contact details in seed files before upload (offline, nothing sent)")
+    s.add_argument("--seed", nargs="+", required=True, help="seed file paths")
 
     s = sub.add_parser("build-graph", help="build the knowledge graph for a project")
     s.add_argument("--project", required=True)
@@ -3469,7 +3555,7 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
-    "backtest": cmd_backtest, "market-test": cmd_market_test,
+    "backtest": cmd_backtest, "market-test": cmd_market_test, "seed-check": cmd_seed_check,
     "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
@@ -3484,7 +3570,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":

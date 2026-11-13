@@ -732,8 +732,24 @@ def spend_question(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "_plan": plan}
 
 
+def seed_warnings(cfg: Dict[str, Any]) -> List[str]:
+    """Contact details in the config's seed files (cli seed-check, offline). Nothing is replaced or sent."""
+    seeds = [s for s in cfg.get("seeds") or [] if isinstance(s, str) and s]
+    if not seeds:
+        return []
+    r = sh(["cli", "seed-check", "--seed", *seeds], timeout=60)
+    if not r["ok"]:
+        return ["could not check the seed files for personal data: " + (r["stderr"] or "")[-300:].strip()]
+    try:
+        return list(json.loads(r["stdout"] or "{}").get("warnings") or [])
+    except ValueError:
+        return ["could not read the personal-data check for the seed files"]
+
+
 def market_test(cfg: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Dict[str, Any]:
-    """Start a market test. Unapproved spend asks the user first when the client can elicit; otherwise today's guard."""
+    """Start a market test. Unapproved spend asks the user first when the client can elicit; otherwise today's guard.
+    Seed files with contact details come back as a `warnings` list."""
+    warnings = seed_warnings(cfg)
     approval = None
     if not cfg.get("approve_spend") and ctx is not None and ctx.can_elicit():
         q = spend_question(cfg)
@@ -747,12 +763,14 @@ def market_test(cfg: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Dict[str, A
             cfg = {**cfg, "approve_spend": True}
         elif decision != "people_first":
             path = write_config(cfg)
-            return {"stage": "stopped", "approved": False, "approval": approval, "config": path,
+            return {"stage": "stopped", "approved": False, "approval": approval, "config": path, "warnings": warnings,
                     "next": "Nothing was started. Call market_test again when ready (approve_spend true skips the question)."}
     path = write_config(cfg)
     out = {**job(["cli", "market-test", path], "market-test"), "config": path}
     if approval:
         out["approval"] = approval
+    if warnings:
+        out["warnings"] = warnings
     return out
 
 
