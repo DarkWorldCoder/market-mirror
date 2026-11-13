@@ -69,7 +69,7 @@ class Resources(unittest.TestCase):
                    self.home)
         names = {p["name"] for p in out[1]["result"]["prompts"]}
         self.assertEqual(names, {"test_an_ad", "price_check", "calibrate_with_real_data", "pull_real_results", "focus_group_after_run",
-                                 "test_figma_frames"})
+                                 "test_figma_frames", "audience_from_analytics"})
         text = out[2]["result"]["messages"][0]["content"]["text"]
         self.assertIn("meta_ads", text)
         self.assertIn("paused draft", text)
