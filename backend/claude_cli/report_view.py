@@ -822,6 +822,24 @@ def _spread_html(sp: Any) -> str:
             + shares)
 
 
+def _allocation_html(alloc: Any) -> str:
+    """'Where to collect the next N real answers': the planned split by segment next to a split by audience share."""
+    if not isinstance(alloc, dict) or not alloc.get("extra"):
+        return ""
+    rows = [r for r in alloc.get("by_stratum") or [] if isinstance(r, dict)]
+    if not rows:
+        return ""
+    hw = lambda v: "–" if ui.num(v) is None else f"±{100 * float(v):.1f} pts"
+    table = ui.table(["Segment", "Have", "Add", "If split by share", "Panel correlation", "Interval after"],
+                     [[r.get("stratum"), r.get("n_real"), r.get("add"), r.get("add_proportional"),
+                       r.get("correlation") if r.get("panel_used") else "not yet (under 10 real)", hw(r.get("halfwidth_after"))]
+                      for r in rows], sortable=True)
+    return (f'<h3>Where to collect the next {_e(alloc["extra"])} real answers</h3>'
+            + (f'<p class="small">{_e(alloc.get("reading"))}</p>' if alloc.get("reading") else "") + table
+            + '<p class="muted small">Planned from today\'s answers: more go where the simulated panel predicts least, and '
+              'segments with fewer than 10 real answers are topped up first. A plan, not a guarantee.</p>')
+
+
 def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Real-sample check': the calibrate verdict, the AIPW-corrected rate, and the PPI++ interval with the
     effective sample size and how many more real answers a target precision needs."""
@@ -851,6 +869,7 @@ def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = 
     body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
             + _spread_html(cal.get("spread"))
             + (f'<p class="small">{_e(ppi.get("reading"))}</p>' if ppi.get("reading") else "") + plan_txt
+            + _allocation_html(ppi.get("allocation"))
             + (f'<p class="small">AIPW-corrected rate: {pct(corr.get("estimate"))} (simulated {pct(corr.get("naive_syn"))}, '
                f'real sample {pct(corr.get("real_mean"))}).</p>' if corr.get("estimate") is not None else "")
             + (ui.table(["Segment", "Real", "Rate", "95% interval", "Audience share", "Lambda"], rows, sortable=True) if rows else "")

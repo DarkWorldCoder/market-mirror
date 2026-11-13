@@ -2225,12 +2225,15 @@ def cmd_calibrate(c: Client, a) -> Any:
         raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
     log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
     res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field,
-                                                             "halfwidth": a.halfwidth}, timeout=300)
+                                                             "halfwidth": a.halfwidth, "budget": a.budget}, timeout=300)
     res["holdout"] = holdout
     save_json(out_dir, "calibration", res)
     ppi = res.get("ppi") or {}
     if ppi.get("reading"):
         log("calibrate: " + ppi["reading"])
+    alloc = ppi.get("allocation") or {}
+    if alloc.get("reading"):
+        log("calibrate: " + alloc["reading"])
     spread = res.get("spread") or {}
     if spread.get("reading"):
         log(f"calibrate: spread {spread.get('verdict')}: {spread['reading']}")
@@ -2240,6 +2243,8 @@ def cmd_calibrate(c: Client, a) -> Any:
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
             "ppi": {k: (ppi.get("overall") or {}).get(k) for k in ("estimate", "ci", "lambda", "effective_n", "worth_extra_real")},
             "plan": ppi.get("plan"), "ppi_reading": ppi.get("reading"),
+            "allocation": {"reading": alloc.get("reading"), "extra": alloc.get("extra"),
+                           "by_stratum": {r["stratum"]: r["add"] for r in alloc.get("by_stratum") or []}} if alloc else None,
             "spread": {"verdict": spread.get("verdict"), "reading": spread.get("reading"),
                        "answers_ratio": (spread.get("answers") or {}).get("sd_ratio"),
                        "audiences_ratio": (spread.get("audiences") or {}).get("sd_ratio")} if spread else None,
@@ -3122,6 +3127,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="target interval half-width for the sample planner (0.05 = +-5 points)")
     s.add_argument("--split", help="real_split.json from real-split (default: one next to --real, if any): people on its "
                                    "persona-building side are left out of the check")
+    s.add_argument("--budget", type=int, help="how many more real answers you can collect; the plan says which audiences "
+                                              "they should come from (default: what the +-halfwidth target needs)")
 
     s = sub.add_parser("real-split", help="split a fixed set of real answers between building personas (intake) and the "
                                           "held-out check (calibrate), with the interval width at each split (offline)")

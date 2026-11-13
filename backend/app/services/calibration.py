@@ -393,6 +393,7 @@ def ppi_stratified(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], 
     for st in strata:
         share[st] = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic if k(r) == st) / tot
     by: Dict[str, Any] = {}
+    parts_by: Dict[str, Any] = {}
     skipped = []
     for st in strata:
         rs, ss = [r for r in real if k(r) == st], [r for r in synthetic if k(r) == st]
@@ -400,17 +401,17 @@ def ppi_stratified(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], 
             skipped.append({"stratum": st, "real": len(rs), "simulated": len(ss), "share": round(share[st], 3)})
             continue
         res = ppi_mean(rs, ss, z=z)
-        res.pop("_parts", None)
+        parts_by[st] = res.pop("_parts", None)
         by[st] = {**res, "share": round(share[st], 3)}
     covered = sum(v["share"] for v in by.values())
     if not by or covered <= 0:
-        return {"estimate": None, "reason": f"no {key} has {min_real}+ real answers", "skipped": skipped}
+        return {"estimate": None, "reason": f"no {key} has {min_real}+ real answers", "skipped": skipped, "_parts_by": {}}
     est = sum(v["share"] * v["estimate"] for v in by.values()) / covered
     se = math.sqrt(sum((v["share"] / covered) ** 2 * v["se"] ** 2 for v in by.values()))
     eff = sum(v["effective_n"] for v in by.values())
     return {"key": key, "estimate": round(est, 4), "se": round(se, 4),
             "ci": [round(max(0.0, est - z * se), 4), round(min(1.0, est + z * se), 4)],
-            "audience_covered": round(covered, 3), "by_stratum": by, "skipped": skipped,
+            "audience_covered": round(covered, 3), "by_stratum": by, "skipped": skipped, "_parts_by": parts_by,
             "effective_n": round(eff, 1), "n_real": sum(v["n_real"] for v in by.values())}
 
 
@@ -448,12 +449,108 @@ def plan_humans(res: Dict[str, Any], halfwidth: float = 0.05) -> Dict[str, Any]:
     return out
 
 
+def allocate_humans(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], strat: Dict[str, Any], extra: int,
+                    key: str = "segment", z: float = 1.96, min_real: int = 10) -> Dict[str, Any]:
+    """Where to collect the next `extra` real answers so the stratified PPI++ interval narrows most.
+
+    Each audience's variance with n real answers is v_h(n) (`_ppi_var_at`: lambda re-tuned for n, never worse than
+    real-only), so the combined variance is sum_h share_h^2 v_h(n_h). Audiences below `min_real` are first topped up
+    to it (until then they have no interval at all, so their correlation with the panel is unknown and they count as
+    real-only, with the spread of all real answers as a stand-in variance). The rest goes one answer at a time to the audience
+    where it cuts the combined variance most, which is optimal because each v_h falls with diminishing returns.
+    Compared with splitting the same answers by audience share (proportional allocation). Allocating a fixed human
+    budget by how hard each part is to correct, rather than plain PPI++, is the gain Ye & Yoganarasimhan (2026)
+    report (about 10% lower error at no extra cost); the numbers here are planned, from today's variances."""
+    def k(r):
+        return str(r.get(key) or "?")
+    tot = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic) or 1.0
+    strata = sorted({k(r) for r in synthetic})
+    share = {st: sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic if k(r) == st) / tot for st in strata}
+    have = {st: sum(1 for r in real if k(r) == st) for st in strata}
+    parts_by = strat.get("_parts_by") or {}
+    by_stratum = strat.get("by_stratum") or {}
+
+    def var_at(st: str, n: int) -> float:
+        if n <= 0:
+            return math.inf
+        p = parts_by.get(st)
+        if p:
+            return _ppi_var_at(p, n)
+        return fallback_var / n
+
+    # an audience without its own interval yet counts as real-only, at the spread of all real answers (not the
+    # panel's, which tends to be too alike and would make thin audiences look cheap to pin down)
+    ry = [float(r["y"]) for r in real]
+    fallback_var = _var(ry) if len(ry) > 1 and _var(ry) > 0 else 0.25
+
+    def combined(alloc: Dict[str, int]) -> float:
+        return sum(share[st] ** 2 * var_at(st, have[st] + alloc[st]) for st in strata if share[st] > 0)
+    extra = max(0, int(extra))
+    alloc = {st: 0 for st in strata}
+    left = extra
+    for st in sorted(strata, key=lambda s: -share[s]):                 # top-ups first, biggest audiences first
+        need = max(0, min_real - have[st]) if share[st] > 0 else 0
+        alloc[st] = min(need, left)
+        left -= alloc[st]
+    while left > 0:
+        cur = combined(alloc)
+        best, gain = None, 0.0
+        for st in strata:
+            if share[st] <= 0 or have[st] + alloc[st] < min_real:
+                continue
+            alloc[st] += 1
+            g = cur - combined(alloc)
+            alloc[st] -= 1
+            if g > gain:
+                best, gain = st, g
+        if best is None:
+            break
+        alloc[best] += 1
+        left -= 1
+    prop = {st: int(round(extra * share[st])) for st in strata}
+    drift = extra - sum(prop.values())                                # make the proportional split add up exactly
+    if strata and drift:
+        prop[max(strata, key=lambda s: share[s])] += drift
+
+    def hw(a: Dict[str, int]) -> Optional[float]:
+        v = combined(a)
+        return round(z * math.sqrt(v), 4) if math.isfinite(v) else None
+    planned, proportional = hw(alloc), hw(prop)
+    rows = []
+    for st in sorted(strata, key=lambda s: -alloc[s]):
+        n_after = have[st] + alloc[st]
+        v = var_at(st, n_after)
+        rows.append({"stratum": st, "share": round(share[st], 3), "n_real": have[st], "add": alloc[st],
+                     "add_proportional": prop[st], "n_after": n_after,
+                     "correlation": (by_stratum.get(st) or {}).get("correlation"),
+                     "halfwidth_after": round(z * math.sqrt(v), 4) if math.isfinite(v) else None,
+                     "panel_used": st in parts_by})
+    gain = (round(100 * (1 - (planned / proportional) ** 2), 1)
+            if planned is not None and proportional and proportional > 0 else None)
+    reading = None
+    if extra and planned is not None:
+        top = [r for r in rows if r["add"]][:3]
+        reading = (f"Collect the next {extra} real answers as: " + ", ".join(f"{r['add']} from {r['stratum']}" for r in top)
+                   + (" and the rest as listed" if len([r for r in rows if r["add"]]) > 3 else "")
+                   + f". Planned interval: +-{100 * planned:.1f} points"
+                   + (f", against +-{100 * proportional:.1f} if split by audience share "
+                      f"({gain:.0f}% less variance)" if proportional is not None and gain is not None else "") + ".")
+    return {"key": key, "extra": extra, "by_stratum": rows, "halfwidth_planned": planned,
+            "halfwidth_proportional": proportional, "variance_cut_pct": gain, "reading": reading,
+            "method": "greedy allocation on the stratified PPI++ variance (Ye & Yoganarasimhan 2026); planned from "
+                      "today's estimates, not a guarantee"}
+
+
 def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key: str = "segment",
-                halfwidth: float = 0.05) -> Dict[str, Any]:
-    """The PPI block for calibration.json: overall, by stratum, the sample planner and a plain reading."""
+                halfwidth: float = 0.05, budget: Optional[int] = None) -> Dict[str, Any]:
+    """The PPI block for calibration.json: overall, by stratum, the sample planner, where to collect the next real
+    answers (`budget` more, default: what the planner says the ±halfwidth target needs) and a plain reading."""
     overall = ppi_mean(real, synthetic)
     plan = plan_humans(overall, halfwidth)
     strat = ppi_stratified(real, synthetic, key)
+    extra = budget if budget is not None else (plan.get("more_with_panel") or plan.get("more_alone") or len(real))
+    allocation = allocate_humans(real, synthetic, strat, extra, key) if synthetic and extra else None
+    strat.pop("_parts_by", None)
     overall.pop("_parts", None)
     reading = None
     if overall.get("estimate") is not None:
@@ -466,7 +563,7 @@ def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key
             reading += (f" For +-{100 * halfwidth:.0f} points: {plan['more_with_panel']} more real answers with the panel"
                         + (f", {plan['more_alone']} without it." if plan.get("more_alone") is not None else "."))
     return {"method": "PPI++ (Angelopoulos et al. 2023)", "overall": overall, "stratified": strat, "plan": plan,
-            "reading": reading,
+            "allocation": allocation, "reading": reading,
             "assumption": ("The real answers are a random sample of the audience the simulated panel's weights describe "
                            "(within each segment for the stratified estimate). The interval is about that audience's "
                            "stated answer, not about purchases.")}
@@ -715,7 +812,7 @@ def _spread_reading(overall: str, ans: Dict[str, Any], aud: Dict[str, Any]) -> s
 
 
 def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
-             halfwidth: float = 0.05) -> Dict[str, Any]:
+             halfwidth: float = 0.05, budget: Optional[int] = None) -> Dict[str, Any]:
     """The full check: overlap, conditional calibration per subgroup, an overall verdict, the AIPW correction, the
     PPI++ interval and the spread check (are the simulated answers as varied as the real ones?)."""
     ov = overlap(synthetic, real)
@@ -731,7 +828,7 @@ def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: s
         overall = "correct"
     corr = correct(synthetic, real)
     return {"n_synthetic": len(synthetic), "n_real": len(real), "overlap": {k: v for k, v in ov.items() if k not in ("weights", "model")},
-            "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth),
+            "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth, budget),
             "spread": spread_check(synthetic, real, key),
             "reading": {"trust": "the synthetic panel can stand in for the real sample on this question",
                         "correct": "use the corrected estimate, not the raw synthetic number",

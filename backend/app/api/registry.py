@@ -68,7 +68,7 @@ ENDPOINTS = [
     {"method": "POST", "path": "/api/simulation/captions", "tag": "analysis", "summary": "Platform-native captions from a brief (synchronous)",
      "body": {"brief": "...", "platform": "instagram", "n": 6, "objections": []}, "returns": "{captions}"},
     {"method": "POST", "path": "/api/simulation/calibrate", "tag": "reliability", "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate, PPI++ interval, answer spread (synchronous)",
-     "body": {"synthetic": [{"segment": "..", "country": "..", "gender": "..", "age": 30, "y": 1}], "real": [], "key": "segment", "field": "would_convert"}, "returns": "{verdict, overlap, calibration, corrected, ppi, spread}"},
+     "body": {"synthetic": [{"segment": "..", "country": "..", "gender": "..", "age": 30, "y": 1}], "real": [], "key": "segment", "field": "would_convert", "halfwidth": 0.05, "budget": 100}, "returns": "{verdict, overlap, calibration, corrected, ppi (incl. allocation), spread}"},
     {"method": "POST", "path": "/api/simulation/predict", "tag": "reliability", "summary": "Predictions with intervals, scaled by the calibration store (synchronous)",
      "body": {"brand": "Brand", "summary": {}, "feed_test": {}, "email_test": {}, "targets": {"ctr": 2}}, "returns": "{predictions, calibrated}"},
     {"method": "POST", "path": "/api/simulation/forecast", "tag": "reliability", "summary": "30/60/90-day adoption forecast from the best ad and the rounds' word of mouth",

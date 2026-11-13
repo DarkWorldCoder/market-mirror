@@ -1445,7 +1445,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{verdict, overlap, calibration, corrected, ppi, spread}",
+            "description": "{verdict, overlap, calibration, corrected, ppi (incl. allocation), spread}",
             "content": {
               "application/json": {
                 "schema": {
@@ -1480,7 +1480,9 @@
                 ],
                 "real": [],
                 "key": "segment",
-                "field": "would_convert"
+                "field": "would_convert",
+                "halfwidth": 0.05,
+                "budget": 100
               }
             }
           }
