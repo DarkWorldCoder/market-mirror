@@ -611,10 +611,27 @@ TOOLS = [
         "yes/maybe/no or 0-1; 50-300 rows is enough): covariate overlap, per-audience calibration, a trust / correct / walk-away "
         "verdict, an AIPW-corrected rate, a PPI++ interval and a spread check: are the simulated answers, and the gaps between "
         "audiences, as varied as the real ones? When it says 'too alike', report differences between simulated people and "
-        "audiences as understated. Writes calibration.json into the run folder."),
+        "audiences as understated. Answers that built the personas never count: people on the persona-building side of a "
+        "real_split (real_split.json next to the CSV, or `split`) are left out, that side's own file is refused, and a CSV that "
+        "also built the run's grounded personas is flagged. Writes calibration.json into the run folder."),
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}, "real_csv": {"type": "string"},
                                                       "field": {"type": "string"}, "by": {"type": "string"},
-                                                      "map": {"type": "array", "items": {"type": "string"}}}, "required": ["run", "real_csv"]}},
+                                                      "map": {"type": "array", "items": {"type": "string"}},
+                                                      "split": {"type": "string", "description": "absolute path of real_split.json"}},
+                     "required": ["run", "real_csv"]}},
+    {"name": "real_split", "description": (
+        "Before using real answers or customer records, decide how many build personas (intake) and how many are held out to "
+        "check the panel (calibrate): real answers cannot do both, because the check needs answers the panel never saw. Shows "
+        "the check's interval width at each split (sharper with `run`, a run that already has calibration.json), recommends "
+        "one (20% to personas by default, all of them when there are too few), and splits the CSV by person and segment into "
+        "<name>_conditioning.csv and <name>_holdout.csv plus real_split.json (ids stored as salted hashes) and real_split.md. "
+        "Offline, no model. Pass the conditioning file to intake and the holdout file to calibrate."),
+     "inputSchema": {"type": "object", "properties": {
+         "real_csv": {"type": "string", "description": "absolute path of the CSV"},
+         "share": {"type": "string", "description": "auto (default) or a share of people for persona building, 0-0.9"},
+         "id_field": {"type": "string"}, "segment_field": {"type": "string"},
+         "run": {"type": "string", "description": "a run with calibration.json, to use its panel correlation"},
+         "halfwidth": {"type": "number"}, "out_dir": {"type": "string"}}, "required": ["real_csv"]}},
     {"name": "cli", "description": "Advanced: run any MarketMirror CLI command as a background job, e.g. ['survey','--simulation','sim_x','--offer','...']. See CLAUDE.md in the engine.",
      "inputSchema": {"type": "object", "properties": {"args": {"type": "array", "items": {"type": "string"}}}, "required": ["args"]}},
 ]
@@ -1093,8 +1110,20 @@ def call(name: str, a: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Any:
                 args += ["--" + k, str(a[k])]
         if a.get("map"):
             args += ["--map", *[str(x) for x in a["map"]]]
+        if a.get("split"):
+            args += ["--split", str(a["split"])]
         r = sh(args, timeout=300)
         return _cli_result(r)
+    if name == "real_split":
+        args = ["cli", "real-split", "--real", str(a["real_csv"]), "--share", str(a.get("share") or "auto")]
+        for k in ("id_field", "segment_field", "out_dir"):
+            if a.get(k):
+                args += ["--" + k.replace("_", "-"), str(a[k])]
+        if a.get("run"):
+            args += ["--run-dir", a["run"] if os.path.isabs(a["run"]) else os.path.join("mirofish_runs", a["run"])]
+        if a.get("halfwidth"):
+            args += ["--halfwidth", str(float(a["halfwidth"]))]
+        return _cli_result(sh(args, timeout=300))
     if name == "cli":
         return job(["cli", *[str(x) for x in a["args"]]], "cli " + " ".join(map(str, a["args"][:2])))
     raise ValueError(f"unknown tool {name}")

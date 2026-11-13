@@ -288,6 +288,7 @@ Simulated numbers mean little until they are compared with real ones. Import you
 
 - **backtests** its predictions against your past ads;
 - **calibrates** the simulated survey against real answers: overlap, per-audience trust, a corrected conversion rate, and whether the simulated answers are as varied as the real ones (simulated panels tend to answer too alike);
+- **splits** a fixed set of real answers between building personas and checking them (`real-split`): it shows how wide the check gets at each split, recommends one, and `calibrate` then leaves out anyone whose answers built the personas, because the check is only valid on answers the panel never saw;
 - **forecasts** clicks or sign-ups for a budget, using what it learned from those comparisons;
 - suggests **the next tests** from your real ad export and the run.
 

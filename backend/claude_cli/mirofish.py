@@ -31,7 +31,7 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -2205,25 +2205,28 @@ def cmd_calibrate(c: Client, a) -> Any:
     real = []
     try:
         with open(a.real, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                def col(k):
-                    return row.get(mapping.get(k, k))
-                v = str(col("y") or col(field) or "").strip().lower()
-                y = {"yes": 1.0, "maybe": 0.5, "no": 0.0, "1": 1.0, "0": 0.0, "true": 1.0, "false": 0.0}.get(v)
-                if y is None:
-                    try:
-                        y = float(v)
-                        y = y / 10 if y > 1 else y
-                    except ValueError:
-                        continue
-                real.append({"segment": col("segment"), "country": col("country"), "gender": col("gender"), "age": col("age"), "y": y})
+            raw_rows = list(csv.DictReader(f))
     except OSError as e:
         raise CLIError(f"calibrate: cannot read {a.real}: {e}")
+    raw_rows, holdout = _holdout_check(a, out_dir, raw_rows)
+    for row in raw_rows:
+        def col(k):
+            return row.get(mapping.get(k, k))
+        v = str(col("y") or col(field) or "").strip().lower()
+        y = {"yes": 1.0, "maybe": 0.5, "no": 0.0, "1": 1.0, "0": 0.0, "true": 1.0, "false": 0.0}.get(v)
+        if y is None:
+            try:
+                y = float(v)
+                y = y / 10 if y > 1 else y
+            except ValueError:
+                continue
+        real.append({"segment": col("segment"), "country": col("country"), "gender": col("gender"), "age": col("age"), "y": y})
     if not synthetic or not real:
         raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
     log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
     res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field,
                                                              "halfwidth": a.halfwidth}, timeout=300)
+    res["holdout"] = holdout
     save_json(out_dir, "calibration", res)
     ppi = res.get("ppi") or {}
     if ppi.get("reading"):
@@ -2240,7 +2243,128 @@ def cmd_calibrate(c: Client, a) -> Any:
             "spread": {"verdict": spread.get("verdict"), "reading": spread.get("reading"),
                        "answers_ratio": (spread.get("answers") or {}).get("sd_ratio"),
                        "audiences_ratio": (spread.get("audiences") or {}).get("sd_ratio")} if spread else None,
-            "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
+            "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()},
+            "holdout": holdout}
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _holdout_check(a, out_dir: str, rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Keep the check on answers the panel never saw: drop the people a real-split manifest put on the persona-building
+    side (--split, or real_split.json next to --real), refuse that side's file itself, and flag a real file that also
+    built the run's grounded personas."""
+    cal = market_cli.load_service("calibration")
+    path = getattr(a, "split", None) or os.path.join(os.path.dirname(os.path.abspath(a.real)), "real_split.json")
+    manifest = None
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        if (manifest.get("files") or {}).get("conditioning_sha256") == _sha256(a.real):
+            raise CLIError(f"calibrate: {a.real} is the persona-building side of the split ({path}); check with the "
+                           "holdout file instead, since the panel has already seen these answers")
+    elif getattr(a, "split", None):
+        raise CLIError(f"calibrate: no split manifest at {path}")
+    rows, info = cal.holdout_guard(rows, manifest)
+    if manifest:
+        info["manifest"] = os.path.abspath(path)
+    if info.get("removed"):
+        log(f"calibrate: left out {info['removed']} answers from people who built the personas (real-split); "
+            f"{info['kept']} held-out answers remain")
+    sources = set()
+    intake_path = os.path.join(out_dir, "personas_intake.json")
+    if os.path.isfile(intake_path):
+        with open(intake_path, encoding="utf-8") as f:
+            for r in (json.load(f).get("real_profiles") or []):
+                sources |= {os.path.basename(str(x)) for x in ((r.get("intake") or {}).get("sources") or [])}
+    if os.path.basename(a.real) in sources:
+        info["same_file_as_personas"] = True
+        info["warning"] = (f"{os.path.basename(a.real)} also built this run's grounded personas, so the panel has seen "
+                           "these answers and the corrected rate and PPI++ interval are not valid on them. Split the file "
+                           "with real-split and calibrate on the holdout side.")
+        log("calibrate: WARNING " + info["warning"])
+    return rows, info
+
+
+def cmd_real_split(c: Optional[Client], a) -> Any:
+    """Split a fixed set of real answers between building personas (intake) and the held-out check (calibrate)."""
+    import csv
+    cal = market_cli.load_service("calibration")
+    try:
+        with open(a.real, encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            header = list(reader.fieldnames or [])
+            rows = list(reader)
+    except OSError as e:
+        raise CLIError(f"real-split: cannot read {a.real}: {e}")
+    if not rows:
+        raise CLIError(f"real-split: {a.real} has no rows")
+    prior = None
+    if a.run_dir and os.path.isfile(os.path.join(a.run_dir, "calibration.json")):
+        with open(os.path.join(a.run_dir, "calibration.json"), encoding="utf-8") as f:
+            prior = ((json.load(f).get("ppi") or {}).get("overall")) or None
+    col = cal.id_column(rows, a.id_field or "")
+    people = len({str(r.get(col) or "").strip().lower() or f"row{i}" for i, r in enumerate(rows)}) if col else len(rows)
+    plan = cal.split_plan(people, prior, a.halfwidth)
+    share = plan["recommended"]["conditioning_share"] if a.share == "auto" else float(a.share)
+    if not 0 <= share < 1:
+        raise CLIError("real-split: --share must be auto or a number from 0 to below 1")
+    conditioning, holdout, manifest = cal.split_rows(rows, share, col, a.segment_field or "", a.seed)
+    out_dir = a.out_dir or os.path.dirname(os.path.abspath(a.real))
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(a.real))[0]
+    paths = {"conditioning": os.path.join(out_dir, f"{stem}_conditioning.csv"), "holdout": os.path.join(out_dir, f"{stem}_holdout.csv")}
+    for side, part in (("conditioning", conditioning), ("holdout", holdout)):
+        with open(paths[side], "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(part)
+    manifest["files"] = {"source": os.path.basename(a.real), "conditioning": os.path.basename(paths["conditioning"]),
+                         "holdout": os.path.basename(paths["holdout"]), "conditioning_sha256": _sha256(paths["conditioning"]),
+                         "holdout_sha256": _sha256(paths["holdout"])}
+    manifest["plan"] = plan
+    save_json(out_dir, "real_split", manifest)
+    md = _render_real_split(manifest, a.real)
+    with open(os.path.join(out_dir, "real_split.md"), "w", encoding="utf-8") as f:
+        f.write(md)
+    rec = plan["recommended"]
+    log(f"real-split: {manifest['counts']['conditioning']} people build personas, {manifest['counts']['holdout']} are held out "
+        f"for the check -> {out_dir}")
+    return {"conditioning": paths["conditioning"], "holdout": paths["holdout"], "manifest": os.path.join(out_dir, "real_split.json"),
+            "markdown": os.path.join(out_dir, "real_split.md"), "share": share, "counts": manifest["counts"],
+            "by_segment": manifest["by_segment"], "recommended": rec, "basis": plan["basis"],
+            "next": [f"intake --files {paths['conditioning']} ...", f"calibrate --run-dir <run> --real {paths['holdout']}"]}
+
+
+def _render_real_split(m: Dict[str, Any], source: str) -> str:
+    p = m["plan"]
+    rec = p["recommended"]
+    lines = ["# Real-answer split", "",
+             f"{m['people']} people ({m['rows']} rows) from `{os.path.basename(source)}`: {m['counts']['conditioning']} build the "
+             f"personas (`{m['files']['conditioning']}`), {m['counts']['holdout']} are held out for the check "
+             f"(`{m['files']['holdout']}`).", "",
+             f"Recommended: {round(100 * rec['conditioning_share'])}% to persona building. {rec['reason'][:1].upper()}{rec['reason'][1:]}.", "",
+             f"Interval width at each split (target +-{p['halfwidth_target']:g}; basis: {p['basis']}):", "",
+             "| to personas | people | held out | +- with the panel | +- real answers alone |", "|---|---|---|---|---|"]
+    for r in p["table"]:
+        lines.append(f"| {round(100 * r['conditioning_share'])}% | {r['conditioning']} | {r['holdout']} | "
+                     f"{r['halfwidth_with_panel']} | {r['halfwidth_alone']} |")
+    if rec.get("more_real_needed"):
+        lines += ["", f"To reach +-{p['halfwidth_target']:g} at this split, collect about {rec['more_real_needed']} more real answers."]
+    if len(m["by_segment"]) > 1:
+        lines += ["", "| segment | to personas | held out |", "|---|---|---|"]
+        lines += [f"| {k} | {v['conditioning']} | {v['holdout']} |" for k, v in m["by_segment"].items()]
+    lines += ["", f"Rule: {p['rule']} `calibrate` reads `real_split.json` next to the file it checks and leaves out anyone "
+                  "on the persona-building side.", "",
+              f"Ids are stored as salted hashes (column `{m['id_field']}`)." if m["id_field"] else m["note"].capitalize() + ".",
+              "", f"Source for the split: {p['source']}. One study, so treat the share as a starting point."]
+    return "\n".join(lines) + "\n"
 
 
 def cmd_emailtest(c: Client, a) -> Any:
@@ -2996,6 +3120,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--by", default="segment", help="subgroup key for the per-group verdicts (segment|country)")
     s.add_argument("--halfwidth", type=float, default=0.05,
                    help="target interval half-width for the sample planner (0.05 = +-5 points)")
+    s.add_argument("--split", help="real_split.json from real-split (default: one next to --real, if any): people on its "
+                                   "persona-building side are left out of the check")
+
+    s = sub.add_parser("real-split", help="split a fixed set of real answers between building personas (intake) and the "
+                                          "held-out check (calibrate), with the interval width at each split (offline)")
+    s.add_argument("--real", required=True, help="CSV of real answers or customer records")
+    s.add_argument("--share", default="auto", help="share of people for persona building: auto (planner) or 0-0.9")
+    s.add_argument("--id-field", help="column that identifies a person (default: respondent_id, customer_id, id, email ...)")
+    s.add_argument("--segment-field", help="column to stratify by, so both sides cover every audience")
+    s.add_argument("--run-dir", help="a run with calibration.json: its panel correlation sharpens the plan")
+    s.add_argument("--halfwidth", type=float, default=0.05, help="target half-width of the check (0.05 = +-5 points)")
+    s.add_argument("--seed", type=int, default=7)
+    s.add_argument("--out-dir", help="where to write the two CSVs and real_split.json/.md (default: next to --real)")
 
     s = sub.add_parser("spend-cap", help="show the server's run spend cap, or lift it (--clear) after a capped run was stopped")
     s.add_argument("--clear", action="store_true", help="lift whatever cap is armed")
@@ -3326,7 +3463,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -3340,7 +3477,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":

@@ -17,6 +17,7 @@ Rows are dicts: {"segment", "country", "age", "gender", "y"} with y in [0, 1] (y
 or any rate). Real rows come from the user's own survey / ad export / email stats.
 """
 
+import hashlib
 import math
 import random
 from collections import defaultdict
@@ -736,3 +737,176 @@ def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: s
                         "correct": "use the corrected estimate, not the raw synthetic number",
                         "mixed": "some audiences are usable after correction, others are not: see by_group",
                         "walk-away": "the synthetic panel does not cover these people: collect real answers"}[overall]}
+
+
+# --------------------------------------------------------------------------
+# Real-sample budget: split a fixed set of real answers between building personas and checking them
+# --------------------------------------------------------------------------
+#
+# Real answers can ground the personas (`intake`) or check and correct the panel (`calibrate`: AIPW, PPI++), not both:
+# PPI's guarantee needs answers the panel never saw. With a fixed number of real answers, giving most of them (60-80%)
+# to the held-out correction gave the best trade-off between bias and precision, and a 20/80 split the lowest bias
+# (Krsteski et al., ACL 2026, arXiv 2510.11408; one dataset, so the exact share will vary). split_plan shows what each
+# split costs the check; split_rows splits by person, so one customer's rows never land on both sides; holdout_guard
+# drops the persona-building side from a later calibration.
+
+SPLIT_SHARES = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)
+DEFAULT_CONDITIONING = 0.2
+MIN_HOLDOUT = 30
+SPLIT_SALT = "marketmirror-split-v1"
+ID_COLUMNS = ("respondent_id", "response_id", "customer_id", "person_id", "user_id", "contact_id", "id", "email")
+
+
+def _halfwidths(n: int, var_y: float, rho: float, n_u: float, z: float = 1.96) -> Tuple[float, float]:
+    """Half-widths of the real-only and the PPI++ interval with n held-out answers. PPI++ with the best lambda has
+    variance var_y / n * (1 - rho^2 / (1 + n / n_u)), taking the panel's prediction variance as the same on both sides."""
+    if n <= 0:
+        return math.inf, math.inf
+    alone = z * math.sqrt(var_y / n)
+    shrink = 1 - rho * rho / (1 + n / n_u) if n_u > 0 else 1.0
+    return alone, alone * math.sqrt(max(0.0, shrink))
+
+
+def split_plan(n_people: int, prior: Optional[Dict[str, Any]] = None, halfwidth: float = 0.05,
+               shares: Sequence[float] = SPLIT_SHARES, z: float = 1.96) -> Dict[str, Any]:
+    """How to split n_people real answers between persona building and the held-out check, with the half-width the
+    check reaches at each split. prior: `ppi.overall` from an earlier calibration.json (its correlation, real-only
+    standard error, n_real and effective panel size); without one, the worst case for a 0-1 answer and no panel help."""
+    n = max(0, int(n_people))
+    real_only = (prior or {}).get("real_only") or {}
+    if prior and prior.get("correlation") is not None and real_only.get("se") and prior.get("n_real"):
+        var_y = float(real_only["se"]) ** 2 * int(prior["n_real"])
+        rho = max(-1.0, min(1.0, float(prior["correlation"])))
+        n_u = float(prior.get("n_synthetic_effective") or prior.get("n_synthetic") or 0)
+        basis = "your last calibration (its panel correlation and answer spread)"
+    else:
+        var_y, rho, n_u = 0.25, 0.0, 0.0
+        basis = "worst case: no calibration yet, so no help from the panel and the widest spread a 0-1 answer can have"
+    rows = []
+    for c in shares:
+        cond = int(round(n * c))
+        hold = n - cond
+        alone, panel = _halfwidths(hold, var_y, rho, n_u, z)
+        rows.append({"conditioning_share": c, "conditioning": cond, "holdout": hold,
+                     "halfwidth_alone": round(alone, 3) if math.isfinite(alone) else None,
+                     "halfwidth_with_panel": round(panel, 3) if math.isfinite(panel) else None})
+
+    def at(c: float) -> Dict[str, Any]:
+        cond = int(round(n * c))
+        alone, panel = _halfwidths(n - cond, var_y, rho, n_u, z)
+        return {"conditioning_share": c, "conditioning": cond, "holdout": n - cond,
+                "halfwidth": round(panel, 3) if math.isfinite(panel) else None}
+    if n < MIN_HOLDOUT + 10:
+        rec = {**at(0.0), "reason": f"{n} answers are too few to split: keep every one for the check, and ground the "
+                                    "personas with other material (reviews, calls, CRM notes)"}
+    else:
+        fits = [c for c in (DEFAULT_CONDITIONING, 0.1, 0.0)
+                if n - int(round(n * c)) >= MIN_HOLDOUT and (at(c)["halfwidth"] or math.inf) <= halfwidth]
+        if fits and fits[0] == DEFAULT_CONDITIONING:
+            rec = {**at(DEFAULT_CONDITIONING), "reason": f"20% builds personas and 80% checks them, the split with the "
+                                                         f"lowest bias; the check still reaches +-{halfwidth:g}"}
+        elif fits:
+            c = fits[0]
+            rec = {**at(c), "reason": (f"a 20% share would widen the check past +-{halfwidth:g}; "
+                                       + ("10% keeps it inside" if c else "every answer is needed to reach it"))}
+        else:
+            rec = {**at(DEFAULT_CONDITIONING), "reason": f"no split reaches +-{halfwidth:g}; 20/80 keeps the bias lowest"}
+    need = None
+    if var_y > 0:
+        lo, hi = 1, 1
+        while _halfwidths(hi, var_y, rho, n_u, z)[1] > halfwidth and hi < 10 ** 7:
+            hi *= 2
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if _halfwidths(mid, var_y, rho, n_u, z)[1] <= halfwidth:
+                hi = mid
+            else:
+                lo = mid + 1
+        need = lo
+    c = rec["conditioning_share"]
+    total_needed = math.ceil(need / (1 - c)) if need and c < 1 else None
+    rec["holdout_needed"] = need
+    rec["more_real_needed"] = max(0, total_needed - n) if total_needed else None
+    return {"people": n, "halfwidth_target": halfwidth, "basis": basis,
+            "assumptions": {"answer_sd": round(math.sqrt(var_y), 3), "panel_correlation": round(rho, 3),
+                            "panel_effective_n": round(n_u, 1)},
+            "table": rows, "recommended": rec,
+            "rule": "Answers that build personas never go into the check; the check needs answers the panel never saw.",
+            "source": "Krsteski et al., ACL 2026 (arXiv 2510.11408)"}
+
+
+def hash_id(value: Any, salt: str = SPLIT_SALT) -> str:
+    """A salted hash of a person id, so the split manifest never stores emails or customer ids themselves."""
+    return hashlib.sha256(f"{salt}:{str(value).strip().lower()}".encode("utf-8")).hexdigest()[:16]
+
+
+def id_column(rows: Sequence[Dict[str, Any]], id_field: str = "") -> str:
+    if id_field:
+        return id_field
+    cols = {str(k).strip().lower(): k for r in rows[:50] for k in r}
+    return next((cols[c] for c in ID_COLUMNS if c in cols), "")
+
+
+def split_rows(rows: List[Dict[str, Any]], conditioning_share: float, id_field: str = "", segment_field: str = "",
+               seed: int = 7, salt: str = SPLIT_SALT) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    """Split real rows by person: every row with the same id lands on the same side. Within each segment the people
+    are shuffled with a fixed seed and round(share x people) go to persona building, so both sides cover every
+    segment. Rows without an id column count as one person each. Returns (conditioning, holdout, manifest)."""
+    share = max(0.0, min(0.9, float(conditioning_share)))
+    col = id_column(rows, id_field)
+    person_rows: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    seg_of: Dict[str, str] = {}
+    for i, r in enumerate(rows):
+        raw = str(r.get(col) or "").strip() if col else ""
+        pid = hash_id(raw, salt) if raw else f"row{i + 1}"
+        person_rows[pid].append(r)
+        seg_of.setdefault(pid, str(r.get(segment_field) or "").strip() if segment_field else "")
+    by_seg: Dict[str, List[str]] = defaultdict(list)
+    for pid, seg in seg_of.items():
+        by_seg[seg].append(pid)
+    cond_ids: List[str] = []
+    counts: Dict[str, Dict[str, int]] = {}
+    for seg in sorted(by_seg):
+        ids = sorted(by_seg[seg])
+        random.Random(f"{seed}:{seg}").shuffle(ids)
+        k = int(round(share * len(ids)))
+        if k >= len(ids) and len(ids) > 1:
+            k = len(ids) - 1                     # every segment keeps someone in the check
+        cond_ids += ids[:k]
+        counts[seg or "(all)"] = {"conditioning": k, "holdout": len(ids) - k}
+    cond = set(cond_ids)
+    conditioning = [r for pid in person_rows if pid in cond for r in person_rows[pid]]
+    holdout = [r for pid in person_rows if pid not in cond for r in person_rows[pid]]
+    manifest = {"version": 1, "salt": salt, "seed": seed, "id_field": col, "segment_field": segment_field,
+                "conditioning_share": share, "people": len(person_rows), "rows": len(rows),
+                "counts": {"conditioning": len(cond), "holdout": len(person_rows) - len(cond),
+                           "conditioning_rows": len(conditioning), "holdout_rows": len(holdout)},
+                "by_segment": counts,
+                "conditioning_ids": sorted(cond) if col else [],
+                "note": ("ids are salted hashes, not the raw ids" if col else
+                         "no id column: each row is one person, so a later calibration can only be checked by file")}
+    return conditioning, holdout, manifest
+
+
+def holdout_guard(rows: List[Dict[str, Any]], manifest: Optional[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Drop rows whose person built the personas (their hashed id is on the manifest's conditioning side), so the
+    check only uses answers the panel never saw."""
+    if not manifest:
+        return rows, {"status": "no split"}
+    col = manifest.get("id_field") or ""
+    if not col:
+        return rows, {"status": "no ids", "reason": manifest.get("note")}
+    cond = set(manifest.get("conditioning_ids") or [])
+    salt = manifest.get("salt") or SPLIT_SALT
+    kept, removed, no_id = [], 0, 0
+    for r in rows:
+        raw = str(r.get(col) or "").strip()
+        if not raw:
+            no_id += 1
+            kept.append(r)
+        elif hash_id(raw, salt) in cond:
+            removed += 1
+        else:
+            kept.append(r)
+    return kept, {"status": "removed" if removed else "clean", "removed": removed, "kept": len(kept), "no_id": no_id,
+                  "id_field": col}
