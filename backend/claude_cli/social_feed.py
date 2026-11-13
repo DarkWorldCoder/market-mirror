@@ -180,6 +180,19 @@ def _rounds_block(platform: str, rounds: List[Dict[str, Any]], chart) -> str:
             f'<th>Brand replies +/0/−</th></tr></thead><tbody>{body}</tbody></table></div></details></div>')
 
 
+def _herding_note(h: Optional[Dict[str, Any]]) -> str:
+    """The herding check under the section head: did reactions pile onto a post's visible score?"""
+    if not h or not h.get("reading"):
+        return ""
+    title = {"negative pile-on": "Simulated people piled onto criticism",
+             "herding both ways": "Simulated people followed a post's score both ways",
+             "positive herding": "Simulated people followed early approval",
+             "no clear herding": "No clear herding",
+             "not checked": "Herding not checked"}.get(h.get("verdict"), "Herding check")
+    return (f'<div class="callout insight" role="note" data-herding="{_e(h.get("verdict"))}"><strong>{_e(title)}.</strong> '
+            f'{_e(h["reading"])}</div>')
+
+
 def feed_story_section(fs: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """(anchor, label, html) for the Social feed section, or None when there is nothing to show."""
     platforms = (fs or {}).get("platforms") or {}
@@ -248,7 +261,7 @@ def feed_story_section(fs: Dict[str, Any], chart, insight: Optional[str] = None)
              'reacted: likes (hover for names), quotes, reposts and comments. '
              f'{total_posts} posts across {len(order)} platform{"s" if len(order) != 1 else ""}'
              + (f', {n_brand} of them brand posts' if n_brand else '') + '. Sentiment labels come from a word list, not a model.')
-    head = ui.section_head("Social feed", intro, insight)
+    head = ui.section_head("Social feed", intro, insight) + _herding_note((fs or {}).get("herding"))
     index_json = json.dumps(index, ensure_ascii=False).replace("</", "<\\/")
     html_ = (head + _brand_strip((fs or {}).get("brand_posts") or [])
              + f'<div class="sf" data-sf-root data-filter-root data-filter-noun="posts">{bar}{"".join(panels)}'

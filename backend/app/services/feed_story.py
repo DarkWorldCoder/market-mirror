@@ -26,7 +26,7 @@ Data shapes
   Author   = {agent_id, name, segment, country, kind}
   PostView = {post_id, platform, kind: post|quote|repost, author, round, hour, created_at,
               content, is_brand, quote_content, original{post_id, author}|None,
-              likes, dislikes, likers[Author], reposts, quotes[post_id],
+              likes, dislikes, votes_by_round{round: [likes, dislikes]}, likers[Author], reposts, quotes[post_id],
               comments[{comment_id, author, content, round, hour, likes, sentiment}],
               engagement{by_segment, by_country}, reach_proxy, reply_sentiment{pos, neg, neu},
               sentiment, score}
@@ -411,6 +411,12 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
                              "round": crnd, "hour": _hour_label(rounds_meta.get(crnd)) if crnd is not None else None,
                              "likes": max(int(c.get("num_likes") or 0), clikes.get(cid, 0)),
                              "sentiment": sent(c.get("content"))})
+        votes_by_round: Dict[str, List[int]] = {}
+        for rows, slot in ((likes_by_post.get(pid, []), 0), (dislikes_by_post.get(pid, []), 1)):
+            for row in rows:
+                vr = ridx["dislikes" if slot else "likes"].get(_int(row.get("dislike_id" if slot else "like_id")))
+                if vr is not None:
+                    votes_by_round.setdefault(str(vr), [0, 0])[slot] += 1
         likers = [who(lk.get("user_id")) for lk in likes_by_post.get(pid, [])]
         dislikers = [who(dk.get("user_id")) for dk in dislikes_by_post.get(pid, [])]
         quotes = [_int(ch.get("post_id")) for ch in children.get(pid, []) if ch.get("quote_content")]
@@ -437,7 +443,8 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             "created_at": p.get("created_at"), "content": content, "is_brand": bool(is_brand),
             "brand_source": injected_source.get(key) if is_brand and kind == "post" and key in injected_source else ("community" if is_brand else None),
             "quote_content": quote_content, "original": original,
-            "likes": likes_n, "dislikes": dislikes_n, "likers": likers, "reposts": len(reposters), "quotes": quotes,
+            "likes": likes_n, "dislikes": dislikes_n, "votes_by_round": votes_by_round, "likers": likers,
+            "reposts": len(reposters), "quotes": quotes,
             "comments": comments,
             "engagement": {"by_segment": dict(by_segment.most_common()), "by_country": dict(by_country.most_common())},
             "reach_proxy": len(reach),
@@ -473,7 +480,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
                                                 "neu": brand_replies.get("neu", 0)}})
     return {"posts": ordered, "rounds": round_views, "total_posts": total, "truncated": total > len(ordered),
             "rounds_known": bool(ridx.get("available")), "comments": sum(len(v["comments"]) for v in views.values()),
-            "likes": sum(v["likes"] for v in views.values())}
+            "likes": sum(v["likes"] for v in views.values()), "_all_posts": list(views.values())}
 
 
 def _best_worst(post: Dict[str, Any], platform_posts: Dict[Any, Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -519,20 +526,175 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
         method = getattr(labeler, "method_name", None) or "labeler"
         basis = {"texts": len(texts), "labelled": len(hits), "kept_word_list": len(texts) - len(hits)}
     platforms: Dict[str, Any] = {}
+    all_posts: Dict[str, List[Dict[str, Any]]] = {}
     brand_posts: List[Dict[str, Any]] = []
     for platform, data in loaded.items():
         ridx = round_index(sim_dir, platform)
         pv = _build_platform(platform, data, ridx, people, injected, max_posts, sent)
+        all_posts[platform] = pv.pop("_all_posts", pv["posts"])
         platforms[platform] = pv
         by_id = {v["post_id"]: v for v in pv["posts"]}
         for v in pv["posts"]:
             if v["is_brand"]:
                 best, worst = _best_worst(v, by_id)
                 brand_posts.append({**v, "source": v.get("brand_source") or "injected", "best_reply": best, "worst_reply": worst})
-    return {"platforms": platforms, "brand_posts": brand_posts,
+    return {"platforms": platforms, "brand_posts": brand_posts, "herding": herding_check(all_posts, method),
             "people": {str(aid): a for aid, a in sorted(people.items(), key=lambda kv: str(kv[0]))},
             "sentiment_method": method, **({"sentiment_basis": basis} if basis else {}), "max_posts": max_posts,
             "generated_at": datetime.now().isoformat(timespec="seconds")}
+
+
+# --------------------------------------------------------------------------
+# Herding: do reactions follow a post's visible score more than its own make-up explains?
+# --------------------------------------------------------------------------
+#
+# In OASIS's replication of Muchnik et al. (Science 2013) on Reddit, LLM agents piled onto comments that had been given
+# a downvote, while people tended to correct them upward; on upvoted items agents and people were close (Yang et al.,
+# OASIS, arXiv 2411.11581). Conformity varies by model, so it is measured per run, not assumed.
+#
+# Each post's signed reactions (likes and positive replies +1, dislikes and negative replies -1) are grouped by round.
+# A reaction in round t "follows" when it has the sign of the net score its author could see (everything from earlier
+# rounds). The null shuffles which round each of a post's reactions landed in, keeping the post's own mix of up and
+# down and how many reactions each round had: a post that is simply bad draws downvotes in any order, so only
+# following beyond the post's own make-up counts. Reported separately after a net-negative and after a net-positive
+# score, with a one-sided permutation p-value. Observational: who is online when can also cluster reactions.
+
+HERDING_PERMUTATIONS = 400
+HERDING_MIN_POSTS = 8          # posts with signed reactions in two or more rounds
+HERDING_MIN_FOLLOW = 15        # reactions seen after a net-negative (or net-positive) score
+HERDING_MIN_EXCESS = 0.05      # five points above the shuffled rate
+
+
+def _post_reactions(p: Dict[str, Any]) -> List[Tuple[int, int]]:
+    out: List[Tuple[int, int]] = []
+    for rnd, ud in (p.get("votes_by_round") or {}).items():
+        out += [(int(rnd), 1)] * int(ud[0]) + [(int(rnd), -1)] * int(ud[1])
+    for c in p.get("comments") or []:
+        if c.get("round") is not None and c.get("sentiment") in ("pos", "neg"):
+            out.append((int(c["round"]), 1 if c["sentiment"] == "pos" else -1))
+    return sorted(out, key=lambda x: x[0])
+
+
+def _follow_counts(rounds: List[int], signs: List[int]) -> Tuple[int, int, int, int]:
+    """For one post's reactions in round order: (reactions after a net-negative score, how many of them negative,
+    reactions after a net-positive score, how many of them positive). Reactions in the same round see the same score."""
+    an = fn = ap = fp = 0
+    net = 0
+    i = 0
+    while i < len(rounds):
+        j = i
+        while j < len(rounds) and rounds[j] == rounds[i]:
+            j += 1
+        for sgn in signs[i:j]:
+            if net < 0:
+                an += 1
+                fn += sgn < 0
+            elif net > 0:
+                ap += 1
+                fp += sgn > 0
+        net += sum(signs[i:j])
+        i = j
+    return an, fn, ap, fp
+
+
+def herding_check(posts_by_platform: Dict[str, List[Dict[str, Any]]], sentiment_method: str = SENTIMENT_METHOD,
+                  perms: int = HERDING_PERMUTATIONS, seed: int = 11) -> Dict[str, Any]:
+    """Do simulated people follow a post's visible score (pile-ons), beyond what each post's own mix explains?"""
+    import random
+    seqs = []
+    for posts in (posts_by_platform or {}).values():
+        for p in posts:
+            r = _post_reactions(p)
+            if len(r) >= 3 and len({x[0] for x in r}) >= 2:
+                seqs.append(([x[0] for x in r], [x[1] for x in r]))
+    out: Dict[str, Any] = {"posts": len(seqs), "reactions": sum(len(sg) for _, sg in seqs), "permutations": perms,
+                           "signals": "likes and positive replies count up, dislikes and negative replies down "
+                                      f"(reply sentiment: {sentiment_method})",
+                           "source": "Yang et al., OASIS (arXiv 2411.11581), replicating Muchnik et al., Science 2013"}
+    if len(seqs) < HERDING_MIN_POSTS:
+        out.update(verdict="not checked", flag=False,
+                   reading=f"Herding not checked: {len(seqs)} posts had reactions in two or more rounds "
+                           f"(needs {HERDING_MIN_POSTS}).")
+        return out
+
+    def pooled(sign_lists: List[List[int]]) -> List[int]:
+        tot = [0, 0, 0, 0]
+        for (rounds, _), signs in zip(seqs, sign_lists):
+            for k, v in enumerate(_follow_counts(rounds, signs)):
+                tot[k] += v
+        return tot
+    an, fn, ap, fp = pooled([sg for _, sg in seqs])
+    rng = random.Random(seed)
+    null_neg: List[float] = []
+    null_pos: List[float] = []
+    for _ in range(perms):
+        shuffled = []
+        for _, signs in seqs:
+            sg = list(signs)
+            rng.shuffle(sg)
+            shuffled.append(sg)
+        a, f, b, g = pooled(shuffled)
+        if a:
+            null_neg.append(f / a)
+        if b:
+            null_pos.append(g / b)
+
+    def side(n: int, k: int, null: List[float]) -> Dict[str, Any]:
+        if n < HERDING_MIN_FOLLOW or not null:
+            return {"reactions": n, "verdict": "not checked",
+                    "reason": f"{n} reactions came after such a score (needs {HERDING_MIN_FOLLOW})"}
+        rate = k / n
+        base = sum(null) / len(null)
+        p = (1 + sum(1 for x in null if x >= rate)) / (len(null) + 1)
+        excess = rate - base
+        follows = p < 0.05 and excess >= HERDING_MIN_EXCESS
+        return {"reactions": n, "followed": k, "rate": round(rate, 3), "shuffled_rate": round(base, 3),
+                "excess": round(excess, 3), "p": round(p, 3), "verdict": "follows" if follows else "no clear following"}
+    neg, pos = side(an, fn, null_neg), side(ap, fp, null_pos)
+    nf, pf = neg["verdict"] == "follows", pos["verdict"] == "follows"
+    if neg["verdict"] == "not checked" and pos["verdict"] == "not checked":
+        verdict = "not checked"
+    elif nf and pf:
+        verdict = "herding both ways"
+    elif nf:
+        verdict = "negative pile-on"
+    elif pf:
+        verdict = "positive herding"
+    else:
+        verdict = "no clear herding"
+    out.update(after_negative=neg, after_positive=pos, verdict=verdict, flag=nf,
+               reading=_herding_reading(verdict, neg, pos, len(seqs)))
+    return out
+
+
+def _herding_reading(verdict: str, neg: Dict[str, Any], pos: Dict[str, Any], n_posts: int) -> str:
+    def pct(x: float) -> str:
+        return f"{round(100 * x)}%"
+
+    def line(d: Dict[str, Any], what: str) -> str:
+        return (f"once a post was net-{what}, {pct(d['rate'])} of its next reactions were {what}, against "
+                f"{pct(d['shuffled_rate'])} if its own reactions had come in random order (p {d['p']})")
+    if verdict == "not checked":
+        return "Herding not checked: " + "; ".join(d["reason"] for d in (neg, pos) if d.get("reason")) + "."
+    bits = []
+    if verdict in ("negative pile-on", "herding both ways"):
+        bits.append(line(neg, "negative"))
+    if verdict in ("positive herding", "herding both ways"):
+        bits.append(line(pos, "positive"))
+    if bits:
+        s = f"Across {n_posts} posts, " + "; and ".join(bits) + "."
+        if verdict in ("negative pile-on", "herding both ways"):
+            s += (" Simulated people piled onto criticism, which real people often correct instead: read negative threads "
+                  "as possibly amplified, and test what a post's first reactions are with real people.")
+        else:
+            s += " Simulated people followed early approval: read popular threads as possibly amplified."
+        return s + " Observational: who is online when can also cluster reactions."
+
+    def part(d: Dict[str, Any], what: str) -> str:
+        return (f"after a net-{what} score {100 * d['excess']:+.0f} points (p {d['p']})" if d.get("rate") is not None
+                else f"after a net-{what} score not checked")
+    return (f"Across {n_posts} posts, reactions did not follow a post's visible score more than its own mix of reactions "
+            f"explains ({part(neg, 'negative')}; {part(pos, 'positive')}).")
 
 
 # --------------------------------------------------------------------------

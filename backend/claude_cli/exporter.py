@@ -1131,6 +1131,9 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
         if top.get("comments"):
             line += f'; most discussed: “{trunc(top.get("content"), 90)}” ({len(top["comments"])} replies)'
         ins["socialfeed"] = line + "."
+    if (fs.get("herding") or {}).get("flag"):
+        ins["socialfeed"] = (ins.get("socialfeed", "") + " Reactions piled onto criticism more than chance explains: "
+                             "read negative threads as possibly amplified.").strip()
     pitch = bundle.get("pitch") or {}
     if pitch.get("answered"):
         before, after = pitch.get("verdict_before") or {}, pitch.get("verdict_after") or {}

@@ -151,6 +151,9 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
                              "sample_comments": [(c.get("content") or "")[:140] for c in (p.get("comments") or [])[:2]]})
         social["top_posts"] = tops
         social["sentiment_method"] = fs.get("sentiment_method")
+        herd = fs.get("herding") or {}
+        if herd.get("verdict") and herd["verdict"] != "not checked":
+            social["herding"] = {"verdict": herd["verdict"], "reading": herd.get("reading")}
     return {
         "brand": _brand_name(bundle), "question": (project.get("simulation_requirement") or summary.get("simulation_requirement") or "")[:1200],
         "decision": {k: decision.get(k) for k in ("decision", "confidence", "summary", "signals", "fixes") if decision.get(k) is not None},
@@ -693,6 +696,9 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
             out += [f"> Best reaction: \"{so['best_reaction']}\"", ""]
         if so.get("worst_reaction"):
             out += [f"> Worst reaction: \"{so['worst_reaction']}\"", ""]
+        herd = (material.get("social") or {}).get("herding") or {}
+        if herd.get("verdict") in ("negative pile-on", "herding both ways", "positive herding") and herd.get("reading"):
+            out += [f"**Herding check ({herd['verdict']}).** {herd['reading']}", ""]
         out += _so_what(so)
     rw = sec.get("real_world_check") or {}
     if rw and rw.get("summary"):

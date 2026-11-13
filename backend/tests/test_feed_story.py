@@ -347,3 +347,12 @@ def test_events_for_both_platforms_are_brand_posts(sim_dir):
         for p in plat["posts"]:
             if fs._norm_key(p["content"]) == fs._norm_key("Launch day!"):
                 assert p["is_brand"]
+
+
+def test_votes_by_round_and_herding_needs_enough_posts(sim_dir):
+    story = fs.build_feed_story(sim_dir, _config())
+    p = by_id(story, "twitter")[1]
+    assert p["votes_by_round"] == {"1": [1, 1], "2": [1, 0]}     # Asha's like and Ben's dislike in round 1, Carla's like in 2
+    assert by_id(story, "twitter")[2]["votes_by_round"] == {"1": [1, 0]}
+    assert story["herding"]["verdict"] == "not checked" and story["herding"]["flag"] is False
+    assert "_all_posts" not in story["platforms"]["twitter"]
