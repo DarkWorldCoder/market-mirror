@@ -126,3 +126,53 @@ def test_gemini_chatgpt_codex_and_multi_provider_catalog(tmp_path):
     gem_reg = agent_install.configuration(root, "gemini")
     assert gem_reg["registration_args"][:3] == ["gemini", "mcp", "add"]
 
+
+
+def test_every_catalog_entry_carries_a_privacy_link():
+    for name, spec in providers.CATALOG.items():
+        assert "privacy" in spec, name
+        if name in ("compatible", "multi"):  # no single vendor: the chosen server's or each pool member's terms apply
+            assert spec["privacy"] == "", name
+        else:
+            assert spec["privacy"].startswith("https://"), name
+
+
+def test_provider_check_shows_the_configured_providers_privacy_link():
+    settings = {"MARKET_MIRROR_PROVIDER": "anthropic", "LLM_PROVIDER": "claude",
+                "LLM_BASE_URL": "https://api.anthropic.com/v1", "LLM_API_KEY": "secret-sentinel"}
+    link = providers.CATALOG["anthropic"]["privacy"]
+    reachable = providers.check(None, lambda request, timeout: io.BytesIO(b'{"data":[]}'), settings=settings)
+    assert reachable["status"] == "reachable" and reachable["privacy"] == link
+    def denied(*args, **kwargs):
+        raise HTTPError("https://example.com", 401, "secret-sentinel", {}, io.BytesIO(b"secret-sentinel"))
+    failed = providers.check(None, denied, settings=settings)
+    assert failed["status"] == "authentication_failed" and failed["privacy"] == link
+    def offline(*args, **kwargs):
+        raise OSError("offline")
+    assert providers.check(None, offline, settings=settings)["privacy"] == link
+    # no configured catalog provider (or the generic server): no privacy field rather than a wrong one
+    assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": ""})
+    assert "privacy" not in providers.check(None, offline, settings={**settings, "MARKET_MIRROR_PROVIDER": "compatible"})
+
+
+def test_configured_provider_reads_the_catalog_key_or_the_gateway():
+    assert providers.configured_provider({"MARKET_MIRROR_PROVIDER": "deepseek", "LLM_GATEWAY": "claude"}) == "deepseek"
+    assert providers.configured_provider({"LLM_GATEWAY": "gemini"}) == "gemini_cli"
+    assert providers.configured_provider({"LLM_GATEWAY": "multi"}) == ""
+    assert providers.configured_provider({}) == ""
+
+
+# These go through check(settings=...) on purpose: write_config's os.replace of an open temp .env fails on Windows
+# (WinError 32), so tests built on it would fail there for reasons unrelated to the privacy field.
+def test_provider_check_maps_login_gateways_to_their_catalog_entry():
+    # `mm.sh gateway start` writes LLM_GATEWAY and no MARKET_MIRROR_PROVIDER
+    def offline(*args, **kwargs):
+        raise OSError("offline")
+    gateway = {"LLM_PROVIDER": "openai", "LLM_BASE_URL": "http://127.0.0.1:5055/v1", "LLM_API_KEY": "gateway"}
+    for backend, key in (("claude", "claude"), ("codex", "codex"), ("gemini", "gemini_cli"), ("antigravity", "antigravity"),
+                         ("chatgpt", "chatgpt"), ("siwc", "siwc")):
+        result = providers.check(None, offline, settings={**gateway, "LLM_GATEWAY": backend})
+        assert result["privacy"] == providers.CATALOG[key]["privacy"], backend
+    # the Gemini CLI gateway must not borrow the Gemini API's entry, and a pool has no single page
+    assert providers.GATEWAY_CATALOG_KEY["gemini"] == "gemini_cli"
+    assert "privacy" not in providers.check(None, offline, settings={**gateway, "LLM_GATEWAY": "multi"})

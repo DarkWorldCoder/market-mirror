@@ -15,29 +15,38 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
+# "privacy": the provider's own privacy page (checked 2026-11-10; docs/PROVIDERS_AND_SCALE.md has retention, DPA and
+# regions); "" where no single vendor applies: the server you point at, or each member of a pool.
 CATALOG = {
     "ollama": {"label": "Ollama on this computer", "base_url": "http://127.0.0.1:11434/v1", "key_required": False,
-               "guide": "https://docs.ollama.com/openai", "key_env": ""},
+               "guide": "https://docs.ollama.com/openai", "key_env": "", "privacy": "https://ollama.com/privacy"},
     "lmstudio": {"label": "LM Studio on this computer", "base_url": "http://127.0.0.1:1234/v1", "key_required": False,
-                 "guide": "https://lmstudio.ai/docs/developer/openai-compat", "key_env": ""},
+                 "guide": "https://lmstudio.ai/docs/developer/openai-compat", "key_env": "", "privacy": "https://lmstudio.ai/app-privacy"},
     "anthropic": {"label": "Claude API", "base_url": "https://api.anthropic.com/v1", "key_required": True,
-                  "guide": "https://platform.claude.com/docs/en/get-api-key", "key_url": "https://platform.claude.com/settings/keys", "key_env": "ANTHROPIC_API_KEY"},
+                  "guide": "https://platform.claude.com/docs/en/get-api-key", "key_url": "https://platform.claude.com/settings/keys", "key_env": "ANTHROPIC_API_KEY",
+                  "privacy": "https://www.anthropic.com/legal/privacy"},
     "openai": {"label": "OpenAI / ChatGPT API", "base_url": "https://api.openai.com/v1", "key_required": True,
-               "guide": "https://developers.openai.com/api/docs/quickstart", "key_url": "https://platform.openai.com/api-keys", "key_env": "OPENAI_API_KEY"},
+               "guide": "https://developers.openai.com/api/docs/quickstart", "key_url": "https://platform.openai.com/api-keys", "key_env": "OPENAI_API_KEY",
+               "privacy": "https://openai.com/policies/privacy-policy/"},
     "gemini": {"label": "Google Gemini API", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "key_required": True,
-               "guide": "https://ai.google.dev/gemini-api/docs/openai", "key_url": "https://aistudio.google.com/apikey", "key_env": "GEMINI_API_KEY"},
+               "guide": "https://ai.google.dev/gemini-api/docs/openai", "key_url": "https://aistudio.google.com/apikey", "key_env": "GEMINI_API_KEY",
+               "privacy": "https://policies.google.com/privacy"},
     "compatible": {"label": "Another OpenAI-compatible server", "base_url": "", "key_required": True,
-                   "guide": "Use your provider's API console and model identifier.", "key_env": "LLM_API_KEY"},
+                   "guide": "Use your provider's API console and model identifier.", "key_env": "LLM_API_KEY", "privacy": ""},
     "chatgpt": {"label": "ChatGPT (Sign in with ChatGPT or Codex CLI login)", "gateway": True, "gateway_name": "chatgpt",
-                "guide": "codex login"},
+                "guide": "codex login", "privacy": "https://openai.com/policies/privacy-policy/"},
     "siwc": {"label": "Sign in with ChatGPT (eligibility checked at login)", "gateway": True,
-             "guide": "https://developers.openai.com/siwc/quickstart"},
-    "codex": {"label": "Existing local Codex CLI login", "gateway": True, "guide": "codex login"},
-    "claude": {"label": "Existing local Claude Code login", "gateway": True, "guide": "claude auth login"},
-    "gemini_cli": {"label": "Existing local Gemini CLI login", "gateway": True, "gateway_name": "gemini", "guide": "gemini"},
+             "guide": "https://developers.openai.com/siwc/quickstart", "privacy": "https://openai.com/policies/privacy-policy/"},
+    "codex": {"label": "Existing local Codex CLI login", "gateway": True, "guide": "codex login",
+              "privacy": "https://openai.com/policies/privacy-policy/"},
+    "claude": {"label": "Existing local Claude Code login", "gateway": True, "guide": "claude auth login",
+               "privacy": "https://www.anthropic.com/legal/privacy"},
+    "gemini_cli": {"label": "Existing local Gemini CLI login", "gateway": True, "gateway_name": "gemini", "guide": "gemini",
+                   "privacy": "https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/tos-privacy.md"},
     "antigravity": {"label": "Existing local Antigravity CLI login (agy; Gemini models by default)", "gateway": True,
-                    "gateway_name": "antigravity", "guide": "agy"},
-    "multi": {"label": "Multi-Provider Agent Pool (Claude + ChatGPT/Codex + Gemini together)", "gateway": True, "gateway_name": "multi", "guide": "mm.sh gateway start multi"},
+                    "gateway_name": "antigravity", "guide": "agy", "privacy": "https://policies.google.com/privacy"},
+    "multi": {"label": "Multi-Provider Agent Pool (Claude + ChatGPT/Codex + Gemini together)", "gateway": True, "gateway_name": "multi", "guide": "mm.sh gateway start multi",
+              "privacy": ""},
 }
 KEYS = {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "LLM_POOL", "MARKET_MIRROR_PROVIDER"}
 
@@ -55,28 +64,35 @@ def _model_pool():
 
 # Hosted OpenAI-compatible APIs: base URL, default model and key variable come from model_pool.API_PROVIDERS
 API_GUIDES = {
-    "deepseek": "https://api-docs.deepseek.com/",
-    "kimi": "https://platform.kimi.ai/docs/guide/start-using-kimi-api",
-    "mistral": "https://docs.mistral.ai/api",
-    "xai": "https://docs.x.ai/docs/overview",
-    "groq": "https://console.groq.com/docs/openai",
-    "together": "https://docs.together.ai/docs/openai-api-compatibility",
-    "fireworks": "https://docs.fireworks.ai/tools-sdks/openai-compatibility",
-    "openrouter": "https://openrouter.ai/docs/quickstart",
-    "qwen": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
-    "zhipu": "https://docs.z.ai/guides/develop/openai/python",
-    "cerebras": "https://inference-docs.cerebras.ai/resources/openai",
-    "minimax": "https://platform.minimax.io/docs/api-reference/text-openai-api",
+    "deepseek": {"guide": "https://api-docs.deepseek.com/",
+                 "privacy": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html"},
+    "kimi": {"guide": "https://platform.kimi.ai/docs/guide/start-using-kimi-api",
+             "privacy": "https://platform.kimi.ai/docs/agreement/userprivacy"},
+    "mistral": {"guide": "https://docs.mistral.ai/api", "privacy": "https://legal.mistral.ai/terms/privacy-policy"},
+    "xai": {"guide": "https://docs.x.ai/docs/overview", "privacy": "https://x.ai/legal/privacy-policy"},
+    "groq": {"guide": "https://console.groq.com/docs/openai", "privacy": "https://groq.com/privacy-policy"},
+    "together": {"guide": "https://docs.together.ai/docs/openai-api-compatibility", "privacy": "https://www.together.ai/privacy"},
+    "fireworks": {"guide": "https://docs.fireworks.ai/tools-sdks/openai-compatibility", "privacy": "https://fireworks.ai/privacy-policy"},
+    "openrouter": {"guide": "https://openrouter.ai/docs/quickstart", "privacy": "https://openrouter.ai/privacy"},
+    "qwen": {"guide": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
+             "privacy": "https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy"},
+    "zhipu": {"guide": "https://docs.z.ai/guides/develop/openai/python", "privacy": "https://docs.z.ai/legal-agreement/privacy-policy"},
+    "cerebras": {"guide": "https://inference-docs.cerebras.ai/resources/openai", "privacy": "https://www.cerebras.ai/privacy-policy"},
+    "minimax": {"guide": "https://platform.minimax.io/docs/api-reference/text-openai-api",
+                "privacy": "https://platform.minimax.io/protocol/privacy-policy"},
 }
 _POOL = _model_pool()
-for _name, _guide in API_GUIDES.items():
+for _name, _doc in API_GUIDES.items():
     _spec = _POOL.API_PROVIDERS[_name]
     CATALOG[_name] = {"label": _spec["label"], "base_url": _spec["base_url"].rstrip("/"), "key_required": True,
-                      "guide": _guide, "key_env": _spec["key_env"], "alt_key_envs": list(_spec.get("alt_key_envs", ())),
-                      "default_model": _spec["model"]}
+                      "guide": _doc["guide"], "key_env": _spec["key_env"], "alt_key_envs": list(_spec.get("alt_key_envs", ())),
+                      "default_model": _spec["model"], "privacy": _doc["privacy"]}
 for _name, _prov in (("anthropic", "claude"), ("openai", "openai"), ("gemini", "gemini"), ("ollama", "ollama")):
     CATALOG[_name]["default_model"] = _POOL.PROVIDER_DEFAULTS[_prov]["model"]
 CATALOG["qwen"]["note"] = "Base URL: https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 (your workspace)"
+# LLM_GATEWAY backend (mm.sh gateway start) -> catalog entry; multi has no single vendor
+GATEWAY_CATALOG_KEY = {"claude": "claude", "codex": "codex", "gemini": "gemini_cli", "antigravity": "antigravity",
+                       "chatgpt": "chatgpt", "siwc": "siwc"}
 # the generic entry stays last in listings
 CATALOG["compatible"] = CATALOG.pop("compatible")
 # the LLM_PROVIDER value written for each catalog entry (anything else is a generic OpenAI-format server)
@@ -256,6 +272,14 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def configured_provider(env: dict) -> str:
+    """The CATALOG key the settings were written for, or "" when no catalog entry applies.
+
+    `configure` writes MARKET_MIRROR_PROVIDER; `mm.sh gateway start` drops it and writes LLM_GATEWAY,
+    whose names are not all catalog keys (gemini is the Gemini CLI), so those go through GATEWAY_CATALOG_KEY."""
+    return env.get("MARKET_MIRROR_PROVIDER") or GATEWAY_CATALOG_KEY.get(env.get("LLM_GATEWAY") or "", "")
+
+
 def check(root: Path, opener=None, settings=None) -> dict:
     env = settings if settings is not None else read_env(root)
     endpoint = validate_url(env.get("LLM_BASE_URL") or "")
@@ -271,6 +295,9 @@ def check(root: Path, opener=None, settings=None) -> dict:
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     request = urllib.request.Request(endpoint + "/models", headers=headers)
     opener = opener or urllib.request.build_opener(_NoRedirect).open
+    # the configured provider's privacy page, shown whether or not the endpoint answers
+    privacy = CATALOG.get(configured_provider(env), {}).get("privacy")
+    extra = {"privacy": privacy} if privacy else {}
     try:
         with opener(request, timeout=15) as response:
             data = json.loads(response.read(2_000_000))
@@ -280,12 +307,12 @@ def check(root: Path, opener=None, settings=None) -> dict:
         norm_selected = selected.split("/", 1)[1] if isinstance(selected, str) and selected.startswith("models/") else selected
         return {"status": "reachable", "models": models, "selected_model": selected,
                 "model_listed": bool(norm_selected and (norm_selected in models or selected in raw_models)), "inference_tested": False,
-                "note": "Model discovery does not prove tool-calling support; run a small fixture before a large simulation."}
+                "note": "Model discovery does not prove tool-calling support; run a small fixture before a large simulation.", **extra}
     except urllib.error.HTTPError as error:
         reason = {401: "authentication_failed", 403: "access_denied", 429: "rate_limited"}.get(error.code, "provider_error")
-        return {"status": reason, "http_status": error.code, "inference_tested": False}
+        return {"status": reason, "http_status": error.code, "inference_tested": False, **extra}
     except (OSError, ValueError):
-        return {"status": "unreachable_or_invalid_response", "inference_tested": False}
+        return {"status": "unreachable_or_invalid_response", "inference_tested": False, **extra}
 
 
 def configure(root: Path, args) -> dict:
