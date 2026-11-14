@@ -181,16 +181,29 @@ def _rounds_block(platform: str, rounds: List[Dict[str, Any]], chart) -> str:
 
 
 def _herding_note(h: Optional[Dict[str, Any]]) -> str:
-    """The herding check under the section head: did reactions pile onto a post's visible score?"""
-    if not h or not h.get("reading"):
+    """The herding check under the section head: did reactions pile onto a post's visible score? With the randomized
+    probe on, its result follows as a second note."""
+    if not h:
         return ""
-    title = {"negative pile-on": "Simulated people piled onto criticism",
-             "herding both ways": "Simulated people followed a post's score both ways",
-             "positive herding": "Simulated people followed early approval",
-             "no clear herding": "No clear herding",
-             "not checked": "Herding not checked"}.get(h.get("verdict"), "Herding check")
-    return (f'<div class="callout insight" role="note" data-herding="{_e(h.get("verdict"))}"><strong>{_e(title)}.</strong> '
-            f'{_e(h["reading"])}</div>')
+    out = ""
+    if h.get("reading"):
+        title = {"negative pile-on": "Simulated people piled onto criticism",
+                 "herding both ways": "Simulated people followed a post's score both ways",
+                 "positive herding": "Simulated people followed early approval",
+                 "no clear herding": "No clear herding",
+                 "not checked": "Herding not checked"}.get(h.get("verdict"), "Herding check")
+        out += (f'<div class="callout insight" role="note" data-herding="{_e(h.get("verdict"))}"><strong>{_e(title)}.</strong> '
+                f'{_e(h["reading"])}</div>')
+    probe = h.get("probe") or {}
+    if probe.get("reading"):
+        title = {"negative pile-on": "Randomized probe: people piled onto an early downvote",
+                 "herding both ways": "Randomized probe: people followed an early vote both ways",
+                 "positive herding": "Randomized probe: people followed an early upvote",
+                 "no clear herding": "Randomized probe: no clear herding",
+                 "not checked": "Randomized probe not checked"}.get(probe.get("verdict"), "Randomized probe")
+        out += (f'<div class="callout insight" role="note" data-herding-probe="{_e(probe.get("verdict"))}">'
+                f'<strong>{_e(title)}.</strong> {_e(probe["reading"])}</div>')
+    return out
 
 
 def feed_story_section(fs: Dict[str, Any], chart, insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:

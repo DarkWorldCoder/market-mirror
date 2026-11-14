@@ -3,8 +3,8 @@ Feed story API: the post-by-post social feed of a simulation.
 
     GET /api/simulation/<simulation_id>/feed-story[?platform=twitter|reddit&round=N&refresh=1]
 
-The story is built from the OASIS databases and actions.jsonl on first request and cached
-as <sim>/feed_story.json. The cache is rebuilt when any database or actions.jsonl is newer
+The story is built from the OASIS databases and actions.jsonl (and herding_probe.json when the
+probe ran) on first request and cached as <sim>/feed_story.json. The cache is rebuilt when any of them is newer
 than it, when the sentiment labeller changes (Jev turned on or off, see services/jev_labels.py),
 or when ?refresh=1 is passed. `platform` and `round` filter the response only;
 the cache always holds every platform and round.
@@ -16,7 +16,7 @@ import os
 from flask import jsonify, request
 
 from . import simulation_bp
-from ..services.feed_story import DB_FILES, PLATFORMS, build_feed_story
+from ..services.feed_story import DB_FILES, PLATFORMS, PROBE_FILE, build_feed_story
 from ..services.simulation_manager import SimulationManager
 from ..utils.logger import get_logger
 
@@ -38,6 +38,9 @@ def _sources(sim_dir: str):
             path = os.path.join(sim_dir, rel)
             if os.path.exists(path):
                 yield path
+    probe = os.path.join(sim_dir, PROBE_FILE)       # the herding probe's assignments
+    if os.path.exists(probe):
+        yield probe
 
 
 def _cache_is_fresh(sim_dir: str) -> bool:

@@ -1131,7 +1131,10 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
         if top.get("comments"):
             line += f'; most discussed: “{trunc(top.get("content"), 90)}” ({len(top["comments"])} replies)'
         ins["socialfeed"] = line + "."
-    if (fs.get("herding") or {}).get("flag"):
+    if ((fs.get("herding") or {}).get("probe") or {}).get("flag"):
+        ins["socialfeed"] = (ins.get("socialfeed", "") + " A randomized probe found that one early downvote made other "
+                             "people vote a post lower: read negative threads as amplified.").strip()
+    elif (fs.get("herding") or {}).get("flag"):
         ins["socialfeed"] = (ins.get("socialfeed", "") + " Reactions piled onto criticism more than chance explains: "
                              "read negative threads as possibly amplified.").strip()
     pitch = bundle.get("pitch") or {}

@@ -611,11 +611,17 @@ class TwitterSimulationRunner:
             print(f"错误: Profile文件不存在: {profile_path}")
             return
         
-        self.agent_graph = await generate_twitter_agent_graph(
-            profile_path=profile_path,
-            model=model,
-            available_actions=self.AVAILABLE_ACTIONS,
-        )
+        import herding_probe  # MarketMirror: opt-in randomized herding probe
+        herding_probe.reset_log(self.simulation_dir)
+        load_path, probe_id = herding_probe.profiles_with_probe(self.config, "twitter", profile_path)
+        try:
+            self.agent_graph = await generate_twitter_agent_graph(
+                profile_path=load_path,
+                model=model,
+                available_actions=self.AVAILABLE_ACTIONS,
+            )
+        finally:
+            herding_probe.discard_copy(load_path, profile_path)
         import agent_context  # MarketMirror: per-round persona cards
         from event_schedule import events_by_round, inject_scheduled
         agent_context.install(self.agent_graph, self.config, seed=int(self.config.get("seed") or 7), platform="twitter")
@@ -639,6 +645,8 @@ class TwitterSimulationRunner:
         
         await self.env.reset()
         print("环境初始化完成\n")
+        probe = herding_probe.HerdingProbe.start(self.config, "twitter", self.simulation_dir, db_path, self.agent_graph,
+                                                 probe_id, print)
         
         # 初始化IPC处理器
         self.ipc_handler = IPCHandler(self.simulation_dir, self.env, self.agent_graph)
@@ -671,6 +679,9 @@ class TwitterSimulationRunner:
                 await self.env.step(initial_actions)
                 print(f"  已发布 {len(initial_actions)} 条初始帖子")
         
+        if probe:
+            probe.after_step(0, has_next=total_rounds > 0)   # organic opening posts can be enrolled too
+
         # 主模拟循环
         print("\n开始模拟循环...")
         start_time = datetime.now()
@@ -700,7 +711,11 @@ class TwitterSimulationRunner:
             # 执行动作
             agent_context.begin_round(round_num + 1, simulated_hour, platform="twitter")
             inject_scheduled(actions, self.env, round_num + 1, self._scheduled_by_round, ManualAction, ActionType, print)
+            if probe:   # the probe's pending votes go first; it never gets a model-driven action
+                actions = probe.inject(actions, self.env, round_num + 1, ManualAction, ActionType)
             await self.env.step(actions)
+            if probe:
+                probe.after_step(round_num + 1, has_next=round_num + 1 < total_rounds)
             
             # 打印进度
             if (round_num + 1) % 10 == 0 or round_num == 0:
