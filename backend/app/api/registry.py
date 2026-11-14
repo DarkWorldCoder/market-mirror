@@ -2,6 +2,20 @@
 (backend/scripts/gen_api_docs.py) and checked by a test so every route is documented."""
 
 ENDPOINTS = [
+    # Local-only guided workflows: X-Setup-Token required, including reads.
+    {"method": "GET", "path": "/api/workflows/meta", "tag": "workflows", "summary": "Recipe catalog and public provider status; no model calls", "returns": "{recipes, provider, demo_url}"},
+    {"method": "GET", "path": "/api/workflows", "tag": "workflows", "summary": "Recent local workflow revisions", "returns": "workflow summaries"},
+    {"method": "POST", "path": "/api/workflows", "tag": "workflows", "summary": "Save a draft or a new comparison revision; no model calls", "body": {"inputs": {"recipe": "ads", "name": "Brand", "product": "Actual product details", "audience": "Intended buyers", "country": "Nepal", "variants": [{"text": "A"}, {"text": "B"}]}, "parent_id": None}, "returns": "workflow"},
+    {"method": "GET", "path": "/api/workflows/{wid}", "tag": "workflows", "summary": "Saved draft, stage progress, people and artifact checkpoints", "returns": "workflow"},
+    {"method": "PUT", "path": "/api/workflows/{wid}", "tag": "workflows", "summary": "Update an unexecuted draft; changed executed comparisons require a new revision", "body": {"inputs": {}}, "returns": "workflow"},
+    {"method": "POST", "path": "/api/workflows/{wid}/estimate", "tag": "workflows", "summary": "Review remaining work and configuration digest; no model calls", "body": {"phase": "prepare"}, "returns": "{digest, provider, estimated_calls, calls_used, suggested_call_limit, cost_usd:null}"},
+    {"method": "POST", "path": "/api/workflows/{wid}/approve", "tag": "workflows", "summary": "Explicitly approve a phase and start or reuse its task; retries require retry true", "body": {"phase": "prepare", "approved": True, "digest": "from estimate", "call_limit": 12, "retry": False}, "returns": "workflow with stage task_id"},
+    {"method": "GET", "path": "/api/workflows/{wid}/results", "tag": "workflows", "summary": "Simulation-labelled comparison and editable next-real-test worksheet", "returns": "{complete, verdict, variants, metric_label, limits, worksheet}"},
+    {"method": "PUT", "path": "/api/workflows/{wid}/worksheet", "tag": "workflows", "summary": "Save the user's real-world experiment worksheet", "body": {"text": "Markdown"}, "returns": "{saved}"},
+    {"method": "GET", "path": "/api/workflows/{wid}/evidence", "tag": "workflows", "summary": "Escaped offline HTML evidence, no provider credentials", "returns": "HTML evidence document", "html": True},
+    {"method": "POST", "path": "/api/workflows/source", "tag": "workflows", "summary": "Extract editable public page text or an uploaded PDF/Markdown/text file up to 5MB; no model calls", "body": {"url": "https://your-product.example"}, "upload": True, "returns": "{text, method, url?}"},
+    {"method": "POST", "path": "/api/workflows/events", "tag": "workflows", "summary": "Record an allowlisted local usage event; no external telemetry", "body": {"name": "active_seconds", "workflow_id": None, "seconds": 20}, "returns": "{saved}"},
+    {"method": "GET", "path": "/api/workflows/metrics", "tag": "workflows", "summary": "Local setup confirmations, completions, failures, retries and editing time; no product text", "returns": "local aggregate counts"},
     # product understanding
     {"method": "POST", "path": "/api/graph/profile", "tag": "understand", "summary": "Product profile from text/url/ads (no project)",
      "body": {"text": "...", "url": "https://...", "ads_summary": {}, "name": "Brand"}, "returns": "product profile + quickstart_answers"},
@@ -89,5 +103,6 @@ ENDPOINTS = [
 ]
 
 TAGS = {"understand": "Product understanding", "research": "Real voices", "planning": "Campaign planning",
+        "workflows": "Local guided workflows (X-Setup-Token required)",
         "tests": "Tests on simulated people", "rounds": "Inside the rounds",
         "analysis": "Analysis and reports", "reliability": "Reliability and prediction", "tasks": "Background tasks"}

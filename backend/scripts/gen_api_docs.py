@@ -19,7 +19,9 @@ The backend is a Flask app on `http://localhost:5001` (start it with `backend/cl
 engine routes (projects, ontology, graph build, simulations, start/stop, interviews, reports) are documented in
 `docs/MIROFISH-UPSTREAM.md`; the `mirofish.py` CLI and the MCP server wrap all of them.
 
-Authentication: none by default (the backend binds to localhost). Put it behind your own auth or network rules before exposing it.
+Authentication: `/api/workflows` and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
+Use `./mm app` for a browser session; never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
+Other endpoints use the configured production authentication policy. Put the backend behind your own auth/network rules before exposing it.
 Webhooks: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`) and the CLI posts a JSON summary when a run, study
 or test finishes. SDK: `pip install -e sdk` then `from marketmirror import MarketMirror`. Machine-readable: `docs/openapi.json`.
 
@@ -53,10 +55,18 @@ def openapi() -> dict:
             op["parameters"] = params
         if e.get("body"):
             op["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"type": "object"}, "example": e["body"]}}}
+        if e.get("upload"):
+            op["requestBody"]["content"]["multipart/form-data"] = {"schema": {"type": "object", "properties": {"file": {"type": "string", "format": "binary"}}, "required": ["file"]}}
+        if e.get("html"):
+            op["responses"]["200"]["content"] = {"text/html": {"schema": {"type": "string"}}}
+        if e["path"].startswith("/api/workflows"):
+            op["security"] = [{"LocalSetupToken": []}]
+            op["responses"].update({"403": {"description": "loopback or local setup token required"}, "409": {"description": "stale approval, immutable history or incompatible provider"}})
         p[e["method"].lower()] = op
     return {"openapi": "3.0.3", "info": {"title": "MarketMirror API", "version": "0.3.0",
                                          "description": "Marketing and sales simulation on simulated buyers. Long jobs return task ids."},
-            "servers": [{"url": "http://localhost:5001"}], "tags": [{"name": v} for v in TAGS.values()], "paths": paths}
+            "servers": [{"url": "http://localhost:5001"}], "tags": [{"name": v} for v in TAGS.values()], "paths": paths,
+            "components": {"securitySchemes": {"LocalSetupToken": {"type": "apiKey", "in": "header", "name": "X-Setup-Token"}}}}
 
 
 if __name__ == "__main__":
