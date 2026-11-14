@@ -147,3 +147,24 @@ class ExporterStillWorksTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HerdingNoteTests(unittest.TestCase):
+    def test_pile_on_note_under_the_section_head(self):
+        story = dict(_story())
+        story["herding"] = {"verdict": "negative pile-on", "flag": True,
+                            "reading": "Across 40 posts, once a post was net-negative, 70% of its next reactions were negative."}
+        html_ = social_feed.feed_story_section(story, marketing.chart)[2]
+        self.assertIn('data-herding="negative pile-on"', html_)
+        self.assertIn("Simulated people piled onto criticism.", html_)
+        self.assertNotIn("data-herding", social_feed.feed_story_section(_story(), marketing.chart)[2])
+
+    def test_randomized_probe_note_follows(self):
+        story = dict(_story())
+        story["herding"] = {"verdict": "not checked", "flag": False, "reading": "Herding not checked: 3 posts.",
+                            "probe": {"verdict": "negative pile-on", "flag": True,
+                                      "reading": "Randomized probe: 20 posts got one early downvote from a neutral account."}}
+        html_ = social_feed.feed_story_section(story, marketing.chart)[2]
+        self.assertIn('data-herding-probe="negative pile-on"', html_)
+        self.assertIn("Randomized probe: people piled onto an early downvote.", html_)
+        self.assertIn('data-herding="not checked"', html_)

@@ -32,7 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.anthropic_native import CACHE_BREAK
 from . import creative_vision
-from . import emotion
+from . import emotion, say_do
 from ..utils.logger import get_logger
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .persona_planner import parse_json_block
@@ -178,62 +178,9 @@ def normalize_competitor(raw: Any) -> Optional[Dict[str, Any]]:
 
 def check_say_do_friction(person: Dict[str, Any], landing: Dict[str, Any], rng: random.Random,
                           fx: Optional[Dict[str, float]] = None) -> Optional[Tuple[str, str]]:
-    """
-    Evaluate research-backed Say-vs-Do friction gates from the persona's BDE card and wallet state:
-    1. Discretionary wallet limit vs landing price
-    2. Explicit BDE dealbreakers / stoppers triggered by landing page
-    3. High-acquiescence polite clickers hesitating on paid/card steps
-    fx: emotion couplings for this person (emotion.effects); "wallet" scales the spend threshold and "backout" the
-    back-out chance, both 1.0 unless emotions are "on". The random draw is the same either way.
-    Returns (gate_kind, drop_reason) if the person drops off, else None.
-    """
-    fx = fx or {}
-    from .persona_planner import parse_discretionary_amount
-
-    bde = person.get("bde") if isinstance(person.get("bde"), dict) else {}
-    b_bg = bde.get("background") if isinstance(bde.get("background"), dict) else {}
-    b_dp = bde.get("decision_procedure") if isinstance(bde.get("decision_procedure"), dict) else {}
-    b_ev = bde.get("evaluation") if isinstance(bde.get("evaluation"), dict) else {}
-
-    price_str = str(landing.get("price") or "free").strip()
-    price_num = parse_discretionary_amount(price_str) if price_str.lower() not in ("free", "0", "$0", "rs 0") else 0.0
-    budget_num = b_ev.get("discretionary_budget_num")
-    if budget_num is None:
-        budget_num = parse_discretionary_amount(b_ev.get("monthly_discretionary"))
-
-    payday = str(person.get("payday_status") or "mid_month").lower()
-    if price_num and budget_num and budget_num > 0:
-        ratio = price_num / budget_num
-        # Compare only when both numbers are in the same currency order-of-magnitude
-        if 0.15 <= ratio <= 25.0:
-            threshold = 0.55 if payday == "end_of_month_tight" else (0.95 if payday == "just_paid" else 0.80)
-            threshold *= fx.get("wallet", 1.0)
-            if ratio > threshold:
-                disc_label = b_ev.get("monthly_discretionary") or str(budget_num)
-                return ("wallet_limit", f"price ({price_str}) exceeds comfortable discretionary budget ({disc_label})")
-
-    page_blob = " ".join([
-        str(landing.get("shows") or ""),
-        price_str,
-        " ".join(str(f) for f in (landing.get("form_fields") or [])),
-    ]).lower()
-    dealbreakers = [str(x).strip() for x in (b_ev.get("dealbreakers") or []) + (b_dp.get("stoppers") or []) if str(x).strip()]
-    for db in dealbreakers:
-        db_low = db.lower()
-        tokens = [w for w in re.findall(r"[a-z0-9]+", db_low) if len(w) > 3]
-        if (db_low in page_blob) or (tokens and all(t in page_blob for t in tokens[:2])):
-            return ("dealbreaker", f"triggered dealbreaker: {db}")
-
-    acq = str(b_bg.get("acquiescence") or "").strip().lower()
-    says_do = str(b_bg.get("says_vs_does") or "").strip()
-    has_commitment = (price_num and price_num > 0) or any(
-        k in page_blob for k in ("card", "credit", "payment", "subscribe", "auto-renew", "phone")
-    )
-    if acq == "high" and has_commitment and rng.random() < min(0.9, 0.45 * fx.get("backout", 1.0)):
-        detail = f" ({says_do[:90]})" if says_do else ""
-        return ("say_vs_do_gap", f"polite interest, but backed out at commitment step{detail}")
-
-    return None
+    """The research-backed Say-vs-Do gate for a clicker on the landing page (wallet limit, dealbreakers, polite
+    yes-sayers backing out at payment); the rules live in say_do.friction, shared with the survey and pitch split."""
+    return say_do.friction(person, landing, rng, fx)
 
 
 def network_for(person: Dict[str, Any], rng: random.Random) -> str:

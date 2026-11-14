@@ -60,6 +60,31 @@ Distinguish three outcomes: a believable character, a stable individual simulati
 
 Additional calibration reading: [Tigre and Souto, When Can You Trust Your Synthetic Users? (2026 preprint)](https://arxiv.org/html/2609.13148v1), especially sections 4–8. The overlap and conditional-calibration diagnostics are useful candidates. Its decision thresholds are heuristic, its practical minimum calibration sample is unresolved, and independence assumptions require care in interacting-agent simulations. It does not justify a universal minimum respondent count or treating the synthetic population size as the number of independent human observations.
 
+## Emotion layer (implemented, not validated)
+
+Added 31 October 2026; full notes and references in [emotion-research-2026-10.md](research/emotion-research-2026-10.md). Code: `backend/app/services/emotion.py`, with plumbing in `behavior_state.py`, the feed, email, survey and pitch prompts, `ssr.py` (affect anchors), `focus_group.py`, `say_do.py`, `evidence.py` and `claude_cli/bench.py`.
+
+Layers (ALMA): stable affect traits from the decision card → one appraised emotion per stimulus (12 labels, fixed OCC/Scherer-style rules, intensity ≤ 0.85, a relevance gate that keeps "nothing much" common) → a pleasure/arousal/dominance mood that decays to each person's baseline (time constant 12-48 simulated hours; brand liking about a week).
+
+Modes: `MM_EMOTIONS` / `--emotions` / config `emotions`. `off` leaves every prompt byte-identical; `observe` (default) records and reports; `on` also lets feelings steer, through these couplings (all bounded multipliers on existing probabilities, no new random draws):
+
+| Coupling | Range | Direction | Source |
+|---|---|---|---|
+| ad notice | ×0.75-1.25 | arousal up, brand dislike down | affect-as-information |
+| ad wear-out | ×1.0-1.5 | faster after irritation | |
+| landing patience | ×0.8-1.15 | tense and unhappy wait less | |
+| wallet threshold | ×0.85-1.15 | fear down, confidence and FOMO up | Lerner & Keltner 2001 |
+| polite back-out | ×0.8-1.3 | anticipated regret up, trust down | Zeelenberg & Pieters 2007 |
+| email open | ×0.8-1.2 | liking the sender up | |
+| social actions | ×0.8-1.2 | arousal up, sadness down | Berger & Milkman 2012 |
+| pitch turn 2 | skip | walk-aways get no rebuttal | Chen et al. 2026 |
+
+`MM_EMOTION_WEIGHT` scales them all or one at a time; every moved row records `emotion_effects`.
+
+Checks that do not trust the model's own label: the words check (stated pleasantness against SSR valence of the person's own words), focus-group private vs in-the-room feelings (masking, over-convergence), and population flags (too uniform, positive skew, caricature). The report and dashboard label the effect "assumed sizes, not validated".
+
+Default-flip gate (`bench.flip_gate`): `on` becomes the default only if the feelings panel is at least as accurate as `persona_panel` and `generic_reader` on Upworthy, `twin_affect` is no worse than `twin` on Twin-2K-500 (accuracy and Brier score), at least 30% of feelings are "nothing much" with no caricature flag, and pleasantness runs against real clicks (Robertson et al. 2023). Until then the default stays `observe`.
+
 ## Current code and gaps
 
 These observations come from the working checkout, not from paper claims:

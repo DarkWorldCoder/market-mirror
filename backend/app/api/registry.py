@@ -67,8 +67,8 @@ ENDPOINTS = [
      "body": {"brand": "Brand", "ads": [{"Ad name": "A", "Spend": 100, "Impressions": 10000, "Clicks": 120}], "run_summary": {}, "profile": {}}, "returns": "{ideas, evidence, markdown}"},
     {"method": "POST", "path": "/api/simulation/captions", "tag": "analysis", "summary": "Platform-native captions from a brief (synchronous)",
      "body": {"brief": "...", "platform": "instagram", "n": 6, "objections": []}, "returns": "{captions}"},
-    {"method": "POST", "path": "/api/simulation/calibrate", "tag": "reliability", "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate (synchronous)",
-     "body": {"synthetic": [{"segment": "..", "country": "..", "gender": "..", "age": 30, "y": 1}], "real": [], "key": "segment", "field": "would_convert"}, "returns": "{verdict, overlap, calibration, corrected}"},
+    {"method": "POST", "path": "/api/simulation/calibrate", "tag": "reliability", "summary": "Synthetic panel vs real answers: overlap, per-audience verdicts, AIPW-corrected rate, PPI++ interval, answer spread (synchronous)",
+     "body": {"synthetic": [{"segment": "..", "country": "..", "gender": "..", "age": 30, "y": 1}], "real": [], "key": "segment", "field": "would_convert", "halfwidth": 0.05, "budget": 100}, "returns": "{verdict, overlap, calibration, corrected, ppi (incl. allocation), spread}"},
     {"method": "POST", "path": "/api/simulation/predict", "tag": "reliability", "summary": "Predictions with intervals, scaled by the calibration store (synchronous)",
      "body": {"brand": "Brand", "summary": {}, "feed_test": {}, "email_test": {}, "targets": {"ctr": 2}}, "returns": "{predictions, calibrated}"},
     {"method": "POST", "path": "/api/simulation/forecast", "tag": "reliability", "summary": "30/60/90-day adoption forecast from the best ad and the rounds' word of mouth",
@@ -80,6 +80,12 @@ ENDPOINTS = [
      "body": {"summary": {}, "brand": "Brand"}, "returns": "{markdown, method}"},
     {"method": "POST", "path": "/api/simulation/market-task/status", "tag": "tasks", "summary": "Status of a background task", "body": {"task_id": "..."},
      "returns": "{status, progress, message, result}"},
+    {"method": "POST", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Arm a spend cap for a run (estimated US dollars; 409 while another run's cap is armed)",
+     "body": {"max_spend_usd": 5, "label": "mirofish_runs/acme", "replace": False}, "returns": "{cap_id, limit_usd, spent_usd, calls, reached, label}"},
+    {"method": "GET", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "The armed spend cap and what was spent (null when none)",
+     "returns": "{limit_usd, spent_usd, calls, input_tokens, output_tokens, reached}"},
+    {"method": "DELETE", "path": "/api/simulation/spend-cap", "tag": "tasks", "summary": "Lift the spend cap (?cap_id= lifts only that cap); returns its final state",
+     "returns": "{limit_usd, spent_usd, calls, reached}"},
 ]
 
 TAGS = {"understand": "Product understanding", "research": "Real voices", "planning": "Campaign planning",

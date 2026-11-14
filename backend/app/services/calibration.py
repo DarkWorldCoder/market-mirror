@@ -9,12 +9,15 @@ synthetic users?") in pure Python:
   3. (cross-LLM stability is run by the CLI: two panels, min Spearman rho; see `stability`)
 
 and a verdict per subgroup: trust / correct / walk-away. `correct()` returns the AIPW estimate of a rate
-(would-convert, CTR, open rate...) with 5-fold cross-fitting and a standard error.
+(would-convert, CTR, open rate...) with 5-fold cross-fitting and a standard error. `spread_check()` asks whether the
+simulated answers, and the gaps between audiences, are as varied as the real ones (simulated panels tend to answer
+too alike, which a matching average hides).
 
 Rows are dicts: {"segment", "country", "age", "gender", "y"} with y in [0, 1] (yes = 1, maybe = 0.5, no = 0,
 or any rate). Real rows come from the user's own survey / ad export / email stats.
 """
 
+import hashlib
 import math
 import random
 from collections import defaultdict
@@ -390,6 +393,7 @@ def ppi_stratified(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], 
     for st in strata:
         share[st] = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic if k(r) == st) / tot
     by: Dict[str, Any] = {}
+    parts_by: Dict[str, Any] = {}
     skipped = []
     for st in strata:
         rs, ss = [r for r in real if k(r) == st], [r for r in synthetic if k(r) == st]
@@ -397,17 +401,17 @@ def ppi_stratified(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], 
             skipped.append({"stratum": st, "real": len(rs), "simulated": len(ss), "share": round(share[st], 3)})
             continue
         res = ppi_mean(rs, ss, z=z)
-        res.pop("_parts", None)
+        parts_by[st] = res.pop("_parts", None)
         by[st] = {**res, "share": round(share[st], 3)}
     covered = sum(v["share"] for v in by.values())
     if not by or covered <= 0:
-        return {"estimate": None, "reason": f"no {key} has {min_real}+ real answers", "skipped": skipped}
+        return {"estimate": None, "reason": f"no {key} has {min_real}+ real answers", "skipped": skipped, "_parts_by": {}}
     est = sum(v["share"] * v["estimate"] for v in by.values()) / covered
     se = math.sqrt(sum((v["share"] / covered) ** 2 * v["se"] ** 2 for v in by.values()))
     eff = sum(v["effective_n"] for v in by.values())
     return {"key": key, "estimate": round(est, 4), "se": round(se, 4),
             "ci": [round(max(0.0, est - z * se), 4), round(min(1.0, est + z * se), 4)],
-            "audience_covered": round(covered, 3), "by_stratum": by, "skipped": skipped,
+            "audience_covered": round(covered, 3), "by_stratum": by, "skipped": skipped, "_parts_by": parts_by,
             "effective_n": round(eff, 1), "n_real": sum(v["n_real"] for v in by.values())}
 
 
@@ -445,12 +449,108 @@ def plan_humans(res: Dict[str, Any], halfwidth: float = 0.05) -> Dict[str, Any]:
     return out
 
 
+def allocate_humans(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], strat: Dict[str, Any], extra: int,
+                    key: str = "segment", z: float = 1.96, min_real: int = 10) -> Dict[str, Any]:
+    """Where to collect the next `extra` real answers so the stratified PPI++ interval narrows most.
+
+    Each audience's variance with n real answers is v_h(n) (`_ppi_var_at`: lambda re-tuned for n, never worse than
+    real-only), so the combined variance is sum_h share_h^2 v_h(n_h). Audiences below `min_real` are first topped up
+    to it (until then they have no interval at all, so their correlation with the panel is unknown and they count as
+    real-only, with the spread of all real answers as a stand-in variance). The rest goes one answer at a time to the audience
+    where it cuts the combined variance most, which is optimal because each v_h falls with diminishing returns.
+    Compared with splitting the same answers by audience share (proportional allocation). Allocating a fixed human
+    budget by how hard each part is to correct, rather than plain PPI++, is the gain Ye & Yoganarasimhan (2026)
+    report (about 10% lower error at no extra cost); the numbers here are planned, from today's variances."""
+    def k(r):
+        return str(r.get(key) or "?")
+    tot = sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic) or 1.0
+    strata = sorted({k(r) for r in synthetic})
+    share = {st: sum(max(0.0, float(r.get("weight") or 1.0)) for r in synthetic if k(r) == st) / tot for st in strata}
+    have = {st: sum(1 for r in real if k(r) == st) for st in strata}
+    parts_by = strat.get("_parts_by") or {}
+    by_stratum = strat.get("by_stratum") or {}
+
+    def var_at(st: str, n: int) -> float:
+        if n <= 0:
+            return math.inf
+        p = parts_by.get(st)
+        if p:
+            return _ppi_var_at(p, n)
+        return fallback_var / n
+
+    # an audience without its own interval yet counts as real-only, at the spread of all real answers (not the
+    # panel's, which tends to be too alike and would make thin audiences look cheap to pin down)
+    ry = [float(r["y"]) for r in real]
+    fallback_var = _var(ry) if len(ry) > 1 and _var(ry) > 0 else 0.25
+
+    def combined(alloc: Dict[str, int]) -> float:
+        return sum(share[st] ** 2 * var_at(st, have[st] + alloc[st]) for st in strata if share[st] > 0)
+    extra = max(0, int(extra))
+    alloc = {st: 0 for st in strata}
+    left = extra
+    for st in sorted(strata, key=lambda s: -share[s]):                 # top-ups first, biggest audiences first
+        need = max(0, min_real - have[st]) if share[st] > 0 else 0
+        alloc[st] = min(need, left)
+        left -= alloc[st]
+    while left > 0:
+        cur = combined(alloc)
+        best, gain = None, 0.0
+        for st in strata:
+            if share[st] <= 0 or have[st] + alloc[st] < min_real:
+                continue
+            alloc[st] += 1
+            g = cur - combined(alloc)
+            alloc[st] -= 1
+            if g > gain:
+                best, gain = st, g
+        if best is None:
+            break
+        alloc[best] += 1
+        left -= 1
+    prop = {st: int(round(extra * share[st])) for st in strata}
+    drift = extra - sum(prop.values())                                # make the proportional split add up exactly
+    if strata and drift:
+        prop[max(strata, key=lambda s: share[s])] += drift
+
+    def hw(a: Dict[str, int]) -> Optional[float]:
+        v = combined(a)
+        return round(z * math.sqrt(v), 4) if math.isfinite(v) else None
+    planned, proportional = hw(alloc), hw(prop)
+    rows = []
+    for st in sorted(strata, key=lambda s: -alloc[s]):
+        n_after = have[st] + alloc[st]
+        v = var_at(st, n_after)
+        rows.append({"stratum": st, "share": round(share[st], 3), "n_real": have[st], "add": alloc[st],
+                     "add_proportional": prop[st], "n_after": n_after,
+                     "correlation": (by_stratum.get(st) or {}).get("correlation"),
+                     "halfwidth_after": round(z * math.sqrt(v), 4) if math.isfinite(v) else None,
+                     "panel_used": st in parts_by})
+    gain = (round(100 * (1 - (planned / proportional) ** 2), 1)
+            if planned is not None and proportional and proportional > 0 else None)
+    reading = None
+    if extra and planned is not None:
+        top = [r for r in rows if r["add"]][:3]
+        reading = (f"Collect the next {extra} real answers as: " + ", ".join(f"{r['add']} from {r['stratum']}" for r in top)
+                   + (" and the rest as listed" if len([r for r in rows if r["add"]]) > 3 else "")
+                   + f". Planned interval: +-{100 * planned:.1f} points"
+                   + (f", against +-{100 * proportional:.1f} if split by audience share "
+                      f"({gain:.0f}% less variance)" if proportional is not None and gain is not None else "") + ".")
+    return {"key": key, "extra": extra, "by_stratum": rows, "halfwidth_planned": planned,
+            "halfwidth_proportional": proportional, "variance_cut_pct": gain, "reading": reading,
+            "method": "greedy allocation on the stratified PPI++ variance (Ye & Yoganarasimhan 2026); planned from "
+                      "today's estimates, not a guarantee"}
+
+
 def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key: str = "segment",
-                halfwidth: float = 0.05) -> Dict[str, Any]:
-    """The PPI block for calibration.json: overall, by stratum, the sample planner and a plain reading."""
+                halfwidth: float = 0.05, budget: Optional[int] = None) -> Dict[str, Any]:
+    """The PPI block for calibration.json: overall, by stratum, the sample planner, where to collect the next real
+    answers (`budget` more, default: what the planner says the ±halfwidth target needs) and a plain reading."""
     overall = ppi_mean(real, synthetic)
     plan = plan_humans(overall, halfwidth)
     strat = ppi_stratified(real, synthetic, key)
+    extra = budget if budget is not None else (plan.get("more_with_panel") or plan.get("more_alone") or len(real))
+    allocation = allocate_humans(real, synthetic, strat, extra, key) if synthetic and extra else None
+    strat.pop("_parts_by", None)
     overall.pop("_parts", None)
     reading = None
     if overall.get("estimate") is not None:
@@ -463,15 +563,258 @@ def ppi_summary(real: List[Dict[str, Any]], synthetic: List[Dict[str, Any]], key
             reading += (f" For +-{100 * halfwidth:.0f} points: {plan['more_with_panel']} more real answers with the panel"
                         + (f", {plan['more_alone']} without it." if plan.get("more_alone") is not None else "."))
     return {"method": "PPI++ (Angelopoulos et al. 2023)", "overall": overall, "stratified": strat, "plan": plan,
-            "reading": reading,
+            "allocation": allocation, "reading": reading,
             "assumption": ("The real answers are a random sample of the audience the simulated panel's weights describe "
                            "(within each segment for the stratified estimate). The interval is about that audience's "
                            "stated answer, not about purchases.")}
 
 
+# --------------------------------------------------------------------------
+# Spread: do the simulated people differ from each other as much as real people do?
+# --------------------------------------------------------------------------
+#
+# Simulated panels tend to answer more alike than real people: a lower SD than the matching humans in 154 of 164
+# outcomes across 19 studies (Peng et al., "Funhouse mirrors", arXiv 2509.19088), and far fewer distinct answer patterns
+# from demographic prompts than from real people (arXiv 2511.21218). A matching average can hide that, so two checks
+# run against the real answers:
+#   answers    the spread of individual answers (SD ratio, answer shares, Wasserstein-1 on the 0-1 scale). Only when
+#              both sides use the same answer scale and it is not yes/no: a yes/no answer's spread is fixed by its rate,
+#              which the level check already covers.
+#   audiences  how far apart the audiences' averages are. Each average's sampling noise is taken out first (method of
+#              moments), so a small real sample does not look more varied than it is.
+# Each ratio (simulated / real) gets a 90% stratified bootstrap interval. "Too alike" needs the ratio below 0.8 and
+# the whole interval below 1 (a material and a clear gap); "too spread out" the mirror image (above 1.25, interval
+# above 1). "Similar" needs the interval to rule out large gaps (inside 0.6-1.67); anything else is "unclear". The
+# studies above are mostly US opinion surveys and one survey (ANES) showed near-human spread, so this is measured per
+# run, never applied as a fixed correction.
+
+SPREAD_LOW, SPREAD_HIGH = 0.8, 1.25
+SIMILAR_BAND = (0.6, 1.67)
+
+
+def _scale(ys: Sequence[float]) -> str:
+    levels = {round(float(y), 4) for y in ys}
+    if levels <= {0.0, 1.0}:
+        return "yes/no"
+    if levels <= {0.0, 0.5, 1.0}:
+        return "yes/maybe/no"
+    return "scale"
+
+
+def _wsd(ys: Sequence[float], ws: Sequence[float]) -> float:
+    """Weighted SD (population form, weights normalised)."""
+    tot = sum(ws)
+    if not tot or len(ys) < 2:
+        return 0.0
+    m = sum(y * w for y, w in zip(ys, ws)) / tot
+    return math.sqrt(max(0.0, sum(w * (y - m) ** 2 for y, w in zip(ys, ws)) / tot))
+
+
+def _shares(ys: Sequence[float], ws: Sequence[float]) -> Dict[str, float]:
+    tot = sum(ws) or 1.0
+    out: Dict[str, float] = defaultdict(float)
+    for y, w in zip(ys, ws):
+        out[f"{round(float(y), 4):g}"] += w / tot
+    return {k: round(v, 3) for k, v in sorted(out.items(), key=lambda kv: float(kv[0]))}
+
+
+def _w1(a: Sequence[float], wa: Sequence[float], b: Sequence[float], wb: Sequence[float]) -> float:
+    """Wasserstein-1 distance between two weighted samples on the real line (area between the two CDFs)."""
+    ta, tb = sum(wa) or 1.0, sum(wb) or 1.0
+    ea = sorted(zip(a, wa))
+    eb = sorted(zip(b, wb))
+    pts = sorted({x for x, _ in ea} | {x for x, _ in eb})
+    i = j = 0
+    ca = cb = 0.0
+    dist = 0.0
+    for lo, hi in zip(pts, pts[1:]):
+        while i < len(ea) and ea[i][0] <= lo:
+            ca += ea[i][1] / ta
+            i += 1
+        while j < len(eb) and eb[j][0] <= lo:
+            cb += eb[j][1] / tb
+            j += 1
+        dist += abs(ca - cb) * (hi - lo)
+    return dist
+
+
+def _between_sd(groups: Sequence[Sequence[Tuple[float, float]]]) -> Optional[float]:
+    """SD of the groups' true averages: the variance of the observed (weighted) averages minus their mean squared
+    standard error, floored at 0. groups: [[(y, weight), ...], ...]; None with fewer than two groups."""
+    means, noise = [], []
+    for rows in groups:
+        ys, ws = [y for y, _ in rows], [w for _, w in rows]
+        tot = sum(ws)
+        if not tot:
+            continue
+        means.append(sum(y * w for y, w in rows) / tot)
+        n_eff = _kish(ws)
+        noise.append(_wsd(ys, ws) ** 2 / max(1.0, n_eff - 1))
+    if len(means) < 2:
+        return None
+    return math.sqrt(max(0.0, _var(means) - sum(noise) / len(noise)))
+
+
+def _interval(ratios: List[float]) -> List[Optional[float]]:
+    """90% percentile interval of bootstrap ratios (inf when the real side came out flat in a resample)."""
+    if not ratios:
+        return [None, None]
+    rs = sorted(ratios)
+    lo, hi = rs[int(0.05 * (len(rs) - 1))], rs[int(round(0.95 * (len(rs) - 1)))]
+    return [round(lo, 3) if math.isfinite(lo) else None, round(hi, 3) if math.isfinite(hi) else None]
+
+
+def _spread_verdict(ratio: Optional[float], ci: List[Optional[float]]) -> str:
+    if ratio is None:
+        return "unclear"
+    lo, hi = ci
+    if ratio < SPREAD_LOW and hi is not None and hi < 1.0:
+        return "too alike"
+    if ratio > SPREAD_HIGH and lo is not None and lo > 1.0:
+        return "too spread out"
+    if lo is not None and hi is not None and SIMILAR_BAND[0] <= lo and hi <= SIMILAR_BAND[1]:
+        return "similar"
+    return "unclear"
+
+
+def spread_check(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
+                 min_real: int = 10, min_syn: int = 10, boots: int = 400, seed: int = 11) -> Dict[str, Any]:
+    """Are the simulated answers as varied as the real ones? Individual answers and the gaps between audiences,
+    each as a simulated/real SD ratio with a 90% bootstrap interval, plus an overall verdict and a plain reading."""
+    rng = random.Random(seed)
+
+    def wt(r: Dict[str, Any]) -> float:
+        return max(0.0, float(r.get("weight") or 1.0))
+    sy, sw = [float(r["y"]) for r in synthetic], [wt(r) for r in synthetic]
+    ry = [float(r["y"]) for r in real]
+    rw = [1.0] * len(ry)
+
+    # 1. individual answers
+    scale_s, scale_r = (_scale(sy) if sy else None), (_scale(ry) if ry else None)
+    ans: Dict[str, Any] = {"scale_simulated": scale_s, "scale_real": scale_r, "n_simulated": len(sy), "n_real": len(ry),
+                           "levels_simulated": len({round(y, 4) for y in sy}), "levels_real": len({round(y, 4) for y in ry})}
+    if len(ry) < min_real or len(sy) < min_real:
+        ans.update(verdict="not checked", reason=f"needs {min_real}+ real and simulated answers")
+    elif scale_s != scale_r:
+        ans.update(verdict="not checked", reason=f"different answer scales (simulated {scale_s}, real {scale_r}); "
+                                                 "only the gaps between audiences are compared")
+    elif scale_r == "yes/no":
+        ans.update(verdict="not checked", reason="yes/no answers: their spread follows the rate, which the level check covers")
+    else:
+        sd_s, sd_r = _wsd(sy, sw), _wsd(ry, rw)
+        if sd_r <= 1e-9:
+            ans.update(verdict="not checked", reason="every real answer is the same")
+        else:
+            ratios = []
+            for _ in range(boots):
+                si = [rng.randrange(len(sy)) for _ in sy]
+                ri = [rng.randrange(len(ry)) for _ in ry]
+                b_r = _wsd([ry[i] for i in ri], [1.0] * len(ri))
+                ratios.append(_wsd([sy[i] for i in si], [sw[i] for i in si]) / b_r if b_r > 1e-9 else math.inf)
+            ratio = sd_s / sd_r
+            ci = _interval(ratios)
+            ans.update(sd_simulated=round(sd_s, 3), sd_real=round(sd_r, 3), sd_ratio=round(ratio, 3), ratio_interval=ci,
+                       wasserstein=round(_w1(sy, sw, ry, rw), 3), verdict=_spread_verdict(ratio, ci))
+            if ans["levels_simulated"] <= 11 and ans["levels_real"] <= 11:
+                ss, rs = _shares(sy, sw), _shares(ry, rw)
+                ans.update(shares_simulated=ss, shares_real=rs,
+                           total_variation=round(0.5 * sum(abs(ss.get(k, 0.0) - rs.get(k, 0.0)) for k in set(ss) | set(rs)), 3))
+
+    # 2. gaps between audiences
+    def grp(r: Dict[str, Any]) -> str:
+        return str((r.get(key) if key != "age_band" else (r.get("age_band") or age_band(r.get("age")))) or "?")
+    gs: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    gr: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    for r in synthetic:
+        gs[grp(r)].append((float(r["y"]), wt(r)))
+    for r in real:
+        gr[grp(r)].append((float(r["y"]), 1.0))
+    used = sorted(g for g in gr if g != "?" and len(gr[g]) >= min_real and len(gs.get(g, [])) >= min_syn)
+    left_out = sorted(g for g in set(gs) | set(gr) if g not in used)
+    aud: Dict[str, Any] = {"key": key, "groups": [], "left_out": left_out}
+    for g in used:
+        ms = sum(y * w for y, w in gs[g]) / (sum(w for _, w in gs[g]) or 1.0)
+        mr = sum(y for y, _ in gr[g]) / len(gr[g])
+        aud["groups"].append({"group": g, "n_simulated": len(gs[g]), "n_real": len(gr[g]), "mean_simulated": round(ms, 3),
+                              "mean_real": round(mr, 3)})
+    b_s = _between_sd([gs[g] for g in used]) if len(used) >= 2 else None
+    b_r = _between_sd([gr[g] for g in used]) if len(used) >= 2 else None
+    if b_s is None or b_r is None:
+        aud.update(verdict="not checked", reason=f"needs two or more {key}s with {min_real}+ real and {min_syn}+ simulated "
+                                                 "answers each")
+    else:
+        ms_all, mr_all = [x["mean_simulated"] for x in aud["groups"]], [x["mean_real"] for x in aud["groups"]]
+        aud.update(between_sd_simulated=round(b_s, 3), between_sd_real=round(b_r, 3),
+                   range_simulated=round(max(ms_all) - min(ms_all), 3), range_real=round(max(mr_all) - min(mr_all), 3))
+        if b_r <= 1e-9:
+            aud.update(verdict="unclear", reason=f"the real {key}s do not differ by more than their sampling noise")
+        else:
+            ratios = []
+            for _ in range(boots):
+                rs_s = [[rows[rng.randrange(len(rows))] for _ in rows] for rows in (gs[g] for g in used)]
+                rs_r = [[rows[rng.randrange(len(rows))] for _ in rows] for rows in (gr[g] for g in used)]
+                bs, br = _between_sd(rs_s) or 0.0, _between_sd(rs_r) or 0.0
+                ratios.append(bs / br if br > 1e-9 else math.inf)
+            ratio = b_s / b_r
+            ci = _interval(ratios)
+            aud.update(sd_ratio=round(ratio, 3), ratio_interval=ci, verdict=_spread_verdict(ratio, ci))
+
+    verdicts = [v for v in (ans["verdict"], aud["verdict"]) if v != "not checked"]
+    if not verdicts:
+        overall = "not checked"
+    elif "too alike" in verdicts:
+        overall = "too alike"
+    elif "too spread out" in verdicts:
+        overall = "too spread out"
+    elif all(v == "similar" for v in verdicts):
+        overall = "similar"
+    else:
+        overall = "unclear"
+    return {"verdict": overall, "flag": overall == "too alike", "answers": ans, "audiences": aud,
+            "reading": _spread_reading(overall, ans, aud), "thresholds": {"low": SPREAD_LOW, "high": SPREAD_HIGH},
+            "sources": ["arXiv 2509.19088", "arXiv 2511.21218"]}
+
+
+def _spread_reading(overall: str, ans: Dict[str, Any], aud: Dict[str, Any]) -> str:
+    def ci(d: Dict[str, Any]) -> str:
+        lo, hi = d.get("ratio_interval") or [None, None]
+        return f"90% interval {lo if lo is not None else '?'}-{hi if hi is not None else 'open'}"
+    bits = []
+    if ans.get("sd_ratio") is not None and ans["verdict"] in ("too alike", "too spread out"):
+        more_less = "less" if ans["verdict"] == "too alike" else "more"
+        s = (f"Simulated answers vary {more_less} than real ones (SD {ans['sd_simulated']} against {ans['sd_real']}, "
+             f"ratio {ans['sd_ratio']}, {ci(ans)}).")
+        mid_s, mid_r = (ans.get("shares_simulated") or {}).get("0.5"), (ans.get("shares_real") or {}).get("0.5")
+        if mid_s is not None and mid_r is not None and mid_s - mid_r >= 0.15:
+            s += f" {round(100 * mid_s)}% of simulated people said maybe, against {round(100 * mid_r)}% of real people."
+        bits.append(s)
+    if aud.get("sd_ratio") is not None and aud["verdict"] in ("too alike", "too spread out"):
+        closer = "closer together" if aud["verdict"] == "too alike" else "further apart"
+        span = (f"their averages span {round(100 * aud['range_simulated'])} points against {round(100 * aud['range_real'])}"
+                if aud["sd_ratio"] > 0 else
+                f"their averages ({round(100 * aud['range_simulated'])} points apart) differ by no more than noise, while the "
+                f"real ones span {round(100 * aud['range_real'])}")
+        bits.append(f"The simulated {aud['key']}s are {closer} than the real ones: {span} "
+                    f"(spread ratio {aud['sd_ratio']}, {ci(aud)}).")
+    if overall == "too alike":
+        bits.append("Treat differences between simulated people and audiences as understated, and check which audience "
+                    "to target against real answers before acting on it.")
+    elif overall == "too spread out":
+        bits.append("The simulated people disagree more than real ones; treat the extremes as exaggerated.")
+    elif overall == "similar":
+        bits.append("The simulated answers are about as varied as the real ones.")
+    elif overall == "unclear":
+        reason = aud.get("reason") if aud["verdict"] == "unclear" and aud.get("reason") else "the interval is still wide"
+        bits.append(f"Spread check unclear: {reason}; more real answers would settle it.")
+    else:
+        bits.append("Spread not checked: " + "; ".join(r for r in (ans.get("reason"), aud.get("reason")) if r) + ".")
+    return " ".join(bits)
+
+
 def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: str = "segment",
-             halfwidth: float = 0.05) -> Dict[str, Any]:
-    """The full check: overlap, conditional calibration per subgroup, an overall verdict and the AIPW correction."""
+             halfwidth: float = 0.05, budget: Optional[int] = None) -> Dict[str, Any]:
+    """The full check: overlap, conditional calibration per subgroup, an overall verdict, the AIPW correction, the
+    PPI++ interval and the spread check (are the simulated answers as varied as the real ones?)."""
     ov = overlap(synthetic, real)
     cal = conditional_calibration(synthetic, real, key)
     verdicts = [v.get("verdict") for v in cal["by_group"].values()]
@@ -485,8 +828,182 @@ def diagnose(synthetic: List[Dict[str, Any]], real: List[Dict[str, Any]], key: s
         overall = "correct"
     corr = correct(synthetic, real)
     return {"n_synthetic": len(synthetic), "n_real": len(real), "overlap": {k: v for k, v in ov.items() if k not in ("weights", "model")},
-            "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth),
+            "calibration": cal, "verdict": overall, "corrected": corr, "ppi": ppi_summary(real, synthetic, key, halfwidth, budget),
+            "spread": spread_check(synthetic, real, key),
             "reading": {"trust": "the synthetic panel can stand in for the real sample on this question",
                         "correct": "use the corrected estimate, not the raw synthetic number",
                         "mixed": "some audiences are usable after correction, others are not: see by_group",
                         "walk-away": "the synthetic panel does not cover these people: collect real answers"}[overall]}
+
+
+# --------------------------------------------------------------------------
+# Real-sample budget: split a fixed set of real answers between building personas and checking them
+# --------------------------------------------------------------------------
+#
+# Real answers can ground the personas (`intake`) or check and correct the panel (`calibrate`: AIPW, PPI++), not both:
+# PPI's guarantee needs answers the panel never saw. With a fixed number of real answers, giving most of them (60-80%)
+# to the held-out correction gave the best trade-off between bias and precision, and a 20/80 split the lowest bias
+# (Krsteski et al., ACL 2026, arXiv 2510.11408; one dataset, so the exact share will vary). split_plan shows what each
+# split costs the check; split_rows splits by person, so one customer's rows never land on both sides; holdout_guard
+# drops the persona-building side from a later calibration.
+
+SPLIT_SHARES = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)
+DEFAULT_CONDITIONING = 0.2
+MIN_HOLDOUT = 30
+SPLIT_SALT = "marketmirror-split-v1"
+ID_COLUMNS = ("respondent_id", "response_id", "customer_id", "person_id", "user_id", "contact_id", "id", "email")
+
+
+def _halfwidths(n: int, var_y: float, rho: float, n_u: float, z: float = 1.96) -> Tuple[float, float]:
+    """Half-widths of the real-only and the PPI++ interval with n held-out answers. PPI++ with the best lambda has
+    variance var_y / n * (1 - rho^2 / (1 + n / n_u)), taking the panel's prediction variance as the same on both sides."""
+    if n <= 0:
+        return math.inf, math.inf
+    alone = z * math.sqrt(var_y / n)
+    shrink = 1 - rho * rho / (1 + n / n_u) if n_u > 0 else 1.0
+    return alone, alone * math.sqrt(max(0.0, shrink))
+
+
+def split_plan(n_people: int, prior: Optional[Dict[str, Any]] = None, halfwidth: float = 0.05,
+               shares: Sequence[float] = SPLIT_SHARES, z: float = 1.96) -> Dict[str, Any]:
+    """How to split n_people real answers between persona building and the held-out check, with the half-width the
+    check reaches at each split. prior: `ppi.overall` from an earlier calibration.json (its correlation, real-only
+    standard error, n_real and effective panel size); without one, the worst case for a 0-1 answer and no panel help."""
+    n = max(0, int(n_people))
+    real_only = (prior or {}).get("real_only") or {}
+    if prior and prior.get("correlation") is not None and real_only.get("se") and prior.get("n_real"):
+        var_y = float(real_only["se"]) ** 2 * int(prior["n_real"])
+        rho = max(-1.0, min(1.0, float(prior["correlation"])))
+        n_u = float(prior.get("n_synthetic_effective") or prior.get("n_synthetic") or 0)
+        basis = "your last calibration (its panel correlation and answer spread)"
+    else:
+        var_y, rho, n_u = 0.25, 0.0, 0.0
+        basis = "worst case: no calibration yet, so no help from the panel and the widest spread a 0-1 answer can have"
+    rows = []
+    for c in shares:
+        cond = int(round(n * c))
+        hold = n - cond
+        alone, panel = _halfwidths(hold, var_y, rho, n_u, z)
+        rows.append({"conditioning_share": c, "conditioning": cond, "holdout": hold,
+                     "halfwidth_alone": round(alone, 3) if math.isfinite(alone) else None,
+                     "halfwidth_with_panel": round(panel, 3) if math.isfinite(panel) else None})
+
+    def at(c: float) -> Dict[str, Any]:
+        cond = int(round(n * c))
+        alone, panel = _halfwidths(n - cond, var_y, rho, n_u, z)
+        return {"conditioning_share": c, "conditioning": cond, "holdout": n - cond,
+                "halfwidth": round(panel, 3) if math.isfinite(panel) else None}
+    if n < MIN_HOLDOUT + 10:
+        rec = {**at(0.0), "reason": f"{n} answers are too few to split: keep every one for the check, and ground the "
+                                    "personas with other material (reviews, calls, CRM notes)"}
+    else:
+        fits = [c for c in (DEFAULT_CONDITIONING, 0.1, 0.0)
+                if n - int(round(n * c)) >= MIN_HOLDOUT and (at(c)["halfwidth"] or math.inf) <= halfwidth]
+        if fits and fits[0] == DEFAULT_CONDITIONING:
+            rec = {**at(DEFAULT_CONDITIONING), "reason": f"20% builds personas and 80% checks them, the split with the "
+                                                         f"lowest bias; the check still reaches +-{halfwidth:g}"}
+        elif fits:
+            c = fits[0]
+            rec = {**at(c), "reason": (f"a 20% share would widen the check past +-{halfwidth:g}; "
+                                       + ("10% keeps it inside" if c else "every answer is needed to reach it"))}
+        else:
+            rec = {**at(DEFAULT_CONDITIONING), "reason": f"no split reaches +-{halfwidth:g}; 20/80 keeps the bias lowest"}
+    need = None
+    if var_y > 0:
+        lo, hi = 1, 1
+        while _halfwidths(hi, var_y, rho, n_u, z)[1] > halfwidth and hi < 10 ** 7:
+            hi *= 2
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if _halfwidths(mid, var_y, rho, n_u, z)[1] <= halfwidth:
+                hi = mid
+            else:
+                lo = mid + 1
+        need = lo
+    c = rec["conditioning_share"]
+    total_needed = math.ceil(need / (1 - c)) if need and c < 1 else None
+    rec["holdout_needed"] = need
+    rec["more_real_needed"] = max(0, total_needed - n) if total_needed else None
+    return {"people": n, "halfwidth_target": halfwidth, "basis": basis,
+            "assumptions": {"answer_sd": round(math.sqrt(var_y), 3), "panel_correlation": round(rho, 3),
+                            "panel_effective_n": round(n_u, 1)},
+            "table": rows, "recommended": rec,
+            "rule": "Answers that build personas never go into the check; the check needs answers the panel never saw.",
+            "source": "Krsteski et al., ACL 2026 (arXiv 2510.11408)"}
+
+
+def hash_id(value: Any, salt: str = SPLIT_SALT) -> str:
+    """A salted hash of a person id, so the split manifest never stores emails or customer ids themselves."""
+    return hashlib.sha256(f"{salt}:{str(value).strip().lower()}".encode("utf-8")).hexdigest()[:16]
+
+
+def id_column(rows: Sequence[Dict[str, Any]], id_field: str = "") -> str:
+    if id_field:
+        return id_field
+    cols = {str(k).strip().lower(): k for r in rows[:50] for k in r}
+    return next((cols[c] for c in ID_COLUMNS if c in cols), "")
+
+
+def split_rows(rows: List[Dict[str, Any]], conditioning_share: float, id_field: str = "", segment_field: str = "",
+               seed: int = 7, salt: str = SPLIT_SALT) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    """Split real rows by person: every row with the same id lands on the same side. Within each segment the people
+    are shuffled with a fixed seed and round(share x people) go to persona building, so both sides cover every
+    segment. Rows without an id column count as one person each. Returns (conditioning, holdout, manifest)."""
+    share = max(0.0, min(0.9, float(conditioning_share)))
+    col = id_column(rows, id_field)
+    person_rows: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    seg_of: Dict[str, str] = {}
+    for i, r in enumerate(rows):
+        raw = str(r.get(col) or "").strip() if col else ""
+        pid = hash_id(raw, salt) if raw else f"row{i + 1}"
+        person_rows[pid].append(r)
+        seg_of.setdefault(pid, str(r.get(segment_field) or "").strip() if segment_field else "")
+    by_seg: Dict[str, List[str]] = defaultdict(list)
+    for pid, seg in seg_of.items():
+        by_seg[seg].append(pid)
+    cond_ids: List[str] = []
+    counts: Dict[str, Dict[str, int]] = {}
+    for seg in sorted(by_seg):
+        ids = sorted(by_seg[seg])
+        random.Random(f"{seed}:{seg}").shuffle(ids)
+        k = int(round(share * len(ids)))
+        if k >= len(ids) and len(ids) > 1:
+            k = len(ids) - 1                     # every segment keeps someone in the check
+        cond_ids += ids[:k]
+        counts[seg or "(all)"] = {"conditioning": k, "holdout": len(ids) - k}
+    cond = set(cond_ids)
+    conditioning = [r for pid in person_rows if pid in cond for r in person_rows[pid]]
+    holdout = [r for pid in person_rows if pid not in cond for r in person_rows[pid]]
+    manifest = {"version": 1, "salt": salt, "seed": seed, "id_field": col, "segment_field": segment_field,
+                "conditioning_share": share, "people": len(person_rows), "rows": len(rows),
+                "counts": {"conditioning": len(cond), "holdout": len(person_rows) - len(cond),
+                           "conditioning_rows": len(conditioning), "holdout_rows": len(holdout)},
+                "by_segment": counts,
+                "conditioning_ids": sorted(cond) if col else [],
+                "note": ("ids are salted hashes, not the raw ids" if col else
+                         "no id column: each row is one person, so a later calibration can only be checked by file")}
+    return conditioning, holdout, manifest
+
+
+def holdout_guard(rows: List[Dict[str, Any]], manifest: Optional[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Drop rows whose person built the personas (their hashed id is on the manifest's conditioning side), so the
+    check only uses answers the panel never saw."""
+    if not manifest:
+        return rows, {"status": "no split"}
+    col = manifest.get("id_field") or ""
+    if not col:
+        return rows, {"status": "no ids", "reason": manifest.get("note")}
+    cond = set(manifest.get("conditioning_ids") or [])
+    salt = manifest.get("salt") or SPLIT_SALT
+    kept, removed, no_id = [], 0, 0
+    for r in rows:
+        raw = str(r.get(col) or "").strip()
+        if not raw:
+            no_id += 1
+            kept.append(r)
+        elif hash_id(raw, salt) in cond:
+            removed += 1
+        else:
+            kept.append(r)
+    return kept, {"status": "removed" if removed else "clean", "removed": removed, "kept": len(kept), "no_id": no_id,
+                  "id_field": col}

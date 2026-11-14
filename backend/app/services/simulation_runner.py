@@ -1414,6 +1414,7 @@ class SimulationRunner:
             "twitter_simulation.db",  # Twitter 平台数据库
             "reddit_simulation.db",   # Reddit 平台数据库
             "env_status.json",        # 环境状态文件
+            "herding_probe.json",     # MarketMirror: the herding probe's assignments
         ]
         
         # 要删除的目录列表（包含动作日志）

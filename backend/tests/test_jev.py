@@ -392,6 +392,33 @@ def test_cli_jev_check_without_a_key_makes_no_call(monkeypatch):
     assert out["configured"] is True and out["key"] == "TYPESAFE_API_KEY is set" and KEY not in buf.getvalue()
 
 
+def test_cli_jev_check_lists_label_uses_and_mode(monkeypatch):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_cli"))
+    import mirofish
+    real_load = mirofish._load_jev
+
+    def load():
+        mod = real_load()
+        monkeypatch.setattr(mod, "env_file_path", jev.env_file_path)
+        monkeypatch.setattr(mod.requests, "post", jev.requests.post)        # the refusing stub
+        return mod
+    monkeypatch.setattr(mirofish, "_load_jev", load)
+    monkeypatch.delenv("MM_JEV_LABELS", raising=False)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert mirofish.main(["jev", "check"]) == 0
+    out = json.loads(buf.getvalue())
+    assert out["jev_labels_mode"] == "auto"
+    used = " ".join(out["used_for"])
+    for needle in ("social feed", "research voice", "drop causes", "battlecard", "pitch objection"):
+        assert needle in used, needle
+    monkeypatch.setenv("MM_JEV_LABELS", "off")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert mirofish.main(["jev", "check"]) == 0
+    assert json.loads(buf.getvalue())["jev_labels_mode"] == "off"
+
+
 def test_cli_survey_passes_the_engine_and_stores_the_objection_check(tmp_path):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_cli"))
     import mirofish

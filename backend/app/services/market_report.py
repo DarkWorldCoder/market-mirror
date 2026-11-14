@@ -30,7 +30,10 @@ SYSTEM = (
     "predictive uncertainty when the facts supply its held-out calibration basis. Recommend a small randomized real "
     "experiment with audience, control, treatment, exposure context and outcome metric. Feelings in the facts are "
     "simulated appraisals produced by the model and mapped by fixed rules; never write that real customers will feel "
-    "something, only that the simulated people did. Return only valid JSON."
+    "something, only that the simulated people did. The facts carry an evidence grade (A-D) with its reasons: never "
+    "state a C or D result as firm, say what it would take to raise it, and set limits.confidence no higher than the "
+    "grade allows (A high, B medium, C or D low). say_do shows stated yeses next to what is left after fixed say-do "
+    "rules; call the second an assumption. Return only valid JSON."
 )
 
 SECTION_ORDER = [
@@ -106,7 +109,8 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
                     "shown_to": m.get("impressions"), "noticed_pct": _n(m.get("noticed")), "thumb_stop_pct": _n(m.get("thumb_stop")),
                     "ctr_pct": _n(m.get("ctr")), "expected_ctr_pct": _n(m.get("expected_ctr")), "hide_pct": _n(m.get("hide_rate")),
                     "comments": m.get("comments"), "sample_comments": [c.get("text") for c in (m.get("comments_list") or [])[:3]],
-                    "landing": {k: lf.get(k) for k in ("clicks", "page_loaded", "form_started", "converted", "drop_reasons") if lf.get(k) is not None},
+                    "landing": {k: lf.get(k) for k in ("clicks", "page_loaded", "form_started", "converted", "drop_reasons",
+                                                       "drop_causes") if lf.get(k) is not None},
                     "projection": {k: _n(pr.get(k), 2) for k in ("budget", "currency", "clicks", "cpc", "conversions", "cpl",
                                                                     "cost_per_conversion", "cac", "roas", "roi_pct", "break_even_cpl") if pr.get(k) is not None}})
     seeds = ft.get("multi_seed") or {}
@@ -147,6 +151,12 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
                              "sample_comments": [(c.get("content") or "")[:140] for c in (p.get("comments") or [])[:2]]})
         social["top_posts"] = tops
         social["sentiment_method"] = fs.get("sentiment_method")
+        herd = fs.get("herding") or {}
+        if herd.get("verdict") and herd["verdict"] != "not checked":
+            social["herding"] = {"verdict": herd["verdict"], "reading": herd.get("reading")}
+        probe = herd.get("probe") or {}
+        if probe.get("verdict") and probe["verdict"] != "not checked":
+            social.setdefault("herding", {})["probe"] = {"verdict": probe["verdict"], "reading": probe.get("reading")}
     return {
         "brand": _brand_name(bundle), "question": (project.get("simulation_requirement") or summary.get("simulation_requirement") or "")[:1200],
         "decision": {k: decision.get(k) for k in ("decision", "confidence", "summary", "signals", "fixes") if decision.get(k) is not None},
@@ -171,10 +181,24 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "real_voices": _research_facts(bundle.get("research") or {}),
         "pitch": _pitch_facts(bundle.get("pitch") or {}),
         "emotions": _emotion_facts(bundle, ads),
+        "evidence": _evidence(bundle),
+        "say_do": {k: v for k, v in (("survey", (bundle.get("survey") or {}).get("say_do")),
+                                     ("pitch", (bundle.get("pitch") or {}).get("say_do"))) if v},
         "email": _email_facts(bundle.get("email_test") or {}),
         "reliability": _reliability(mk, bundle),
         "budget": _budget_facts(ads, bundle),
     }
+
+
+def _evidence(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """The run's A-D evidence grade and why (app/services/evidence.py), with the feelings' quality flags folded in."""
+    from . import emotion, evidence
+    bs = bundle.get("behavior_state") or {}
+    summ = bundle.get("emotion_summary") or (emotion.summarize(bs) if isinstance(bs, dict) and bs.get("scopes") else {})
+    try:
+        return evidence.grade(bundle, (summ or {}).get("flags"))
+    except Exception:  # noqa: BLE001 - the report is written without a grade rather than not at all
+        return {}
 
 
 def _research_facts(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -292,7 +316,9 @@ def _reliability(mk: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
                               "corrected_rate_pct": _n(100 * corr["estimate"], 1) if corr.get("estimate") is not None else None,
                               "corrected_se_pct": _n(100 * corr["se"], 1) if corr.get("se") is not None else None,
                               "raw_simulated_pct": _n(100 * corr["naive_syn"], 1) if corr.get("naive_syn") is not None else None,
-                              "field": cal.get("field")}
+                              "field": cal.get("field"),
+                              "spread": (cal.get("spread") or {}).get("verdict"),
+                              "spread_reading": (cal.get("spread") or {}).get("reading")}
     seeds = (bundle.get("feed_test") or {}).get("multi_seed") or {}
     if seeds.get("n"):
         out["feed_test_seeds"] = {"n": seeds.get("n"), "winner_agreement_pct": seeds.get("winner_agreement")}
@@ -520,7 +546,23 @@ def clean_sections(data: Dict[str, Any], material: Dict[str, Any],
     ex = out.get("executive_summary") or {}
     if isinstance(ex, dict):
         ex["decision"] = str(ex.get("decision") or (material.get("decision") or {}).get("decision") or "iterate").lower()
+    cap_confidence(out, material)
     return out
+
+
+CONFIDENCE_CAP = {"A": "high", "B": "medium", "C": "low", "D": "low"}
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def cap_confidence(sections: Dict[str, Any], material: Dict[str, Any]) -> None:
+    """The stated confidence never exceeds what the evidence grade allows (A high, B medium, C and D low)."""
+    g = (material.get("evidence") or {}).get("grade")
+    lim = sections.get("limits")
+    if not g or not isinstance(lim, dict):
+        return
+    cap = CONFIDENCE_CAP.get(g, "low")
+    if _CONF_RANK.get(str(lim.get("confidence") or "low").lower(), 0) > _CONF_RANK[cap]:
+        lim["confidence"] = cap
 
 
 def fallback_sections(m: Dict[str, Any]) -> Dict[str, Any]:
@@ -608,6 +650,8 @@ def _reliability_note(r: Dict[str, Any]) -> str:
         bits.append(f"{r['retest'].get('same_verdict_pct')}% of {r['retest'].get('people')} people gave the same verdict a week later")
     if r.get("calibration"):
         bits.append(f"calibration against {r['calibration'].get('real_answers')} real answers: {r['calibration'].get('verdict')}")
+        if r["calibration"].get("spread") in ("too alike", "too spread out"):
+            bits.append(f"simulated answers {r['calibration']['spread']} compared with the real ones")
     if r.get("collapsed_segments"):
         bits.append("audiences with near-identical stated odds: " + ", ".join(r["collapsed_segments"]))
     if r.get("feed_test_seeds"):
@@ -655,6 +699,12 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
             out += [f"> Best reaction: \"{so['best_reaction']}\"", ""]
         if so.get("worst_reaction"):
             out += [f"> Worst reaction: \"{so['worst_reaction']}\"", ""]
+        herd = (material.get("social") or {}).get("herding") or {}
+        if herd.get("verdict") in ("negative pile-on", "herding both ways", "positive herding") and herd.get("reading"):
+            out += [f"**Herding check ({herd['verdict']}).** {herd['reading']}", ""]
+        probe = herd.get("probe") or {}
+        if probe.get("reading"):
+            out += [f"**Randomized herding probe ({probe['verdict']}).** {probe['reading']}", ""]
         out += _so_what(so)
     rw = sec.get("real_world_check") or {}
     if rw and rw.get("summary"):
@@ -766,8 +816,19 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
     rk = sec.get("risks") or []
     if rk:
         out += ["## Risks", ""] + [f"- **{r.get('risk')}** ({r.get('likelihood') or '?'}): {r.get('mitigation') or ''}" for r in rk] + [""]
+    cap_confidence(sec, material)
     lim = sec.get("limits") or {}
     out += ["## Limits and evidence", "", f"Model assessment: **{lim.get('confidence') or 'low'}**, based on simulated evidence.", ""]
+    ev = material.get("evidence") or {}
+    if ev.get("grade"):
+        out += [f"Evidence grade: **{ev['grade']}**, {ev.get('meaning')}.", "", _bullets(ev.get("reasons")), ""]
+    cov = ev.get("market_coverage") or {}
+    if cov.get("note"):
+        out += [f"Markets: {cov['note']}", ""]
+    for name, sd in (material.get("say_do") or {}).items():
+        if isinstance(sd, dict) and sd.get("n"):
+            out += [f"Say vs do ({name}): {sd.get('stated_yes_pct')}% said yes; {sd.get('after_rules_yes_pct')}% after the "
+                    "say-do rules (budget, dealbreakers, polite yes-sayers backing out). The second figure is an assumption.", ""]
     if lim.get("reliability_note"):
         out += [f"Reliability: {lim['reliability_note']}", ""]
     out += [_bullets(lim.get("caveats")),

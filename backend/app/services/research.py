@@ -185,7 +185,9 @@ def summarize(query: str, quotes: List[Dict[str, Any]], notes: List[str]) -> Dic
 def render_markdown(summary: Dict[str, Any]) -> str:
     out = [f"# What real people say about: {summary['query']}", "",
            f"{summary['quotes']} quotes from {', '.join(f'{k} ({v})' for k, v in summary['by_source'].items())}, fetched {summary['fetched_at']}. "
-           f"Sentiment counts come from a word list ({summary['sentiment']}).", ""]
+           f"Sentiment counts come from a word list ({summary['sentiment']})."
+           + (f" A model labelled them too: {summary['sentiment_model']['counts']} ({summary['sentiment_model']['method']})."
+              if summary.get("sentiment_model") else ""), ""]
     if summary.get("avg_rating") is not None:
         out += [f"Average app-store rating across {summary['ratings']} recent reviews: {summary['avg_rating']} / 5.", ""]
     if summary.get("themes"):
@@ -239,7 +241,10 @@ def pick_voices(store: List[Dict[str, Any]], n: int = 4, country: str = "", sent
 # --------------------------------------------------------------------------
 
 def run(query: str, sources: List[str], out_dir: str, country: str = "us", subreddits: Optional[List[str]] = None,
-        urls: Optional[List[str]] = None, limit: int = 30, get: Callable = _get, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        urls: Optional[List[str]] = None, limit: int = 30, get: Callable = _get, log: Optional[Callable[[str], None]] = None,
+        labeler: Optional[Callable[[List[str]], List[Optional[str]]]] = None) -> Dict[str, Any]:
+    """labeler: texts -> 'pos' | 'neg' | 'neu' (or None) per text, e.g. jev_labels.sentiment_labeler; a quote it
+    leaves out keeps its word-list sentiment."""
     os.makedirs(out_dir, exist_ok=True)
     quotes: List[Dict[str, Any]] = []
     notes: List[str] = []
@@ -276,7 +281,21 @@ def run(query: str, sources: List[str], out_dir: str, country: str = "us", subre
             q["quality"] = "public_review_unverified" if q.get("kind") == "review" else \
                            "public_listing" if q.get("kind") == "listing" else "public_feedback_unverified"
             uniq.append(q)
+    model_counts, method = Counter(), None
+    if labeler is not None and uniq:
+        labs = labeler([q["text"] for q in uniq])
+        for q, lab in zip(uniq, labs):
+            if lab in ("pos", "neg", "neu"):
+                q["sentiment_model"] = lab           # reporting only: q["sentiment"] (word list) still picks voices
+                model_counts[lab] += 1
+        n = sum(model_counts.values())
+        if n:
+            method = f"{getattr(labeler, 'method_name', None) or 'a classifier'} for {n} of {len(uniq)} quotes"
+            say(f"research: sentiment by {method}")
     summary = summarize(query, uniq, notes)
+    if method:
+        summary["sentiment_model"] = {"counts": dict(model_counts), "method": method, "labelled": sum(model_counts.values()),
+                                      "quotes": len(uniq)}
     with open(os.path.join(out_dir, "research.json"), "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "quotes": uniq}, f, ensure_ascii=False, indent=2)
     with open(os.path.join(out_dir, "research.md"), "w", encoding="utf-8") as f:

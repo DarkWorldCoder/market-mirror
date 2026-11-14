@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 31 October 2026.
+Last updated: 14 November 2026.
 
 This notice describes the self-hosted MarketMirror software and agent plugin. MarketMirror does not require a hosted
 MarketMirror account. Where your data is processed depends on your installation, the model and memory providers you configure,
@@ -24,6 +24,8 @@ customer data and run artifacts private; do not attach credentials to public sup
   responses to the configured provider or gateway. This can include parts of briefs, documents, imported customer data and
   observed website text. Multiple configured providers can be used in a run. A local gateway that calls Claude Code or Codex
   still uses that CLI's configured service. A model endpoint is local only when you actually run and configure it locally.
+  [Provider data handling](docs/PROVIDERS_AND_SCALE.md#provider-data-handling) summarises what each provider's pages say
+  about retention, DPAs, regions and training.
 - **Memory and knowledge graphs.** The default `MEMORY_BACKEND=local` stores a SQLite graph locally, but graph extraction can
   still call your configured language model. Optional `MEMORY_BACKEND=zep` sends document chunks and simulation activity
   to Zep Cloud for graph processing. Optional `MEMORY_BACKEND=cognee` sends texts and search queries to the configured Cognee

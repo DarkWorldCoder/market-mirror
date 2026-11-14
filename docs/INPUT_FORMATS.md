@@ -56,6 +56,24 @@ python backend/claude_cli/mirofish.py intake --files reviews.csv --engine suppli
 
 Grounded people are a small, self-selected sample: the customers who wrote a review or took a call. Synthetic people fill the rest of the audience. Use `calibrate` to check coverage before treating results as representative.
 
+**Audience from your web analytics (Google Analytics 4, PostHog)**
+
+`analytics-audience` turns the visitors your analytics already describe into the persona spec: one segment per top country (or acquisition channel), sized by its share of users, and per-country age and gender shares that the planner uses to weight people (`population`).
+
+```bash
+python backend/claude_cli/mirofish.py analytics-audience --files ga4_export.csv --people 24 \
+       --base scenarios/x/personas.json --out scenarios/x/personas.json
+python backend/claude_cli/mirofish.py analytics-audience --files posthog_hogql.json --segment-by channel --out scenarios/x/personas.json
+```
+
+- **What it reads:** GA4 exports from the UI (CSV; the `#` header lines give the date range, and each blank-line-separated table is one breakdown) or the Data API (`runReport` / `batchRunReports` JSON), and PostHog exports (HogQL `{columns, results}`, persons or events as CSV / JSON). Agents can pass rows they pulled through the host's GA4 or PostHog MCP server with `--rows @rows.json`.
+- **Columns it knows:** country, city, age (`userAgeBracket`), gender, device, channel (default channel group, source / medium, `$initial_utm_source`, referring domain), new vs returning, language, interest; counts from users (`activeUsers`, `count(distinct person_id)` ...), sessions or events, and key events / conversions. Rename others with `--map country=Market users=Visitors`. No other column is read, so a persons export that also carries emails or names does not pass them on.
+- **One breakdown, one table.** Each share comes from the largest table that has the dimensions it needs, so separate country x city and country x age reports are not added together.
+- **Nothing invented.** `(not set)` and `unknown` are reported, not spread over known values. A country left out of a per-country age table (GA4 thresholds small groups) keeps no age range rather than borrowing another country's. Whole-site figures are used only when the data has no per-country breakdown, and the notes say so.
+- **The output** adds segments marked `"source": "analytics"` (a re-run replaces them; your own segments stay) and fills `population` for countries you have not given shares for (`--replace` overwrites yours). `--population-only` keeps your segments and only adds the weighting shares. `analytics_audience.json` and `.md` sit next to the spec. In `market_test.json`, use `"analytics": {"files": ["ga4_export.csv"], "people": 24}`.
+
+GA4 age and gender come from Google signals and cover only part of the users; the report says how many. Analytics describe who visited, not everyone you could sell to.
+
 **creatives.json**
 
 ```json

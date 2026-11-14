@@ -24,6 +24,7 @@ DL_LABELS = {
     "feed_test_creatives.csv": "Creatives + ROI (CSV)", "leads.csv": "Lead scores (CSV)",
     "analyst_panel.json": "Analyst panel (JSON)", "feed_story.json": "Social feed (JSON)",
     "summary.json": "All numbers (JSON)",
+    "real_check.md": "Check with real people (Markdown)", "real_check.csv": "Real answers sheet (CSV)",
 }
 
 
@@ -172,6 +173,55 @@ def _feeling_rows(state: Dict[str, Any], trajectory: List[Dict[str, Any]]) -> Li
     if len(path) >= 2:
         out.append(("Feeling over time", f"pleasantness {path[0]} → {path[-1]} /9 over {len(path)} events"))
     return out
+
+
+_SERVICES: Dict[str, Any] = {}
+
+
+def _service(name: str):
+    """A stdlib-only backend service (backend/app/services/<name>.py) by path, or None when it cannot load."""
+    if name not in _SERVICES:
+        try:
+            import importlib.util
+            import os
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", f"{name}.py")
+            spec = importlib.util.spec_from_file_location(f"mm_{name}_view", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            _SERVICES[name] = mod
+        except Exception:  # noqa: BLE001 - the dashboard renders without it
+            _SERVICES[name] = None
+    return _SERVICES[name]
+
+
+def evidence_section(bundle: Dict[str, Any], states: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str, str]]:
+    """'How sure is this': the run's A-D evidence grade with its reasons, and stated yeses next to what is left after
+    the say-do rules (survey and pitch)."""
+    ev_mod, emo = _service("evidence"), _emotion()
+    if not ev_mod or not isinstance(bundle, dict):
+        return None
+    flags = (emo.summarize(states) or {}).get("flags") if emo and isinstance(states, dict) and states.get("scopes") else None
+    ev = ev_mod.grade(bundle, flags)
+    if not ev.get("reasons"):
+        return None
+    tone = {"A": "pos", "B": "mint", "C": "neu", "D": "neg"}.get(ev["grade"], "")
+    rows = [[name, sd.get("n"), f'{sd.get("stated_yes_pct")}%', f'{sd.get("after_rules_yes_pct")}%',
+             ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in (sd.get("dropped") or {}).items()) or "–"]
+            for name, sd in (("Survey", (bundle.get("survey") or {}).get("say_do")), ("Sales pitch", (bundle.get("pitch") or {}).get("say_do")))
+            if isinstance(sd, dict) and sd.get("n")]
+    cov = ev.get("market_coverage") or {}
+    market_note = (f'<p class="callout">{_pill("Market coverage", "neg" if cov.get("flagged") else "neu")} {_e(cov["note"])}</p>'
+                   if cov.get("note") else "")
+    body = (f'<p>{_pill("Evidence " + ev["grade"], tone)} {_e(ev["meaning"])}.</p>'
+            + "<ul>" + "".join(f"<li>{_e(r)}</li>" for r in ev["reasons"]) + "</ul>" + market_note
+            + (ui.table(["Test", "People", "Said yes", "After say-do rules", "Removed by"], rows) if rows else "")
+            + ('<p class="muted small">"After say-do rules" applies fixed rules from each person\'s decision card (budget, '
+               "dealbreakers, polite yes-sayers backing out at payment). It is an assumption, not a measurement.</p>" if rows else "")
+            + '<p class="muted small">The grade adds up what this run can show (people, seeds, retest, real-data check, '
+              "providers, feelings flags). A or B needs more than a simulation can give on its own.</p>")
+    head = ui.section_head("How sure is this", "How much this run can carry, and what people said next to what they would "
+                           "likely do.")
+    return ("how-sure", "How sure is this", head + body)
 
 
 def _couplings_moved(tests: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[List[Any]]:
@@ -629,6 +679,7 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str
             + (f'<div class="card"><h3>Fix in the pitch first</h3><ul>{fixes}</ul></div>' if fixes else "")
             + (f'<div class="card"><h3>Objections and how the rebuttals did</h3><div class="tbl"><table class="sortable"><thead><tr><th>Objection</th><th class="num">Share</th>'
                f'<th>Rebuttal used</th><th class="num">Moved them</th><th>Questions they asked back</th></tr></thead><tbody>{obj_rows}</tbody></table></div></div>' if obj_rows else "")
+            + _objection_check_note(p.get("objection_check"))
             + (f'<div class="card"><h3>By audience</h3><div class="tbl"><table class="sortable"><thead><tr><th>Audience</th><th class="num">n</th><th>Yes / maybe / no</th>'
                f'<th class="num">Lead score</th><th>Top objection</th></tr></thead><tbody>{seg_rows}</tbody></table></div></div>' if seg_rows else "")
             + (f'<div class="card"><h3>Call these first</h3><div class="tbl"><table class="sortable"><thead><tr><th>Who</th><th class="num">Lead score</th><th>Verdict</th>'
@@ -636,6 +687,18 @@ def pitch_section(p: Optional[Dict[str, Any]], chart=None, insight: Optional[str
             + (f'<div class="card"><h3>In their words</h3><div class="voices">{quotes}</div></div>' if quotes else "")
             + f'<details class="card"><summary>The pitch that was tested</summary><pre class="script">{_e(p.get("script") or "")}</pre></details>')
     return ("pitch", "Sales rehearsal", html)
+
+
+def _objection_check_note(oc: Any) -> str:
+    """One line: how often Jev, a model that did not play the buyers, gave the same objection type as their own tag."""
+    ag = (oc or {}).get("agreement") if isinstance(oc, dict) else None
+    if not isinstance(ag, dict) or not ag.get("n"):
+        return ""
+    pct = lambda x: "–" if ui.num(x) is None else f"{float(x):.0f}%"
+    return (f'<p class="muted small">Check: the Jev decision model ({_e(oc.get("model") or "jev")}) gave the same objection '
+            f'type as the buyer\'s own tag for {_e(pct(ag.get("pct")))} of {_e(ag["n"])} objections (95% range '
+            f'{_e(pct(ag.get("lo")))}–{_e(pct(ag.get("hi")))})' + (f'; {_e(oc["failed"])} not labelled' if oc.get("failed") else "")
+            + '. The buyer\'s own tag chose the rebuttal.</p>')
 
 
 def ideas_section(ideas: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
@@ -737,6 +800,46 @@ def focus_group_section(fg: Optional[Dict[str, Any]], insight: Optional[str] = N
     return ("focusgroup", "Focus group", head + body)
 
 
+_SPREAD_TONE = {"too alike": "neg", "too spread out": "neg", "similar": "pos"}
+_SPREAD_LABEL = {"too alike": "Answers too alike", "too spread out": "Answers too spread out", "similar": "Spread like real answers",
+                 "unclear": "Spread unclear", "not checked": "Spread not checked"}
+
+
+def _spread_html(sp: Any) -> str:
+    """The spread check under the real-sample tiles: a verdict pill, the reading, and the answer shares side by side."""
+    if not isinstance(sp, dict) or not sp.get("verdict"):
+        return ""
+    v = str(sp["verdict"])
+    ans = sp.get("answers") if isinstance(sp.get("answers"), dict) else {}
+    names = {"0": "no", "0.5": "maybe", "1": "yes"}
+    shares = ""
+    ss, rs = ans.get("shares_simulated"), ans.get("shares_real")
+    if isinstance(ss, dict) and isinstance(rs, dict) and set(ss) | set(rs) <= set(names):
+        shares = ('<p class="muted small">Answer shares, simulated vs real: '
+                  + ", ".join(f'{names[k]} {round(100 * float(ss.get(k) or 0))}% vs {round(100 * float(rs.get(k) or 0))}%'
+                              for k in ("1", "0.5", "0") if k in ss or k in rs) + ".</p>")
+    return (f'<p class="callout">{_pill(_SPREAD_LABEL.get(v, v), _SPREAD_TONE.get(v, "neu"))} {_e(sp.get("reading") or "")}</p>'
+            + shares)
+
+
+def _allocation_html(alloc: Any) -> str:
+    """'Where to collect the next N real answers': the planned split by segment next to a split by audience share."""
+    if not isinstance(alloc, dict) or not alloc.get("extra"):
+        return ""
+    rows = [r for r in alloc.get("by_stratum") or [] if isinstance(r, dict)]
+    if not rows:
+        return ""
+    hw = lambda v: "–" if ui.num(v) is None else f"±{100 * float(v):.1f} pts"
+    table = ui.table(["Segment", "Have", "Add", "If split by share", "Panel correlation", "Interval after"],
+                     [[r.get("stratum"), r.get("n_real"), r.get("add"), r.get("add_proportional"),
+                       r.get("correlation") if r.get("panel_used") else "not yet (under 10 real)", hw(r.get("halfwidth_after"))]
+                      for r in rows], sortable=True)
+    return (f'<h3>Where to collect the next {_e(alloc["extra"])} real answers</h3>'
+            + (f'<p class="small">{_e(alloc.get("reading"))}</p>' if alloc.get("reading") else "") + table
+            + '<p class="muted small">Planned from today\'s answers: more go where the simulated panel predicts least, and '
+              'segments with fewer than 10 real answers are topped up first. A plan, not a guarantee.</p>')
+
+
 def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """'Real-sample check': the calibrate verdict, the AIPW-corrected rate, and the PPI++ interval with the
     effective sample size and how many more real answers a target precision needs."""
@@ -764,14 +867,17 @@ def calibration_section(cal: Optional[Dict[str, Any]], insight: Optional[str] = 
                     + (f'<b>{plan["more_with_panel"]}</b> more real answers with this panel' if plan.get("more_with_panel") is not None else "the panel alone cannot get there")
                     + (f', {plan["more_alone"]} without it.' if plan.get("more_alone") is not None else ".") + "</p>")
     body = ('<div class="kpis">' + "".join(ui.kpi(v, k, hint=h) for k, v, h in tiles) + "</div>"
+            + _spread_html(cal.get("spread"))
             + (f'<p class="small">{_e(ppi.get("reading"))}</p>' if ppi.get("reading") else "") + plan_txt
+            + _allocation_html(ppi.get("allocation"))
             + (f'<p class="small">AIPW-corrected rate: {pct(corr.get("estimate"))} (simulated {pct(corr.get("naive_syn"))}, '
                f'real sample {pct(corr.get("real_mean"))}).</p>' if corr.get("estimate") is not None else "")
             + (ui.table(["Segment", "Real", "Rate", "95% interval", "Audience share", "Lambda"], rows, sortable=True) if rows else "")
             + (f'<p class="muted small">Not enough real answers (10+) for: {_e(", ".join(s["stratum"] for s in skipped))}.</p>' if skipped else "")
             + f'<p class="muted small">{_e(ppi.get("assumption") or "")}</p>')
-    head = ui.section_head("Real-sample check", "Your real answers against the simulated panel: how far to trust it, and "
-                           "an interval that stays valid however good or bad the panel is (PPI++).", insight)
+    head = ui.section_head("Real-sample check", "Your real answers against the simulated panel: how far to trust it, whether "
+                           "its answers are as varied as real ones, and an interval that stays valid however good or bad the "
+                           "panel is (PPI++).", insight)
     return ("calibration", "Real-sample check", head + body)
 
 

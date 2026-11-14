@@ -52,6 +52,7 @@ try:  # marketing layer (stdlib only)
     import marketing  # type: ignore
     import feed_view  # type: ignore
     import report_view  # type: ignore
+    import real_check  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
@@ -62,6 +63,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import marketing  # type: ignore
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
+    from . import real_check  # type: ignore
 try:  # social feed section (Phase 2, optional until wired)
     import social_feed  # type: ignore
 except ImportError:  # pragma: no cover
@@ -82,6 +84,16 @@ def _echarts_inline() -> str:
         return ""
 
 
+def spend_cap_row(bundle: Dict[str, Any]) -> str:
+    """'about $0.42 of $5.00 (estimated, 120 calls)', with a note when the cap stopped the run; '' without a cap."""
+    sc = bundle.get("spend_cap") or {}
+    if not isinstance(sc, dict) or not sc.get("limit_usd"):
+        return ""
+    text = (f"about ${float(sc.get('spent_usd') or 0):.2f} of ${float(sc['limit_usd']):.2f} "
+            f"(estimated from token usage, {int(sc.get('calls') or 0)} model calls)")
+    return text + (" · reached: later steps stopped and partial results are shown" if sc.get("reached") else "")
+
+
 RUN_FILES = [
     "project", "graph", "simulation", "config", "profiles_twitter",
     "profiles_reddit", "run_status", "timeline", "actions", "agent_stats",
@@ -89,7 +101,7 @@ RUN_FILES = [
     "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "choice_maxdiff", "choice_conjoint", "choice_gabor_granger", "focus_group", "calibration", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
-    "geo_visibility", "voc_grounding", "dark_social", "search_index",
+    "geo_visibility", "voc_grounding", "dark_social", "search_index", "spend_cap",
 ]
 
 
@@ -1119,6 +1131,12 @@ def build_insights(bundle: Dict[str, Any], mk: Dict[str, Any], decision: Optiona
         if top.get("comments"):
             line += f'; most discussed: “{trunc(top.get("content"), 90)}” ({len(top["comments"])} replies)'
         ins["socialfeed"] = line + "."
+    if ((fs.get("herding") or {}).get("probe") or {}).get("flag"):
+        ins["socialfeed"] = (ins.get("socialfeed", "") + " A randomized probe found that one early downvote made other "
+                             "people vote a post lower: read negative threads as amplified.").strip()
+    elif (fs.get("herding") or {}).get("flag"):
+        ins["socialfeed"] = (ins.get("socialfeed", "") + " Reactions piled onto criticism more than chance explains: "
+                             "read negative threads as possibly amplified.").strip()
     pitch = bundle.get("pitch") or {}
     if pitch.get("answered"):
         before, after = pitch.get("verdict_before") or {}, pitch.get("verdict_after") or {}
@@ -1267,8 +1285,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                                                                           email=bundle.get("email_test"),
                                                                           focus_group=bundle.get("focus_group"),
                                                                           survey=bundle.get("survey"))),
-                         ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch")))):
-        extra = _safe(label, build)                          # pitch ends up first
+                         ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))),
+                         ("how sure", lambda: report_view.evidence_section(bundle, {"scopes": {"default": behavior_states(bundle)}}))):
+        extra = _safe(label, build)                          # the last one ends up first
         if extra:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "playbook"), len(mk_sections))
             mk_sections.insert(at, extra)
@@ -1296,6 +1315,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel", "cro_lab"):
         if bundle.get(name):
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
+    kit = _safe("real check", lambda: real_check.build(bundle, mk))
+    if kit:                                   # the questions that decided the run, to ask real people
+        files["real_check.md"], files["real_check.csv"] = kit["markdown"], kit["csv"]
     rep_sec = report_view.report_section(mr, files, markdown_to_html, insights.get("report"))
     if dec:
         cockpit = _safe("decision cockpit", lambda: overview.cockpit_bento(bundle, mk, decision, dec[2]), dec[2])
@@ -1380,6 +1402,8 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         ("Hot topics", ", ".join(map(str, as_list(ev.get("hot_topics")))) or "–"),
         ("Report", f"{report.get('report_id') or '–'} · {report.get('status') or ''}"),
     ]
+    if spend_cap_row(bundle):
+        meta_rows.append(("Spend cap", spend_cap_row(bundle)))
     meta_html = '<dl class="kv">' + "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in meta_rows) + "</dl>"
     if project.get("analysis_summary"):
         meta_html += f'<details><summary>Ontology analysis</summary><p>{esc(project.get("analysis_summary"))}</p></details>'

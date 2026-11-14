@@ -470,7 +470,8 @@ def run_sales_battlecard(client, model: str, people: List[Dict[str, Any]], offer
     _need(client)
     meter = _meter(client)
     o = offer_dict(offer, profile)
-    objs = [x for x in gather_objections(survey_data, pitch_data, feed_data) if x["type"]]
+    gathered = gather_objections(survey_data, pitch_data, feed_data)
+    objs = [x for x in gathered if x["type"]]      # what the simulation uses: the people's own objection types
     asked: List[Dict[str, Any]] = []
     cohort = sample_people(people, cohort_size, seed)
     if len(objs) < 5:                               # no run data yet: ask the cohort what would stop them
@@ -525,7 +526,29 @@ def run_sales_battlecard(client, model: str, people: List[Dict[str, Any]], offer
                     "replies": [_short(r["data"].get("reply"), 180) for r in rs if r["data"].get("reply")][:3]})
     summary = {"objections": by_type, "objection_sources": dict(Counter(x["source"] for x in objs)),
                "card": card, "rebuttal_test": eff}
+    extra = _ad_comment_concerns(gathered)
+    if extra:
+        summary["ad_comment_concerns"] = extra
     return envelope("battlecard", asked, meter, offer=o, competitor=competitor, summary=summary)
+
+
+def _ad_comment_concerns(gathered: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Ad comments carry no objection type, so the battlecard leaves them out. With a Jev key, Jev labels them after
+    the run and they are reported beside the card; they never pick a rebuttal or change who is asked."""
+    comments = [dict(x) for x in gathered if not x.get("type") and x.get("source") == "ad comment"]
+    if not comments:
+        return None
+    try:
+        from . import jev_labels
+        if not jev_labels.enabled() or not jev_labels.label_concerns(comments):
+            return None
+    except Exception:  # noqa: BLE001 - an extra view, never fails the battlecard
+        return None
+    typed = [x for x in comments if x.get("type")]
+    c = Counter(x["type"] for x in typed)
+    return {"labelled": len(typed), "comments": len(comments), "by_type": dict(c.most_common()),
+            "examples": {t: [x["text"] for x in typed if x["type"] == t][:2] for t in c},
+            "method": "jev", "note": "Labelled by Jev after the run; not used to choose rebuttals."}
 
 
 # --------------------------------------------------------------------------

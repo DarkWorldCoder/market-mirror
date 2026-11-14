@@ -159,6 +159,7 @@ from action_logger import SimulationLogManager, PlatformActionLogger
 from community_seed import seed_community_follows, max_trace_rowid
 import agent_context  # MarketMirror: per-round persona cards
 from event_schedule import events_by_round, inject_scheduled  # MarketMirror: scheduled brand posts
+import herding_probe  # MarketMirror: opt-in randomized herding probe
 
 try:
     from camel.models import ModelFactory
@@ -490,6 +491,8 @@ class ParallelIPCHandler:
             out[f"{platform}_{agent_id}"] = result
         if failed:
             print(f"  {platform}: {failed}/{len(agent_ids)} interviews failed or timed out (no answer recorded)")
+        agent_context.record_cache_usage(self.simulation_dir, platform, f"interviews ({len(agent_ids)})",
+                                         lambda m: print(f"  [{platform}] {m}"))
         return out
 
     async def handle_batch_interview(self, command_id: str, interviews: List[Dict], platform: str = None) -> bool:
@@ -1122,6 +1125,12 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
 
     agent_context.model_timeout()   # MODEL_TIMEOUT default 60 s (camel's own default is 180 s)
 
+    native = agent_context.claude_native_model(llm_model, os.environ.get('OPENAI_API_BASE_URL'),
+                                               os.environ.get('OPENAI_API_KEY'), _cfg)
+    if native is not None:
+        print(f"{config_label} Claude native Messages API with prompt caching")
+        return native
+
     return ModelFactory.create(
         model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL if _is_compat else ModelPlatformType.OPENAI,
         model_type=llm_model,
@@ -1231,15 +1240,20 @@ async def run_twitter_simulation(
         log_info(f"错误: Profile文件不存在: {profile_path}")
         return result
     
-    result.agent_graph = await generate_twitter_agent_graph(
-        profile_path=profile_path,
-        model=model,
-        available_actions=TWITTER_ACTIONS,
-    )
+    load_path, probe_id = herding_probe.profiles_with_probe(config, "twitter", profile_path)
+    try:
+        result.agent_graph = await generate_twitter_agent_graph(
+            profile_path=load_path,
+            model=model,
+            available_actions=TWITTER_ACTIONS,
+        )
+    finally:
+        herding_probe.discard_copy(load_path, profile_path)
     agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="twitter")
     mixed = agent_context.assign_provider_models(result.agent_graph, config)
     if mixed:
         log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
+    agent_context.tag_cache_usage(result.agent_graph, "twitter")   # cache reads/writes per platform
     scheduled_by_round = events_by_round(config, "twitter")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1263,6 +1277,8 @@ async def run_twitter_simulation(
     
     await result.env.reset()
     log_info("环境已启动")
+    probe = herding_probe.HerdingProbe.start(config, "twitter", simulation_dir, db_path, result.agent_graph,
+                                             probe_id, log_info)
     
     if action_logger:
         action_logger.log_simulation_start(config)
@@ -1330,6 +1346,9 @@ async def run_twitter_simulation(
         if total_rounds < original_rounds:
             log_info(f"轮数已截断: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
     
+    if probe:
+        probe.after_step(0, has_next=total_rounds > 0)   # organic opening posts can be enrolled too
+
     start_time = datetime.now()
     
     for round_num in range(total_rounds):
@@ -1361,12 +1380,17 @@ async def run_twitter_simulation(
         actions = {agent: LLMAction() for _, agent in active_agents}
         agent_context.begin_round(round_num + 1, simulated_hour, platform="twitter")
         inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
+        if probe:   # the probe's pending votes go first; it never gets a model-driven action
+            actions = probe.inject(actions, result.env, round_num + 1, ManualAction, ActionType)
         await result.env.step(actions)
         
         # 从数据库获取实际执行的动作并记录
         actual_actions, last_rowid = fetch_new_actions_from_db(
             db_path, last_rowid, agent_names
         )
+        if probe:
+            actual_actions = probe.drop_own(actual_actions)   # logged in herding_probe.json, not as activity
+            probe.after_step(round_num + 1, has_next=round_num + 1 < total_rounds)
         
         round_action_count = 0
         for action_data in actual_actions:
@@ -1389,6 +1413,7 @@ async def run_twitter_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+        agent_context.record_cache_usage(simulation_dir, "twitter", f"round {round_num + 1}", log_info)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
@@ -1442,15 +1467,20 @@ async def run_reddit_simulation(
         log_info(f"错误: Profile文件不存在: {profile_path}")
         return result
     
-    result.agent_graph = await generate_reddit_agent_graph(
-        profile_path=profile_path,
-        model=model,
-        available_actions=REDDIT_ACTIONS,
-    )
+    load_path, probe_id = herding_probe.profiles_with_probe(config, "reddit", profile_path)
+    try:
+        result.agent_graph = await generate_reddit_agent_graph(
+            profile_path=load_path,
+            model=model,
+            available_actions=REDDIT_ACTIONS,
+        )
+    finally:
+        herding_probe.discard_copy(load_path, profile_path)
     agent_context.install(result.agent_graph, config, seed=int(config.get("seed") or 7), platform="reddit")
     mixed = agent_context.assign_provider_models(result.agent_graph, config)
     if mixed:
         log_info("mixed providers, agents per provider: " + ", ".join(f"{k} {v}" for k, v in mixed.items()))
+    agent_context.tag_cache_usage(result.agent_graph, "reddit")   # cache reads/writes per platform
     scheduled_by_round = events_by_round(config, "reddit")
     
     # 从配置文件获取 Agent 真实名称映射（使用 entity_name 而非默认的 Agent_X）
@@ -1474,6 +1504,8 @@ async def run_reddit_simulation(
     
     await result.env.reset()
     log_info("环境已启动")
+    probe = herding_probe.HerdingProbe.start(config, "reddit", simulation_dir, db_path, result.agent_graph,
+                                             probe_id, log_info)
     
     if action_logger:
         action_logger.log_simulation_start(config)
@@ -1549,6 +1581,9 @@ async def run_reddit_simulation(
         if total_rounds < original_rounds:
             log_info(f"轮数已截断: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
     
+    if probe:
+        probe.after_step(0, has_next=total_rounds > 0)   # organic opening posts can be enrolled too
+
     start_time = datetime.now()
     
     for round_num in range(total_rounds):
@@ -1580,12 +1615,17 @@ async def run_reddit_simulation(
         actions = {agent: LLMAction() for _, agent in active_agents}
         agent_context.begin_round(round_num + 1, simulated_hour, platform="reddit")
         inject_scheduled(actions, result.env, round_num + 1, scheduled_by_round, ManualAction, ActionType, log_info)
+        if probe:   # the probe's pending votes go first; it never gets a model-driven action
+            actions = probe.inject(actions, result.env, round_num + 1, ManualAction, ActionType)
         await result.env.step(actions)
         
         # 从数据库获取实际执行的动作并记录
         actual_actions, last_rowid = fetch_new_actions_from_db(
             db_path, last_rowid, agent_names
         )
+        if probe:
+            actual_actions = probe.drop_own(actual_actions)   # logged in herding_probe.json, not as activity
+            probe.after_step(round_num + 1, has_next=round_num + 1 < total_rounds)
         
         round_action_count = 0
         for action_data in actual_actions:
@@ -1608,6 +1648,7 @@ async def run_reddit_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+        agent_context.record_cache_usage(simulation_dir, "reddit", f"round {round_num + 1}", log_info)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
@@ -1669,6 +1710,7 @@ async def main():
     config = load_config(args.config)
     simulation_dir = os.path.dirname(args.config) or "."
     wait_for_commands = not args.no_wait
+    herding_probe.reset_log(simulation_dir)   # each platform's probe writes its own section afresh
     
     # 初始化日志配置（禁用 OASIS 日志，清理旧文件）
     init_logging_for_simulation(simulation_dir)

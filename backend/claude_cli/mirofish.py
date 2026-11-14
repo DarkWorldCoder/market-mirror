@@ -24,13 +24,16 @@ Only the stdlib and `requests` are used (requests is imported lazily, so
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import re
 import os
+import shutil
 import sys
+import tempfile
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -217,11 +220,78 @@ def read_text_arg(v: Optional[str]) -> Optional[str]:
     return v
 
 
+TEXT_SEED_EXT = {"md", "txt", "markdown"}
+
+
+def _seed_text(path: str) -> Tuple[Optional[str], str]:
+    """(text, "") for a text seed; (None, reason) for a PDF or other non-text file, or a text file that is not UTF-8."""
+    if os.path.splitext(path)[1].lower().lstrip(".") not in TEXT_SEED_EXT:
+        return None, "is a PDF or other non-text file"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read(), ""
+    except (OSError, UnicodeDecodeError):
+        return None, "is not readable as UTF-8 text"
+
+
+def seed_warnings(paths: List[str]) -> List[str]:
+    """One note per seed with contact details (counts per kind, nothing replaced) or that cannot be scanned."""
+    intake = market_cli.load_service("intake")
+    notes = []
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        name = os.path.basename(p)
+        text, reason = _seed_text(p)
+        if text is None:
+            notes.append(f"{name} {reason}, so its contents were not checked for personal data; check it by hand")
+            continue
+        _, counts = intake.scrub(text)
+        found = {k: v for k, v in counts.items() if v}
+        if found:
+            detail = ", ".join(f"{n} {k}" for k, n in sorted(found.items()))
+            notes.append(f"{name} contains personal data ({detail}); the text is sent to the LLM provider. "
+                         "Remove it first, or use --scrub-seeds / --no-pii-check")
+    return notes
+
+
+def scrub_seed_copies(paths: List[str], scrub_dir: str) -> List[str]:
+    """Write a cleaned copy of each text seed under scrub_dir (same file name). Refuses PDFs and unreadable files:
+    they cannot be cleaned, and uploading them unchanged would defeat --scrub-seeds."""
+    intake = market_cli.load_service("intake")
+    cleaned = []
+    for p in paths:
+        if not os.path.isfile(p):
+            cleaned.append(p)  # reported as not found by the upload loop
+            continue
+        text, reason = _seed_text(p)
+        if text is None:
+            raise CLIError(f"--scrub-seeds cannot clean {os.path.basename(p)}: it {reason}. "
+                           "Convert it to a text file first, or drop --scrub-seeds")
+        clean, _ = intake.scrub(text)
+        # keep the original file name: the upload and the project name use it
+        sub_dir = tempfile.mkdtemp(dir=scrub_dir)
+        dst = os.path.join(sub_dir, os.path.basename(p))
+        with open(dst, "w", encoding="utf-8") as f:
+            f.write(clean)
+        cleaned.append(dst)
+    return cleaned
+
+
 def step_upload(c: Client, seeds: List[str], requirement: str, name: Optional[str],
-                context: Optional[str] = None) -> Dict[str, Any]:
+                context: Optional[str] = None, scrub_seeds: bool = False, pii_check: bool = True) -> Dict[str, Any]:
+    """Upload seeds and build the ontology. Before sending, warn about contact details in text seeds
+    (emails, phones, handles, links) and about seeds that cannot be scanned (PDFs). scrub_seeds uploads cleaned
+    temp copies instead; pii_check=False skips the warnings."""
+    scrub_dir = tempfile.mkdtemp(prefix="mm_scrub_") if scrub_seeds else None
     files = []
     handles = []
     try:
+        if scrub_dir:
+            seeds = scrub_seed_copies(seeds, scrub_dir)
+        elif pii_check:
+            for note in seed_warnings(seeds):
+                log(f"warning: {note}")
         for p in seeds:
             if not os.path.isfile(p):
                 raise CLIError(f"seed file not found: {p}")
@@ -240,6 +310,8 @@ def step_upload(c: Client, seeds: List[str], requirement: str, name: Optional[st
     finally:
         for fh in handles:
             fh.close()
+        if scrub_dir:
+            shutil.rmtree(scrub_dir, ignore_errors=True)
     log(f"upload: project {data.get('project_id')} - {len((data.get('ontology') or {}).get('entity_types', []))} "
         f"entity types, {len((data.get('ontology') or {}).get('edge_types', []))} relation types")
     return data
@@ -330,14 +402,19 @@ def step_prepare(c: Client, simulation_id: str, wait: bool = True, timeout: floa
 
 def step_start(c: Client, simulation_id: str, platform: str = "parallel", max_rounds: Optional[int] = None,
                graph_memory: bool = True, force: bool = True, wait: bool = True,
-               timeout: float = 4 * 3600, interval: float = 5) -> Dict[str, Any]:
+               timeout: float = 4 * 3600, interval: float = 5, herding_probe: Any = None) -> Dict[str, Any]:
+    """herding_probe: None leaves simulation_config.json as it is; false turns the probe off; true, a share or
+    {share, seed} turns it on (changes the run: a neutral account votes early on some posts)."""
     payload: Dict[str, Any] = {"simulation_id": simulation_id, "platform": platform,
                                "enable_graph_memory_update": graph_memory, "force": force}
     if max_rounds:
         payload["max_rounds"] = max_rounds
+    if herding_probe is not None:
+        payload["herding_probe"] = herding_probe
     data = c.data("POST", "/api/simulation/start", json=payload, timeout=180)
     log(f"start: runner {data.get('runner_status')} pid={data.get('process_pid')} "
-        f"max_rounds={data.get('max_rounds_applied')} graph_memory={data.get('graph_memory_update_enabled')}")
+        f"max_rounds={data.get('max_rounds_applied')} graph_memory={data.get('graph_memory_update_enabled')}"
+        + (f" herding_probe={data.get('herding_probe')}" if "herding_probe" in data else ""))
     if not wait:
         return data
     return wait_run(c, simulation_id, timeout, interval)
@@ -559,13 +636,15 @@ def step_survey(c: Client, simulation_id: str, out_dir: str, offer: str = "", go
         _try("memory", lambda: c.data("POST", f"/api/simulation/{simulation_id}/memory", json={
             "scope": scope, **({"emotions": c.emotions} if getattr(c, "emotions", None) else {}), "survey": {"offer": offer, "responses": [{"agent_id": r["agent_id"], "answer": r.get("answer")}
                                                                     for r in responses if r.get("answer")]}}))
+    say_do_info = _survey_say_do(cfg, responses, offer, seed)
     survey = {"simulation_id": simulation_id, "offer": offer, "goal": goal, "messages": messages,
               "mode": "split" if split else ("pick" if messages else "none"), "currency": currency,
               "platform": platform, "assignment_seed": seed if split else None,
               "asked_at": datetime.now().isoformat(), "ssr": ssr_info, "retest": retest_info,
               **({"settle": settler.summary(len(people))} if settler is not None else {}),
               **({"objection_check": obj_check} if obj_check else {}),
-              **({"estimate": estimate_info} if estimate_info else {}), "responses": responses}
+              **({"estimate": estimate_info} if estimate_info else {}),
+              **({"say_do": say_do_info} if say_do_info else {}), "responses": responses}
     save_json(out_dir, "survey", survey)
     answered = sum(1 for r in responses if r["answer"])
     if responses and not answered:
@@ -592,6 +671,18 @@ def _add_counts(total: Dict[str, Any], part: Optional[Dict[str, Any]]) -> None:
             total[k] = round(total.get(k, 0) + v, 6)
         elif isinstance(v, dict):
             _add_counts(total.setdefault(k, {}), v)
+
+
+def _survey_say_do(cfg: Dict[str, Any], responses: List[Dict[str, Any]], offer: str, seed: int) -> Optional[Dict[str, Any]]:
+    """Stated 'would convert' yeses next to what is left after the say-do rules on each person's decision card."""
+    people = {r.get("agent_id"): r for r in (cfg or {}).get("persona_index") or [] if isinstance(r, dict)}
+    rows = [{"agent_id": r["agent_id"], "stated": (r.get("answer") or {}).get("would_convert")}
+            for r in responses if r.get("answer")]
+    try:
+        return market_cli.load_service("say_do").split(rows, people, offer=offer, seed=int(seed or 7)) or None
+    except Exception as e:  # noqa: BLE001 - an extra view, never fails the survey
+        log(f"survey: say-do split skipped: {e}")
+        return None
 
 
 def step_ssr(c: Client, responses: List[Dict[str, Any]], batch: int = 1000, engine: Optional[str] = None) -> Dict[str, Any]:
@@ -998,8 +1089,13 @@ def cmd_health(c: Client, a) -> Any:
     return c.get("/health", retries=1, timeout=10)
 
 
+def cmd_seed_check(c: Client, a) -> Any:
+    return {"warnings": seed_warnings(a.seed)}
+
+
 def cmd_upload(c: Client, a) -> Any:
-    return step_upload(c, a.seed, read_text_arg(a.requirement), a.name, read_text_arg(a.context))
+    return step_upload(c, a.seed, read_text_arg(a.requirement), a.name, read_text_arg(a.context),
+                       scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
 
 
 def cmd_build_graph(c: Client, a) -> Any:
@@ -1083,7 +1179,23 @@ def cmd_start(c: Client, a) -> Any:
         if not platform:
             raise CLIError("simulation has no prepared platform")
     return step_start(c, a.simulation, platform, a.max_rounds, graph_memory=not a.no_graph_memory,
-                      force=not a.no_force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval)
+                      force=not a.no_force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval,
+                      herding_probe=herding_probe_arg(a))
+
+
+def herding_probe_arg(a) -> Any:
+    """--herding-probe [SHARE] / --herding-probe-seed N -> the start payload value (None when not given; 0 = off)."""
+    share = getattr(a, "herding_probe", None)
+    seed = getattr(a, "herding_probe_seed", None)
+    if share is None:
+        if seed is not None:
+            raise CLIError("--herding-probe-seed needs --herding-probe")
+        return None
+    if share == 0:
+        return False
+    if not 0 < share < 1:
+        raise CLIError("--herding-probe SHARE must be between 0 and 1 (the other posts are the controls)")
+    return {"share": share, **({"seed": seed} if seed is not None else {})}
 
 
 def cmd_wait(c: Client, a) -> Any:
@@ -1399,7 +1511,72 @@ def _prepare_timeout(persona_spec: Any) -> float:
     return float(max(3600, 6 * n))
 
 
+def arm_spend_cap(c: Client, limit: Any, label: str) -> Optional[str]:
+    """Arm the server's run spend cap (estimated US dollars) for this run and return its cap_id; it is lifted when
+    the run ends or the process exits. Refused while another run's cap is armed."""
+    if limit in (None, "", 0, False):
+        return None
+    try:
+        usd = float(limit)
+    except (TypeError, ValueError):
+        raise CLIError("max_spend_usd must be a number of US dollars, e.g. 5")
+    try:
+        st = c.data("POST", "/api/simulation/spend-cap", json={"max_spend_usd": usd, "label": label})
+    except CLIError as e:
+        if "HTTP 409" in str(e):
+            raise CLIError(f"market-test: {e}. If that run was stopped, lift its cap with: mirofish.py spend-cap --clear")
+        raise
+    cap_id = (st or {}).get("cap_id")
+    atexit.register(disarm_spend_cap, c, cap_id)
+    log(f"market-test: spend cap ${usd:.2f} armed (estimated from token usage; no new model call starts once it is "
+        "reached, and calls already running finish)")
+    return cap_id
+
+
+def disarm_spend_cap(c: Client, cap_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lift this run's spend cap (only that cap: the server compares cap_id under its lock); never raises."""
+    if not cap_id:
+        return None
+    try:
+        return c.data("DELETE", "/api/simulation/spend-cap", params={"cap_id": cap_id}, retries=1)
+    except Exception:          # the server may already be gone at exit
+        return None
+
+
+def save_spend_cap(c: Client, cap_id: Optional[str], out_dir: str, state: Dict[str, Any]) -> None:
+    """Write spend_cap.json (what was spent against this run's cap) into the run folder for the dashboard."""
+    if not cap_id:
+        return
+    try:
+        st = c.data("GET", "/api/simulation/spend-cap", retries=1)
+    except CLIError as e:
+        log(f"spend cap: could not read it ({e})")
+        return
+    if isinstance(st, dict) and st.get("cap_id") == cap_id:
+        state["spend_cap"] = {k: st.get(k) for k in ("limit_usd", "spent_usd", "calls", "reached")}
+        save_json(out_dir, "spend_cap", st)
+        if st.get("reached"):
+            log(f"market-test: spend cap reached (about ${float(st.get('spent_usd') or 0):.2f} of ${float(st['limit_usd']):.2f}); "
+                "steps after it kept what they had")
+
+
+def spend_cap_stopped(e: Exception) -> bool:
+    """The error is a reached spend cap (HTTP 409 with spend_cap_reached), not an ordinary failure."""
+    return "spend cap reached" in str(e) or "spend_cap_reached" in str(e)
+
+
 def cmd_market_test(c: Client, a) -> Any:
+    """All-in-one market test from one JSON config (see _market_test). A spend cap the run arms is lifted on every
+    exit path, so a failed cell of a study does not leave it armed for the next one."""
+    armed: List[str] = []
+    try:
+        return _market_test(c, a, armed)
+    finally:
+        for cid in armed:
+            disarm_spend_cap(c, cid)
+
+
+def _market_test(c: Client, a, armed: List[str]) -> Any:
     """All-in-one market test from one JSON config: personas -> feed test -> rounds -> survey -> panel -> dashboard.
 
     Spend guard: unless the config has "approve_spend": true, it stops after creating the personas and prints
@@ -1435,6 +1612,10 @@ def cmd_market_test(c: Client, a) -> Any:
         save_json(out_dir, "run_manifest", state)
 
     state.pop("finished_at", None)
+    state.pop("spend_cap", None)
+    cap_id = arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
+    if cap_id:
+        armed.append(cap_id)
     sid = cfg.get("simulation_id") or state.get("simulation_id")
     research_ref = cfg.get("research")
     if isinstance(research_ref, str):
@@ -1467,6 +1648,22 @@ def cmd_market_test(c: Client, a) -> Any:
         with open(os.path.join(out_dir, "personas_intake.json"), encoding="utf-8") as f:
             grounded = json.load(f).get("real_profiles") or []
         persona_spec = {**(persona_spec or {}), "real_profiles": (persona_spec or {}).get("real_profiles", []) + grounded}
+    analytics_cfg = cfg.get("analytics")
+    if isinstance(analytics_cfg, dict) and (analytics_cfg.get("files") or analytics_cfg.get("rows")) and not state.get("analytics"):
+        files = [p if os.path.isabs(p) else os.path.join(base, p.lstrip("@")) for p in analytics_cfg.get("files") or []]
+        res = market_cli.analytics_audience(
+            log, files, analytics_cfg.get("rows"), os.path.join(out_dir, "personas_analytics.json"), None,
+            {str(k): str(v) for k, v in (analytics_cfg.get("map") or {}).items()}, int(analytics_cfg.get("people") or 24),
+            str(analytics_cfg.get("segment_by") or "country"), float(analytics_cfg.get("min_share") or 0.05),
+            int(analytics_cfg.get("max_segments") or 6), str(analytics_cfg.get("role") or ""),
+            str(analytics_cfg.get("period") or ""), False, bool(analytics_cfg.get("population_only")))
+        state["analytics"] = {k: res[k] for k in ("report", "source", "segments", "population")}
+        checkpoint()
+    if state.get("analytics"):
+        with open(os.path.join(out_dir, "personas_analytics.json"), encoding="utf-8") as f:
+            built = json.load(f)
+        persona_spec = market_cli.load_service("analytics_audience").merge_into_spec(
+            built, persona_spec, population_only=bool((analytics_cfg or {}).get("population_only")))
     if cfg.get("auto_personas"):
         persona_spec = {**(persona_spec or {}), "auto": True, "auto_total": int(cfg["auto_personas"])}
     if cfg.get("personas_lite") and persona_spec is not None:
@@ -1525,129 +1722,155 @@ def cmd_market_test(c: Client, a) -> Any:
         prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
         people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
                   for p in (prof.get("profiles") or [])][:60]
+        if cfg.get("max_spend_usd"):
+            save_spend_cap(c, cap_id, out_dir, state)
+            disarm_spend_cap(c, cap_id)
+            checkpoint()
         return {"stage": "personas_ready", "simulation_id": sid, "out_dir": state["out_dir"], "people": people,
+                "spend_cap": state.get("spend_cap"),
                 "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
 
     steps = []
-    posts = cfg.get("posts")
-    events = cfg.get("events")
-    if isinstance(posts, str):
-        posts = load_json_list("@" + str(_cfg_path(base, posts)), "posts")
-    if isinstance(events, str):
-        events = load_json_list("@" + str(_cfg_path(base, events)), "events")
-    if posts is not None or events is not None:
-        step_events(c, sid, posts, events)
-        steps.append("events")
-    creatives = cfg.get("creatives")
-    if creatives:
-        if cfg.get("resume_steps") and state.get("feed_test") and market_cli.saved_step_usable(out_dir, "feed_test"):
-            log("market-test: reusing completed feed test in this study cell")
-        else:
-            cpath = _cfg_path(base, creatives)
-            if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
-                inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
-                for cr in inline or []:
-                    for k in ("image", "video"):
-                        v = cr.get(k) if isinstance(cr, dict) else None
-                        if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
-                            cr[k] = os.path.join(base, v)
-            arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
-            state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
-                c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
-                int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
-                int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
-        steps.append("feed_test")
-        checkpoint()
-    fg = cfg.get("focus_group")
-    if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
-        guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
-        survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
-        state["focus_group"] = _try("focus group", lambda: market_cli.focus_group(
-            c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
-            str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
-            int(fg.get("rounds") or 1)))
-        steps.append("focus_group")
-        checkpoint()
-    emails = cfg.get("emails")
-    if emails:
-        epath = _cfg_path(base, emails)
-        earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
-        try:
-            state["email_test"] = quota.guarded("the email test", lambda: market_cli.emailtest(
-                c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
-                cfg.get("list_size")), log)
-            steps.append("email_test")
-        except (ValueError, RuntimeError, CLIError) as e:
-            log(f"email test skipped: {e}")
-        checkpoint()
-    survey = cfg.get("survey")
-    rounds = int(cfg.get("rounds") or 0)
-    if survey and rounds < 1:
-        rounds = 1                      # the survey interviews a live simulation environment
-    if rounds:
-        live = _try("environment", lambda: c.data("POST", "/api/simulation/env-status", json={"simulation_id": sid})) if cfg.get("resume_steps") else None
-        if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
-            log("market-test: reusing live interview environment in this study cell")
-        else:
-            rs = quota.guarded("the social rounds", lambda: step_start(
-                c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True), log)
-            state["runner_status"] = rs.get("runner_status")
-        steps.append(f"{rounds} rounds")
-        checkpoint()
-    if survey:
-        if cfg.get("resume_steps") and state.get("survey") and market_cli.saved_step_usable(out_dir, "survey"):
-            log("market-test: reusing completed survey in this study cell")
-        else:
-            msgs = survey.get("messages")
-            if isinstance(msgs, str):
-                mp = _cfg_path(base, msgs)
-                # Study cells use absolute paths. They still denote files even when
-                # _cfg_path returns the same string, so always read an existing file.
-                msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
-            state["survey"] = quota.guarded("the survey", lambda: step_survey(
-                c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
-                survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
-                seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
-                objection_check=bool(survey.get("objection_check")),
-                settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
-                estimate=survey.get("estimate", True) is not False), log)
-        steps.append("survey")
-        checkpoint()
-    pitch_cfg = cfg.get("pitch")
-    if pitch_cfg:
-        script = pitch_cfg.get("script") or ""
-        sp = _cfg_path(base, script)
-        script = read_text_arg("@" + sp) if isinstance(sp, str) and os.path.isfile(sp) else read_text_arg(script)
-        rb = pitch_cfg.get("rebuttals")
-        if isinstance(rb, str):
-            rp = _cfg_path(base, rb)
-            rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
-        try:
-            state["pitch"] = quota.guarded("the sales pitch", lambda: market_cli.pitch(
-                c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
-                str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
-            steps.append("pitch")
-        except (ValueError, RuntimeError, CLIError) as e:
-            log(f"pitch skipped: {e}")
-        checkpoint()
-    panel_cfg = cfg.get("panel")
-    if panel_cfg:
-        collect(c, out_dir, state.get("project_id"), sid)
-        try:
-            state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
-                c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
-                load_bundle=exporter.load_run_dir), log)
-            steps.append("panel")
-        except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
-            log(f"panel skipped: {e}")
-            state.setdefault("errors", []).append(f"panel: {e}")
-    if cfg.get("report") == "upstream" or cfg.get("engine_report"):
-        rep = step_report(c, sid)
-        state["report_id"] = rep.get("report_id")
-        steps.append("engine report")
+    try:   # a reached spend cap stops the steps; what they finished is still collected and exported
+        posts = cfg.get("posts")
+        events = cfg.get("events")
+        if isinstance(posts, str):
+            posts = load_json_list("@" + str(_cfg_path(base, posts)), "posts")
+        if isinstance(events, str):
+            events = load_json_list("@" + str(_cfg_path(base, events)), "events")
+        if posts is not None or events is not None:
+            step_events(c, sid, posts, events)
+            steps.append("events")
+        creatives = cfg.get("creatives")
+        if creatives:
+            if cfg.get("resume_steps") and state.get("feed_test") and market_cli.saved_step_usable(out_dir, "feed_test"):
+                log("market-test: reusing completed feed test in this study cell")
+            else:
+                cpath = _cfg_path(base, creatives)
+                if isinstance(creatives, (list, dict)):    # inline creatives: local image/video paths are relative to the config
+                    inline = creatives.get("creatives") if isinstance(creatives, dict) else creatives
+                    for cr in inline or []:
+                        for k in ("image", "video"):
+                            v = cr.get(k) if isinstance(cr, dict) else None
+                            if isinstance(v, str) and v and not v.startswith(("data:", "https://", "/")):
+                                cr[k] = os.path.join(base, v)
+                arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else json.dumps(creatives)
+                state["feed_test"] = quota.guarded("the feed test", lambda: market_cli.feedtest(
+                    c, sid, arg, out_dir, log, None, None, int(cfg.get("waves") or 3), int(cfg.get("organic") or 5), None,
+                    int(cfg.get("parallel") or DEFAULT_PARALLEL), int(cfg.get("exposures") or 2), True,
+                    int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
+            steps.append("feed_test")
+            checkpoint()
+        fg = cfg.get("focus_group")
+        if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
+            guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
+            survey_cfg = cfg.get("survey") if isinstance(cfg.get("survey"), dict) else {}
+            try:
+                state["focus_group"] = market_cli.focus_group(
+                    c, sid, guide, out_dir, log, int(fg.get("people") or 6), str(fg.get("segment") or ""),
+                    str(fg.get("offer") or survey_cfg.get("offer") or ""), str(fg.get("goal") or survey_cfg.get("goal") or ""),
+                    int(fg.get("rounds") or 1))
+            except CLIError as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise
+                log(f"collect: skipped focus group: {e}")
+                state["focus_group"] = None
+            steps.append("focus_group")
+            checkpoint()
+        emails = cfg.get("emails")
+        if emails:
+            epath = _cfg_path(base, emails)
+            earg = "@" + epath if isinstance(epath, str) and os.path.exists(epath) else json.dumps(emails)
+            try:
+                state["email_test"] = quota.guarded("the email test", lambda: market_cli.emailtest(
+                    c, sid, earg, out_dir, log, int(cfg.get("seed") or 5), int(cfg.get("parallel") or DEFAULT_PARALLEL),
+                    cfg.get("list_size")), log)
+                steps.append("email_test")
+            except (ValueError, RuntimeError, CLIError) as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
+                log(f"email test skipped: {e}")
+            checkpoint()
+        survey = cfg.get("survey")
+        rounds = int(cfg.get("rounds") or 0)
+        if survey and rounds < 1:
+            rounds = 1                      # the survey interviews a live simulation environment
+        if rounds:
+            live = _try("environment", lambda: c.data("POST", "/api/simulation/env-status", json={"simulation_id": sid})) if cfg.get("resume_steps") else None
+            if cfg.get("resume_steps") and state.get("runner_status") in ("completed", "running") and (live or {}).get("env_alive"):
+                log("market-test: reusing live interview environment in this study cell")
+            else:
+                rs = quota.guarded("the social rounds", lambda: step_start(
+                    c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True,
+                    herding_probe=cfg.get("herding_probe") or False), log)   # market_test.json decides: absent = off
+                state["runner_status"] = rs.get("runner_status")
+            steps.append(f"{rounds} rounds")
+            checkpoint()
+        if survey:
+            if cfg.get("resume_steps") and state.get("survey") and market_cli.saved_step_usable(out_dir, "survey"):
+                log("market-test: reusing completed survey in this study cell")
+            else:
+                msgs = survey.get("messages")
+                if isinstance(msgs, str):
+                    mp = _cfg_path(base, msgs)
+                    # Study cells use absolute paths. They still denote files even when
+                    # _cfg_path returns the same string, so always read an existing file.
+                    msgs = read_messages("@" + mp) if isinstance(mp, str) and os.path.isfile(mp) else read_messages(msgs)
+                state["survey"] = quota.guarded("the survey", lambda: step_survey(
+                    c, sid, out_dir, survey.get("offer") or "", survey.get("goal") or "", msgs or [], bool(survey.get("split")),
+                    survey.get("pricing"), ssr=survey.get("ssr", True) is not False, retest=int(survey.get("retest") or 0),
+                    seed=int(cfg.get("seed", 11)), ssr_engine=survey.get("ssr_engine") or None,
+                    objection_check=bool(survey.get("objection_check")),
+                    settle=(survey.get("settle") if isinstance(survey.get("settle"), dict) else {} if survey.get("settle") else None),
+                    estimate=survey.get("estimate", True) is not False), log)
+            steps.append("survey")
+            checkpoint()
+        pitch_cfg = cfg.get("pitch")
+        if pitch_cfg:
+            script = pitch_cfg.get("script") or ""
+            sp = _cfg_path(base, script)
+            script = read_text_arg("@" + sp) if isinstance(sp, str) and os.path.isfile(sp) else read_text_arg(script)
+            rb = pitch_cfg.get("rebuttals")
+            if isinstance(rb, str):
+                rp = _cfg_path(base, rb)
+                rb = read_text_arg("@" + rp) if isinstance(rp, str) and os.path.isfile(rp) else read_text_arg(rb)
+            try:
+                state["pitch"] = quota.guarded("the sales pitch", lambda: market_cli.pitch(
+                    c, sid, out_dir, log, script or "", rb, str(cfg.get("brand") or ""),
+                    str(pitch_cfg.get("channel") or "message"), pitch_cfg.get("segment")), log)
+                steps.append("pitch")
+            except (ValueError, RuntimeError, CLIError) as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
+                log(f"pitch skipped: {e}")
+            checkpoint()
+        panel_cfg = cfg.get("panel")
+        if panel_cfg:
+            collect(c, out_dir, state.get("project_id"), sid)
+            try:
+                state["panel"] = quota.guarded("the analyst panel", lambda: market_cli.panel(
+                    c, sid, out_dir, log, int(panel_cfg.get("analysts") or 5), str(panel_cfg.get("brief") or ""),
+                    load_bundle=exporter.load_run_dir), log)
+                steps.append("panel")
+            except (ValueError, RuntimeError, CLIError) as e:     # the dashboard and report still follow
+                if cap_id and spend_cap_stopped(e):
+                    raise                          # the cap stops the run, not just this step
+                log(f"panel skipped: {e}")
+                state.setdefault("errors", []).append(f"panel: {e}")
+        if cfg.get("report") == "upstream" or cfg.get("engine_report"):
+            rep = step_report(c, sid)
+            state["report_id"] = rep.get("report_id")
+            steps.append("engine report")
+    except (CLIError, RuntimeError) as e:
+        if not (cap_id and spend_cap_stopped(e)):
+            raise
+        log(f"market-test: spend cap reached during the steps ({e}); exporting what finished")
+        state.setdefault("errors", []).append(f"spend cap reached: {e}")
+        state["stopped_by_spend_cap"] = True
     collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
     if cfg.get("study_cell"):
         market_cli.prune_unrequested_study_artifacts(out_dir, cfg)
+    save_spend_cap(c, cap_id, out_dir, state)
     state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
     if cfg.get("report", True) and cfg.get("report") != "upstream":
         try:
@@ -1658,7 +1881,9 @@ def cmd_market_test(c: Client, a) -> Any:
             log(f"report skipped: {e}")
             state.setdefault("errors", []).append(f"report: {e}")
         collect(c, out_dir, state.get("project_id"), sid, state.get("report_id"))
+        save_spend_cap(c, cap_id, out_dir, state)
         state["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), state["title"])
+    disarm_spend_cap(c, cap_id)
     state["finished_at"] = datetime.now().isoformat()
     checkpoint()
     summary = {}
@@ -1669,6 +1894,8 @@ def cmd_market_test(c: Client, a) -> Any:
         pass
     result = {"stage": "done", "steps": steps, "simulation_id": sid, "dashboard": state["export"]["html"],
               "decision": summary.get("decision"), "verdicts": (summary.get("marketing") or {}).get("verdicts")}
+    if state.get("spend_cap"):
+        result["spend_cap"] = state["spend_cap"]
     hook = notify_webhook({"event": "market_test.finished", "name": cfg.get("name"), "title": cfg.get("title"), "run_dir": state["out_dir"],
                            "simulation_id": sid, "decision": summary.get("decision"), "steps": steps,
                            "files": {k: v for k, v in (state.get("export") or {}).items() if isinstance(v, str)}},
@@ -1833,7 +2060,7 @@ def cmd_bench(c: Optional[Client], a) -> Any:
             for f in files:
                 with open(f, encoding="utf-8") as fh:
                     rows.append(json.load(fh))
-            methods = a.methods or ["no_persona", "twin"]
+            methods = a.methods or ["no_persona", "demographics_only", "twin"]
             res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
     except (ValueError, OSError) as e:
         raise CLIError(str(e))
@@ -1847,8 +2074,45 @@ def cmd_bench(c: Optional[Client], a) -> Any:
         f.write(bench.render_markdown(res))
     log(("bench: dry run, nothing spent; " if res.get("dry_run") else "bench: ")
         + f"estimate {res.get('estimate')} -> {stem}.json")
+    gate = _bench_gate(out_dir)
     return {"bench": os.path.abspath(stem + ".json"), "markdown": os.path.abspath(stem + ".md"),
-            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods")}
+            "dry_run": bool(res.get("dry_run")), "estimate": res.get("estimate"), "methods": res.get("methods"),
+            **({"emotion_gate": gate} if gate else {})}
+
+
+def _bench_gate(out_dir: str) -> Optional[Dict[str, Any]]:
+    """When both suites have real (not dry-run) results with an emotion method, check the default-flip gate and
+    write bench_emotion_gate.json/.md next to them."""
+    import bench
+    got = {}
+    for suite in ("upworthy", "twin2k"):
+        try:
+            with open(os.path.join(out_dir, f"bench_{suite}.json"), encoding="utf-8") as f:
+                got[suite] = json.load(f)
+        except (OSError, ValueError):
+            got[suite] = None
+    emo_methods = {"persona_panel_feel", "persona_panel_mood", "twin_affect"}
+    if not any(r and not r.get("dry_run") and emo_methods & set(r.get("methods") or {}) for r in got.values()):
+        return None
+    gate = bench.flip_gate(got["upworthy"], got["twin2k"])
+    stem = os.path.join(out_dir, "bench_emotion_gate")
+    with open(stem + ".json", "w", encoding="utf-8") as f:
+        json.dump(gate, f, ensure_ascii=False, indent=2)
+    with open(stem + ".md", "w", encoding="utf-8") as f:
+        f.write(bench.render_gate(gate))
+    log(f"bench: emotion default-flip gate {'passed' if gate['pass'] else 'not passed'} -> {stem}.md")
+    return {"pass": gate["pass"], "eligible_default": gate["eligible_default"], "file": os.path.abspath(stem + ".md")}
+
+
+def cmd_analytics_audience(c: Optional[Client], a) -> Any:
+    try:
+        rows = market_cli._load_json_arg(a.rows) if a.rows else None
+        field_map = dict(p.split("=", 1) for p in (a.map or []) if "=" in p)
+        return market_cli.analytics_audience(log, a.files, rows, a.out, a.base, field_map, a.people, a.segment_by,
+                                             a.min_share, a.max_segments, a.role or "", a.period or "", a.replace,
+                                             a.population_only)
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def cmd_intake(c: Optional[Client], a) -> Any:
@@ -2009,6 +2273,13 @@ def cmd_holdout_backtest(c: Optional[Client], a) -> Any:
     return result
 
 
+def cmd_spend_cap(c: Client, a) -> Any:
+    """The armed run spend cap (estimated US dollars), or lift it with --clear."""
+    if a.clear:
+        return {"cleared": c.data("DELETE", "/api/simulation/spend-cap")}
+    return {"spend_cap": c.data("GET", "/api/simulation/spend-cap")}
+
+
 def cmd_calibrate(c: Client, a) -> Any:
     """Check the run's survey against real answers (CSV) and write calibration.json with the verdict + corrected rate."""
     import csv
@@ -2032,36 +2303,171 @@ def cmd_calibrate(c: Client, a) -> Any:
     real = []
     try:
         with open(a.real, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                def col(k):
-                    return row.get(mapping.get(k, k))
-                v = str(col("y") or col(field) or "").strip().lower()
-                y = {"yes": 1.0, "maybe": 0.5, "no": 0.0, "1": 1.0, "0": 0.0, "true": 1.0, "false": 0.0}.get(v)
-                if y is None:
-                    try:
-                        y = float(v)
-                        y = y / 10 if y > 1 else y
-                    except ValueError:
-                        continue
-                real.append({"segment": col("segment"), "country": col("country"), "gender": col("gender"), "age": col("age"), "y": y})
+            raw_rows = list(csv.DictReader(f))
     except OSError as e:
         raise CLIError(f"calibrate: cannot read {a.real}: {e}")
+    raw_rows, holdout = _holdout_check(a, out_dir, raw_rows)
+    for row in raw_rows:
+        def col(k):
+            return row.get(mapping.get(k, k))
+        v = str(col("y") or col(field) or "").strip().lower()
+        y = {"yes": 1.0, "maybe": 0.5, "no": 0.0, "1": 1.0, "0": 0.0, "true": 1.0, "false": 0.0}.get(v)
+        if y is None:
+            try:
+                y = float(v)
+                y = y / 10 if y > 1 else y
+            except ValueError:
+                continue
+        real.append({"segment": col("segment"), "country": col("country"), "gender": col("gender"), "age": col("age"), "y": y})
     if not synthetic or not real:
         raise CLIError("calibrate: need survey answers in the run and rows in the real CSV")
     log(f"calibrate: {len(synthetic)} simulated vs {len(real)} real answers on '{field}'")
     res = c.data("POST", "/api/simulation/calibrate", json={"synthetic": synthetic, "real": real, "key": a.by, "field": field,
-                                                             "halfwidth": a.halfwidth}, timeout=300)
+                                                             "halfwidth": a.halfwidth, "budget": a.budget}, timeout=300)
+    res["holdout"] = holdout
     save_json(out_dir, "calibration", res)
     ppi = res.get("ppi") or {}
     if ppi.get("reading"):
         log("calibrate: " + ppi["reading"])
+    alloc = ppi.get("allocation") or {}
+    if alloc.get("reading"):
+        log("calibrate: " + alloc["reading"])
+    spread = res.get("spread") or {}
+    if spread.get("reading"):
+        log(f"calibrate: spread {spread.get('verdict')}: {spread['reading']}")
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         _try("dashboard", lambda: do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None))
     return {"calibration": os.path.join(os.path.abspath(out_dir), "calibration.json"), "verdict": res.get("verdict"),
             "reading": res.get("reading"), "overlap": res.get("overlap"), "corrected": res.get("corrected"),
             "ppi": {k: (ppi.get("overall") or {}).get(k) for k in ("estimate", "ci", "lambda", "effective_n", "worth_extra_real")},
             "plan": ppi.get("plan"), "ppi_reading": ppi.get("reading"),
-            "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()}}
+            "allocation": {"reading": alloc.get("reading"), "extra": alloc.get("extra"),
+                           "by_stratum": {r["stratum"]: r["add"] for r in alloc.get("by_stratum") or []}} if alloc else None,
+            "spread": {"verdict": spread.get("verdict"), "reading": spread.get("reading"),
+                       "answers_ratio": (spread.get("answers") or {}).get("sd_ratio"),
+                       "audiences_ratio": (spread.get("audiences") or {}).get("sd_ratio")} if spread else None,
+            "by_group": {k: v.get("verdict") for k, v in (res.get("calibration") or {}).get("by_group", {}).items()},
+            "holdout": holdout}
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _holdout_check(a, out_dir: str, rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Keep the check on answers the panel never saw: drop the people a real-split manifest put on the persona-building
+    side (--split, or real_split.json next to --real), refuse that side's file itself, and flag a real file that also
+    built the run's grounded personas."""
+    cal = market_cli.load_service("calibration")
+    path = getattr(a, "split", None) or os.path.join(os.path.dirname(os.path.abspath(a.real)), "real_split.json")
+    manifest = None
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        if (manifest.get("files") or {}).get("conditioning_sha256") == _sha256(a.real):
+            raise CLIError(f"calibrate: {a.real} is the persona-building side of the split ({path}); check with the "
+                           "holdout file instead, since the panel has already seen these answers")
+    elif getattr(a, "split", None):
+        raise CLIError(f"calibrate: no split manifest at {path}")
+    rows, info = cal.holdout_guard(rows, manifest)
+    if manifest:
+        info["manifest"] = os.path.abspath(path)
+    if info.get("removed"):
+        log(f"calibrate: left out {info['removed']} answers from people who built the personas (real-split); "
+            f"{info['kept']} held-out answers remain")
+    sources = set()
+    intake_path = os.path.join(out_dir, "personas_intake.json")
+    if os.path.isfile(intake_path):
+        with open(intake_path, encoding="utf-8") as f:
+            for r in (json.load(f).get("real_profiles") or []):
+                sources |= {os.path.basename(str(x)) for x in ((r.get("intake") or {}).get("sources") or [])}
+    if os.path.basename(a.real) in sources:
+        info["same_file_as_personas"] = True
+        info["warning"] = (f"{os.path.basename(a.real)} also built this run's grounded personas, so the panel has seen "
+                           "these answers and the corrected rate and PPI++ interval are not valid on them. Split the file "
+                           "with real-split and calibrate on the holdout side.")
+        log("calibrate: WARNING " + info["warning"])
+    return rows, info
+
+
+def cmd_real_split(c: Optional[Client], a) -> Any:
+    """Split a fixed set of real answers between building personas (intake) and the held-out check (calibrate)."""
+    import csv
+    cal = market_cli.load_service("calibration")
+    try:
+        with open(a.real, encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            header = list(reader.fieldnames or [])
+            rows = list(reader)
+    except OSError as e:
+        raise CLIError(f"real-split: cannot read {a.real}: {e}")
+    if not rows:
+        raise CLIError(f"real-split: {a.real} has no rows")
+    prior = None
+    if a.run_dir and os.path.isfile(os.path.join(a.run_dir, "calibration.json")):
+        with open(os.path.join(a.run_dir, "calibration.json"), encoding="utf-8") as f:
+            prior = ((json.load(f).get("ppi") or {}).get("overall")) or None
+    col = cal.id_column(rows, a.id_field or "")
+    people = len({str(r.get(col) or "").strip().lower() or f"row{i}" for i, r in enumerate(rows)}) if col else len(rows)
+    plan = cal.split_plan(people, prior, a.halfwidth)
+    share = plan["recommended"]["conditioning_share"] if a.share == "auto" else float(a.share)
+    if not 0 <= share < 1:
+        raise CLIError("real-split: --share must be auto or a number from 0 to below 1")
+    conditioning, holdout, manifest = cal.split_rows(rows, share, col, a.segment_field or "", a.seed)
+    out_dir = a.out_dir or os.path.dirname(os.path.abspath(a.real))
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(a.real))[0]
+    paths = {"conditioning": os.path.join(out_dir, f"{stem}_conditioning.csv"), "holdout": os.path.join(out_dir, f"{stem}_holdout.csv")}
+    for side, part in (("conditioning", conditioning), ("holdout", holdout)):
+        with open(paths[side], "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(part)
+    manifest["files"] = {"source": os.path.basename(a.real), "conditioning": os.path.basename(paths["conditioning"]),
+                         "holdout": os.path.basename(paths["holdout"]), "conditioning_sha256": _sha256(paths["conditioning"]),
+                         "holdout_sha256": _sha256(paths["holdout"])}
+    manifest["plan"] = plan
+    save_json(out_dir, "real_split", manifest)
+    md = _render_real_split(manifest, a.real)
+    with open(os.path.join(out_dir, "real_split.md"), "w", encoding="utf-8") as f:
+        f.write(md)
+    rec = plan["recommended"]
+    log(f"real-split: {manifest['counts']['conditioning']} people build personas, {manifest['counts']['holdout']} are held out "
+        f"for the check -> {out_dir}")
+    return {"conditioning": paths["conditioning"], "holdout": paths["holdout"], "manifest": os.path.join(out_dir, "real_split.json"),
+            "markdown": os.path.join(out_dir, "real_split.md"), "share": share, "counts": manifest["counts"],
+            "by_segment": manifest["by_segment"], "recommended": rec, "basis": plan["basis"],
+            "next": [f"intake --files {paths['conditioning']} ...", f"calibrate --run-dir <run> --real {paths['holdout']}"]}
+
+
+def _render_real_split(m: Dict[str, Any], source: str) -> str:
+    p = m["plan"]
+    rec = p["recommended"]
+    lines = ["# Real-answer split", "",
+             f"{m['people']} people ({m['rows']} rows) from `{os.path.basename(source)}`: {m['counts']['conditioning']} build the "
+             f"personas (`{m['files']['conditioning']}`), {m['counts']['holdout']} are held out for the check "
+             f"(`{m['files']['holdout']}`).", "",
+             f"Recommended: {round(100 * rec['conditioning_share'])}% to persona building. {rec['reason'][:1].upper()}{rec['reason'][1:]}.", "",
+             f"Interval width at each split (target +-{p['halfwidth_target']:g}; basis: {p['basis']}):", "",
+             "| to personas | people | held out | +- with the panel | +- real answers alone |", "|---|---|---|---|---|"]
+    for r in p["table"]:
+        lines.append(f"| {round(100 * r['conditioning_share'])}% | {r['conditioning']} | {r['holdout']} | "
+                     f"{r['halfwidth_with_panel']} | {r['halfwidth_alone']} |")
+    if rec.get("more_real_needed"):
+        lines += ["", f"To reach +-{p['halfwidth_target']:g} at this split, collect about {rec['more_real_needed']} more real answers."]
+    if len(m["by_segment"]) > 1:
+        lines += ["", "| segment | to personas | held out |", "|---|---|---|"]
+        lines += [f"| {k} | {v['conditioning']} | {v['holdout']} |" for k, v in m["by_segment"].items()]
+    lines += ["", f"Rule: {p['rule']} `calibrate` reads `real_split.json` next to the file it checks and leaves out anyone "
+                  "on the persona-building side.", "",
+              f"Ids are stored as salted hashes (column `{m['id_field']}`)." if m["id_field"] else m["note"].capitalize() + ".",
+              "", f"Source for the split: {p['source']}. One study, so treat the share as a starting point."]
+    return "\n".join(lines) + "\n"
 
 
 def cmd_emailtest(c: Client, a) -> Any:
@@ -2204,7 +2610,16 @@ def cmd_research(c: Optional[Client], a) -> Any:
     except Exception as e:  # noqa: BLE001
         raise CLIError(f"research needs the backend package importable (run from the repo with its venv): {e}")
     out_dir = a.out or os.path.join("scenarios", re.sub(r"[^A-Za-z0-9._-]+", "_", a.query)[:40], "research")
-    res = research.run(a.query, [s.strip().lower() for s in a.sources.split(",")], out_dir, a.country, a.subreddit, a.url, a.limit, log=log)
+    labeler = None
+    try:
+        from app.services import jev_labels
+        if jev_labels.enabled():
+            labeler = jev_labels.sentiment_labeler(os.path.join(out_dir, jev_labels.CACHE_FILE))
+    except Exception:  # noqa: BLE001 - the word list still labels every quote
+        labeler = None
+    os.makedirs(out_dir, exist_ok=True)
+    res = research.run(a.query, [s.strip().lower() for s in a.sources.split(",")], out_dir, a.country, a.subreddit, a.url,
+                       a.limit, log=log, labeler=labeler)
     summ = res["summary"]
     return {"files": res["files"], "quotes": summ["quotes"], "by_source": summ["by_source"], "sentiment": summ["sentiment"],
             "avg_rating": summ.get("avg_rating"), "themes": [f"{t['theme']} ({t['mentions']})" for t in summ.get("themes") or []],
@@ -2269,7 +2684,8 @@ def cmd_run(c: Client, a) -> Any:
 
     try:
         c.get("/health", retries=2, timeout=10)
-        up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context))
+        up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context),
+                         scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
         state["project_id"] = up["project_id"]
         save_json(out_dir, "ontology", up)
         checkpoint()
@@ -2292,7 +2708,7 @@ def cmd_run(c: Client, a) -> Any:
             log("run: --stop-after prepare; not starting the simulation")
         else:
             rs = step_start(c, sim["simulation_id"], a.platform, a.max_rounds, graph_memory=not a.no_graph_memory,
-                            force=True, timeout=a.run_timeout, interval=a.interval)
+                            force=True, timeout=a.run_timeout, interval=a.interval, herding_probe=herding_probe_arg(a))
             state["runner_status"] = rs.get("runner_status")
             checkpoint()
             if a.survey or a.offer or a.goal or a.messages or a.pricing:
@@ -2354,6 +2770,12 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--timeout", type=float, default=timeout, help="max seconds to wait (default %(default)s)")
         sp.add_argument("--interval", type=float, default=5, help="poll interval seconds")
 
+    def probe_opts(sp):
+        sp.add_argument("--herding-probe", type=float, nargs="?", const=0.5, metavar="SHARE",
+                        help="randomized herding probe (changes the run): a neutral account gives SHARE of each round's "
+                             "persona posts one early vote (default 0.5; 0 turns it off); see feed_story.json herding.probe")
+        sp.add_argument("--herding-probe-seed", type=int, metavar="N", help="seed for the probe's assignment")
+
     sub.add_parser("health", help="check the backend is up")
 
     s = sub.add_parser("run", help="whole pipeline: upload -> graph -> simulate -> report -> export")
@@ -2363,6 +2785,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--platform", choices=["twitter", "reddit", "parallel"], default="parallel")
     s.add_argument("--max-rounds", type=int, default=10, help="cap simulation rounds (default %(default)s; cost!)")
     s.add_argument("--name", help="project name")
+    s.add_argument("--scrub-seeds", action="store_true",
+                   help="upload a copy of the text seeds with emails, phones, handles and links replaced")
+    s.add_argument("--no-pii-check", action="store_true", help="skip the warning about personal data in seeds")
     s.add_argument("--out", help="output dir (default ./mirofish_runs/<timestamp>)")
     s.add_argument("--title", help="dashboard title")
     s.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, help="parallel profile generation (default: CPU count)")
@@ -2384,6 +2809,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
     s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
     s.add_argument("--close-env", action="store_true", help="close the simulation env at the end (disables interviews)")
+    probe_opts(s)
     s.add_argument("--timeout", type=float, default=3600, help="timeout per async step (s)")
     s.add_argument("--run-timeout", type=float, default=4 * 3600, help="timeout for the simulation run (s)")
     s.add_argument("--interval", type=float, default=5)
@@ -2393,6 +2819,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--requirement", required=True, help="text or @file")
     s.add_argument("--context", help="text or @file")
     s.add_argument("--name")
+    s.add_argument("--scrub-seeds", action="store_true",
+                   help="upload a copy of the text seeds with emails, phones, handles and links replaced")
+    s.add_argument("--no-pii-check", action="store_true", help="skip the warning about personal data in seeds")
+
+    s = sub.add_parser("seed-check", help="warn about contact details in seed files before upload (offline, nothing sent)")
+    s.add_argument("--seed", nargs="+", required=True, help="seed file paths")
 
     s = sub.add_parser("build-graph", help="build the knowledge graph for a project")
     s.add_argument("--project", required=True)
@@ -2426,6 +2858,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-rounds", type=int)
     s.add_argument("--no-graph-memory", action="store_true")
     s.add_argument("--no-force", action="store_true", help="don't restart/clean an already-run simulation")
+    probe_opts(s)
     waitopts(s, 4 * 3600)
 
     s = sub.add_parser("wait", help="wait for a running simulation to finish")
@@ -2625,7 +3058,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("market-test", help="all-in-one: personas -> feed test -> rounds -> survey -> panel -> dashboard")
     s.add_argument("config", help="JSON config: name, title, seeds, requirement, personas, creatives, rounds, seeds_n "
-                                  "(feed-test repeats), survey, panel, approve_spend (see README)")
+                                  "(feed-test repeats), survey, panel, approve_spend, max_spend_usd (see README)")
 
     s = sub.add_parser("pitch", help="sales rehearsal: pitch every simulated buyer, answer their objections with rebuttals")
     s.add_argument("--simulation", required=True)
@@ -2696,7 +3129,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--data", help="upworthy: the packages CSV from https://osf.io/jd64p/")
     s.add_argument("--run-dir", help="upworthy persona_panel: a prepared run whose people vote")
     s.add_argument("--panel-size", type=int, default=10)
-    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel; twin2k: no_persona twin")
+    s.add_argument("--methods", nargs="+", help="upworthy: generic_reader persona_panel persona_panel_feel "
+                                                "persona_panel_mood; twin2k: no_persona demographics_only twin twin_affect")
     s.add_argument("--n", type=int, default=50, help="tests (upworthy) or people (twin2k) in the fixed sample")
     s.add_argument("--items", type=int, default=20, help="twin2k: questions per person")
     s.add_argument("--blocks", default="pricing", choices=["pricing", "all"], help="twin2k: which questions")
@@ -2727,6 +3161,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--segment", help="segment label for rows without one")
     s.add_argument("--max-people", type=int, default=200)
     s.add_argument("--replace", action="store_true", help="replace earlier intake records in the spec instead of adding")
+
+    s = sub.add_parser("analytics-audience", help="build the simulated audience from your Google Analytics 4 or PostHog data: "
+                                                  "segments sized by share of users (country or channel) and age/gender "
+                                                  "shares for weighting, merged into personas.json (offline, no model)")
+    s.add_argument("--files", nargs="+", help="GA4 exports (UI CSV, Data API runReport JSON) or PostHog exports (HogQL "
+                                              "results JSON, persons/events CSV or JSON)")
+    s.add_argument("--rows", help="@file.json or inline JSON: rows an agent pulled through a GA4 or PostHog MCP server "
+                                  "(a list of rows, a GA4 runReport response or a PostHog {columns, results})")
+    s.add_argument("--out", help="persona spec to write (default ./personas.json; merged when it exists)")
+    s.add_argument("--base", help="persona spec to start from (your own segments, communities); --out is written")
+    s.add_argument("--map", nargs="*", help="field=column pairs for renamed columns, e.g. country=Market age='Age group' "
+                                            "(fields: country city age gender device channel returning language interest "
+                                            "users sessions count conversions revenue)")
+    s.add_argument("--people", type=int, default=24, help="simulated people to split over the segments (default 24)")
+    s.add_argument("--segment-by", default="country", choices=["country", "channel"])
+    s.add_argument("--min-share", type=float, default=0.05, help="leave out groups below this share of users (default 0.05)")
+    s.add_argument("--max-segments", type=int, default=6)
+    s.add_argument("--role", help="who they are, e.g. 'shoppers' or 'founders' (default: visitors)")
+    s.add_argument("--period", help="the date range the data covers, if the export does not say")
+    s.add_argument("--population-only", action="store_true", help="only add the age/gender shares for weighting; keep your segments")
+    s.add_argument("--replace", action="store_true", help="overwrite population shares the spec already gives for a country")
 
     s = sub.add_parser("context", help="push live context (news, what people say today, a competitor move) into a running simulation's persona cards")
     s.add_argument("--simulation", required=True)
@@ -2777,7 +3232,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-export", action="store_true")
     s.add_argument("--title")
 
-    s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away and a corrected rate")
+    s = sub.add_parser("calibrate", help="compare the run's survey with real answers (CSV): trust / correct / walk-away, a corrected "
+                                         "rate, and whether the simulated answers are as varied as the real ones")
     s.add_argument("--run-dir", required=True)
     s.add_argument("--real", required=True, help="CSV with columns segment,country,gender,age,y (yes/maybe/no or 0-1)")
     s.add_argument("--map", nargs="*", help="column mapping, e.g. segment=Audience y=Converted")
@@ -2785,6 +3241,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--by", default="segment", help="subgroup key for the per-group verdicts (segment|country)")
     s.add_argument("--halfwidth", type=float, default=0.05,
                    help="target interval half-width for the sample planner (0.05 = +-5 points)")
+    s.add_argument("--split", help="real_split.json from real-split (default: one next to --real, if any): people on its "
+                                   "persona-building side are left out of the check")
+    s.add_argument("--budget", type=int, help="how many more real answers you can collect; the plan says which audiences "
+                                              "they should come from (default: what the +-halfwidth target needs)")
+
+    s = sub.add_parser("real-split", help="split a fixed set of real answers between building personas (intake) and the "
+                                          "held-out check (calibrate), with the interval width at each split (offline)")
+    s.add_argument("--real", required=True, help="CSV of real answers or customer records")
+    s.add_argument("--share", default="auto", help="share of people for persona building: auto (planner) or 0-0.9")
+    s.add_argument("--id-field", help="column that identifies a person (default: respondent_id, customer_id, id, email ...)")
+    s.add_argument("--segment-field", help="column to stratify by, so both sides cover every audience")
+    s.add_argument("--run-dir", help="a run with calibration.json: its panel correlation sharpens the plan")
+    s.add_argument("--halfwidth", type=float, default=0.05, help="target half-width of the check (0.05 = +-5 points)")
+    s.add_argument("--seed", type=int, default=7)
+    s.add_argument("--out-dir", help="where to write the two CSVs and real_split.json/.md (default: next to --real)")
+
+    s = sub.add_parser("spend-cap", help="show the server's run spend cap, or lift it (--clear) after a capped run was stopped")
+    s.add_argument("--clear", action="store_true", help="lift whatever cap is armed")
 
     s = sub.add_parser("understand", help="read your documents / landing page / ads export into one product profile")
     s.add_argument("--project", help="an existing project id (uses its uploaded documents)")
@@ -3052,6 +3526,24 @@ def _load_jev():
     return mod
 
 
+def _load_jev_labels():
+    """backend/app/services/jev_labels.py by path, like _load_jev: the services directory stands in as a throwaway
+    package so the module's `from . import jev` resolves to the sibling file, without importing the backend's
+    packages (app/__init__ pulls in the web framework)."""
+    import importlib.util
+    import types
+    services = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services")
+    if "mm_services" not in sys.modules:
+        pkg = types.ModuleType("mm_services")
+        pkg.__path__ = [services]  # type: ignore[attr-defined]
+        sys.modules["mm_services"] = pkg
+    spec = importlib.util.spec_from_file_location("mm_services.jev_labels", os.path.join(services, "jev_labels.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["mm_services.jev_labels"] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def cmd_jev(c: Optional[Client], a) -> Any:
     """Whether a Jev key is configured and which route and model would be used. Calls the API only with --ping."""
     jv = _load_jev()
@@ -3060,9 +3552,15 @@ def cmd_jev(c: Optional[Client], a) -> Any:
         "configured": cfg["configured"], "route": cfg["route"], "endpoint": cfg["endpoint"], "model": cfg["model"],
         "key": f"{cfg['key_env']} is set" if cfg["configured"] else cfg["reason"],
         "ssr_engine": cfg["ssr_engine"], "parallel": cfg["parallel"],
+        "jev_labels_mode": _load_jev_labels().mode(),
         "used_for": ["survey rating distributions (SSR_ENGINE=jev or survey --ssr-engine jev)",
                      "real vs simulated concerns (gtm voc --classifier jev)",
-                     "survey objection check (survey --objection-check)"]}
+                     "survey objection check (survey --objection-check)",
+                     "post and reply sentiment in the social feed (jev_labels)",
+                     "research voice sentiment (jev_labels)",
+                     "landing-page drop causes, grouped into ranked causes (jev_labels)",
+                     "battlecard ad comments with no objection type (jev_labels)",
+                     "pitch objection check, against the person's own tag (jev_labels)"]}
     if not a.ping:
         return out
     if not cfg["configured"]:
@@ -3087,9 +3585,9 @@ COMMANDS = {
     "export": cmd_export, "live": cmd_live, "survey": cmd_survey, "feedtest": cmd_feedtest,
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
-    "backtest": cmd_backtest, "market-test": cmd_market_test,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "quickstart": cmd_quickstart,
-    "understand": cmd_understand, "calibrate": cmd_calibrate, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
+    "backtest": cmd_backtest, "market-test": cmd_market_test, "seed-check": cmd_seed_check,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
+    "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
     "geo-audit": cmd_gtm, "voc-grounding": cmd_gtm, "dark-social": cmd_gtm, "search": cmd_search,
@@ -3102,7 +3600,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":

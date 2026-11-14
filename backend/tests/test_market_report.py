@@ -277,3 +277,22 @@ def test_study_report_returns_number_guard(monkeypatch):
     data = response.get_json()["data"]
     assert data["number_guard"] == [{"text": "Sales rose 437%.", "unknown_numbers": ["437"]}]
     assert data["markdown"] == "Simulated people saw 2 ads."
+
+
+def test_report_states_a_pile_on_in_the_social_section():
+    herd = {"verdict": "negative pile-on", "reading": "Across 40 posts, once a post was net-negative, 70% of its next reactions were negative."}
+    md = mr.render_markdown({"executive_summary": {"decision": "iterate"}, "social": {"summary": "A busy feed."}},
+                            {"brand": "Acme", "social": {"herding": herd}})
+    assert "**Herding check (negative pile-on).** Across 40 posts" in md
+    calm = mr.render_markdown({"executive_summary": {"decision": "iterate"}, "social": {"summary": "A busy feed."}},
+                              {"brand": "Acme", "social": {"herding": {"verdict": "no clear herding", "reading": "x"}}})
+    assert "Herding check" not in calm
+
+
+def test_randomized_herding_probe_reaches_the_report():
+    herd = {"verdict": "no clear herding", "reading": "x",
+            "probe": {"verdict": "negative pile-on", "reading": "Randomized probe: 20 posts got one early downvote."}}
+    md = mr.render_markdown({"executive_summary": {"decision": "iterate"}, "social": {"summary": "A busy feed."}},
+                            {"brand": "Acme", "social": {"herding": herd}})
+    assert "**Randomized herding probe (negative pile-on).** Randomized probe: 20 posts" in md
+    assert "Herding check" not in md

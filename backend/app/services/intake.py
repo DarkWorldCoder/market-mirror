@@ -31,6 +31,7 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from html import unescape
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 VERSION = 1
@@ -72,6 +73,49 @@ _SENT = re.compile(r"(?<=[.!?。！？])\s+")
 # reading
 # --------------------------------------------------------------------------
 
+def _subtitle_text(text: str) -> str:
+    """Extract subtitle captions and preserve WebVTT speaker names."""
+    text = text.lstrip("\ufeff")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    captions = []
+    timestamp = r"(?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3}"
+    timing_line = re.compile(
+        rf"^{timestamp}\s+-->\s+{timestamp}(?:\s+.*)?$"
+    )
+    for block in re.split(r"\n[ \t]*\n", text):
+        lines = [line.strip() for line in block.splitlines()]
+        if not lines:
+            continue
+        first = lines[0]
+        if (
+            first == "WEBVTT"
+            or first.startswith(("WEBVTT ", "WEBVTT\t"))
+            or first == "NOTE"
+            or first.startswith(("NOTE ", "NOTE\t"))
+            or first in ("STYLE", "REGION")
+        ):
+            continue
+        # A cue can have an optional identifier before its timing line.
+        timing_index = next(
+            (index for index, line in enumerate(lines[:2])
+             if timing_line.fullmatch(line)),
+            None,
+        )
+        if timing_index is None:
+            continue
+        for line in lines[timing_index + 1:]:
+            line = re.sub(
+                r"<v(?:\.[^\s>]+)*[ \t]+([^>]+)>",
+                lambda match: f"{match.group(1).strip()}: ",
+                line,
+            )
+            line = re.sub(r"<[^>]*>", "", line)
+            line = unescape(line).strip()
+            if line:
+                captions.append(line)
+    return "\n".join(captions)
+
+
 def _rows_from_text(text: str, name: str) -> List[Dict[str, Any]]:
     ext = os.path.splitext(name)[1].lower()
     if ext in (".json", ".jsonl"):
@@ -87,6 +131,8 @@ def _rows_from_text(text: str, name: str) -> List[Dict[str, Any]]:
         dialect = "excel-tab" if ext == ".tsv" else "excel"
         return [dict(r) for r in csv.DictReader(io.StringIO(text), dialect=dialect)]
     # a transcript or notes file: one person (or one conversation) per file
+    if ext in (".vtt", ".srt"):
+        text = _subtitle_text(text)
     stem = os.path.splitext(os.path.basename(name))[0]
     return [{"id": stem, "text": text, "_transcript": True}]
 

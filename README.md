@@ -19,7 +19,7 @@ English · [简体中文](README.zh-CN.md)
 
 Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](https://github.com/camel-ai/oasis) · listed in the official MCP Registry as `io.github.DarkWorldCoder/market-mirror`
 
-**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.)
+**[Open the live demo](https://darkworldcoder.github.io/market-mirror/demo/)**: the full dashboard from a 2,999-buyer simulated run, in your browser, no install. (Fitloop is an invented app; every number is simulated.) More finished examples: [the example gallery](https://darkworldcoder.github.io/market-mirror/gallery/).
 
 </div>
 
@@ -257,7 +257,7 @@ The people keep a memory for the whole run: someone who hid your ad or ignored y
 
 **Ads in realistic feeds (the feed test).** Each person scrolls a feed for each platform you test (Facebook, Instagram, Reddit, TikTok, LinkedIn, X): a handful of local organic posts with one of your ads placed where that platform puts its sponsored posts. When you test several ads, each person sees exactly one, assigned at random, so the comparison is a split test. For every post they report what they did: scrolled past, stopped and for how long, watched, reacted, commented, shared, saved, clicked or hid it, plus a one-line thought. Platform playbooks hold typical base rates (most people scroll past most ads), which keeps simulated people from being unrealistically positive. You get ads-manager numbers per ad and per audience (thumb-stop rate, CTR, what happened after the click), and with `--seeds 3` a range instead of one number.
 
-**Social rounds.** The people then live on Reddit- and X-like platforms for a few rounds, powered by the [OASIS](https://github.com/camel-ai/oasis) engine with its recommendation feed. Your brand posts and your launch calendar (a price drop on day 3, an influencer post on day 5) arrive in the round you schedule them, and you can push live news into a running simulation ("a competitor just cut its price"). People post, reply, like, follow and argue in their own voices. The dashboard's **Social feed** shows every post by round, audience and country, with the replies to your brand posts and their sentiment.
+**Social rounds.** The people then live on Reddit- and X-like platforms for a few rounds, powered by the [OASIS](https://github.com/camel-ai/oasis) engine with its recommendation feed. Your brand posts and your launch calendar (a price drop on day 3, an influencer post on day 5) arrive in the round you schedule them, and you can push live news into a running simulation ("a competitor just cut its price"). People post, reply, like, follow and argue in their own voices. The dashboard's **Social feed** shows every post by round, audience and country, with the replies to your brand posts and their sentiment. After the rounds, a herding check asks whether people piled onto a post's early score more than the post itself explains; simulated people tend to pile onto criticism that real people would correct, so a pile-on is flagged. To measure it rather than infer it, turn on the herding probe (`--herding-probe` on `run` or `start`, or `"herding_probe": {"share": 0.5}` in `market_test.json`): a neutral account that no model plays gives a random half of each round's posts one early upvote or downvote and leaves the rest alone, and the Social feed compares how other people then voted on each group, with intervals. It is off by default because it changes the run.
 
 ### 4. Ask them
 
@@ -287,7 +287,8 @@ It all lands in **one HTML dashboard** that opens without a server and works off
 Simulated numbers mean little until they are compared with real ones. Import your real ad results or survey answers and MarketMirror:
 
 - **backtests** its predictions against your past ads;
-- **calibrates** the simulated survey against real answers: overlap, per-audience trust, and a corrected conversion rate;
+- **calibrates** the simulated survey against real answers: overlap, per-audience trust, a corrected conversion rate, and whether the simulated answers are as varied as the real ones (simulated panels tend to answer too alike), and which audiences the next real answers should come from;
+- **splits** a fixed set of real answers between building personas and checking them (`real-split`): it shows how wide the check gets at each split, recommends one, and `calibrate` then leaves out anyone whose answers built the personas, because the check is only valid on answers the panel never saw;
 - **forecasts** clicks or sign-ups for a budget, using what it learned from those comparisons;
 - suggests **the next tests** from your real ad export and the run.
 
@@ -316,6 +317,7 @@ Start with the decision you need to make:
 | **Whether a change really wins** | "Compare no-card vs card-required vs a lower price on the same people, 3 seeds each." | `./mm cli study --spec study.json` | Study, Scenarios |
 | **Which country and audience to start with** | "Where does this land best: India, the Philippines or Kenya?" | personas spec with segments and countries, then `market-test` | Where they are (map), Audiences |
 | **How a launch plays out socially** | "Run our launch posts and day-3 announcement through a few social rounds." | `market_test.json` keys `posts`, `events`, `rounds` | Social feed, Activity |
+| **Whether the crowd piles on** | "Do our simulated people pile onto an early downvote, or correct it like real people?" | `market_test.json` key `herding_probe {share, seed}` | Social feed (randomized probe note) |
 | **How news changes the conversation** | "A competitor just cut its price; push that into the running simulation." | `./mm cli context --simulation $SIM --text "..."` | Social feed (next round) |
 | **Whether the email gets opened** | "Test these subject lines and a 3-step sequence in their inboxes." | `./mm cli emailtest --simulation $SIM --emails @emails.json` | Email |
 | **How a sales pitch is received** | "Pitch every buyer, answer their objections, and tell me who to call first." | `./mm cli pitch --simulation $SIM --script @pitch.md --rebuttals @rebuttals.md` | Sales rehearsal, lead scores |
@@ -521,6 +523,8 @@ Inspect the generated files and profiles. To continue, retain the returned `simu
 ./mm cli market-test scenarios/acme/market_test.json
 ./mm live --run-dir mirofish_runs/acme
 ```
+
+To put a hard limit on spend, add `"max_spend_usd": 5` to the same file. The cost is estimated from token usage at list prices. Once the cap is reached, no new model call starts (calls already running finish, so the total can go slightly over), and the run keeps and shows what it already has. One capped run at a time per server; if a capped run was killed, lift its cap with `./mm cli spend-cap --clear`. `MM_MAX_SPEND_USD` sets the same kind of cap for each server process.
 
 The live viewer runs at [127.0.0.1:5050](http://127.0.0.1:5050), and its control room at [127.0.0.1:5050/live](http://127.0.0.1:5050/live) shows every stage, every simulated person lighting up as they act, what they post, and the progress log, updated every two seconds. Use the actual run directory printed by the pipeline if its name differs. The saved `dashboard.html` also opens directly without a server. To generate templates without preparing people, use `./mm cli quickstart --no-run`.
 
@@ -735,9 +739,10 @@ MarketMirror adds audience planning, marketing experiments, and decision reports
 - **Behavior controls are assumptions.** Attention, fatigue, social proof, and landing friction include hand-set priors that need validation for the intended market.
 - **Seed variation measures simulation variation.** It is not a predictive confidence interval. Repeated agreement and synthetic test–retest consistency do not establish agreement with humans.
 - **Backtests answer specific questions.** The existing no-persona comparator is the mean real outcome in the training set. Beating it alone does not establish general predictive reliability or replace a matched generic-reader LLM comparison.
+- **Simulated feelings are not emotions.** People report how each ad, page, email and pitch made them feel, and their mood fades over simulated time; by default this only observes. Letting feelings steer behaviour (`--emotions on`) uses assumed effect sizes until the bench gate passes ([emotion research](docs/research/emotion-research-2026-10.md)). Every run carries an A-D evidence grade, and stated yeses are shown next to what is left after fixed say-do rules.
 - **Calibration depends on coverage and assumptions.** Uncalibrated predictions omit intervals and success probabilities. Validate absolute rates, rankings, and subgroup findings separately on untouched real experiments.
 
-`bench` scores the simulated answers against open human data next to simpler comparators: real Upworthy headline tests, and real people's buy-at-this-price answers from Twin-2K-500 ([MarketMirror-Bench](benchmarks/bench/README.md)). No results are published yet.
+`bench` scores the simulated answers against open human data next to simpler comparators: real Upworthy headline tests, and real people's buy-at-this-price answers from Twin-2K-500 ([MarketMirror-Bench](benchmarks/bench/README.md)). The first run, on 1 November 2026, is in [RESULTS.md](benchmarks/bench/RESULTS.md): a plain no-persona prompt picked the real Upworthy winner 64% of the time against 44% for a 10-person persona panel, and every method predicted more buying than real people reported. Misses stay in the record.
 
 Read the [human-behavior research guide](docs/HUMAN_BEHAVIOR_RESEARCH.md) for the papers, inspected code gaps, and proposed memory/state architecture. It distinguishes implemented controls from future work and experimentally supported results.
 
@@ -765,7 +770,7 @@ MarketMirror's source code is available under [AGPL-3.0](LICENSE). Running it ma
 
 ### Can I bring real research and campaign data?
 
-Yes. You can supply product documents, linked feedback, and campaign exports. `intake` turns your own call transcripts, reviews, NPS verbatims and CRM notes into grounded personas that quote your customers word for word. Contact details are removed on your machine first ([formats](docs/INPUT_FORMATS.md)). MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
+Yes. You can supply product documents, linked feedback, and campaign exports. `intake` turns your own call transcripts, reviews, NPS verbatims and CRM notes into grounded personas that quote your customers word for word. Contact details are removed on your machine first ([formats](docs/INPUT_FORMATS.md)). `analytics-audience` builds the simulated audience from your Google Analytics 4 or PostHog data: one group per top country or channel, sized by its share of your users, with real cities, ages and gender shares, offline and with no model call. MarketMirror can also collect supported public feedback with source links. Comparing simulations with actual outcomes requires suitable paired data; importing an ad export alone does not create a complete validation study.
 
 ### What do the technical terms mean?
 

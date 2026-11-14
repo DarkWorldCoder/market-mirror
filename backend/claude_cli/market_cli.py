@@ -891,6 +891,58 @@ def intake(c, log, files: Optional[List[str]] = None, rows: Optional[List[Dict[s
             "real_profiles": len(spec.get("real_profiles") or []), "note": data.get("note")}
 
 
+
+# --------------------------------------------------------------------------
+# audience from web analytics (GA4, PostHog)
+# --------------------------------------------------------------------------
+
+def analytics_audience(log, files: Optional[List[str]] = None, rows: Optional[List[Dict[str, Any]]] = None,
+                       out: Optional[str] = None, base: Optional[str] = None, field_map: Optional[Dict[str, str]] = None,
+                       people: int = 24, segment_by: str = "country", min_share: float = 0.05, max_segments: int = 6,
+                       role: str = "", period: str = "", replace: bool = False,
+                       population_only: bool = False) -> Dict[str, Any]:
+    """GA4 / PostHog aggregates -> persona segments sized by share of users, and per-country age / gender shares
+    for raking, merged into a persona spec, plus analytics_audience.json / .md next to it. No model, offline."""
+    svc = load_service("analytics_audience")
+    raw: List[Dict[str, Any]] = []
+    meta: Dict[str, Any] = {}
+    if files:
+        got, meta = svc.read_sources(files)
+        raw += got
+    if rows:
+        got, m = svc.rows_from_json(rows, "rows")
+        raw += got
+        for k, v in m.items():
+            meta.setdefault(k, v)
+    if not raw:
+        raise ValueError("analytics-audience: give --files (GA4 or PostHog CSV/JSON exports) or --rows")
+    data = svc.run(raw, meta, field_map, people, segment_by, min_share, max_segments, role, period)
+    out_spec = out or "personas.json"
+    spec: Dict[str, Any] = {}
+    for path in (base, out_spec):
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+            break
+    spec = svc.merge_into_spec(data, spec, replace=replace, population_only=population_only)
+    os.makedirs(os.path.dirname(os.path.abspath(out_spec)), exist_ok=True)
+    with open(out_spec, "w", encoding="utf-8") as f:
+        json.dump(spec, f, ensure_ascii=False, indent=2)
+    report = os.path.join(os.path.dirname(os.path.abspath(out_spec)), "analytics_audience.json")
+    with open(report, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(os.path.splitext(report)[0] + ".md", "w", encoding="utf-8") as f:
+        f.write(svc.render_markdown(data))
+    a = data["analysis"]
+    log(f"analytics-audience: {a['source_name']}, {a['rows']} rows in {a['tables']} tables -> "
+        f"{len(data['segments'])} segments, population for {len(data['population'])} countries; personas -> {out_spec}")
+    return {"personas": os.path.abspath(out_spec), "report": report, "markdown": os.path.splitext(report)[0] + ".md",
+            "source": a["source_name"], "period": a.get("period"), "users": a.get("users"), "weight": a.get("weight"),
+            "segments": [{k: s.get(k) for k in ("label", "count", "country", "age_min", "age_max", "gender_mix")}
+                         for s in data["segments"]] if not population_only else [],
+            "population": sorted(data["population"]), "left_out_share": data.get("left_out_share"),
+            "caveats": data.get("caveats")}
+
 # --------------------------------------------------------------------------
 # emailtest
 # --------------------------------------------------------------------------

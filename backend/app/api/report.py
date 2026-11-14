@@ -675,6 +675,9 @@ def chat_with_report_agent():
         })
         
     except Exception as e:
+        from ..utils.spend_cap import SpendCapReached
+        if isinstance(e, SpendCapReached):        # a reached spend cap is a stop, not a server error
+            return jsonify({"success": False, "error": str(e), "spend_cap_reached": True}), 409
         logger.error(f"对话失败: {str(e)}")
         return jsonify({
             "success": False,
