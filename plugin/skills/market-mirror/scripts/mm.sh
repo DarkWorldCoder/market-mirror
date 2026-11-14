@@ -94,6 +94,11 @@ doctor() {
 
 cmd="${1:-help}"; shift || true
 case "$cmd" in
+  app|workflow)
+    [ -x "$PY" ] || die "Python dependencies are missing. Run bash install.sh first."
+    entry="app_launcher.py"; [ "$cmd" != workflow ] || entry="workflow_cli.py"
+    cd "$HOME_DIR" && exec "$PY" "$HOME_DIR/backend/claude_cli/$entry" "$@"
+    ;;
   home) echo "$HOME_DIR" ;;
   setup)
     command -v git >/dev/null || die "git is required"

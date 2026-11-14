@@ -138,10 +138,10 @@ def captions(a: Dict[str, Any]) -> List[Dict[str, Any]]:
         out.append({"id": f"{p[:2]}_benefit", "name": f"Benefit ({p})", "platform": p, "format": "image", "page": page,
                     "text": f"{first}\nTry {brand} today.", "headline": first[:60], "cta": "Learn more",
                     "media": f"the product in use by one of the buyers described: {a['buyers'][:80]}"})
-        out.append({"id": f"{p[:2]}_proof", "name": f"Proof ({p})", "platform": p, "format": "video", "page": page,
-                    "text": f"Real people, real results. See what {brand} did for someone like you.\n{first}",
-                    "headline": f"Why people switch to {brand}", "cta": "See how",
-                    "media": "a short testimonial clip with a before/after"})
+        out.append({"id": f"{p[:2]}_proof", "name": f"Product walkthrough ({p})", "platform": p, "format": "video", "page": page,
+                    "text": f"See how {brand} works.\n{first}",
+                    "headline": f"Explore {brand}", "cta": "See how",
+                    "media": "an accurate product walkthrough; use only verified features"})
     return out
 
 
@@ -159,8 +159,8 @@ def messages_txt(a: Dict[str, Any]) -> str:
     first = re.split(r"(?<=[.!?])\s", a["product"])[0][:140]
     return "\n---\n".join([
         f"{first} Try {brand} today.",
-        f"Join the people already using {brand}. {first}",
-        f"{brand}: " + (f"from {a['price']} " if a.get("price") else "") + "with no commitment. Cancel any time.",
+        f"Explore {brand}. {first}",
+        f"How {brand} works: {first}",
     ]) + "\n"
 
 
@@ -172,23 +172,22 @@ def launch_events(a: Dict[str, Any]) -> Dict[str, Any]:
         {"round": 1, "agent": brand, "platform": "both", "content": f"Teaser: {first} Launching this week."},
         {"round": 3, "agent": brand, "platform": "both", "content": f"{brand} is live! {first} Link in bio."},
         {"round": 5, "agent": brand, "platform": "both",
-         "content": f"Launch offer: " + (f"{a['price']} " if a.get("price") else "") + "for the first 100 people. Ends Sunday."},
-        {"round": 7, "agent": brand, "platform": "both", "content": f"A competitor just dropped their price. Here is why {brand} is still the better deal."},
+         "content": f"Learn about {brand}: {first}"},
+        {"round": 7, "agent": brand, "platform": "both", "content": f"What would you like to know about {brand}?"},
     ]
     return {"posts": posts, "events": events}
 
 
 def pitch_md(a: Dict[str, Any]) -> str:
-    return (f"Hi, I'm from {a['brand']}. {a['product']}\n\nMost people like you ({a['buyers'][:120]}) tell us the same two things: "
-            "they want results without a big commitment, and they want to know it will work for them.\n\n"
+    return (f"Hi, I'm from {a['brand']}. {a['product']}\n\n"
+            "What are you trying to accomplish, and what would you need to know before deciding?\n\n"
             "Can I show you how it works in two minutes, and you tell me if it fits?\n")
 
 
 def rebuttals_md(a: Dict[str, Any]) -> str:
-    return ("## price\nFair question. Compare it with what you spend today on the same problem; most people find it costs less "
-            "per week than one coffee, and you can cancel any time.\n\n"
-            "## trust\nYou don't have to take my word for it: here are three people like you and what changed for them. "
-            "And there is no card needed to try it.\n\n"
+    return ("## price\n[Add the actual price, fees and billing terms from your product documentation.]\n\n"
+            "## trust\n[Add verifiable product evidence. Only include testimonials with a real source and permission. "
+            "State actual trial and payment-card requirements.]\n\n"
             "## timing\nUnderstood. What would make it the right time? If I follow up then, would that help?\n\n"
             "## any\nWhat is the one thing that would have to be true for you to say yes? Let's see if we can make that true.\n")
 

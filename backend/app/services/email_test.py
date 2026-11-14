@@ -106,7 +106,7 @@ def targets(email: Dict[str, Any], person: Dict[str, Any]) -> bool:
 # Inbox and attention gate (code, no LLM)
 # --------------------------------------------------------------------------
 
-def filler_pool(client, model: str, country: str, segment: str, n: int = 8) -> List[Dict[str, Any]]:
+def filler_pool(client, model: str, country: str, segment: str, n: int = 8, strict: bool = False) -> List[Dict[str, Any]]:
     prompt = (f"List {n} emails that a typical person in {country or 'this market'} ({segment or 'general public'}) finds in "
               f"their inbox on an ordinary weekday: work, bank, telecom, shopping promos, family, apps. Realistic sender names "
               f"and subjects in the languages people there get mail in.\nReturn JSON: {{\"emails\": [{{\"from\": \"...\", "
@@ -116,7 +116,11 @@ def filler_pool(client, model: str, country: str, segment: str, n: int = 8) -> L
         rows = [r for r in ((data.get("emails") if isinstance(data, dict) else data) or []) if isinstance(r, dict) and r.get("subject")]
         if len(rows) >= 4:
             return rows[:12]
+        if strict:
+            raise ValueError("The provider did not return a usable inbox")
     except Exception as e:  # noqa: BLE001
+        if strict:
+            raise RuntimeError("Could not prepare the simulated inbox; retry this exposure") from None
         logger.warning(f"filler inbox for {country}/{segment} failed, using fallback: {e}")
     return list(FALLBACK_FILLER)
 
@@ -230,7 +234,8 @@ def assign(emails: List[Dict[str, Any]], people: List[Dict[str, Any]], seed: int
 def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: List[Dict[str, Any]], context: str = "",
                    product: str = "", seed: int = 5, parallel: int = 8, list_size: Optional[int] = None,
                    benchmarks: Optional[Dict[str, Any]] = None, familiarity: float = 0.2,
-                   progress: Optional[Callable[[int, int], None]] = None, emotions: Optional[str] = None) -> Dict[str, Any]:
+                   progress: Optional[Callable[[int, int], None]] = None, emotions: Optional[str] = None,
+                   strict_answers: bool = False) -> Dict[str, Any]:
     emo_mode = emotion.mode(emotions)
     want_feel = emo_mode != "off"
     meter = client if isinstance(client, UsageMeter) else UsageMeter(client)
@@ -250,7 +255,7 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
     lock = threading.Lock()
 
     def make_pool(key):
-        pools[key] = filler_pool(client, model, key[0], key[1])
+        pools[key] = filler_pool(client, model, key[0], key[1], strict=True) if strict_answers else filler_pool(client, model, key[0], key[1])
     with ThreadPoolExecutor(max_workers=max(1, min(parallel, 8))) as pool:
         list(pool.map(make_pool, keys))
 
@@ -286,8 +291,12 @@ def run_email_test(client, model: str, emails: List[Dict[str, Any]], people: Lis
         try:
             data = _llm_json(client, model, SYSTEM, read_prompt(person, mail, inbox, tr, step, history[aid], product, feel=want_feel),
                              temperature=0.8, max_tokens=600)
+            if strict_answers and (not isinstance(data, dict) or data.get("action") not in ACTIONS or not str(data.get("reason") or "").strip()):
+                raise ValueError("Unusable email reaction")
             act = normalize_read(data if isinstance(data, dict) else {})
         except Exception as e:  # noqa: BLE001
+            if strict_answers:
+                raise RuntimeError("No usable email reaction; retry this exposure") from None
             logger.warning(f"email read failed for agent {aid}: {e}")
             act = normalize_read({"action": "skim", "reason": "(no answer)"})
         rec.update({"opened": True, **act})

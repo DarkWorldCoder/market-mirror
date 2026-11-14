@@ -84,7 +84,7 @@ def create_app(config_class=Config):
     def log_request():
         logger = get_logger('mirofish.request')
         logger.debug(f"请求: {request.method} {request.path}")
-        if log_bodies and request.content_type and 'json' in request.content_type:
+        if log_bodies and not request.path.startswith(('/api/workflows', '/api/setup')) and request.content_type and 'json' in request.content_type:
             body = request.get_json(silent=True)
             if request.path == '/api/simulation/website-test' and isinstance(body, dict):
                 body = {**body, 'spec': {**(body.get('spec') or {}), 'test_data': '[redacted]'}} if isinstance(body.get('spec'), dict) else body
@@ -103,11 +103,13 @@ def create_app(config_class=Config):
     app.register_blueprint(report_bp, url_prefix='/api/report')
     from .api.setup import setup_bp
     app.register_blueprint(setup_bp)
+    from .api.workflows import workflows_bp
+    app.register_blueprint(workflows_bp)
     
     # 健康检查
     @app.route('/health')
     def health():
-        return {'status': 'ok', 'service': 'MiroFish Backend'}
+        return {'status': 'ok', 'service': 'MiroFish Backend', 'workflows': 1}
     
     if should_log_startup:
         logger.info("MiroFish Backend 启动完成")

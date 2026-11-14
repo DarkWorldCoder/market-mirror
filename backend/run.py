@@ -175,15 +175,25 @@ def serve_production(app, host: str, port: int) -> None:
     os._exit(0)
 
 
+def startup_errors(host: str, production: bool, local_app: bool = False):
+    """Opening a loopback workspace does not require a model or graph backend.
+
+    Workflows still reject execution until configured/approved. Never relax
+    validation for a public bind or for production deployments.
+    """
+    bootstrap = local_app and not production and host in ("127.0.0.1", "::1", "localhost")
+    errors = [] if bootstrap else Config.validate()
+    return errors + (Config.production_errors(host) if production else [])
+
+
 def main():
     """主函数"""
     # 验证配置
-    errors = Config.validate()
     host = os.environ.get('FLASK_HOST', '127.0.0.1')
     production = Config.is_production() or '--prod' in sys.argv
     if production:
         os.environ['MM_ENV'] = 'production'
-        errors = errors + Config.production_errors(host)
+    errors = startup_errors(host, production, os.environ.get('MM_LOCAL_APP') == '1')
     if errors:
         print("配置错误:")
         for err in errors:

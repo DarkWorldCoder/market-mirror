@@ -6,7 +6,9 @@ The backend is a Flask app on `http://localhost:5001` (start it with `backend/cl
 engine routes (projects, ontology, graph build, simulations, start/stop, interviews, reports) are documented in
 `docs/MIROFISH-UPSTREAM.md`; the `mirofish.py` CLI and the MCP server wrap all of them.
 
-Authentication: none by default (the backend binds to localhost). Put it behind your own auth or network rules before exposing it.
+Authentication: `/api/workflows` and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
+Use `./mm app` for a browser session; never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
+Other endpoints use the configured production authentication policy. Put the backend behind your own auth/network rules before exposing it.
 Webhooks: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`) and the CLI posts a JSON summary when a run, study
 or test finishes. SDK: `pip install -e sdk` then `from marketmirror import MarketMirror`. Machine-readable: `docs/openapi.json`.
 
@@ -110,6 +112,163 @@ Request body:
 ```
 
 Returns: {plan, file}
+
+## Local guided workflows (X-Setup-Token required)
+
+### `GET /api/workflows/meta`
+
+Recipe catalog and public provider status; no model calls.
+
+Returns: {recipes, provider, demo_url}
+
+### `GET /api/workflows`
+
+Recent local workflow revisions.
+
+Returns: workflow summaries
+
+### `POST /api/workflows`
+
+Save a draft or a new comparison revision; no model calls.
+
+Request body:
+
+```json
+{
+  "inputs": {
+    "recipe": "ads",
+    "name": "Brand",
+    "product": "Actual product details",
+    "audience": "Intended buyers",
+    "country": "Nepal",
+    "variants": [
+      {
+        "text": "A"
+      },
+      {
+        "text": "B"
+      }
+    ]
+  },
+  "parent_id": null
+}
+```
+
+Returns: workflow
+
+### `GET /api/workflows/{wid}`
+
+Saved draft, stage progress, people and artifact checkpoints.
+
+Returns: workflow
+
+### `PUT /api/workflows/{wid}`
+
+Update an unexecuted draft; changed executed comparisons require a new revision.
+
+Request body:
+
+```json
+{
+  "inputs": {}
+}
+```
+
+Returns: workflow
+
+### `POST /api/workflows/{wid}/estimate`
+
+Review remaining work and configuration digest; no model calls.
+
+Request body:
+
+```json
+{
+  "phase": "prepare"
+}
+```
+
+Returns: {digest, provider, estimated_calls, calls_used, suggested_call_limit, cost_usd:null}
+
+### `POST /api/workflows/{wid}/approve`
+
+Explicitly approve a phase and start or reuse its task; retries require retry true.
+
+Request body:
+
+```json
+{
+  "phase": "prepare",
+  "approved": true,
+  "digest": "from estimate",
+  "call_limit": 12,
+  "retry": false
+}
+```
+
+Returns: workflow with stage task_id
+
+### `GET /api/workflows/{wid}/results`
+
+Simulation-labelled comparison and editable next-real-test worksheet.
+
+Returns: {complete, verdict, variants, metric_label, limits, worksheet}
+
+### `PUT /api/workflows/{wid}/worksheet`
+
+Save the user's real-world experiment worksheet.
+
+Request body:
+
+```json
+{
+  "text": "Markdown"
+}
+```
+
+Returns: {saved}
+
+### `GET /api/workflows/{wid}/evidence`
+
+Escaped offline HTML evidence, no provider credentials.
+
+Returns: HTML evidence document
+
+### `POST /api/workflows/source`
+
+Extract editable public page text or an uploaded PDF/Markdown/text file up to 5MB; no model calls.
+
+Request body:
+
+```json
+{
+  "url": "https://your-product.example"
+}
+```
+
+Returns: {text, method, url?}
+
+### `POST /api/workflows/events`
+
+Record an allowlisted local usage event; no external telemetry.
+
+Request body:
+
+```json
+{
+  "name": "active_seconds",
+  "workflow_id": null,
+  "seconds": 20
+}
+```
+
+Returns: {saved}
+
+### `GET /api/workflows/metrics`
+
+Local setup confirmations, completions, failures, retries and editing time; no product text.
+
+Returns: local aggregate counts
 
 ## Tests on simulated people
 

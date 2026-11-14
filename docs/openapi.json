@@ -21,6 +21,9 @@
       "name": "Campaign planning"
     },
     {
+      "name": "Local guided workflows (X-Setup-Token required)"
+    },
+    {
       "name": "Tests on simulated people"
     },
     {
@@ -37,6 +40,679 @@
     }
   ],
   "paths": {
+    "/api/workflows/meta": {
+      "get": {
+        "summary": "Recipe catalog and public provider status; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{recipes, provider, demo_url}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows": {
+      "get": {
+        "summary": "Recent local workflow revisions",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "workflow summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Save a draft or a new comparison revision; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "inputs": {
+                  "recipe": "ads",
+                  "name": "Brand",
+                  "product": "Actual product details",
+                  "audience": "Intended buyers",
+                  "country": "Nepal",
+                  "variants": [
+                    {
+                      "text": "A"
+                    },
+                    {
+                      "text": "B"
+                    }
+                  ]
+                },
+                "parent_id": null
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}": {
+      "get": {
+        "summary": "Saved draft, stage progress, people and artifact checkpoints",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Update an unexecuted draft; changed executed comparisons require a new revision",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "inputs": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}/estimate": {
+      "post": {
+        "summary": "Review remaining work and configuration digest; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{digest, provider, estimated_calls, calls_used, suggested_call_limit, cost_usd:null}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "phase": "prepare"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}/approve": {
+      "post": {
+        "summary": "Explicitly approve a phase and start or reuse its task; retries require retry true",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "workflow with stage task_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "phase": "prepare",
+                "approved": true,
+                "digest": "from estimate",
+                "call_limit": 12,
+                "retry": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}/results": {
+      "get": {
+        "summary": "Simulation-labelled comparison and editable next-real-test worksheet",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{complete, verdict, variants, metric_label, limits, worksheet}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}/worksheet": {
+      "put": {
+        "summary": "Save the user's real-world experiment worksheet",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{saved}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "text": "Markdown"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/{wid}/evidence": {
+      "get": {
+        "summary": "Escaped offline HTML evidence, no provider credentials",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML evidence document",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/source": {
+      "post": {
+        "summary": "Extract editable public page text or an uploaded PDF/Markdown/text file up to 5MB; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{text, method, url?}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://your-product.example"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/events": {
+      "post": {
+        "summary": "Record an allowlisted local usage event; no external telemetry",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{saved}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "active_seconds",
+                "workflow_id": null,
+                "seconds": 20
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workflows/metrics": {
+      "get": {
+        "summary": "Local setup confirmations, completions, failures, retries and editing time; no product text",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "local aggregate counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
     "/api/graph/profile": {
       "post": {
         "summary": "Product profile from text/url/ads (no project)",
@@ -1814,6 +2490,15 @@
             "description": "not found"
           }
         }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "LocalSetupToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Setup-Token"
       }
     }
   }

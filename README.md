@@ -25,6 +25,12 @@ Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](h
 
 **Try it** (Linux, macOS or WSL; needs Git, [uv](https://docs.astral.sh/uv/) and Python 3.12):
 
+**Prefer a guided browser experience?** After installing the engine, run `./mm app`.
+Compare two ads or headlines, review the audience and model-call limit before each
+paid stage, and save a real-world test worksheet. Drafts and the saved demo need no
+model provider. The first UI build needs Node.js 20.19+ or 22.12+.
+[Local app setup, recovery and use cases](docs/LOCAL-APP.md).
+
 ```bash
 git clone https://github.com/DarkWorldCoder/market-mirror.git && cd market-mirror
 bash install.sh --configure      # installs the engine, then asks which model provider to use

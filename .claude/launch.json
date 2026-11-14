@@ -41,6 +41,20 @@
         "/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs/fitloop_1000_sonnet"
       ],
       "port": 5052
+    },
+    {
+      "name": "arguseye-docs",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5088",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/home/ayushniroula/Desktop/projects/component-preview/docs"
+      ],
+      "port": 5088
     }
   ]
 }
