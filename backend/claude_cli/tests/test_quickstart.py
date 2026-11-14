@@ -202,5 +202,29 @@ class SectionTests(unittest.TestCase):
         self.assertIn("1 tests proposed; first: Proof &lt;ad&gt;.", ideas)
 
 
+class QuickstartLangTests(unittest.TestCase):
+    def setUp(self):
+        self._old_lang = os.environ.get("LANG")
+        os.environ["LANG"] = "es_ES.UTF-8"
+
+    def tearDown(self):
+        if self._old_lang is None:
+            os.environ.pop("LANG", None)
+        else:
+            os.environ["LANG"] = self._old_lang
+
+    def test_explicit_en_overrides_LANG(self):
+        import mirofish
+        args = mirofish.build_parser().parse_args(["--lang", "en", "quickstart"])
+        self.assertEqual(mirofish._quickstart_lang(args), "en")
+        self.assertEqual(quickstart.resolve_lang(mirofish._quickstart_lang(args)), "en")
+
+    def test_omitted_lang_falls_back_to_LANG(self):
+        import mirofish
+        args = mirofish.build_parser().parse_args(["quickstart"])
+        self.assertIsNone(mirofish._quickstart_lang(args))
+        self.assertEqual(quickstart.resolve_lang(mirofish._quickstart_lang(args)), "es")
+
+
 if __name__ == "__main__":
     unittest.main()

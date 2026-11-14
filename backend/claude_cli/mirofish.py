@@ -2131,8 +2131,8 @@ def cmd_intake(c: Optional[Client], a) -> Any:
 
 def _quickstart_lang(a) -> Optional[str]:
     """`--lang es` (global flag, default en) picks the question language; plain en falls back to LANG."""
-    lang = getattr(a, "lang", None)
-    return None if not lang or lang == "en" else lang
+    # An explicit `--lang en` stays English; only an omitted flag falls back to LANG.
+    return getattr(a, "lang", None) or None
 
 
 def cmd_quickstart(c: Optional[Client], a) -> Any:
@@ -2226,7 +2226,7 @@ def cmd_campaign_plan(c: Optional[Client], a) -> Any:
     import campaign_flow
     if a.project:
         if c is None:
-            c = Client(a.base_url, lang=a.lang)
+            c = Client(a.base_url, lang=a.lang or "en")
         profile = c.data("GET", f"/api/graph/project/{a.project}/profile")
     elif a.profile:
         with open(a.profile, encoding="utf-8") as f:
@@ -2757,7 +2757,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mirofish", description="MarketMirror: test ads, messages, prices, launches and sales pitches on simulated buyers (MiroFish engine). Start with: quickstart.")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="backend URL (default %(default)s, env MIROFISH_URL)")
     p.add_argument("--pretty", action="store_true", help="indent JSON output")
-    p.add_argument("--lang", default="en", help="Accept-Language sent to the backend (en/zh), default en")
+    p.add_argument("--lang", default=None, help="Accept-Language sent to the backend (en/zh), default en")
     p.add_argument("--emotions", choices=["off", "observe", "on"], default=None,
                    help="simulated feelings: observe (default) records them, on also lets them steer behaviour, off "
                         "leaves them out (env MM_EMOTIONS)")
@@ -3611,10 +3611,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":
             try:
-                Client(a.base_url, lang=a.lang).get("/health")
+                Client(a.base_url, lang=a.lang or "en").get("/health")
             except Exception:  # noqa: BLE001 - backtest works offline; pairs are stored only when the backend is up
                 offline = True
-        c = None if offline else Client(a.base_url, lang=a.lang)
+        c = None if offline else Client(a.base_url, lang=a.lang or "en")
         if c is not None and getattr(a, "emotions", None):
             c.emotions = a.emotions
         result = COMMANDS[a.cmd](c, a)
