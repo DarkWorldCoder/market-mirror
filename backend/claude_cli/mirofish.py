@@ -331,14 +331,19 @@ def step_prepare(c: Client, simulation_id: str, wait: bool = True, timeout: floa
 
 def step_start(c: Client, simulation_id: str, platform: str = "parallel", max_rounds: Optional[int] = None,
                graph_memory: bool = True, force: bool = True, wait: bool = True,
-               timeout: float = 4 * 3600, interval: float = 5) -> Dict[str, Any]:
+               timeout: float = 4 * 3600, interval: float = 5, herding_probe: Any = None) -> Dict[str, Any]:
+    """herding_probe: None leaves simulation_config.json as it is; false turns the probe off; true, a share or
+    {share, seed} turns it on (changes the run: a neutral account votes early on some posts)."""
     payload: Dict[str, Any] = {"simulation_id": simulation_id, "platform": platform,
                                "enable_graph_memory_update": graph_memory, "force": force}
     if max_rounds:
         payload["max_rounds"] = max_rounds
+    if herding_probe is not None:
+        payload["herding_probe"] = herding_probe
     data = c.data("POST", "/api/simulation/start", json=payload, timeout=180)
     log(f"start: runner {data.get('runner_status')} pid={data.get('process_pid')} "
-        f"max_rounds={data.get('max_rounds_applied')} graph_memory={data.get('graph_memory_update_enabled')}")
+        f"max_rounds={data.get('max_rounds_applied')} graph_memory={data.get('graph_memory_update_enabled')}"
+        + (f" herding_probe={data.get('herding_probe')}" if "herding_probe" in data else ""))
     if not wait:
         return data
     return wait_run(c, simulation_id, timeout, interval)
@@ -1098,7 +1103,23 @@ def cmd_start(c: Client, a) -> Any:
         if not platform:
             raise CLIError("simulation has no prepared platform")
     return step_start(c, a.simulation, platform, a.max_rounds, graph_memory=not a.no_graph_memory,
-                      force=not a.no_force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval)
+                      force=not a.no_force, wait=not a.no_wait, timeout=a.timeout, interval=a.interval,
+                      herding_probe=herding_probe_arg(a))
+
+
+def herding_probe_arg(a) -> Any:
+    """--herding-probe [SHARE] / --herding-probe-seed N -> the start payload value (None when not given; 0 = off)."""
+    share = getattr(a, "herding_probe", None)
+    seed = getattr(a, "herding_probe_seed", None)
+    if share is None:
+        if seed is not None:
+            raise CLIError("--herding-probe-seed needs --herding-probe")
+        return None
+    if share == 0:
+        return False
+    if not 0 < share < 1:
+        raise CLIError("--herding-probe SHARE must be between 0 and 1 (the other posts are the controls)")
+    return {"share": share, **({"seed": seed} if seed is not None else {})}
 
 
 def cmd_wait(c: Client, a) -> Any:
@@ -1704,7 +1725,8 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
                 log("market-test: reusing live interview environment in this study cell")
             else:
                 rs = quota.guarded("the social rounds", lambda: step_start(
-                    c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True), log)
+                    c, sid, cfg.get("platform") or "parallel", rounds, graph_memory=bool(cfg.get("graph_memory", True)), force=True,
+                    herding_probe=cfg.get("herding_probe") or False), log)   # market_test.json decides: absent = off
                 state["runner_status"] = rs.get("runner_status")
             steps.append(f"{rounds} rounds")
             checkpoint()
@@ -2609,7 +2631,7 @@ def cmd_run(c: Client, a) -> Any:
             log("run: --stop-after prepare; not starting the simulation")
         else:
             rs = step_start(c, sim["simulation_id"], a.platform, a.max_rounds, graph_memory=not a.no_graph_memory,
-                            force=True, timeout=a.run_timeout, interval=a.interval)
+                            force=True, timeout=a.run_timeout, interval=a.interval, herding_probe=herding_probe_arg(a))
             state["runner_status"] = rs.get("runner_status")
             checkpoint()
             if a.survey or a.offer or a.goal or a.messages or a.pricing:
@@ -2671,6 +2693,12 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--timeout", type=float, default=timeout, help="max seconds to wait (default %(default)s)")
         sp.add_argument("--interval", type=float, default=5, help="poll interval seconds")
 
+    def probe_opts(sp):
+        sp.add_argument("--herding-probe", type=float, nargs="?", const=0.5, metavar="SHARE",
+                        help="randomized herding probe (changes the run): a neutral account gives SHARE of each round's "
+                             "persona posts one early vote (default 0.5; 0 turns it off); see feed_story.json herding.probe")
+        sp.add_argument("--herding-probe-seed", type=int, metavar="N", help="seed for the probe's assignment")
+
     sub.add_parser("health", help="check the backend is up")
 
     s = sub.add_parser("run", help="whole pipeline: upload -> graph -> simulate -> report -> export")
@@ -2701,6 +2729,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--split", action="store_true", help="split test: each person sees one message (needs 2+)")
     s.add_argument("--pricing", metavar="CURRENCY", help="add price-sensitivity questions in this currency")
     s.add_argument("--close-env", action="store_true", help="close the simulation env at the end (disables interviews)")
+    probe_opts(s)
     s.add_argument("--timeout", type=float, default=3600, help="timeout per async step (s)")
     s.add_argument("--run-timeout", type=float, default=4 * 3600, help="timeout for the simulation run (s)")
     s.add_argument("--interval", type=float, default=5)
@@ -2743,6 +2772,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-rounds", type=int)
     s.add_argument("--no-graph-memory", action="store_true")
     s.add_argument("--no-force", action="store_true", help="don't restart/clean an already-run simulation")
+    probe_opts(s)
     waitopts(s, 4 * 3600)
 
     s = sub.add_parser("wait", help="wait for a running simulation to finish")

@@ -154,6 +154,9 @@ def compact_material(bundle: Dict[str, Any]) -> Dict[str, Any]:
         herd = fs.get("herding") or {}
         if herd.get("verdict") and herd["verdict"] != "not checked":
             social["herding"] = {"verdict": herd["verdict"], "reading": herd.get("reading")}
+        probe = herd.get("probe") or {}
+        if probe.get("verdict") and probe["verdict"] != "not checked":
+            social.setdefault("herding", {})["probe"] = {"verdict": probe["verdict"], "reading": probe.get("reading")}
     return {
         "brand": _brand_name(bundle), "question": (project.get("simulation_requirement") or summary.get("simulation_requirement") or "")[:1200],
         "decision": {k: decision.get(k) for k in ("decision", "confidence", "summary", "signals", "fixes") if decision.get(k) is not None},
@@ -699,6 +702,9 @@ def render_markdown(sec: Dict[str, Any], material: Dict[str, Any]) -> str:
         herd = (material.get("social") or {}).get("herding") or {}
         if herd.get("verdict") in ("negative pile-on", "herding both ways", "positive herding") and herd.get("reading"):
             out += [f"**Herding check ({herd['verdict']}).** {herd['reading']}", ""]
+        probe = herd.get("probe") or {}
+        if probe.get("reading"):
+            out += [f"**Randomized herding probe ({probe['verdict']}).** {probe['reading']}", ""]
         out += _so_what(so)
     rw = sec.get("real_world_check") or {}
     if rw and rw.get("summary"):

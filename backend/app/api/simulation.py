@@ -1518,6 +1518,34 @@ def generate_profiles():
 
 # ============== 模拟运行控制接口 ==============
 
+def _herding_probe_module():
+    import sys
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import herding_probe
+    return herding_probe
+
+
+def _write_herding_probe(sim_dir: str, value) -> None:
+    """Set (or, with None, remove) simulation_config.json's herding_probe before the runner reads it."""
+    path = os.path.join(sim_dir, "simulation_config.json")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if value is None:
+        if "herding_probe" not in cfg:
+            return
+        cfg.pop("herding_probe", None)
+    else:
+        cfg["herding_probe"] = value
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 @simulation_bp.route('/start', methods=['POST'])
 def start_simulation():
     """
@@ -1529,7 +1557,10 @@ def start_simulation():
             "platform": "parallel",                // 可选: twitter / reddit / parallel (默认)
             "max_rounds": 100,                     // 可选: 最大模拟轮数，用于截断过长的模拟
             "enable_graph_memory_update": false,   // 可选: 是否将Agent活动动态更新到Zep图谱记忆
-            "force": false                         // 可选: 强制重新开始（会停止运行中的模拟并清理日志）
+            "force": false,                        // 可选: 强制重新开始（会停止运行中的模拟并清理日志）
+            "herding_probe": {"share": 0.5, "seed": 7}  // optional (MarketMirror): randomized herding probe in the
+                                                   // rounds; true / a share / {share, seed} turns it on, false off;
+                                                   // left out keeps what simulation_config.json has
         }
 
     关于 force 参数：
@@ -1604,6 +1635,13 @@ def start_simulation():
                 "success": False,
                 "error": t('api.invalidPlatform', platform=platform)
             }), 400
+
+        herding_probe = None
+        if 'herding_probe' in data:
+            try:
+                herding_probe = _herding_probe_module().normalize(data.get('herding_probe'))
+            except ValueError as e:
+                return jsonify({"success": False, "error": str(e)}), 400
 
         # 检查模拟是否已准备好
         manager = SimulationManager()
@@ -1706,6 +1744,9 @@ def start_simulation():
                     "error": t('api.simNotReady', status=state.status.value)
                 }), 400
         
+        if 'herding_probe' in data:
+            _write_herding_probe(manager._get_simulation_dir(simulation_id), herding_probe)
+
         # 获取图谱ID（用于图谱记忆更新）
         graph_id = None
         if enable_graph_memory_update:
@@ -1789,6 +1830,8 @@ def start_simulation():
         response_data = run_state.to_dict()
         if max_rounds:
             response_data['max_rounds_applied'] = max_rounds
+        if 'herding_probe' in data:
+            response_data['herding_probe'] = herding_probe
         response_data['graph_memory_update_enabled'] = enable_graph_memory_update
         response_data['force_restarted'] = force_restarted
         if enable_graph_memory_update:

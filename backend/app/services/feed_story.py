@@ -17,6 +17,10 @@ Sources (all read-only):
                                                              map by (agent, content).
   config["persona_index"], config["event_config"]            who is who; which posts were
                                                              injected by the brand.
+  <sim>/herding_probe.json                                   only when the randomized herding
+                                                             probe ran: its assignments; its
+                                                             account and votes are left out
+                                                             of people and counts.
 
 Round-0 rows are logged twice by the runner (round 0 and again in round 1); the
 first row wins. Without actions.jsonl every round is None and posts are ordered by
@@ -27,6 +31,7 @@ Data shapes
   PostView = {post_id, platform, kind: post|quote|repost, author, round, hour, created_at,
               content, is_brand, quote_content, original{post_id, author}|None,
               likes, dislikes, votes_by_round{round: [likes, dislikes]}, likers[Author], reposts, quotes[post_id],
+              probe_vote: up|down (only on posts the herding probe voted on; its vote is in no count),
               comments[{comment_id, author, content, round, hour, likes, sentiment}],
               engagement{by_segment, by_country}, reach_proxy, reply_sentiment{pos, neg, neu},
               sentiment, score}
@@ -328,8 +333,14 @@ def _hour_label(hour: Any) -> Optional[str]:
 
 def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: Dict[str, Any],
                     people: Dict[Any, Dict[str, Any]], injected: List[Dict[str, Any]],
-                    max_posts: Optional[int], sent: Callable[[Any], str] = None) -> Dict[str, Any]:
+                    max_posts: Optional[int], sent: Callable[[Any], str] = None,
+                    probe_users: Optional[Set[Any]] = None, probe_votes: Optional[Dict[Any, str]] = None) -> Dict[str, Any]:
+    """probe_users: the herding probe's user ids on this platform; its votes are left out of every count of what people
+    did (likes, dislikes, likers, votes_by_round). probe_votes: post id -> 'up' | 'down' for the posts it voted on."""
     sent = sent or sentiment_label
+    probe_users = probe_users or set()
+    probe_votes = probe_votes or {}
+    probe_counts: Counter = Counter()
     user_to_agent = {}
     for u in data["users"]:
         user_to_agent[u.get("user_id")] = _int(u.get("agent_id") if u.get("agent_id") is not None else u.get("user_id"))
@@ -355,6 +366,9 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
         if lk.get("like_id") in seen_like:
             continue
         seen_like.add(lk.get("like_id"))
+        if lk.get("user_id") in probe_users:
+            probe_counts[(_int(lk.get("post_id")), 0)] += 1
+            continue
         likes_by_post[_int(lk.get("post_id"))].append(lk)
     dislikes_by_post: Dict[Any, List[Dict[str, Any]]] = defaultdict(list)
     seen_dis: Set[Any] = set()
@@ -362,6 +376,9 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
         if dk.get("dislike_id") in seen_dis:
             continue
         seen_dis.add(dk.get("dislike_id"))
+        if dk.get("user_id") in probe_users:
+            probe_counts[(_int(dk.get("post_id")), 1)] += 1
+            continue
         dislikes_by_post[_int(dk.get("post_id"))].append(dk)
     clikes: Counter = Counter(_int(cl.get("comment_id")) for cl in data["comment_likes"])
     comments_by_post: Dict[Any, List[Dict[str, Any]]] = defaultdict(list)
@@ -422,8 +439,8 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
         quotes = [_int(ch.get("post_id")) for ch in children.get(pid, []) if ch.get("quote_content")]
         reposters = [who(ch.get("user_id")) for ch in children.get(pid, []) if not ch.get("quote_content")]
         quoters = [who(ch.get("user_id")) for ch in children.get(pid, []) if ch.get("quote_content")]
-        likes_n = max(len(likers), int(p.get("num_likes") or 0))
-        dislikes_n = max(len(dislikers), int(p.get("num_dislikes") or 0))
+        likes_n = max(len(likers), int(p.get("num_likes") or 0) - probe_counts.get((pid, 0), 0))
+        dislikes_n = max(len(dislikers), int(p.get("num_dislikes") or 0) - probe_counts.get((pid, 1), 0))
         engagers = likers + dislikers + [c["author"] for c in comments] + reposters + quoters
         by_segment: Counter = Counter((e.get("segment") or "unknown") for e in engagers)
         by_country: Counter = Counter((e.get("country") or "unknown") for e in engagers)
@@ -451,6 +468,7 @@ def _build_platform(platform: str, data: Dict[str, List[Dict[str, Any]]], ridx: 
             "reply_sentiment": {"pos": reply_sent.get("pos", 0), "neg": reply_sent.get("neg", 0), "neu": reply_sent.get("neu", 0)},
             "sentiment": sent(content),
             "score": likes_n + 2 * len(quotes) + len(reposters) + 2 * len(comments) - dislikes_n,
+            **({"probe_vote": probe_votes[pid]} if pid in probe_votes else {}),
         }
 
     ordered = sorted(views.values(), key=lambda v: (v["round"] if v["round"] is not None else 10 ** 9,
@@ -514,6 +532,11 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
             loaded[platform] = load_platform(path)
             users.extend(loaded[platform]["users"])
     people = _people(config, users)
+    probe_log = load_probe_log(sim_dir)
+    probe_users, probe_agents, probe_votes = _probe_ids(probe_log)
+    known = {_int(r.get("agent_id")) for r in config.get("persona_index") or [] if isinstance(r, dict)}
+    for aid in probe_agents - known:
+        people.pop(aid, None)                       # the probe account is nobody: not a person, community or brand
     injected = _injected_posts(config)
     sent, method, basis = sentiment_label, SENTIMENT_METHOD, None
     if labeler is not None:
@@ -530,7 +553,8 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
     brand_posts: List[Dict[str, Any]] = []
     for platform, data in loaded.items():
         ridx = round_index(sim_dir, platform)
-        pv = _build_platform(platform, data, ridx, people, injected, max_posts, sent)
+        pv = _build_platform(platform, data, ridx, people, injected, max_posts, sent,
+                             probe_users.get(platform), probe_votes.get(platform))
         all_posts[platform] = pv.pop("_all_posts", pv["posts"])
         platforms[platform] = pv
         by_id = {v["post_id"]: v for v in pv["posts"]}
@@ -538,7 +562,10 @@ def build_feed_story(sim_dir: str, config: Dict[str, Any], max_posts: Optional[i
             if v["is_brand"]:
                 best, worst = _best_worst(v, by_id)
                 brand_posts.append({**v, "source": v.get("brand_source") or "injected", "best_reply": best, "worst_reply": worst})
-    return {"platforms": platforms, "brand_posts": brand_posts, "herding": herding_check(all_posts, method),
+    herding = herding_check(all_posts, method)
+    if probe_log:
+        herding["probe"] = probe_check(loaded, probe_log, sent, method)
+    return {"platforms": platforms, "brand_posts": brand_posts, "herding": herding,
             "people": {str(aid): a for aid, a in sorted(people.items(), key=lambda kv: str(kv[0]))},
             "sentiment_method": method, **({"sentiment_basis": basis} if basis else {}), "max_posts": max_posts,
             "generated_at": datetime.now().isoformat(timespec="seconds")}
@@ -695,6 +722,284 @@ def _herding_reading(verdict: str, neg: Dict[str, Any], pos: Dict[str, Any], n_p
                 else f"after a net-{what} score not checked")
     return (f"Across {n_posts} posts, reactions did not follow a post's visible score more than its own mix of reactions "
             f"explains ({part(neg, 'negative')}; {part(pos, 'positive')}).")
+
+
+# --------------------------------------------------------------------------
+# Herding probe: a randomized early vote turns the herding check into a measurement
+# --------------------------------------------------------------------------
+#
+# With "herding_probe" on, scripts/herding_probe.py gives a seeded share of each round's organic posts one early vote
+# from a neutral account that no model drives (up everywhere, down on Reddit) and leaves the rest as controls, and logs
+# every assignment to <sim>/herding_probe.json with the database high-water marks at that moment. Because the arm is
+# random, a difference between arms is caused by the vote, not by who was online. Two outcomes, both counting only
+# other people (the probe's own vote is never counted):
+#   final net score            likes minus dislikes at the end of the run
+#   share of later negatives   dislikes and negative replies among the signed reactions that came after assignment
+# Arms are compared with controls of the same platform and pooled weighted by treated posts; 95% intervals use a
+# bootstrap standard error over posts (within each platform and arm) and a Student t critical value. Down-voted posts ending lower than controls, with an interval
+# below 0, is the pile-on finding (Muchnik et al., Science 2013: people corrected an early downvote; Yang et al.,
+# OASIS, arXiv 2411.11581: LLM agents piled on).
+
+PROBE_FILE = "herding_probe.json"
+PROBE_BOOTSTRAP = 2000
+PROBE_MIN_POSTS = 5            # treated posts and controls a comparison needs on a platform
+
+
+def load_probe_log(sim_dir: str) -> Optional[Dict[str, Any]]:
+    """<sim>/herding_probe.json, or None."""
+    try:
+        with open(os.path.join(sim_dir, PROBE_FILE), encoding="utf-8") as f:
+            log = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return log if isinstance(log, dict) and isinstance(log.get("platforms"), dict) else None
+
+
+def _probe_ids(log: Optional[Dict[str, Any]]) -> Tuple[Dict[str, Set[Any]], Set[Any], Dict[str, Dict[Any, str]]]:
+    """(platform -> the probe's user ids, the probe's agent ids, platform -> {post id: 'up' | 'down'} for votes that
+    landed)."""
+    users: Dict[str, Set[Any]] = {}
+    agents: Set[Any] = set()
+    votes: Dict[str, Dict[Any, str]] = {}
+    for plat, sec in ((log or {}).get("platforms") or {}).items():
+        if not isinstance(sec, dict):
+            continue
+        ids = {_int(sec.get(k)) for k in ("probe_user_id", "probe_agent_id") if sec.get(k) is not None}
+        users[plat] = ids
+        if sec.get("probe_agent_id") is not None:
+            agents.add(_int(sec["probe_agent_id"]))
+        for b in sec.get("batches") or []:
+            for p in b.get("posts") or []:
+                if p.get("arm") in ("up", "down") and p.get("delivered"):
+                    votes.setdefault(plat, {})[_int(p.get("post_id"))] = p["arm"]
+    return users, agents, votes
+
+
+def probe_outcomes(platform: str, data: Dict[str, List[Dict[str, Any]]], section: Dict[str, Any],
+                   sent: Callable[[Any], str] = None) -> List[Dict[str, Any]]:
+    """One row per enrolled post whose votes went out: {platform, post_id, arm, delivered, final_net, later_pos,
+    later_neg}. Everything the probe did is left out."""
+    sent = sent or sentiment_label
+    probe = {_int(section.get(k)) for k in ("probe_user_id", "probe_agent_id") if section.get(k) is not None}
+    likes: Dict[Any, List[Dict[str, Any]]] = defaultdict(list)
+    dislikes: Dict[Any, List[Dict[str, Any]]] = defaultdict(list)
+    for rows, into, key in ((data.get("likes") or [], likes, "like_id"), (data.get("dislikes") or [], dislikes, "dislike_id")):
+        seen: Set[Any] = set()
+        for r in rows:
+            if r.get(key) in seen or _int(r.get("user_id")) in probe:
+                continue
+            seen.add(r.get(key))
+            into[_int(r.get("post_id"))].append(r)
+    replies: Dict[Any, List[Tuple[str, Any, str]]] = defaultdict(list)   # post -> (id kind, id, text)
+    for c in data.get("comments") or []:
+        if _int(c.get("user_id")) not in probe:
+            replies[_int(c.get("post_id"))].append(("comment", _int(c.get("comment_id")), c.get("content") or ""))
+    for q in data.get("posts") or []:
+        if q.get("original_post_id") is not None and q.get("quote_content") and _int(q.get("user_id")) not in probe:
+            replies[_int(q.get("original_post_id"))].append(("post", _int(q.get("post_id")), q.get("quote_content") or ""))
+    out: List[Dict[str, Any]] = []
+    for b in section.get("batches") or []:
+        if b.get("vote_round") is None:
+            continue                                   # the votes never went out (last round, or the run stopped)
+        m = b.get("marks") or {}
+
+        def later(row_id: Any, kind: str, m: Dict[str, Any] = m) -> bool:
+            return isinstance(row_id, int) and row_id > int(m.get(kind) or 0)
+        for p in b.get("posts") or []:
+            pid = _int(p.get("post_id"))
+            lk, dk = likes.get(pid, []), dislikes.get(pid, [])
+            pos = sum(1 for r in lk if later(_int(r.get("like_id")), "like"))
+            neg = sum(1 for r in dk if later(_int(r.get("dislike_id")), "dislike"))
+            for kind, rid, text in replies.get(pid, []):
+                if later(rid, kind):
+                    lab = sent(text)
+                    pos += lab == "pos"
+                    neg += lab == "neg"
+            out.append({"platform": platform, "post_id": pid, "arm": p.get("arm"), "delivered": p.get("delivered"),
+                        "final_net": len(lk) - len(dk), "later_pos": pos, "later_neg": neg})
+    return out
+
+
+def _mean_net(rows: List[Dict[str, Any]]) -> Optional[float]:
+    return sum(r["final_net"] for r in rows) / len(rows) if rows else None
+
+
+def _neg_share(rows: List[Dict[str, Any]]) -> Optional[float]:
+    n = sum(r["later_pos"] + r["later_neg"] for r in rows)
+    return sum(r["later_neg"] for r in rows) / n if n else None
+
+
+def _pooled_effect(strata: List[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]],
+                   stat: Callable[[List[Dict[str, Any]]], Optional[float]]) -> Optional[float]:
+    """Arm minus control within each platform, averaged with the platform's treated posts as weights."""
+    num = den = 0.0
+    for arm, ctrl in strata:
+        a, c = stat(arm), stat(ctrl)
+        if a is None or c is None:
+            continue
+        num += len(arm) * (a - c)
+        den += len(arm)
+    return num / den if den else None
+
+
+def _t975(df: int) -> float:
+    """Student t 97.5% quantile (Cornish-Fisher expansion around the normal; within 0.05 of the exact value for df >= 4)."""
+    z = 1.959964
+    df = max(int(df), 1)
+    return z + (z ** 3 + z) / (4 * df) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * df ** 2)
+
+
+def _interval(strata: List[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]],
+              stat: Callable[[List[Dict[str, Any]]], Optional[float]], rng: Any, boots: int) -> Optional[Dict[str, Any]]:
+    """The pooled effect with a 95% interval: its standard error from a bootstrap over posts within each platform and
+    arm, and a Student t critical value on the smallest group, so small arms get wider intervals (a plain percentile
+    bootstrap is too narrow with 5-20 posts per arm)."""
+    est = _pooled_effect(strata, stat)
+    if est is None:
+        return None
+    draws: List[float] = []
+    for _ in range(boots):
+        resampled = [([rng.choice(arm) for _ in arm], [rng.choice(ctrl) for _ in ctrl]) for arm, ctrl in strata]
+        e = _pooled_effect(resampled, stat)
+        if e is not None:
+            draws.append(e)
+    if len(draws) < max(2, boots // 2):
+        return {"diff": round(est, 3), "lo": None, "hi": None}
+    mean = sum(draws) / len(draws)
+    se = (sum((d - mean) ** 2 for d in draws) / (len(draws) - 1)) ** 0.5
+    half = _t975(min(min(len(a), len(c)) for a, c in strata) - 1) * se
+    return {"diff": round(est, 3), "lo": round(est - half, 3), "hi": round(est + half, 3), "se": round(se, 3)}
+
+
+def probe_check(loaded: Dict[str, Dict[str, List[Dict[str, Any]]]], log: Dict[str, Any],
+                sent: Callable[[Any], str] = None, sentiment_method: str = SENTIMENT_METHOD,
+                boots: int = PROBE_BOOTSTRAP, seed: int = 13) -> Dict[str, Any]:
+    """Score the randomized probe: up vs control and down vs control on the final net score and on the share of later
+    negative reactions, with 95% bootstrap intervals over posts."""
+    import random
+    rows: List[Dict[str, Any]] = []
+    settings: Dict[str, Any] = {}
+    for plat, sec in ((log or {}).get("platforms") or {}).items():
+        if isinstance(sec, dict) and plat in loaded:
+            rows += probe_outcomes(plat, loaded[plat], sec, sent)
+            settings[plat] = {"share": sec.get("share"), "seed": sec.get("seed")}
+    arms = Counter(r["arm"] for r in rows)
+    treated = [r for r in rows if r["arm"] in ("up", "down")]
+    out: Dict[str, Any] = {
+        "posts": len(rows), "arms": {k: arms.get(k, 0) for k in ("up", "down", "control")},
+        "votes_landed": sum(1 for r in treated if r.get("delivered")),
+        "votes_missing": sum(1 for r in treated if r.get("delivered") is False),
+        "by_platform": {plat: {k: sum(1 for r in rows if r["platform"] == plat and r["arm"] == k) for k in ("up", "down", "control")}
+                        for plat in settings},
+        "settings": settings, "bootstrap": boots, "interval": 0.95,
+        "means": {k: {"final_net": _round(_mean_net([r for r in rows if r["arm"] == k])),
+                      "later_negative_share": _round(_neg_share([r for r in rows if r["arm"] == k]))}
+                  for k in ("up", "down", "control") if arms.get(k)},
+        "outcomes": "final net score = other people's likes minus dislikes at the end; later negatives = their dislikes "
+                    f"and negative replies after assignment among signed reactions (reply sentiment: {sentiment_method})",
+        "source": "Muchnik, Aral and Taylor, Science 2013; Yang et al., OASIS (arXiv 2411.11581)",
+    }
+    rng = random.Random(seed)
+    comps: Dict[str, Dict[str, Any]] = {}
+    for arm in ("up", "down"):
+        strata, reasons = [], []
+        for plat in sorted(settings):
+            a = [r for r in rows if r["platform"] == plat and r["arm"] == arm]
+            c = [r for r in rows if r["platform"] == plat and r["arm"] == "control"]
+            if not a:
+                continue
+            if len(a) < PROBE_MIN_POSTS or len(c) < PROBE_MIN_POSTS:
+                reasons.append(f"{plat}: {len(a)} {arm}-voted posts and {len(c)} controls (needs {PROBE_MIN_POSTS} each)")
+                continue
+            strata.append((a, c))
+        if not strata:
+            if reasons or arms.get(arm):
+                comps[arm] = {"verdict": "not checked", "reason": "; ".join(reasons) or f"no {arm}-voted posts"}
+            continue
+        net = _interval(strata, _mean_net, rng, boots)
+        neg = _interval(strata, _neg_share, rng, boots)
+        comps[arm] = {"posts": sum(len(a) for a, _ in strata), "controls": sum(len(c) for _, c in strata),
+                      "final_net": net, "later_negative_share": neg, "verdict": _probe_verdict(arm, net)}
+    if "up" in comps:
+        out["up_vs_control"] = comps["up"]
+    if "down" in comps:
+        out["down_vs_control"] = comps["down"]
+    down_v = (comps.get("down") or {}).get("verdict")
+    up_v = (comps.get("up") or {}).get("verdict")
+    if down_v == "piled on" and up_v == "followed":
+        verdict = "herding both ways"
+    elif down_v == "piled on":
+        verdict = "negative pile-on"
+    elif up_v == "followed":
+        verdict = "positive herding"
+    elif not comps or all(c["verdict"] == "not checked" for c in comps.values()):
+        verdict = "not checked"
+    else:
+        verdict = "no clear herding"
+    out.update(verdict=verdict, flag=down_v == "piled on", reading=_probe_reading(verdict, out, comps))
+    return out
+
+
+def _round(x: Optional[float]) -> Optional[float]:
+    return round(x, 3) if x is not None else None
+
+
+def _probe_verdict(arm: str, net: Optional[Dict[str, Any]]) -> str:
+    if not net or net.get("lo") is None:
+        return "not checked"
+    if arm == "down":
+        return "piled on" if net["hi"] < 0 else "corrected" if net["lo"] > 0 else "no clear effect"
+    return "followed" if net["lo"] > 0 else "corrected" if net["hi"] < 0 else "no clear effect"
+
+
+def _probe_reading(verdict: str, out: Dict[str, Any], comps: Dict[str, Dict[str, Any]]) -> str:
+    arms = out["arms"]
+    if verdict == "not checked":
+        why = "; ".join(c.get("reason") or "" for c in comps.values() if c.get("reason")) or \
+            f"{out['posts']} posts were enrolled in rounds that had a next round"
+        return f"Randomized probe not checked: {why}."
+    parts = []
+    if arms.get("down"):
+        parts.append(f"{arms['down']} posts got one early downvote from a neutral account")
+    if arms.get("up"):
+        parts.append(f"{arms['up']} one early upvote")
+    s = "Randomized probe: " + ", ".join(parts) + f", and {arms.get('control', 0)} none (the controls)."
+
+    def pts(x: float) -> str:
+        return f"{x:+.1f}"
+
+    said = []
+
+    def describe(arm: str, word: str) -> str:
+        c = comps.get(arm) or {}
+        net, neg = c.get("final_net") or {}, c.get("later_negative_share") or {}
+        if c.get("verdict") in (None, "not checked") or net.get("lo") is None:
+            return ""
+        diff = net["diff"]
+        lead = f" Counting only other people's votes, {word}" if not said else f" {word.capitalize()}"
+        said.append(arm)
+        line = (f"{lead}-voted posts ended {abs(diff):.1f} points "
+                f"{'lower' if diff < 0 else 'higher'} than controls (95% interval {pts(net['lo'])} to {pts(net['hi'])})")
+        if neg.get("lo") is not None:
+            line += (f", and their share of negative later reactions differed by {100 * neg['diff']:+.0f} points "
+                     f"({100 * neg['lo']:+.0f} to {100 * neg['hi']:+.0f})")
+        return line + "."
+    s += describe("down", "down") + describe("up", "up")
+    down_v, up_v = (comps.get("down") or {}).get("verdict"), (comps.get("up") or {}).get("verdict")
+    if down_v == "piled on":
+        s += (" Simulated people piled onto an early downvote, which real people tended to correct (Muchnik et al. 2013): "
+              "read negative threads in this run as amplified.")
+    elif down_v == "corrected":
+        s += " Simulated people corrected an early downvote, as real people tended to."
+    elif down_v == "no clear effect":
+        s += " An early downvote made no clear difference."
+    if up_v == "followed":
+        s += " An early upvote drew more approval: read popular threads as possibly amplified."
+    elif up_v == "corrected":
+        s += " An early upvote was corrected downward."
+    elif up_v == "no clear effect":
+        s += " An early upvote made no clear difference."
+    return s + " Randomized, so who was online when cannot explain it."
 
 
 # --------------------------------------------------------------------------
