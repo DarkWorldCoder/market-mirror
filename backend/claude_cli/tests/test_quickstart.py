@@ -73,6 +73,20 @@ class QuickstartTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             quickstart.build_scenario({"brand": "X"}, tempfile.mkdtemp())
 
+    def test_spanish_questions_write_same_scenario(self):
+        import io
+        stdin = io.StringIO("Fitloop\nUna app de entrenamiento.\njóvenes en India\n\n\n\n\n\n\n")
+        stderr = io.StringIO()
+        answers = quickstart.ask(stdin, stderr, lang="es")
+        self.assertIn("¿Nombre de la marca o del producto?", stderr.getvalue())
+        self.assertEqual(answers["brand"], "Fitloop")
+        self.assertEqual(answers["platforms"], "facebook, instagram")          # empty answer takes the default; keys unchanged
+        self.assertEqual(quickstart.resolve_lang("es_ES.UTF-8"), "es")
+        self.assertEqual(quickstart.resolve_lang("fr_FR"), "en")
+        d = tempfile.mkdtemp()
+        r = quickstart.build_scenario({**ANSWERS, "brand": "Fitloop"}, os.path.join(d, "es"))
+        self.assertIn("market_test.json", r["files"])
+
     def test_past_ads_import_is_called(self):
         d = tempfile.mkdtemp()
         ads = os.path.join(d, "ads.csv")

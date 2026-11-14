@@ -2129,6 +2129,12 @@ def cmd_intake(c: Optional[Client], a) -> Any:
         raise CLIError(str(e))
 
 
+def _quickstart_lang(a) -> Optional[str]:
+    """`--lang es` (global flag, default en) picks the question language; plain en falls back to LANG."""
+    lang = getattr(a, "lang", None)
+    return None if not lang or lang == "en" else lang
+
+
 def cmd_quickstart(c: Optional[Client], a) -> Any:
     import quickstart
     try:
@@ -2140,7 +2146,7 @@ def cmd_quickstart(c: Optional[Client], a) -> Any:
             log(f"quickstart: understood {prof.get('name') or 'the product'}: {prof.get('one_liner') or ''}"[:160])
             if a.from_docs:
                 prefill["docs"] = ", ".join(a.from_docs)
-        answers = quickstart.load_answers(a.answers) if a.answers else quickstart.ask(sys.stdin, sys.stderr, prefill)
+        answers = quickstart.load_answers(a.answers) if a.answers else quickstart.ask(sys.stdin, sys.stderr, prefill, _quickstart_lang(a))
         answers = {**prefill, **{k: v for k, v in answers.items() if str(v).strip()}}
         root = a.out or os.path.join("scenarios", quickstart.slug(answers.get("brand") or answers.get("product") or "my_test"))
         res = quickstart.build_scenario(answers, root, ads_import=market_cli.ads_import)
