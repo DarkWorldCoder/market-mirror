@@ -11,7 +11,7 @@ import threading
 from types import SimpleNamespace
 
 from . import persona_planner as planner
-from . import gtm_suite, cro_and_sparring, email_test
+from . import gtm_suite, cro_and_sparring, email_test, idea_tests
 
 
 class CallLimitReached(RuntimeError):
@@ -107,6 +107,15 @@ def test_one(client, model, inputs, person, variant):
         row = sessions[0]
         return {"score": float(row.get("action") == "click"), "raw": raw,
                 "objection": row.get("what_would_make_you_click", ""), "reaction": row.get("reason", "")}
+    if kind in ("concept", "statement"):
+        prompt = (idea_tests.concept_prompt(person, text, inputs["name"]) if kind == "concept"
+                  else idea_tests.statement_prompt(person, text, inputs["name"], inputs["audience"]))
+        asked = gtm_suite.ask_people(client, model, [{"person": person, "prompt": prompt}], parallel=1, max_tokens=500)
+        if not asked or not asked[0].get("ok"):
+            raise RuntimeError("Model did not return a usable reaction. Retry the failed exposure.")
+        answer = asked[0]["data"]
+        read = idea_tests.read_concept(answer) if kind == "concept" else idea_tests.read_statement(answer, text)
+        return {**read, "raw": {"answer": answer, "provider": asked[0].get("provider"), "model": asked[0].get("model")}}
     creative = {"headline": text.splitlines()[0], "text": text, "cta": "",
                 "platform": inputs["platform"]}
     raw = gtm_suite.score_ad(client, model, creative, [person], inputs["name"], parallel=1)

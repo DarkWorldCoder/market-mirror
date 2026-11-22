@@ -51,6 +51,15 @@ class FakeModel:
         elif "Simulate how this decision" in prompt:
             payload = {"participants": [{"role": "finance", "stance": "no", "concern": "Billing terms"}],
                        "outcome": "wait", "blocker": "Need billing terms", "what_would_unblock": "Clear pricing"}
+        elif "new product idea" in prompt:
+            payload = {"p_buy": 0.4 if "fifteen-minute workout at home" in prompt else 0.2,
+                       "first_impression": "Looks handy", "unclear": "", "objection": "Another subscription",
+                       "instead": "YouTube workouts"}
+        elif "has just published this statement" in prompt:
+            payload = {"trust_after": 0.7 if "fifteen-minute workout at home" in prompt else 0.3,
+                       "feeling": "Unsure", "would_do": "talk_about_it",
+                       "riskiest_phrase": "fit your day" if "fit your day" in prompt else "invented words",
+                       "missing": ""}
         elif "List 8 emails" in prompt:
             payload = {"emails": [{"from": "A fictional sender", "subject": f"Inbox message {i}"} for i in range(8)]}
         else:
@@ -260,7 +269,7 @@ def test_missing_provider_allows_drafts_but_no_approval(client, monkeypatch):
     assert not fake.calls
 
 
-@pytest.mark.parametrize("recipe", ["ads", "landing", "saas", "ecommerce", "email", "committee", "regional"])
+@pytest.mark.parametrize("recipe", ["ads", "landing", "saas", "ecommerce", "email", "committee", "regional", "concept", "statement"])
 def test_recipe_runs_existing_engines_without_live_models(client, recipe):
     c, _, _ = client
     record = new(c, {**INPUTS, "recipe": recipe, "facts": "Actual billing terms in this fictional test: 5 USD per month."})
@@ -272,7 +281,7 @@ def test_recipe_runs_existing_engines_without_live_models(client, recipe):
     assert result["complete"] and all(v["mean"] is not None for v in result["variants"])
 
 
-@pytest.mark.parametrize("recipe", ["landing", "email", "committee"])
+@pytest.mark.parametrize("recipe", ["landing", "email", "committee", "concept", "statement"])
 def test_recipe_does_not_turn_invalid_answers_into_votes(client, recipe):
     c, fake, _ = client
     record = approve(c, new(c, {**INPUTS, "recipe": recipe}), "prepare")
@@ -297,3 +306,19 @@ def test_local_app_bootstraps_without_relaxing_public_or_production_validation(m
     assert run.startup_errors("0.0.0.0", False, local_app=True) == ["model missing"]
     assert run.startup_errors("127.0.0.1", True, local_app=True) == ["model missing", "production policy"]
     assert run.startup_errors("127.0.0.1", False) == ["model missing"]
+
+
+def test_concept_and_statement_results_say_what_they_measure(client):
+    c, _, _ = client
+    concept = approve(c, approve(c, new(c, {**INPUTS, "recipe": "concept"}), "prepare"), "test")
+    r = w.result(concept)
+    assert r["metric_label"].startswith("Mean simulated chance of buying")
+    assert r["variants"][1]["mean"] == 0.4 and r["variants"][0]["instead"] == ["YouTube workouts"]
+    assert "purchase interest" in r["verdict"]
+    statement = approve(c, approve(c, new(c, {**INPUTS, "recipe": "statement"}), "prepare"), "test")
+    r = w.result(statement)
+    assert r["metric_label"] == "Mean simulated trust after reading" and "kept more simulated trust" in r["verdict"]
+    a, b = r["variants"]
+    assert a["riskiest_phrases"] == [{"phrase": "fit your day", "people": 4}]
+    assert b["riskiest_phrases"] == []                  # a phrase not in the statement is dropped, never invented
+    assert a["would_do"] == {"talk_about_it": 4}
