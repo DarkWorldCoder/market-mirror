@@ -138,6 +138,15 @@ that have no run folder:
 - **Inbox.** Chats saved in this browser and finished reports, grouped by day, with filters (all, chats, reports,
   pinned) and search. The reading pane shows the whole conversation; pin the run, download the chat as Markdown
   (answers marked simulated), delete it, or open the run.
+- **World map.** The World tab beside a chat puts every simulated person on a real world map (Natural Earth country
+  shapes from `world-atlas`, pinned), in their own country; cities are not geocoded, so dots inside a country are spread
+  out. Lines show who replied to, liked, quoted or shared whom in the social rounds; play it round by round, or see all
+  of it at once. Beside the map is what people wrote at that step, and under it interactions per round and the most
+  discussed posts. While a run is going on this backend it follows the newest round. Open it full screen from the tab.
+- **Person card.** Click a dot, a name in Thinking, or a person in the 3D market: their verdict in big type (yes, maybe,
+  no), their own words, what is holding them back, what would change their mind, what they did in the simulation in
+  plain sentences, who they talked to, facts about them and their thinking step by step. "Ask" opens the Person agent
+  with them selected. Community and brand accounts are marked as accounts, not buyers.
 - **Getting around.** `Ctrl K` (or `⌘K`, or `/`) opens a palette that jumps to any run, page, agent or action;
   `Alt 1` to `Alt 4` switch agents; `?` lists every shortcut. Pin runs to the top of the sidebar; the dot beside each
   run is its decision. A run page shows its key numbers (people, segments, intent, best click-through) and lets you

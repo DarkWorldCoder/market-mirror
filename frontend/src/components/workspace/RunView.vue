@@ -179,7 +179,8 @@
           </div>
           <div v-for="(t, i) in shownThoughts" :key="i" class="ws-thought">
             <header>
-              <span class="ws-dot" :style="{ background: t.color }" aria-hidden="true"></span>{{ t.who }}<template v-if="t.segment"> · {{ t.segment }}</template>
+              <span class="ws-dot" :style="{ background: t.color }" aria-hidden="true"></span>
+              <button type="button" class="ws-person-link" :title="`Open ${t.who}`" @click="openPerson(t.agent_id)">{{ t.who }}</button><template v-if="t.segment"> · {{ t.segment }}</template>
             </header>
             <span class="ws-kind" :class="t.kind">{{ kindLabel[t.kind] || t.kind }}</span> {{ t.text }}
             <small v-if="t.did || t.context">{{ [t.context, t.did].filter(Boolean).join(' → ') }}</small>
@@ -189,8 +190,12 @@
           <p v-if="!thoughts.length" class="ws-empty">No saved thoughts in this run.</p>
         </template>
 
+        <template v-else-if="tab === 'world'">
+          <WorldMap :index="index" :story="story" :harvest="harvest" :theme="theme" :live="liveRun" :height="300" :selected="selectedPerson" @select="openPerson" @expand="worldBig = true" />
+        </template>
+
         <template v-else-if="tab === 'market'">
-          <Market3D v-if="webgl && market3d" :data="market3d" :height="440" :label="market3dLabel" :theme="theme" />
+          <Market3D v-if="webgl && market3d" :data="market3d" :height="440" :label="market3dLabel" :theme="theme" @select="openPerson" />
           <EChart v-else-if="market2d" :option="market2d" :height="440" label="Market map of simulated people" :theme="theme" />
           <p class="ws-note">
             {{ webgl ? 'Each small dot is one invented person, coloured by segment and linked to their segment hub (large dot) and to the communities they belong to (pink). Light dots are entities from the market map, linked as the graph links them. Drag to turn, scroll to zoom, hover for names.' : 'This browser has no 3D (WebGL), so the market shows as a map: each dot is one invented person, linked to their segment. Drag and scroll to explore.' }}
@@ -264,7 +269,23 @@
           <p v-if="!posts.length" class="ws-empty">No social posts saved in this run.</p>
         </template>
       </div>
+      <div v-if="personData && !worldBig" class="ws-person-drawer">
+        <PersonCard v-bind="personData" @close="selectedPerson = null" @ask="askPerson" />
+      </div>
     </aside>
+
+    <div v-if="worldBig" class="ws-modal-back ws-world-modal" @mousedown.self="worldBig = false" @keydown.esc="worldBig = false">
+      <div class="ws-world-full" role="dialog" aria-modal="true" aria-label="World map, full screen" tabindex="-1">
+        <header>
+          <h2><Ico name="globe" :size="18" />{{ detail?.title }} · the world map</h2>
+          <button type="button" class="ws-icon-btn" aria-label="Close the full-screen map" @click="worldBig = false"><Ico name="x" /></button>
+        </header>
+        <div class="ws-world-full-body" :class="{ withPerson: !!personData }">
+          <WorldMap big :index="index" :story="story" :harvest="harvest" :theme="theme" :live="liveRun" :height="520" :selected="selectedPerson" @select="openPerson" />
+          <div v-if="personData" class="ws-world-full-person"><PersonCard v-bind="personData" @close="selectedPerson = null" @ask="askPerson" /></div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -272,8 +293,11 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import EChart from './EChart.vue'
 import Market3D from './Market3D.vue'
+import WorldMap from './WorldMap.vue'
+import PersonCard from './PersonCard.vue'
 import Ico from './Ico.vue'
 import { renderMarkdown } from '../../workspace/markdown.js'
+import { feedEdges } from '../../workspace/runActivity.js'
 import { api, download, openHtml } from '../../workspace/api.js'
 import { agent, agentById, exportChat, pending, pins, timeAgo, togglePin } from '../../workspace/agents.js'
 import {
@@ -289,9 +313,10 @@ const props = defineProps({
 })
 
 const detail = ref(null), loading = ref(true), error = ref('')
-const survey = ref(null), feed = ref(null), graph = ref(null), config = ref(null), story = ref(null), harvest = ref(null), status = ref(null)
+const survey = ref(null), feed = ref(null), graph = ref(null), config = ref(null), story = ref(null), harvest = ref(null), status = ref(null), stats = ref(null)
+const selectedPerson = ref(null), worldBig = ref(false)
 const tab = ref('thinking')
-const tabs = [{ id: 'thinking', label: 'Thinking', icon: 'brain' }, { id: 'market', label: '3D market', icon: 'network' },
+const tabs = [{ id: 'thinking', label: 'Thinking', icon: 'brain' }, { id: 'world', label: 'World', icon: 'globe' }, { id: 'market', label: '3D', icon: 'network' },
   { id: 'status', label: 'Status', icon: 'activity' }, { id: 'feed', label: 'Feed', icon: 'feed' }]
 const messages = ref([]), draft = ref(''), busy = ref(false), busyNote = ref(''), focused = ref(false), active = ref(0)
 const personId = ref(null), scroller = ref(null), fileInput = ref(null), attachment = ref(null)
@@ -316,7 +341,7 @@ async function loadRun() {
   const has = new Set(detail.value.files)
   const get = (f, target) => (has.has(f) ? api(`/api/runs/${enc(props.name)}/files/${f}`).then((d) => (target.value = d)).catch(() => null) : null)
   await Promise.all([get('survey.json', survey), get('feed_test.json', feed), get('graph.json', graph), get('config.json', config),
-    get('feed_story.json', story),
+    get('feed_story.json', story), get('agent_stats.json', stats),
     api(`/api/runs/${enc(props.name)}/thoughts`).then((d) => (harvest.value = d)).catch(() => null),
     loadStatus()])
 }
@@ -349,7 +374,24 @@ async function loadStatus() {
 }
 function schedulePoll() {
   clearTimeout(pollTimer)
-  if (alive && isRunning.value && status.value?.live) pollTimer = setTimeout(loadStatus, 5000)
+  if (alive && isRunning.value && status.value?.live) {
+    pollTimer = setTimeout(loadStatus, 5000)
+    refreshLive()
+  }
+}
+let liveBusy = false
+async function refreshLive() {
+  // while the simulation runs here, read the newest posts and thinking from the engine, not the saved files
+  if (liveBusy || !sid.value) return
+  liveBusy = true
+  try {
+    const base = `/api/simulation/${enc(sid.value)}`
+    const [st, th] = await Promise.all([api(`${base}/feed-story`).catch(() => null), api(`${base}/thought-stream`).catch(() => null)])
+    if (st?.platforms) story.value = st
+    if (th?.entries?.length) harvest.value = th
+  } finally {
+    liveBusy = false
+  }
 }
 
 async function load() {
@@ -394,6 +436,37 @@ watch(messages, (v) => {
   }
 }, { deep: true })
 
+const liveRun = computed(() => !!(isRunning.value && status.value?.live))
+const edgesAll = computed(() => feedEdges(story.value))
+const nameById = computed(() => Object.fromEntries(index.value.map((r) => [String(r.agent_id), r.name])))
+const personData = computed(() => {
+  if (selectedPerson.value === null || selectedPerson.value === undefined) return null
+  const id = String(selectedPerson.value)
+  const person = index.value.find((r) => String(r.agent_id) === id)
+  if (!person) return null
+  const answer = (survey.value?.responses || []).find((r) => String(r.agent_id) === id)?.answer || null
+  const statsList = Array.isArray(stats.value) ? stats.value : stats.value?.agents || []
+  const segs = segments.value
+  return {
+    person, answer, color: palette().series[Math.max(0, segs.indexOf(person.segment)) % palette().series.length],
+    stats: statsList.find((r) => String(r.agent_id) === id) || null,
+    // the survey objection is already shown on the card, so it is not repeated as a thought
+    thoughts: (harvest.value?.entries || []).filter((e) => String(e.agent_id) === id && e.text && !(answer && e.source === 'survey')),
+    edges: edgesAll.value.filter((e) => String(e.from) === id || String(e.to) === id),
+    names: nameById.value
+  }
+})
+function openPerson(id) {
+  if (id === null || id === undefined) return
+  selectedPerson.value = id
+}
+function askPerson(id) {
+  worldBig.value = false
+  selectedPerson.value = null
+  agent.value = 'person'
+  personId.value = Number(id)
+  nextTick(() => document.getElementById('ws-ask')?.focus())
+}
 const stepIcon = { people: 'users', feed: 'megaphone', intent: 'trend', segments: 'target', objections: 'no', files: 'file' }
 const pinKey = computed(() => (props.name ? `r:${props.name}` : `s:${props.sim}`))
 const pinned = computed(() => pins.value.includes(pinKey.value))
@@ -489,7 +562,7 @@ const thoughts = computed(() => {
   const segs = segments.value
   const color = (seg) => p.series[Math.max(0, segs.indexOf(seg)) % p.series.length]
   return (harvest.value?.entries || []).filter((e) => e.text).map((e) => ({
-    who: e.name || `Person ${e.agent_id}`, segment: e.segment, source: e.source, kind: e.kind, text: e.text, did: e.did, context: e.context, color: color(e.segment)
+    agent_id: e.agent_id, who: e.name || `Person ${e.agent_id}`, segment: e.segment, source: e.source, kind: e.kind, text: e.text, did: e.did, context: e.context, color: color(e.segment)
   }))
 })
 const thoughtSources = computed(() => Object.entries(harvest.value?.by_source || {}).filter(([s]) => s))

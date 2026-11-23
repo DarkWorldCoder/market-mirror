@@ -19,6 +19,7 @@ const props = defineProps({
   label: { type: String, default: '3D market' },
   theme: { type: String, default: 'dark' }
 })
+const emit = defineEmits(['select'])
 const el = ref(null), spinning = ref(true)
 let fg = null, observer = null
 const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -39,7 +40,7 @@ async function render() {
       .nodeColor('color')
       .nodeOpacity(0.95)
       .nodeResolution(10)
-      .nodeLabel((n) => `<div class="ws-3d-tip"><b>${esc(n.name)}</b><br>${esc(n.kind)}${n.detail ? ' · ' + esc(n.detail) : ''}</div>`)
+      .nodeLabel((n) => `<div class="ws-3d-tip"><b>${esc(n.name)}</b><br>${esc(n.kind)}${n.detail ? ' · ' + esc(n.detail) : ''}${String(n.id).startsWith('p:') ? '<br><i>Click to open</i>' : ''}</div>`)
       .linkColor((l) => l.color)
       .linkOpacity(0.35)
       .linkWidth((l) => (l.kind === 'community' ? 0.5 : l.kind === 'map' ? 0.8 : 0))
@@ -47,6 +48,7 @@ async function render() {
       .d3VelocityDecay(0.3)
       .cooldownTicks(120)
       .onEngineStop(fit)
+      .onNodeClick((n) => String(n.id).startsWith('p:') && emit('select', Number(String(n.id).slice(2))))
     fg.d3Force('charge').strength(-26)
     const controls = fg.controls()
     controls.autoRotate = spinning.value = !reduced
