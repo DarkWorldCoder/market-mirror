@@ -1,6 +1,6 @@
-"""Local authenticated workspace project CRUD."""
-from flask import Blueprint, jsonify, request
-from .setup import _guard
+"""Workspace project CRUD: viewers read, editors create and edit, owners or the creator archive."""
+from flask import Blueprint, g, jsonify, request
+from .. import auth
 from ..services import workspace_projects as service
 
 workspace_projects_bp = Blueprint("workspace_projects", __name__)
@@ -8,7 +8,7 @@ workspace_projects_bp = Blueprint("workspace_projects", __name__)
 
 @workspace_projects_bp.before_request
 def protect():
-    return _guard(write=request.method != "GET")
+    return auth.require("viewer" if request.method == "GET" else "editor")
 
 
 @workspace_projects_bp.after_request
@@ -41,6 +41,10 @@ def project(project_id):
     if request.method == "GET":
         return jsonify(success=True, data=service.get_project(project_id))
     if request.method == "DELETE":
+        scope = g.mm_scope
+        if not scope.can("owner") and service.project_creator(project_id) != scope.user_id:
+            return jsonify(success=False, error="Only the person who made this project or an owner can archive it.",
+                           code="role"), 403
         service.archive_project(project_id)
         return jsonify(success=True, data={"id": project_id, "archived": True})
     if request.content_length and request.content_length > 50000:

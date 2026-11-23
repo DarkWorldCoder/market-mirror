@@ -36,9 +36,12 @@ def test_knowledge_add_remove_persistence_preserves_preferences(client):
     assert updated["instructions"] == original["instructions"]
     assert updated["chat_ids"] == original["chat_ids"]
     assert updated["preferred_model"] == original["preferred_model"]
-    metadata = Path(ProjectManager.PROJECTS_DIR) / original["id"] / "workspace.json"
-    assert json.loads(metadata.read_text())["sources"] == updated["sources"]
-    assert metadata.stat().st_mode & 0o777 == 0o600
+    # Projects live in the workspace database now, not in a workspace.json next to the engine project.
+    assert not (Path(ProjectManager.PROJECTS_DIR) / original["id"] / "workspace.json").exists()
+    from app.db import get_db
+    with get_db().transaction() as conn:
+        stored = conn.one("SELECT name, body FROM project_sources WHERE project_id=?", (original["id"],))
+    assert stored == {"name": "Buyer brief", "body": source["text"]}
     assert client.get(url, headers=H).json["data"]["sources"] == updated["sources"]
     assert client.delete(url + "/sources/" + source["id"], headers=H).json["data"]["sources"] == []
     assert client.delete(url + "/sources/" + source["id"], headers=H).status_code == 404

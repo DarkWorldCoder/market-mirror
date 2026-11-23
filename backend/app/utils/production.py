@@ -371,6 +371,25 @@ def scrub_tracebacks_from_response(response: Response) -> Response:
 # Middleware
 # --------------------------------------------------------------------------
 
+_ACCOUNT_ROUTES = ("/api/team", "/api/workspace/", "/api/runs")
+
+
+def _account_request() -> bool:
+    """Team mode: sign-in routes check themselves; workspace routes accept a signed-in session instead of the
+    API token (they then require a role, CSRF and the public Origin, see app/auth.py)."""
+    from .. import auth
+    if not auth.accounts_enabled():
+        return False
+    if request.path.startswith("/api/auth/"):
+        return True
+    if not request.path.startswith(_ACCOUNT_ROUTES) or not request.cookies.get(auth.COOKIE):
+        return False
+    try:
+        return auth.signed_in() is not None
+    except Exception:
+        return False
+
+
 def install_production_middleware(app: Flask) -> None:
     """Attach production auth, rate-limiting, request IDs, security headers, error handlers, and probes."""
     if os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes"):
@@ -402,7 +421,7 @@ def install_production_middleware(app: Flask) -> None:
 
         # 2. API key / Bearer token authentication, with failed attempts rate limited
         expected = _auth_token(app)
-        if expected and protected:
+        if expected and protected and not _account_request():
             fail_limit = _auth_fail_limit(app)
             fail_key = f"authfail:{ip}"
             if fail_limit > 0:

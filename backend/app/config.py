@@ -295,6 +295,11 @@ class Config:
         if cors == '*' or '*' in [o.strip() for o in cors.split(',')]:
             errors.append('CORS_ORIGINS="*" is not allowed in production; list the allowed origins or use "none"')
 
+        if (env.get('MM_ACCOUNTS') or '').strip().lower() in ('on', '1', 'true', 'yes'):
+            origin = (env.get('MM_PUBLIC_ORIGIN') or '').strip()
+            if not cls._ORIGIN_RE.match(origin) or not origin.startswith('https://'):
+                errors.append('MM_PUBLIC_ORIGIN must be the https:// origin people open when MM_ACCOUNTS is on')
+
         if not cls.is_loopback_host(host):
             token = (env.get('MM_API_AUTH_TOKEN') or env.get('API_AUTH_TOKEN') or '').strip()
             if not token:

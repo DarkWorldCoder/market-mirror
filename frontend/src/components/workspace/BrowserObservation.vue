@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { Globe, LoaderCircle, Camera, FileText, Maximize2, Copy, Check, MessageSquare } from 'lucide-vue-next'
-import { ensureSession, token } from '../../workspace/api'
+import { authHeaders, ensureSession } from '../../workspace/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog'
 import InfoHint from './InfoHint.vue'
 const props = defineProps({ observation: { type: Object, required: true }, theme: { type: String, default: 'light' }, canAsk: Boolean })
@@ -23,7 +23,7 @@ async function loadImage(path = frame.value?.url) {
  // Only the existing authenticated local screenshot route may supply image bytes.
  if(!/^\/api\/workspace\/browser\/br_[a-f0-9]{24}\/image(?:\?frame=[01])?$/.test(path || '')){error.value='Screenshot is unavailable.';return}
  loading.value=true
- try{await ensureSession();const response=await fetch(path,{credentials:'same-origin',headers:{'X-Setup-Token':token()},cache:'no-store'});if(!response.ok||!response.headers.get('content-type')?.includes('image/png'))throw new Error('Screenshot expired or could not be loaded.');const blob=await response.blob();if(current===version)image.value=URL.createObjectURL(blob)}catch(err){if(current===version)error.value=err.message}finally{if(current===version)loading.value=false}
+ try{await ensureSession();const response=await fetch(path,{credentials:'same-origin',headers:authHeaders(),cache:'no-store'});if(!response.ok||!response.headers.get('content-type')?.includes('image/png'))throw new Error('Screenshot expired or could not be loaded.');const blob=await response.blob();if(current===version)image.value=URL.createObjectURL(blob)}catch(err){if(current===version)error.value=err.message}finally{if(current===version)loading.value=false}
 }
 watch(() => frame.value?.url, path=>loadImage(path), {immediate:true})
 watch(() => props.observation, () => { selected.value=0;copied.value=false;copyError.value='' })

@@ -165,12 +165,13 @@ import { buildConversationContext } from '../../workspace/conversationContext'
 import TeamPresence from './TeamPresence.vue'
 import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../../workspace/cloud'
 import { streamChat } from '../../workspace/chatStream'
-import { api, token } from '../../workspace/api.js'
+import { api, authHeaders, token } from '../../workspace/api.js'
+import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
 const route = useRoute(), router = useRouter(), messages = ref([]), conversationId = ref(''), busy = ref(false), error = ref(''), selectedRun = ref(''), artifactFiles = ref({}), scrollArea = ref(null), context = ref(null), fileInput = ref(null), uploading = ref(false)
 watch(busy, value => window.dispatchEvent(new CustomEvent('mm-chat-status', { detail: { id: conversationId.value, status: value ? 'working' : 'idle' } })))
-const connected = computed(() => !!token()), settingsLink = computed(() => `/setup#t=${encodeURIComponent(token())}`)
+const connected = computed(() => !!token() || (signedIn.value && canEdit.value)), settingsLink = computed(() => `/setup#t=${encodeURIComponent(token())}`)
 const connectionsTab = ref('data')
 const composer = ref(null), runPicker = ref(null), connectionsOpen = ref(false), modelOptions = ref([]), selectedModel = ref(''), modelsLoading = ref(false)
 const selectedPage = ref(null)
@@ -507,7 +508,7 @@ async function send(text, options = {}) {
  const reviewRun = retried ? retried.reviewRun : pinnedReview?.name
  const runName = evidenceRun || reviewRun || selectedRun.value
  const teamNote = !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
- if (!connected.value && !teamNote) { error.value = 'Connect your local workspace before starting a conversation.'; return }
+ if (!connected.value && !teamNote) { error.value = signedIn.value && !canEdit.value ? 'You can read this workspace. Ask an owner to make you an editor to start conversations.' : 'Connect your local workspace before starting a conversation.'; return }
  if (text.length > 12000) { error.value = 'Keep your message under 12,000 characters. Use Add context for a document.'; return }
  if (route.query.project && activeProject.value?.id !== route.query.project) { await loadProject(); if (!activeProject.value) return }
  if (!conversationId.value) { conversationId.value = uid(); await router.replace({ path: route.path, query: { chat: conversationId.value, ...(activeProject.value ? { project: activeProject.value.id } : {}) } }) }
@@ -622,7 +623,7 @@ async function attach(event) {
     pieces.push({name:file.name,text})
    } else {
     const form = new FormData(); form.append('file', file)
-    const response = await fetch('/api/workflows/source', { method:'POST',headers:{'X-Setup-Token':token()},body:form })
+    const response = await fetch('/api/workflows/source', { method:'POST',headers:authHeaders(),body:form })
     const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || `Could not read ${file.name}.`)
     pieces.push({name:file.name,text:data.data.text})
    }

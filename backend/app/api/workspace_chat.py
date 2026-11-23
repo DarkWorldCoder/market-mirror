@@ -5,8 +5,9 @@ import queue
 import threading
 from urllib.parse import urlsplit
 
-from .setup import _guard, _loopback
+from .setup import _loopback
 from . import setup as setup_api
+from .. import auth
 from ..services import workspace_chat as service
 
 workspace_chat_bp = Blueprint("workspace_chat", __name__)
@@ -16,7 +17,8 @@ workspace_chat_bp = Blueprint("workspace_chat", __name__)
 def protect():
     if request.endpoint == "workspace_chat.session":
         return None
-    return _guard(write=request.method != "GET")
+    # Asking the model is an editor's action; listing the models is open to every member.
+    return auth.require("editor" if request.method != "GET" else "viewer")
 
 
 @workspace_chat_bp.post("/api/workspace/chat")
@@ -99,7 +101,7 @@ def chat_stream():
             # A closed browser stops delivery, not an upstream provider call already in progress.
             disconnected.set()
 
-    threading.Thread(target=work, name="workspace-chat-stream", daemon=True).start()
+    threading.Thread(target=auth.run_in_scope(work), name="workspace-chat-stream", daemon=True).start()
     response = Response(events(), content_type="text/event-stream; charset=utf-8")
     response.headers["Cache-Control"] = "no-store, no-transform"
     response.headers["Pragma"] = "no-cache"

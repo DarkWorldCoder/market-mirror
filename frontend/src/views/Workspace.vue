@@ -45,7 +45,8 @@
         <div v-if="search.trim() && !searchResultCount" class="ws-search-none" role="status"><Search :size="18" aria-hidden="true" /><b>No matches for “{{ search.trim() }}”</b><span>Try a project, chat or report name.</span><button type="button" @click="search = ''; searchBox?.focus()">Clear search</button></div>
       </div>
       <div class="ws-foot ws-nav">
-        <template v-if="cloudAccount"><RouterLink to="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</RouterLink><RouterLink to="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</RouterLink></template>
+        <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
+        <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
         <button @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
@@ -67,6 +68,7 @@
 
         <ChatWorkspace v-else-if="view === 'chat' || view === 'connectors'" :runs="runs" :provider="provider" :theme="theme" />
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
+        <TeamPanel v-else-if="view === 'team'" />
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
@@ -95,6 +97,7 @@
       </section>
     </main>
     <CustomSkillDialog v-model:open="customSkillOpen" :skill="customSkillEditing" :theme="theme" />
+    <OnboardingDialog v-model:open="onboardingOpen" :theme="theme" :latest-run="runs[0]?.name || ''" @settings="onboardingOpen = false; openSettings()" />
     <Dialog v-model:open="shortcutsOpen">
       <DialogContent class="ws-overlay ws-shortcuts" :data-theme="theme">
         <DialogHeader><DialogTitle>Keyboard shortcuts</DialogTitle><DialogDescription>Work without the mouse.</DialogDescription></DialogHeader>
@@ -122,6 +125,9 @@ import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
 import { cloudAccount } from '../workspace/cloud.js'
+import { account as accountRef, role, signedIn, teamMode } from '../workspace/account.js'
+import TeamPanel from '../components/workspace/TeamPanel.vue'
+import OnboardingDialog from '../components/workspace/OnboardingDialog.vue'
 import '../assets/workspace.css'
 import '../assets/workspace-theme.css'
 import '../assets/workspace-features.css'
@@ -178,7 +184,7 @@ const theme = ref((() => {
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
@@ -231,6 +237,7 @@ async function moveChat(chatId) {
 
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  if (signedIn.value) api('/api/workspace/preferences', { method: 'PUT', body: { user: { theme: theme.value } } }).catch(() => {})
   try {
     localStorage.setItem('mm-theme', theme.value)
   } catch {
@@ -250,8 +257,22 @@ async function openChatAction(event) {
 }
 function createProject() { openChatAction('mm-create-project') }
 function openSettings() { openChatAction('mm-open-settings') }
+const accountState = computed(() => accountRef.value)
+const onboardingOpen = ref(false)
+async function loadOnboarding() {
+  if (cloudAccount.value || (teamMode.value && !signedIn.value)) return
+  try {
+    const state = await api('/api/workspace/onboarding')
+    if (!state.steps?.dismissed) onboardingOpen.value = true
+  } catch { /* an older backend has no onboarding; the app works without it */ }
+}
+async function loadUserTheme() {
+  if (!signedIn.value) return
+  try { const prefs = await api('/api/workspace/preferences'); if (prefs.user?.theme) { theme.value = prefs.user.theme; localStorage.setItem('mm-theme', theme.value) } } catch { /* keep this browser's choice */ }
+}
+function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUserTheme() }
 async function loadProjects() {
-  if (!token()) return
+  if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
 }
 function onSlash(e) {
@@ -302,10 +323,16 @@ onMounted(() => {
   document.addEventListener('keydown', onSlash)
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', refreshVisible)
+  window.addEventListener('mm-account-changed', onAccountChanged)
+  window.addEventListener('mm-workspace-renamed', onAccountChanged)
   refresh()
+  loadOnboarding()
+  loadUserTheme()
   refreshTimer = setInterval(refreshVisible, 15000)
 })
 onUnmounted(() => {
+  window.removeEventListener('mm-account-changed', onAccountChanged)
+  window.removeEventListener('mm-workspace-renamed', onAccountChanged)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
