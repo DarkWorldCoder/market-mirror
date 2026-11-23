@@ -60,6 +60,14 @@ class FakeModel:
                        "feeling": "Unsure", "would_do": "talk_about_it",
                        "riskiest_phrase": "fit your day" if "fit your day" in prompt else "invented words",
                        "missing": ""}
+        elif "come across this job posting" in prompt:
+            payload = {"p_apply": 0.5 if "fifteen-minute workout at home" in prompt else 0.1,
+                       "first_impression": "Could work", "fit": "unsure",
+                       "put_off": "fit your day" if "fit your day" in prompt else "rockstar ninja",
+                       "missing": "The pay"}
+        elif "appeal for donations" in prompt:
+            payload = {"p_give": 0.3 if "fifteen-minute workout at home" in prompt else 0.1,
+                       "feeling": "Touched", "moved_by": "One family's story", "doubt": "Where the money goes"}
         elif "List 8 emails" in prompt:
             payload = {"emails": [{"from": "A fictional sender", "subject": f"Inbox message {i}"} for i in range(8)]}
         else:
@@ -269,7 +277,7 @@ def test_missing_provider_allows_drafts_but_no_approval(client, monkeypatch):
     assert not fake.calls
 
 
-@pytest.mark.parametrize("recipe", ["ads", "landing", "saas", "ecommerce", "email", "committee", "regional", "concept", "statement"])
+@pytest.mark.parametrize("recipe", ["ads", "landing", "saas", "ecommerce", "email", "committee", "regional", "concept", "statement", "job", "appeal"])
 def test_recipe_runs_existing_engines_without_live_models(client, recipe):
     c, _, _ = client
     record = new(c, {**INPUTS, "recipe": recipe, "facts": "Actual billing terms in this fictional test: 5 USD per month."})
@@ -281,7 +289,7 @@ def test_recipe_runs_existing_engines_without_live_models(client, recipe):
     assert result["complete"] and all(v["mean"] is not None for v in result["variants"])
 
 
-@pytest.mark.parametrize("recipe", ["landing", "email", "committee", "concept", "statement"])
+@pytest.mark.parametrize("recipe", ["landing", "email", "committee", "concept", "statement", "job", "appeal"])
 def test_recipe_does_not_turn_invalid_answers_into_votes(client, recipe):
     c, fake, _ = client
     record = approve(c, new(c, {**INPUTS, "recipe": recipe}), "prepare")
@@ -322,3 +330,18 @@ def test_concept_and_statement_results_say_what_they_measure(client):
     assert a["riskiest_phrases"] == [{"phrase": "fit your day", "people": 4}]
     assert b["riskiest_phrases"] == []                  # a phrase not in the statement is dropped, never invented
     assert a["would_do"] == {"talk_about_it": 4}
+
+
+def test_job_and_appeal_results_say_what_they_measure(client):
+    c, _, _ = client
+    job = approve(c, approve(c, new(c, {**INPUTS, "recipe": "job"}), "prepare"), "test")
+    r = w.result(job)
+    assert r["metric_label"] == "Mean simulated chance of applying" and "simulated applications" in r["verdict"]
+    a, b = r["variants"]
+    assert a["fit"] == {"unsure": 4} and a["riskiest_phrases"] == [{"phrase": "fit your day", "people": 4}]
+    assert b["riskiest_phrases"] == []                  # words not in the posting are dropped
+    appeal = approve(c, approve(c, new(c, {**INPUTS, "recipe": "appeal"}), "prepare"), "test")
+    r = w.result(appeal)
+    assert r["metric_label"] == "Mean simulated chance of giving" and "to give" in r["verdict"]
+    assert r["variants"][1]["mean"] == 0.3 and r["variants"][0]["moved_by"] == ["One family's story"]
+    assert "Where the money goes" in r["variants"][0]["objections"]
