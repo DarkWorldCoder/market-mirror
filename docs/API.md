@@ -584,7 +584,19 @@ Returns: {root, runs: [{name, title, decision, people, simulation_id, updated_at
 
 One run: manifest, summary and the result files it has.
 
-Returns: {name, title, decision, files, manifest, summary}
+Returns: {name, title, decision, files, manifest, summary, simulation_on_backend}
+
+### `GET /api/runs/{name}/thoughts`
+
+What the simulated people wrote in this run (feed and landing thoughts, survey and pitch replies, posts), harvested from the run folder and the simulation folder; no model calls.
+
+Returns: {total, people, by_source, by_kind, entries: [{agent_id, name, segment, source, kind, text, did, context}]}
+
+### `GET /api/runs/{name}/status`
+
+The run's stages, round status (live when the simulation is on this backend, else saved) and actions per round.
+
+Returns: {simulation_id, live, run, stages: [{id, label, done}], rounds: [{round, actions, twitter, reddit, active}], started_at, finished_at}
 
 ### `GET /api/runs/{name}/files/{filename}`
 

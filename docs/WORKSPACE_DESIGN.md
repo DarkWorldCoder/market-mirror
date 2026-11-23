@@ -36,3 +36,17 @@ The workspace currently provides inline report charts, audience globe/profile ex
 The composer’s View a website action accepts a public URL. Show preview captures the page without a model call and stores its actual screenshot, extracted text, links, and capture metadata in chat. Analyze page sends a request through the selected model and enabled browser tool. Screenshot and Parsed text tabs share the selected-tab styling used by Settings and Connections. Screenshot expansion stays inside the conversation. This is a guarded, read-only capture with JavaScript disabled, not an interactive remote browser or a continuous live stream.
 
 Actual Google Analytics and Meta data require an authorized connector or a supplied export. Their presence in the catalog does not mean an external account is connected. Public hosting and live billing remain separate deployment checks.
+
+## Added on top of this design
+
+- **Inbox** (`/workspace/inbox`): saved chats and finished reports in one list, grouped by day, with search across the message text, filters (all, chats, reports, pinned runs) and a reading pane. From the reading pane you can pin the chat's run, download the chat as Markdown or delete it. Arrow keys move through the list; on a phone it shows one pane at a time.
+- **Compare** (`/workspace/compare?a=&b=`): two saved runs side by side: decision, people, would-buy, maybe, strongest audience, top objection and best ad, with a "higher" marker, purchase-intent charts and a too-close-to-call note. Simulated gaps tend to be larger than real ones, and the page says so.
+- **Pinned runs**: pin any saved run to the top of the sidebar. Pins are kept in this browser.
+- **World map** in the audience explorer: next to the 3D globe, every simulated person on a flat world map in their own country. Lines show replies, likes, quotes and shares between people; you can play it round by round or see all of it at once. What people wrote at each step sits beside the map, with interactions per round and the most discussed posts under it. Cities are not geocoded.
+- **Plain-language person card**: the verdict in big type (yes, maybe, no), the person's own words, what's holding them back, what would change their mind, what they did in plain sentences, who they talked to, facts about them and their thinking step by step. "Ask … a question" opens the run's Person chat with them selected; nothing is sent until you press send. Community and brand accounts are labelled as accounts, not buyers.
+- **Run page**: key numbers (people, segments, would buy, maybe) and a fourth mode, **Focus group**: each line is a discussion question. You get the before and after verdicts, themes and the transcript. It reads the shared result file only after its own task completes. `Alt 1–4` switch modes.
+- **Chat**: copy and "edit and send again" on your own messages, and download the chat as Markdown.
+- **Shortcuts**: `?` lists them.
+- **Thin scrollbars** everywhere. The sidebar rows line up with the search box.
+- **Thinking** loads from `GET /api/runs/<name>/thoughts`, which harvests the run folder and the simulation folder. Saved runs have no `thought_stream.json`, so the old source came up empty. `GET /api/runs/<name>/status` reports stages and round status.
+- **Local mode** skips the hosted account probe, so loopback pages no longer log a 404 on every load.

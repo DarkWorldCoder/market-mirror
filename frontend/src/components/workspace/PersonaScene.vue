@@ -22,20 +22,7 @@
       <p v-if="roundIndex !== 'all'">Bright markers were active in the selected round.</p>
       <p v-if="isRunning && checkedAt">Last checked {{ checkedAt }}.</p>
     </details>
-    <article v-if="selected" class="persona-profile">
-      <header><span class="persona-initial">{{ (selected.name || '?').slice(0, 1) }}</span><div><h4>{{ selected.name || `Person ${selected.agent_id}` }}</h4><p>{{ [selected.segment, selected.country, selected.age ? `${selected.age} years` : ''].filter(Boolean).join(' · ') }}</p></div></header>
-      <dl class="persona-facts"><div v-for="[label, value] in facts" :key="label"><dt>{{ label }}</dt><dd>{{ Array.isArray(value) ? value.join(', ') : value }}</dd></div></dl>
-      <div v-if="selectedActivity" class="persona-activity"><h4>Recorded activity</h4><div class="persona-stats"><span><b>{{ selectedActivity.total_actions ?? 'Unknown' }}</b> actions</span><span><b>{{ selectedActivity.twitter_actions ?? 'Unknown' }}</b> on Twitter</span><span><b>{{ selectedActivity.reddit_actions ?? 'Unknown' }}</b> on Reddit</span></div><p v-if="actionTypes">{{ actionTypes }}</p></div>
-      <div v-if="selectedAnswer" class="persona-answer"><h4>Saved survey response</h4><p v-if="selectedAnswer.would_convert">Would convert: <b>{{ selectedAnswer.would_convert }}</b></p><blockquote v-if="selectedAnswer.quote">{{ selectedAnswer.quote }}</blockquote><p v-if="selectedAnswer.main_objection"><b>Main objection:</b> {{ selectedAnswer.main_objection }}</p></div>
-      <details v-if="selected.decision_role || selected.platform_habits || selected.interview_summary">
-        <summary>Background and habits</summary>
-        <dl class="persona-background">
-          <div v-if="selected.decision_role"><dt>Decision role</dt><dd>{{ selected.decision_role }}</dd></div>
-          <div v-if="selected.platform_habits"><dt>Platform habits</dt><dd>{{ selected.platform_habits }}</dd></div>
-          <div v-if="selected.interview_summary"><dt>Persona background</dt><dd>{{ selected.interview_summary }}</dd></div>
-        </dl>
-      </details>
-    </article>
+    <AudiencePersonCard v-if="selected && showProfile" :person="selected" :color="segmentColor(segments.indexOf(selected.segment || 'Unspecified segment'))" :answer="selectedAnswer || null" :stats="selectedActivity || null" :thoughts="personThoughts" :edges="personEdges" :names="names" />
   </section>
 </template>
 
@@ -45,8 +32,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { geoEquirectangular, geoPath } from 'd3'
 import { countries, countryCenter, geographicPoint } from '../../workspace/audienceGeography'
+import AudiencePersonCard from './AudiencePersonCard.vue'
 
-const props = defineProps({ people: { type: Array, default: () => [] }, activity: { type: Array, default: () => [] }, timeline: { type: Array, default: () => [] }, responses: { type: Array, default: () => [] }, theme: { type: String, default: 'light' }, status: { type: String, default: '' }, checkedAt: { type: String, default: '' }, selectedPersonId: { type: String, default: '' } })
+const props = defineProps({ people: { type: Array, default: () => [] }, activity: { type: Array, default: () => [] }, timeline: { type: Array, default: () => [] }, responses: { type: Array, default: () => [] }, theme: { type: String, default: 'light' }, status: { type: String, default: '' }, checkedAt: { type: String, default: '' }, selectedPersonId: { type: String, default: '' }, thoughts: { type: Array, default: () => [] }, edges: { type: Array, default: () => [] }, names: { type: Object, default: () => ({}) }, showProfile: { type: Boolean, default: true } })
 const emit = defineEmits(['select'])
 const host = ref(null), failure = ref(''), selectedId = ref(props.selectedPersonId), hovered = ref(null), search = ref(''), roundIndex = ref('all'), viewMode = ref('world')
 const unlocatedCount = computed(() => props.people.filter(person => !countryCenter(person.country)).length)
@@ -57,12 +45,9 @@ const selectedActivity = computed(() => props.activity.find(p => String(p.agent_
 const selectedAnswer = computed(() => props.responses.find(p => String(p.agent_id) === selectedId.value)?.answer)
 const rounds = computed(() => Array.isArray(props.timeline) ? props.timeline : [])
 const isRunning = computed(() => /^(running|preparing|processing|in_progress)$/i.test(props.status))
-const actionTypes = computed(() => Object.entries(selectedActivity.value?.action_types || {}).map(([k, v]) => `${k.toLowerCase().replaceAll('_', ' ')}: ${v}`).join(' · '))
-const facts = computed(() => [
-  ['Occupation', selected.value?.occupation],
-  ['Income', selected.value?.income_level],
-  ['Languages', selected.value?.languages]
-].filter(([, value]) => value?.length))
+// the plain-language card shows the survey answer itself, so the survey objection is not repeated as a thought
+const personThoughts = computed(() => props.thoughts.filter(t => String(t.agent_id) === selectedId.value && t.text && !(selectedAnswer.value && t.source === 'survey')))
+const personEdges = computed(() => props.edges.filter(e => String(e.from) === selectedId.value || String(e.to) === selectedId.value))
 const sceneDescription = computed(() => `3D audience of ${props.people.length} simulated people ${viewMode.value === 'world' ? `placed at approximate saved country centers, with ${unlocatedCount.value} unlocated people separate from the globe` : `grouped into ${segments.value.length} segments`}. Select a person with the selector to read their profile. ${isRunning.value ? 'Data refreshes while the run is active.' : 'Showing recorded results.'}`)
 const colors = ['#25785d', '#507cba', '#a76a40', '#9568aa', '#ab8834', '#278d99', '#b0606b', '#5e7f40']
 const segmentColor = i => colors[i % colors.length]
@@ -255,14 +240,4 @@ onBeforeUnmount(() => {
 .persona-legend li i { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; }
 .persona-map-notes { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
 .persona-map-notes summary { cursor: pointer; width: fit-content; }
-.persona-profile { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.persona-profile dl.persona-facts { display: grid; grid-template-columns: 2fr 1fr 1.2fr; gap: 7px; margin: 12px 0 0; }
-.persona-facts > div { padding: 8px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; background: var(--panel-2); }
-.persona-profile .persona-facts dt, .persona-profile .persona-background dt { color: var(--muted); font-size: 11px; margin: 0 0 3px; }
-.persona-profile .persona-facts dd, .persona-profile .persona-background dd { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.persona-profile dl.persona-background { display: grid; gap: 8px; margin: 8px 0 0; }
-@media (max-width: 500px) {
- .persona-profile dl.persona-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
- .persona-facts > div:first-child { grid-column: 1 / -1; }
-}
 </style>

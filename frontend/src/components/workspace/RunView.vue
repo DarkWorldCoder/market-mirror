@@ -13,6 +13,9 @@
           <h2>{{ detail.title }}</h2>
           <p class="ws-run-context">{{ decision ? `Saved decision: ${decision.replaceAll('_', ' ')}` : 'Saved research' }} · Results from simulated participants</p>
         </div>
+        <ul v-if="kpis.length" class="ws-run-kpis" aria-label="Key numbers, simulated">
+          <li v-for="k in kpis" :key="k.label"><b>{{ k.value }}</b><span>{{ k.label }}</span></li>
+        </ul>
         <p v-if="detail.summary?.decision?.summary" class="ws-note" style="font-size: 13px">
           {{ detail.summary.decision.summary }}
         </p>
@@ -37,10 +40,13 @@
 
         <ArtifactExplorer :name="name" :files="detail.files || []" :theme="theme" />
 
-        <details class="ws-run-questions"><summary>Ask about this experiment</summary>
+        <details class="ws-run-questions" :open="askOpen || undefined" @toggle="askOpen = $event.target.open"><summary>Ask about this experiment</summary>
         <div class="ws-chat" aria-live="polite">
           <div v-for="(m, i) in messages" :key="i" class="ws-msg" :class="{ me: m.role === 'user' }">
-            <small>{{ m.role === 'user' ? 'You' : m.who || 'MarketMirror' }}</small>{{ m.text }}
+            <small>{{ m.role === 'user' ? 'You' : m.who || 'MarketMirror' }}<span v-if="m.role !== 'user' && m.simulated" class="ws-run-sim">Simulated</span></small>{{ m.text }}
+            <ol v-if="m.transcript" class="ws-run-transcript">
+              <li v-for="(t, j) in m.transcript" :key="j" :class="{ mod: t.speaker === 'Moderator' }"><b>{{ t.speaker }}</b><small v-if="t.segment"> · {{ t.segment }}</small>: {{ t.text }}</li>
+            </ol>
             <div v-if="m.chartKey && chartFor(m)" class="ws-box" style="margin-top: 10px">
               <EChart :option="chartFor(m)" :height="240" :label="m.caption" :caption="m.caption" :theme="theme" />
             </div>
@@ -85,6 +91,10 @@
               >
                 {{ m.label }}
               </button>
+              <template v-if="mode === 'focus'">
+                <select v-model.number="groupSize" class="ws-chip" aria-label="People in the focus group"><option v-for="n in [3, 4, 5, 6, 8]" :key="n" :value="n">{{ n }} people</option></select>
+                <select v-model="groupSegment" class="ws-chip" aria-label="Segment for the focus group"><option value="">Mixed segments</option><option v-for="sg in personSegments" :key="sg" :value="sg">{{ sg }}</option></select>
+              </template>
               <select v-if="mode === 'person'" v-model.number="personId" class="ws-chip" aria-label="Simulated person">
                 <option v-for="p in people" :key="p.agent_id" :value="p.agent_id">
                   {{ p.name }} · {{ p.segment || p.country }}
@@ -188,8 +198,10 @@ const mode = ref('run'), personId = ref(null), scroller = ref(null)
 const modes = [
   { id: 'run', label: 'From the results', title: 'Answers from the saved files; no model call' },
   { id: 'person', label: 'Ask a person', title: 'One model call to your provider' },
-  { id: 'report', label: 'Report agent', title: 'One or more model calls to your provider' }
+  { id: 'report', label: 'Report agent', title: 'One or more model calls to your provider' },
+  { id: 'focus', label: 'Focus group', title: 'About 4 model calls per person per question' }
 ]
+const groupSize = ref(5), groupSegment = ref(''), askOpen = ref(false)
 
 const fmtTime = (iso) => {
   try {
@@ -243,6 +255,15 @@ async function load(quiet = false) {
       thoughtPage.value = postPage.value = analystPage.value = agentPage.value = 0
       try { const saved = JSON.parse(localStorage.getItem(storeKey.value) || '[]'); messages.value = Array.isArray(saved) ? saved : [] } catch { messages.value = [] }
       personId.value = people.value[0]?.agent_id ?? null
+      // arriving from a person card's "Ask" link: open the Person chat with them selected; nothing is sent
+      const ask = route.query.ask
+      const target = ask !== undefined && people.value.find((p) => String(p.agent_id) === String(ask))
+      if (target) {
+        mode.value = 'person'
+        personId.value = target.agent_id
+        askOpen.value = true
+        nextTick(() => document.getElementById('ws-ask')?.focus())
+      }
     }
   } catch (e) {
     if (ticket !== loadTicket) return
@@ -254,11 +275,19 @@ async function load(quiet = false) {
 }
 watch(() => props.name, () => load(), { immediate: true })
 function refreshVisibleRun() { if (!document.hidden && detail.value) load(true) }
+function onModeKey(e) {
+  if (!e.altKey || !/^[1-4]$/.test(e.key)) return
+  e.preventDefault()
+  mode.value = modes[Number(e.key) - 1].id
+}
 onMounted(() => {
   refreshTimer = setInterval(refreshVisibleRun, 8000)
   document.addEventListener('visibilitychange', refreshVisibleRun)
+  document.addEventListener('keydown', onModeKey)
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onModeKey)
+  alive = false
   loadTicket++
   clearInterval(refreshTimer)
   document.removeEventListener('visibilitychange', refreshVisibleRun)
@@ -367,11 +396,23 @@ const suggestions = computed(() => {
   return (q ? base.filter((s) => s.toLowerCase().includes(q)) : base).slice(0, 5)
 })
 const showSuggest = computed(() => focused.value && mode.value === 'run' && suggestions.value.length > 0 && !busy.value)
-const placeholder = computed(() => ({ run: 'Ask about results, or show pricing, analyst panel, action plan…', person: 'Ask this simulated person anything…', report: 'Ask the report agent about this run…' })[mode.value])
+const placeholder = computed(() => ({ run: 'Ask about results, or show pricing, analyst panel, action plan…', person: 'Ask this simulated person anything…', report: 'Ask the report agent about this run…', focus: 'One discussion question per line (Shift Enter for a new line)…' })[mode.value])
+const personSegments = computed(() => [...new Set(people.value.map((p) => p.segment).filter(Boolean))])
+const kpis = computed(() => {
+  const out = []
+  const n = people.value.length || detail.value?.people
+  if (n) out.push({ value: Number(n).toLocaleString(), label: 'simulated people' })
+  if (personSegments.value.length) out.push({ value: personSegments.value.length, label: 'segments' })
+  const o = detail.value?.summary?.marketing?.overall
+  if (typeof o?.convert_yes === 'number') out.push({ value: `${o.convert_yes}%`, label: 'say they would buy' })
+  if (typeof o?.convert_maybe === 'number') out.push({ value: `${o.convert_maybe}%`, label: 'maybe' })
+  return out
+})
 const modeNote = computed(() => ({
   run: 'Explore saved results and visualize any report here. No model call.',
   person: 'Sends one model call to your configured provider. The reply is written by a model playing this invented person.',
-  report: 'Sends one or more model calls to your configured provider. Needs the simulation on this backend.'
+  report: 'Sends one or more model calls to your configured provider. Needs the simulation on this backend.',
+  focus: 'Sends about 4 model calls per person per question to your configured provider, then shows the transcript. Simulated.'
 })[mode.value])
 
 function chartFor(m) {
@@ -399,6 +440,7 @@ function openReport(file) {
 }
 
 function onKey(e) {
+  if (e.isComposing || e.keyCode === 229) return // Enter confirms an IME composition, it does not send
   if (showSuggest.value && ['ArrowDown', 'ArrowUp'].includes(e.key)) {
     e.preventDefault()
     const n = suggestions.value.length
@@ -437,15 +479,18 @@ async function ask(text) {
         : { role: 'assistant', text: 'I could not match that question to a saved result. Choose any report below to read its full contents here, or use the report agent for a model-generated answer.', reportFiles: detail.value.files || [] })
     } else if (mode.value === 'person') {
       const sid = detail.value.simulation_id
-      const history = messages.value.filter((m) => m.who && m.agent === personId.value).slice(-6).map((m) => ({ role: m.role === 'user' ? 'user' : 'person', text: m.text }))
-      if (personId.value == null || !sid) throw new Error('This run has no available simulated person to ask.')
-      const r = await api('/api/simulation/ask', { method: 'POST', body: { simulation_id: sid, agent_id: personId.value, message: text, history } })
-      messages.value.push({ role: 'assistant', who: `${r.name} (simulated, ${r.segment || 'no segment'})`, agent: personId.value, text: r.reply })
+      const pid = personId.value // the picker can change while the request waits
+      const history = messages.value.filter((m) => m.who && m.agent === pid).slice(-6).map((m) => ({ role: m.role === 'user' ? 'user' : 'person', text: m.text }))
+      if (pid == null || !sid) throw new Error('This run has no available simulated person to ask.')
+      const r = await api('/api/simulation/ask', { method: 'POST', body: { simulation_id: sid, agent_id: pid, message: text, history } })
+      messages.value.push({ role: 'assistant', who: `${r.name} (${r.segment || 'no segment'})`, agent: pid, simulated: true, text: r.reply })
+    } else if (mode.value === 'focus') {
+      await runFocusGroup(text)
     } else {
       const sid = detail.value.simulation_id
       const chat_history = messages.value.slice(-8).map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
       const r = await api('/api/report/chat', { method: 'POST', body: { simulation_id: sid, message: text, chat_history } })
-      messages.value.push({ role: 'assistant', who: 'Report agent', text: r.response || r.answer || JSON.stringify(r) })
+      messages.value.push({ role: 'assistant', who: 'Report agent', simulated: true, text: r.response || r.answer || JSON.stringify(r) })
     }
   } catch (e) {
     messages.value.push({ role: 'assistant', text: `Could not answer: ${e.message}` })
@@ -455,6 +500,35 @@ async function ask(text) {
     await nextTick()
     scroller.value && scroller.value.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' })
   }
+}
+
+let alive = true
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function runFocusGroup(text) {
+  const sid = detail.value?.simulation_id
+  if (!sid) throw new Error('This run has no simulation on this backend, so a focus group cannot start.')
+  const guide = text.split('\n').map((q) => q.trim()).filter(Boolean).slice(0, 8)
+  const started = await api('/api/simulation/focus-group', { method: 'POST', body: { simulation_id: sid, guide, people: groupSize.value, segment: groupSegment.value || undefined } })
+  let completed = false
+  for (let i = 0; i < 400 && alive; i++) {
+    await sleep(3000)
+    const t = await api('/api/simulation/market-task/status', { method: 'POST', body: { task_id: started.task_id } })
+    if (t.status === 'failed') throw new Error(t.error || 'the focus group failed')
+    if (t.status === 'completed') {
+      completed = true
+      break
+    }
+  }
+  // focus_group.json is shared by every group on this simulation, so read it only after this task finished
+  if (!completed) throw new Error('the focus group did not finish here; open the run again later to see its result')
+  const res = await api(`/api/simulation/${encodeURIComponent(sid)}/focus-group`)
+  const parts = (res.participants || []).map((p) => `${p.id} (${p.segment || 'no segment'}): ${p.pre} → ${p.post}`)
+  const themes = (res.themes || []).map((t) => `• ${t.title} (${t.tone})`).join('\n')
+  messages.value.push({
+    role: 'assistant', who: `Focus group of ${parts.length} people`, simulated: true,
+    text: [`Private verdict before → after the discussion:\n${parts.join('\n')}`, res.shift?.note || '', themes ? `Themes:\n${themes}` : ''].filter(Boolean).join('\n\n'),
+    transcript: (res.transcript || []).slice(0, 120)
+  })
 }
 
 async function fetchFile(f) {

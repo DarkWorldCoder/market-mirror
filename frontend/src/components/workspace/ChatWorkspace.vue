@@ -35,7 +35,8 @@
           <ChatArtifact v-for="(a,i) in m.artifacts || []" :key="`${a.run}-${a.file}-${i}`" :name="a.run" :file="a.file" :path="a.path || []" :title="a.title || reportTitle(a.file)" :files="artifactFiles[a.run] || []" :theme="theme" />
           <RouterLink v-if="m.workflow_id" class="direct-plan" :to="`/workflows/${m.workflow_id}`"><FlaskConical /><span><b>Your test draft is ready</b><small>Review the audience, ideas and model usage before running.</small></span><ChevronRight /></RouterLink>
           <div v-if="m.suggestions?.length" class="direct-followups"><button v-for="s in m.suggestions" :key="s" @click="send(s)">{{ s }}</button></div>
-          <div v-if="m.role === 'assistant'" class="direct-message-actions"><button :aria-label="copiedMessage === m.id ? 'Response copied' : 'Copy response'" :title="copiedMessage === m.id ? 'Copied' : 'Copy response'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button></div>
+          <div v-if="m.role === 'assistant'" class="direct-message-actions"><button :aria-label="copiedMessage === m.id ? 'Response copied' : 'Copy response'" :title="copiedMessage === m.id ? 'Copied' : 'Copy response'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button><button v-if="m.id === lastAssistantId" aria-label="Download this chat as Markdown" title="Download this chat as Markdown" @click="exportChat"><Download :size="14" /></button></div>
+          <div v-else-if="m.role === 'user' && !(m.author && m.author.id !== cloudAccount?.account.id)" class="direct-message-actions mine"><button :aria-label="copiedMessage === m.id ? 'Message copied' : 'Copy message'" :title="copiedMessage === m.id ? 'Copied' : 'Copy'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button><button aria-label="Edit and send again" title="Edit and send again" @click="setDraft(String(m.content || ''))"><PencilLine :size="14" /></button></div>
           <div v-if="m.failed" class="direct-message-failure" role="status"><p><CircleAlert :size="14" />{{ m.error || 'This message did not receive an answer. Try again or choose another model.' }}</p><div v-if="messages.at(-1)?.id === m.id"><button class="direct-retry" :disabled="busy" @click="send(m.content, {retryId:m.id})"><RotateCcw :size="13" />Retry</button><button v-if="!m.previewUrl" class="direct-retry" :disabled="busy" @click="openModelPicker">Change model</button></div></div>
         </article>
         <section v-if="busy" class="direct-live" aria-label="Live request activity">
@@ -108,7 +109,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Sparkles, Lightbulb, UsersRound, ChartNoAxesCombined, FolderOpen, Paperclip, Database, FileText, Globe, X, FileChartColumn, ChevronRight, FlaskConical, LoaderCircle, CheckCheck, Check, CircleAlert, Copy, RotateCcw } from 'lucide-vue-next'
+import { Sparkles, Lightbulb, UsersRound, ChartNoAxesCombined, FolderOpen, Paperclip, Database, FileText, Globe, X, FileChartColumn, ChevronRight, FlaskConical, LoaderCircle, CheckCheck, Check, CircleAlert, Copy, RotateCcw, Download, PencilLine } from 'lucide-vue-next'
 import MarketMirrorLogo from '../MarketMirrorLogo.vue'
 import RunContextPicker from './RunContextPicker.vue'
 import ChatToolPicker from './ChatToolPicker.vue'
@@ -147,6 +148,16 @@ const selectedPage = ref(null)
 const selectedRunReview = ref(null)
 const copiedMessage = ref('')
 const retainedContext = computed(() => buildConversationContext(messages.value, context.value, undefined, selectedPage.value))
+const lastAssistantId = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant')?.id)
+function exportChat() {
+  const title = stored().find((c) => c.id === conversationId.value)?.title || messages.value.find((m) => m.role === 'user')?.content?.slice(0, 80) || 'MarketMirror chat'
+  const lines = [`# ${title}`, '', '_Answers about simulated buyers are simulated. Check decisions with real people before you spend._', '']
+  for (const m of messages.value) if (m.content) lines.push(`**${m.role === 'user' ? 'You' : 'MarketMirror'}**`, '', String(m.content), '')
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
+  const a = Object.assign(document.createElement('a'), { href: url, download: `${String(title).replace(/[^\w-]+/g, '_').slice(0, 60) || 'chat'}.md` })
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
 async function copyMessage(message) {
  try { await navigator.clipboard.writeText(message.content); copiedMessage.value = message.id } catch { error.value = 'Could not copy this response. Select the text to copy it.' }
 }

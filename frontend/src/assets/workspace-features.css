@@ -1,0 +1,54 @@
+/* Additions on top of Codex's workspace design: inbox count, pinned runs, shortcuts dialog. */
+.ws .ws-nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent-2); color: var(--accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) { position: relative; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) > a { padding-right: 34px; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) > .ws-pin-run { position: absolute; right: 2px; top: 3px; opacity: 0; }
+.ws .ws-side .ws-history > div:hover > .ws-pin-run,
+.ws .ws-side .ws-pin-run:focus-visible,
+.ws .ws-side .ws-pin-run[aria-pressed='true'] { opacity: 1; }
+.ws .ws-side .ws-pin-run[aria-pressed='true'] { color: var(--accent); }
+.ws .ws-side .ws-pin-run:hover { color: var(--text); background: var(--panel); }
+.ws-shortcuts { max-width: 520px; }
+.ws-shortcut-list { margin: 8px 0 0; }
+.ws-shortcut-list div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.ws-shortcut-list dt { display: flex; gap: 4px; flex-wrap: wrap; }
+.ws-shortcut-list dd { margin: 0; color: var(--muted); }
+.ws-shortcut-list kbd { font: inherit; font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; background: var(--panel); color: var(--text); }
+@media (max-width: 760px) {
+  .ws .ws-side .ws-history > div > .ws-pin-run { opacity: 1; }
+  .ws-shortcut-list div { grid-template-columns: 1fr; gap: 4px; }
+}
+.ws-run-kpis { list-style: none; padding: 0; margin: 12px 0 4px; display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-run-kpis li { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; background: var(--panel); font-size: 12px; color: var(--muted); }
+.ws-run-kpis b { color: var(--text); font-size: 15px; font-weight: 650; }
+.ws-run-sim { margin-left: 6px; font-size: 10.5px; color: var(--warm); border: 1px solid color-mix(in srgb, var(--warm) 45%, var(--line)); border-radius: 999px; padding: 0 6px; }
+.ws-run-transcript { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; max-height: 320px; overflow-y: auto; white-space: normal; }
+.ws-run-transcript li { margin: 4px 0; }
+.ws-run-transcript li.mod { color: var(--muted); }
+.direct-message-actions.mine { justify-content: flex-end; margin-top: 4px; opacity: 0; transition: opacity .15s; }
+.direct-message.user:hover .direct-message-actions.mine,
+.direct-message-actions.mine:focus-within { opacity: 1; }
+@media (hover: none) { .direct-message-actions.mine { opacity: 1; } }
+
+/* Thin scrollbars everywhere in the app (Firefox: scrollbar-width; Chromium and Safari: ::-webkit-scrollbar). */
+.ws, .ws *, .ws-overlay, .ws-overlay * {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 38%, transparent) transparent;
+}
+.ws ::-webkit-scrollbar, .ws-overlay ::-webkit-scrollbar, .ws::-webkit-scrollbar { width: 8px; height: 8px; }
+.ws ::-webkit-scrollbar-track, .ws-overlay ::-webkit-scrollbar-track { background: transparent; }
+.ws ::-webkit-scrollbar-thumb, .ws-overlay ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 32%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.ws ::-webkit-scrollbar-thumb:hover, .ws-overlay ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.ws ::-webkit-scrollbar-corner, .ws-overlay ::-webkit-scrollbar-corner { background: transparent; }
+html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparent; }
+
+/* Sidebar: the scrollbar lives in the sidebar's right padding, so nav rows line up with the search box and New chat
+   instead of stopping short of them (the reserved gutter made the right edge uneven). */
+.ws .ws-side .ws-side-scroll { scrollbar-gutter: auto; margin-right: -10px; padding-right: 10px; }
+/* No hard line between the sidebar and the page; the two surfaces are already set apart by their shades. */
+.ws .ws-side, .ws[data-theme='dark'] .ws-side { border-right: 0; box-shadow: none; }

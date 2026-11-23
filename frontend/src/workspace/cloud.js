@@ -33,7 +33,11 @@ async function fetchChats(conditional = false) {
   revision = value.revision
   return value
 }
+// The local app is only ever served on a loopback address; the hosted account service lives on a real domain.
+// Skipping the probe locally avoids a 404 on every page load.
+const isLoopback = () => /^(localhost|127(\.\d+){3}|\[::1\]|.*\.localhost)$/i.test(globalThis.location?.hostname || '')
 export async function initializeCloud() {
+  if (isLoopback()) return
   try {
     const response = await fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(5000) })
     if (!response.ok || !response.headers.get('Content-Type')?.includes('application/json')) return

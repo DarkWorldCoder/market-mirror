@@ -15,6 +15,8 @@
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
           <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
+          <RouterLink to="/workspace/inbox" :class="{ active: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="menuOpen = false"><InboxIcon class="ico" />Inbox<span v-if="inboxCount" class="ws-nav-count" :aria-label="`${inboxCount} saved chats`">{{ inboxCount }}</span></RouterLink>
+          <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
           <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
@@ -26,13 +28,17 @@
             <button v-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
           </div>
         </section>
+        <section v-if="!search.trim() && pinnedRuns.length" class="ws-side-section" aria-label="Pinned runs">
+          <div class="ws-section-heading"><span>Pinned runs</span></div>
+          <div class="ws-history"><div v-for="r in pinnedRuns" :key="r.name" class="ws-chat-row"><RouterLink :to="{path:'/',query:{run:r.name,show:'reports'}}" :class="{ active: route.params.run === r.name || currentChat?.run === r.name }" :title="r.title" @click="menuOpen = false"><Pin :size="14" /><span>{{ r.title }}</span></RouterLink><button class="ws-chat-move ws-pin-run" aria-pressed="true" :aria-label="`Unpin ${r.title}`" title="Unpin" @click="togglePin(r.name)"><PinOff :size="14" /></button></div></div>
+        </section>
         <details v-if="!search.trim() || filteredChats.length" class="ws-side-section" open>
           <summary>Your chats<ChevronDown :size="13" /></summary>
           <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :aria-label="`Actions for ${c.title}`" title="Chat actions"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end"><button @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
         </details>
         <details v-if="!search.trim() || filteredRuns.length" class="ws-side-section" :open="!!search.trim()">
           <summary>Saved runs<ChevronDown :size="13" /></summary>
-          <div class="ws-history"><div v-for="r in filteredRuns" :key="r.name"><RouterLink :to="{path:'/',query:{run:r.name,show:'reports'}}" :class="{ active: route.params.run === r.name || currentChat?.run === r.name }" :title="r.title" @click="menuOpen = false"><ChartNoAxesCombined :size="14" /><span>{{ r.title }}</span></RouterLink><div v-if="route.params.run === r.name || currentChat?.run === r.name" class="ws-run-shortcuts"><RouterLink v-for="destination in runDestinations" :key="destination.view" :to="{path:'/',query:{run:r.name,show:destination.view}}" :class="{active:route.query.view === destination.view}" @click="menuOpen = false">{{ destination.label }}</RouterLink></div></div><p v-if="!runs.length && !search.trim()" class="ws-side-empty">{{ loaded ? 'No saved runs yet.' : 'Loading runs…' }}</p></div>
+          <div class="ws-history"><div v-for="r in filteredRuns" :key="r.name"><RouterLink :to="{path:'/',query:{run:r.name,show:'reports'}}" :class="{ active: route.params.run === r.name || currentChat?.run === r.name }" :title="r.title" @click="menuOpen = false"><ChartNoAxesCombined :size="14" /><span>{{ r.title }}</span></RouterLink><button class="ws-chat-move ws-pin-run" :aria-pressed="pins.includes(r.name)" :aria-label="`${pins.includes(r.name) ? 'Unpin' : 'Pin'} ${r.title}`" :title="pins.includes(r.name) ? 'Unpin' : 'Pin to the top'" @click="togglePin(r.name)"><component :is="pins.includes(r.name) ? PinOff : Pin" :size="14" /></button><div v-if="route.params.run === r.name || currentChat?.run === r.name" class="ws-run-shortcuts"><RouterLink v-for="destination in runDestinations" :key="destination.view" :to="{path:'/',query:{run:r.name,show:destination.view}}" :class="{active:route.query.view === destination.view}" @click="menuOpen = false">{{ destination.label }}</RouterLink></div></div><p v-if="!runs.length && !search.trim()" class="ws-side-empty">{{ loaded ? 'No saved runs yet.' : 'Loading runs…' }}</p></div>
         </details>
         <section v-if="searchedSkills.length" class="ws-side-section" aria-label="Matching skills"><div class="ws-section-heading">Skills</div><div class="ws-history"><RouterLink v-for="skill in searchedSkills" :key="skill.id" :to="skillLink(skill)" @click="menuOpen = false"><Shapes :size="14" /><span>{{ skill.label }}</span></RouterLink></div></section>
         <div v-if="search.trim() && !searchResultCount" class="ws-search-none" role="status"><Search :size="18" aria-hidden="true" /><b>No matches for “{{ search.trim() }}”</b><span>Try a project, chat or report name.</span><button type="button" @click="search = ''; searchBox?.focus()">Clear search</button></div>
@@ -59,6 +65,8 @@
         <RunView v-else-if="view === 'run'" :key="route.params.run" :name="route.params.run" :theme="theme" />
 
         <ChatWorkspace v-else-if="view === 'chat' || view === 'connectors'" :runs="runs" :provider="provider" :theme="theme" />
+        <InboxView v-else-if="view === 'inbox'" :runs="runs" />
+        <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
@@ -87,6 +95,12 @@
       </section>
     </main>
     <CustomSkillDialog v-model:open="customSkillOpen" :skill="customSkillEditing" :theme="theme" />
+    <Dialog v-model:open="shortcutsOpen">
+      <DialogContent class="ws-overlay ws-shortcuts" :data-theme="theme">
+        <DialogHeader><DialogTitle>Keyboard shortcuts</DialogTitle><DialogDescription>Work without the mouse.</DialogDescription></DialogHeader>
+        <dl class="ws-shortcut-list"><div v-for="k in shortcuts" :key="k.what"><dt><kbd v-for="x in k.keys" :key="x">{{ x }}</kbd></dt><dd>{{ k.what }}</dd></div></dl>
+      </DialogContent>
+    </Dialog>
 
   </div>
 </template>
@@ -98,6 +112,11 @@ import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, G
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { featureCatalog, featureGroups, searchFeatures, loadCustomSkills, customSkillError } from '../workspace/featureCatalog'
 import CustomSkillDialog from '../components/workspace/CustomSkillDialog.vue'
+import InboxView from '../components/workspace/InboxView.vue'
+import CompareRuns from '../components/workspace/CompareRuns.vue'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { Inbox as InboxIcon, Pin, PinOff } from 'lucide-vue-next'
+import { pins, togglePin } from '../workspace/pins'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
@@ -106,6 +125,7 @@ import { api, token, ensureSession } from '../workspace/api.js'
 import { cloudAccount } from '../workspace/cloud.js'
 import '../assets/workspace.css'
 import '../assets/workspace-theme.css'
+import '../assets/workspace-features.css'
 
 const isMobile = ref(window.innerWidth <= 760)
 function onResize() { isMobile.value = window.innerWidth <= 760 }
@@ -159,7 +179,20 @@ const theme = ref((() => {
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', inbox: 'Inbox', compare: 'Compare' }[view.value] || 'Chat'))
+const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
+const inboxCount = computed(() => chats.value.filter((c) => Array.isArray(c.messages) && c.messages.length).length)
+const shortcutsOpen = ref(false)
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
+const shortcuts = [
+  { keys: [isMac ? '⌘' : 'Ctrl', 'K'], what: 'Search projects, chats, runs and skills' },
+  { keys: ['Enter'], what: 'Send a message (Shift Enter for a new line)' },
+  { keys: ['/'], what: 'Find a skill from the chat box' },
+  { keys: ['Alt', '1–4'], what: 'On a run page: switch between Results, Person, Report agent and Focus group' },
+  { keys: ['↑', '↓'], what: 'Move through suggestions and the inbox' },
+  { keys: ['?'], what: 'Show these shortcuts' },
+  { keys: ['Esc'], what: 'Close a menu or dialog' }
+]
 const contextualTitle = computed(() => view.value === 'chat' ? (currentChat.value?.title || projects.value.find(p => p.id === route.query.project)?.name || 'New conversation') : crumb.value)
 const greeting = computed(() => {
   const hr = new Date().getHours()
@@ -225,6 +258,12 @@ async function loadProjects() {
 }
 function onSlash(e) {
   if (e.key === 'Escape') menuOpen.value = false
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
+  if (!typing && e.key === '?') {
+    e.preventDefault()
+    shortcutsOpen.value = true
+    return
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     menuOpen.value = true
