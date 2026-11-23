@@ -2687,3 +2687,217 @@ button.ws-search span {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Markdown in chat answers */
+.ws-md {
+  white-space: normal;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.ws-md > * + * {
+  margin-top: 8px;
+}
+.ws-md h3,
+.ws-md h4,
+.ws-md h5,
+.ws-md h6 {
+  font-size: 13.5px;
+  font-weight: 650;
+  margin-top: 12px;
+}
+.ws-md ul,
+.ws-md ol {
+  padding-left: 20px;
+}
+.ws-md li + li {
+  margin-top: 3px;
+}
+.ws-md code {
+  font-size: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 4px;
+}
+.ws-md pre {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+}
+.ws-md pre code {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.ws-md blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+  color: var(--muted);
+}
+.ws-md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.ws-read-msg .ws-md {
+  margin-top: 3px;
+}
+.ws-thought-tools {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+.ws-thought-tools .ws-inbox-search {
+  flex: 1;
+  margin: 0;
+  padding: 5px 9px;
+}
+.ws-thought-tools select {
+  max-width: 45%;
+}
+
+/* Compare */
+.ws-compare-pick {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.ws-compare-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 220px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.ws-compare-select select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+.ws-compare-table {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.ws-compare-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) 1fr 1fr;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.ws-compare-row:first-child {
+  border-top: 0;
+}
+.ws-compare-row > span {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ws-compare-row > span + span {
+  border-left: 1px solid var(--line);
+}
+.ws-compare-row.head {
+  background: var(--panel-2);
+  font-weight: 600;
+}
+.ws-compare-row.head a:hover {
+  color: var(--accent);
+}
+.ws-compare-row [role='rowheader'] {
+  color: var(--muted);
+}
+.ws-compare-row .lead {
+  font-weight: 600;
+}
+.ws-compare-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+.ws-compare-charts .ws-box {
+  margin: 0;
+}
+
+/* collapsible rail */
+.ws-rail-btn {
+  display: inline-grid;
+}
+@media (min-width: 761px) {
+.ws.rail {
+  grid-template-columns: 64px 1fr;
+}
+.ws.rail .ws-side {
+  padding: 14px 8px;
+  align-items: center;
+}
+.ws.rail .ws-switch > summary span,
+.ws.rail .ws-switch > summary .ws-caret,
+.ws.rail .ws-switch-menu small,
+.ws.rail button.ws-search span,
+.ws.rail button.ws-search kbd,
+.ws.rail .ws-group,
+.ws.rail .ws-history,
+.ws.rail .ws-me > div,
+.ws.rail .ws-me .ws-icon-btn:last-child,
+.ws.rail .ws-count {
+  display: none;
+}
+.ws.rail .ws-switch-menu {
+  width: 230px;
+}
+.ws.rail button.ws-search {
+  justify-content: center;
+  width: 40px;
+  padding: 8px;
+}
+.ws.rail .ws-nav a {
+  font-size: 0;
+  justify-content: center;
+  width: 40px;
+  padding: 9px;
+}
+.ws.rail .ws-me {
+  flex-direction: column;
+  border: 0;
+  padding: 0;
+}
+}
+@media (max-width: 760px) {
+  .ws-rail-btn {
+    display: none;
+  }
+  .ws-compare-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ws-compare-row [role='rowheader'] {
+    grid-column: 1 / -1;
+    background: var(--panel-2);
+    padding: 6px 12px;
+  }
+  .ws-compare-row [role='rowheader'] + span {
+    border-left: 0;
+  }
+  .ws-compare-row.head > span:first-child {
+    display: none;
+  }
+  .ws-compare-charts {
+    grid-template-columns: 1fr;
+  }
+}
+.ws-thought-tools select {
+  font-size: 12px;
+  padding: 5px 8px;
+}

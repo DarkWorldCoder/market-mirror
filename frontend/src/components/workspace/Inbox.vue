@@ -85,7 +85,8 @@
             <span class="ws-read-av" :class="m.role === 'user' ? 'me' : m.agent"><Ico :name="m.role === 'user' ? 'user' : agentById(m.agent).icon" :size="14" /></span>
             <div>
               <small>{{ m.role === 'user' ? `You → ${agentById(m.agent).label}` : m.who || 'MarketMirror' }}<span v-if="m.simulated" class="pill sim xs">Simulated</span><time v-if="m.at"> · {{ timeAgo(m.at) }}</time></small>
-              <p>{{ m.text }}</p>
+              <p v-if="m.role === 'user'">{{ m.text }}</p>
+              <div v-else class="ws-md" v-html="renderMarkdown(m.text)"></div>
               <p v-if="m.chartKey" class="ws-note"><Ico name="chart" :size="12" /> Chart: {{ m.caption }} (open the run to see it)</p>
               <p v-if="m.transcript" class="ws-note"><Ico name="users" :size="12" /> Transcript of {{ m.transcript.length }} turns (open the run to read it)</p>
             </div>
@@ -110,6 +111,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import Ico from './Ico.vue'
+import { renderMarkdown } from '../../workspace/markdown.js'
 import { agentById, deleteChat, exportChat, pins, timeAgo, togglePin } from '../../workspace/agents.js'
 
 const props = defineProps({ items: { type: Array, default: () => [] }, search: { type: String, default: '' } })

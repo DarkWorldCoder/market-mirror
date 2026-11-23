@@ -1,5 +1,5 @@
 <template>
-  <div class="ws" :data-theme="theme">
+  <div class="ws" :class="{ rail }" :data-theme="theme">
     <a class="ws-skip" href="#ws-canvas">Skip to content</a>
     <nav class="ws-side" :class="{ open: menuOpen }" aria-label="Workspace">
       <details class="ws-switch">
@@ -20,7 +20,7 @@
         <kbd aria-hidden="true">{{ modKey }}K</kbd>
       </button>
       <div class="ws-nav">
-        <RouterLink v-for="n in nav" :key="n.id" :to="n.to" :class="{ active: view === n.id }" :aria-current="view === n.id ? 'page' : undefined" @click="menuOpen = false">
+        <RouterLink v-for="n in nav" :key="n.id" :to="n.to" :class="{ active: view === n.id }" :title="rail ? n.label : undefined" :aria-current="view === n.id ? 'page' : undefined" @click="menuOpen = false">
           <Ico :name="n.icon" :size="16" />{{ n.label }}
           <span v-if="n.id === 'inbox' && inboxItems.length" class="ws-count" :aria-label="`${inboxItems.length} items`">{{ inboxItems.length }}</span>
         </RouterLink>
@@ -56,6 +56,7 @@
     <main class="ws-main">
       <header class="ws-top">
         <button type="button" class="ws-icon-btn ws-menu-btn" :aria-expanded="menuOpen" aria-label="Open menu" @click="menuOpen = !menuOpen"><Ico name="menu" /></button>
+        <button type="button" class="ws-icon-btn ws-rail-btn" :aria-pressed="rail" :aria-label="rail ? 'Expand the sidebar' : 'Collapse the sidebar'" :title="`${rail ? 'Expand' : 'Collapse'} the sidebar (${modKey}B)`" @click="toggleRail"><Ico :name="rail ? 'expand' : 'collapse'" /></button>
         <div class="ws-agents" role="group" aria-label="Who answers your messages">
           <button
             v-for="(a, i) in AGENTS"
@@ -172,6 +173,7 @@
         </template>
 
         <Inbox v-else-if="view === 'inbox'" :items="inboxItems" :search="''" />
+        <Compare v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
 
         <div v-else-if="view === 'agents'" class="ws-section ws-page">
           <header class="ws-page-head"><h1><Ico name="bot" :size="20" />Agents</h1><p>Pick who answers your messages. The tabs at the top do the same; Alt 1 to 4 switch them.</p></header>
@@ -273,6 +275,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import RunView from '../components/workspace/RunView.vue'
 import Inbox from '../components/workspace/Inbox.vue'
 import CommandPalette from '../components/workspace/CommandPalette.vue'
+import Compare from '../components/workspace/Compare.vue'
 import Ico from '../components/workspace/Ico.vue'
 import { api, token } from '../workspace/api.js'
 import { AGENTS, agent, agentById, pending, pins, savedChats, timeAgo, togglePin } from '../workspace/agents.js'
@@ -285,6 +288,21 @@ const root = ref('mirofish_runs'), error = ref(''), search = ref(''), idea = ref
 const provider = ref({ configured: false, models: [] }), menuOpen = ref(false), homeBox = ref(null), fileInput = ref(null), keysBox = ref(null)
 const hasToken = ref(true), loaded = ref(false), attachment = ref(null), mentionOpen = ref(false), mentionQ = ref(''), targetKey = ref('')
 const paletteOpen = ref(false), keysOpen = ref(false), decisionFilter = ref('all'), sortBy = ref('new')
+const rail = ref((() => {
+  try {
+    return localStorage.getItem('mm-rail') === '1'
+  } catch {
+    return false
+  }
+})())
+function toggleRail() {
+  rail.value = !rail.value
+  try {
+    localStorage.setItem('mm-rail', rail.value ? '1' : '0')
+  } catch {
+    /* holds for this page */
+  }
+}
 const theme = ref((() => {
   try {
     return localStorage.getItem('mm-theme') || 'dark'
@@ -301,6 +319,7 @@ const nav = [
   { id: 'home', label: 'Home', icon: 'home', to: '/workspace' },
   { id: 'inbox', label: 'Inbox', icon: 'inbox', to: '/workspace/inbox' },
   { id: 'projects', label: 'Projects', icon: 'folder', to: '/workspace/projects' },
+  { id: 'compare', label: 'Compare', icon: 'compare', to: '/workspace/compare' },
   { id: 'skills', label: 'Skills', icon: 'zap', to: '/workspace/skills' },
   { id: 'connectors', label: 'Connectors', icon: 'plug', to: '/workspace/connectors' }
 ]
@@ -437,6 +456,7 @@ const shortcuts = [
   { keys: [modKey.trim(), 'K'], what: 'Search or jump to a run, page, agent or action' },
   { keys: ['/'], what: 'Same, from anywhere outside a text box' },
   { keys: ['Alt', '1–4'], what: 'Switch agent: Results, Report agent, Person, Focus group' },
+  { keys: [modKey.trim(), 'B'], what: 'Collapse or expand the sidebar' },
   { keys: ['Enter'], what: 'Send (Shift Enter for a new line; Focus group: Ctrl Enter sends)' },
   { keys: ['@'], what: 'Pick the run in the home chat box' },
   { keys: ['↑', '↓'], what: 'Move through suggestions, the inbox and the palette' },
@@ -452,6 +472,8 @@ const paletteItems = computed(() => [
   { id: 'x:new', group: 'Actions', label: 'New chat', icon: 'plus', run: () => router.push('/workspace') },
   { id: 'x:theme', group: 'Actions', label: theme.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode', icon: theme.value === 'dark' ? 'sun' : 'moon', run: toggleTheme },
   { id: 'x:keys', group: 'Actions', label: 'Keyboard shortcuts', icon: 'keyboard', run: () => (keysOpen.value = true) },
+  { id: 'x:rail', group: 'Actions', label: rail.value ? 'Expand the sidebar' : 'Collapse the sidebar', icon: rail.value ? 'expand' : 'collapse', run: toggleRail },
+  ...(runs.value.length > 1 ? [{ id: 'x:compare', group: 'Actions', label: 'Compare two runs', icon: 'compare', run: () => router.push('/workspace/compare') }] : []),
   { id: 'x:settings', group: 'Actions', label: 'Model settings', icon: 'settings', run: () => (location.href = settingsLink.value) }
 ])
 
@@ -537,6 +559,9 @@ function onKey(e) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     paletteOpen.value = !paletteOpen.value
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b' && !typing) {
+    e.preventDefault()
+    toggleRail()
   } else if (e.altKey && /^[1-4]$/.test(e.key)) {
     e.preventDefault()
     agent.value = AGENTS[Number(e.key) - 1].id

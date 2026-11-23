@@ -64,8 +64,10 @@
               <span v-if="m.role !== 'user' && m.simulated" class="pill sim xs">Simulated</span>
               <time v-if="m.at" :datetime="new Date(m.at).toISOString()">{{ timeAgo(m.at) }}</time>
               <button type="button" class="ws-msg-copy" :aria-label="`Copy message ${i + 1}`" title="Copy" @click="copyText(m.text)"><Ico name="copy" :size="13" /></button>
+              <button v-if="m.role === 'user'" type="button" class="ws-msg-copy reuse" :aria-label="`Edit and resend message ${i + 1}`" title="Edit and resend" @click="reuse(m)"><Ico name="reuse" :size="13" /></button>
             </small>
-            <span class="ws-msg-text">{{ m.text }}</span>
+            <span v-if="m.role === 'user'" class="ws-msg-text">{{ m.text }}</span>
+            <div v-else class="ws-msg-text ws-md" v-html="renderMarkdown(m.text)"></div>
             <div v-if="m.chartKey && chartFor(m)" class="ws-box" style="margin-top: 10px">
               <EChart :option="chartFor(m)" :height="240" :label="m.caption" :caption="m.caption" :theme="theme" />
             </div>
@@ -162,6 +164,13 @@
           <p class="ws-note" style="margin-bottom: 6px">
             What the simulated people thought, said and posted in this run. Written by a model playing each invented person.
           </p>
+          <div v-if="thoughts.length" class="ws-thought-tools">
+            <label class="ws-inbox-search"><Ico name="search" :size="14" /><input v-model="thoughtQ" type="search" placeholder="Search what people wrote" aria-label="Search what people wrote" /></label>
+            <select v-if="segments.length > 1" v-model="thoughtSeg" class="ws-chip" aria-label="Segment">
+              <option value="">All segments</option>
+              <option v-for="sg in segments" :key="sg" :value="sg">{{ sg }}</option>
+            </select>
+          </div>
           <div v-if="thoughtSources.length > 1" class="ws-filter" role="group" aria-label="Filter by where it was written">
             <button type="button" class="ws-chip" :aria-pressed="!thoughtSource" @click="thoughtSource = ''">All {{ thoughts.length }}</button>
             <button v-for="[s, n] in thoughtSources" :key="s" type="button" class="ws-chip" :aria-pressed="thoughtSource === s" @click="thoughtSource = s">
@@ -175,6 +184,8 @@
             <span class="ws-kind" :class="t.kind">{{ kindLabel[t.kind] || t.kind }}</span> {{ t.text }}
             <small v-if="t.did || t.context">{{ [t.context, t.did].filter(Boolean).join(' → ') }}</small>
           </div>
+          <p v-if="thoughts.length && !shownThoughts.length" class="ws-empty">Nothing matches. Clear the search or pick another segment.</p>
+          <p v-else-if="thoughts.length" class="ws-note" style="margin-top: 10px">Showing {{ shownThoughts.length }} of {{ filteredThoughts.length }}.</p>
           <p v-if="!thoughts.length" class="ws-empty">No saved thoughts in this run.</p>
         </template>
 
@@ -262,6 +273,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import EChart from './EChart.vue'
 import Market3D from './Market3D.vue'
 import Ico from './Ico.vue'
+import { renderMarkdown } from '../../workspace/markdown.js'
 import { api, download, openHtml } from '../../workspace/api.js'
 import { agent, agentById, exportChat, pending, pins, timeAgo, togglePin } from '../../workspace/agents.js'
 import {
@@ -405,6 +417,11 @@ const starters = computed(() => ({
   person: ['Would you pay for this? Why or why not?', 'What would make you sign up today?', 'What worries you about it?'],
   focus: ['What is your first reaction to this offer?\nWhat would stop you from signing up?', 'Which price feels fair, and why?']
 })[agent.value])
+function reuse(m) {
+  if (m.agent) agent.value = m.agent
+  draft.value = String(m.text || '').replace(/\n📎 .*$/, '')
+  nextTick(() => document.getElementById('ws-ask')?.focus())
+}
 function startWith(s) {
   if (agentById(agent.value).paid) {
     draft.value = s // paid agents: fill the box, you press send
@@ -476,7 +493,13 @@ const thoughts = computed(() => {
   }))
 })
 const thoughtSources = computed(() => Object.entries(harvest.value?.by_source || {}).filter(([s]) => s))
-const shownThoughts = computed(() => (thoughtSource.value ? thoughts.value.filter((t) => t.source === thoughtSource.value) : thoughts.value).slice(0, 150))
+const thoughtQ = ref(''), thoughtSeg = ref('')
+const filteredThoughts = computed(() => {
+  const words = thoughtQ.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  return thoughts.value.filter((t) => (!thoughtSource.value || t.source === thoughtSource.value) && (!thoughtSeg.value || t.segment === thoughtSeg.value)
+    && words.every((w) => `${t.text} ${t.who} ${t.did || ''}`.toLowerCase().includes(w)))
+})
+const shownThoughts = computed(() => filteredThoughts.value.slice(0, 150))
 
 const platformLabel = (p) => ({ twitter: 'Twitter-style', reddit: 'Reddit-style' })[p] || p
 const platforms = computed(() => Object.keys(story.value?.platforms || {}))

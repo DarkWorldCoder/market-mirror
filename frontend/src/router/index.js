@@ -20,7 +20,7 @@ const routes = [
   { path: '/workspace', name: 'Workspace', component: Workspace },
   { path: '/workspace/runs/:run', name: 'WorkspaceRun', component: Workspace },
   { path: '/workspace/sims/:sim', name: 'WorkspaceSim', component: Workspace },
-  { path: '/workspace/:page(projects|skills|connectors|agents|inbox)', name: 'WorkspacePage', component: Workspace },
+  { path: '/workspace/:page(projects|skills|connectors|agents|inbox|compare)', name: 'WorkspacePage', component: Workspace },
   {
     path: '/process/:projectId',
     name: 'Process',

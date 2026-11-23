@@ -10,7 +10,7 @@ import {
   Copy, Cpu, Database, DollarSign, Download, ExternalLink, FileText, Filter, FolderOpen, Gauge, Globe, House, Inbox, Keyboard,
   Layers, Lightbulb, Lock, Mail, Megaphone, Menu, MessageSquare, MessagesSquare, Moon, MoreHorizontal, Network, Paperclip,
   Pause, Phone, Pin, PinOff, Play, Plug, Plus, RefreshCw, Rss, Search, Settings, ShieldCheck, Sparkles, Sun, Target, ThumbsDown,
-  Trash2, TrendingUp, Upload, User, Users, X, Zap, Box, Hash, Star, Archive, CornerDownLeft, Terminal, Eraser, Share2
+  Trash2, TrendingUp, Upload, User, Users, X, Zap, Box, Hash, Star, Archive, CornerDownLeft, Terminal, Eraser, Share2, GitCompare, ArrowLeftRight, PanelLeftClose, PanelLeftOpen, CornerUpLeft
 } from 'lucide-vue-next'
 
 const ICONS = {
@@ -22,7 +22,8 @@ const ICONS = {
   network: Network, attach: Paperclip, pause: Pause, phone: Phone, pin: Pin, unpin: PinOff, play: Play, plug: Plug, plus: Plus,
   refresh: RefreshCw, feed: Rss, search: Search, settings: Settings, shield: ShieldCheck, sparkles: Sparkles, sun: Sun,
   target: Target, no: ThumbsDown, trash: Trash2, trend: TrendingUp, upload: Upload, user: User, users: Users, x: X, zap: Zap,
-  box: Box, hash: Hash, star: Star, archive: Archive, enter: CornerDownLeft, terminal: Terminal, eraser: Eraser, share: Share2
+  box: Box, hash: Hash, star: Star, archive: Archive, enter: CornerDownLeft, terminal: Terminal, eraser: Eraser, share: Share2, compare: GitCompare, swap: ArrowLeftRight,
+  collapse: PanelLeftClose, expand: PanelLeftOpen, reuse: CornerUpLeft
 }
 
 const props = defineProps({
