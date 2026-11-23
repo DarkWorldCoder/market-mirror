@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import json
 import re
 import os
@@ -1613,6 +1614,7 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
 
     state.pop("finished_at", None)
     state.pop("spend_cap", None)
+    record_provenance(c, state, cfg)
     cap_id = arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
     if cap_id:
         armed.append(cap_id)
@@ -2030,6 +2032,66 @@ def cmd_focus_group(c: Client, a) -> Any:
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
+
+
+def record_provenance(c, state: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> None:
+    """What makes a run describable and repeatable: models, engine commit, this CLI's prompt code, seeds, approvals.
+    Never fails a run: a backend without the endpoint just leaves the model list empty."""
+    try:
+        server = c.data("GET", "/api/simulation/provenance", timeout=15) or {}
+    except Exception:  # noqa: BLE001 - an older backend
+        server = {}
+    services = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "services")
+    digest, hashed = hashlib.sha256(), 0
+    for name in sorted(os.listdir(services)) if os.path.isdir(services) else []:
+        if name.endswith(".py"):           # the prompts live in these files: a changed hash means changed prompts
+            with open(os.path.join(services, name), "rb") as f:
+                digest.update(name.encode() + b"\0" + f.read())
+            hashed += 1
+    cfg = cfg or {}
+    state["provenance"] = {
+        "models": server.get("models") or [], "engine": server.get("engine") or {},
+        "services_hash": digest.hexdigest()[:16] if hashed else None,
+        "recorded_at": server.get("at") or datetime.now().isoformat(timespec="seconds"),
+        "seeds": {k: cfg.get(k) for k in ("seed", "seeds_n") if cfg.get(k) is not None},
+        "spend_approved": bool(cfg.get("approve_spend")) if "approve_spend" in cfg else None,
+        "max_spend_usd": cfg.get("max_spend_usd"),
+    }
+
+
+def cmd_forecast(c: Optional[Client], a) -> Any:
+    import forecast_ledger as fl
+    ledger = a.ledger or os.path.join("mirofish_runs", "forecast_ledger.jsonl")
+    try:
+        if a.action == "lock":
+            if not a.run_dir:
+                raise ValueError("forecast lock needs --run-dir")
+            bundle = exporter.load_run_dir(a.run_dir)
+            summary_path = os.path.join(a.run_dir, "summary.json")
+            if not bundle.get("summary") and os.path.exists(summary_path):   # written by export; not part of the bundle
+                with open(summary_path, encoding="utf-8") as f:
+                    bundle["summary"] = json.load(f)
+            entry = fl.lock(bundle, a.run_dir, ledger, a.note or "", a.due or "")
+            log(f"forecast: locked {entry['id']} (sha256 {entry['sha256']}). Publish the hash or commit {ledger} "
+                "somewhere public for an outside timestamp.")
+            return {"locked": entry, "ledger": os.path.abspath(ledger)}
+        if a.action == "score":
+            if not a.run_dir or not a.actual:
+                raise ValueError("forecast score needs --run-dir and --actual @real.json")
+            actual = market_cli._load_json_arg(a.actual)
+            if not isinstance(actual, dict):
+                raise ValueError("--actual must be a JSON object: {rate, segment_rates, message_rates, creative_rates, decision_held}")
+            entry = fl.score(a.run_dir, actual, ledger, a.source or "")
+            r = entry["result"]
+            log(f"forecast: {entry['id']} scored, {r['hits']} of {r['total']} checks hit")
+            return {"scored": entry, "ledger": os.path.abspath(ledger)}
+        md = fl.table(ledger)
+        out = a.out or os.path.splitext(ledger)[0] + ".md"
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(md)
+        return {"table": os.path.abspath(out), "entries": len(fl.read_ledger(ledger))}
+    except (ValueError, OSError) as e:
+        raise CLIError(f"forecast {a.action}: {e}")
 
 
 def cmd_questionnaire(c: Client, a) -> Any:
@@ -2713,6 +2775,7 @@ def cmd_run(c: Client, a) -> Any:
 
     try:
         c.get("/health", retries=2, timeout=10)
+        record_provenance(c, state, {"seed": getattr(a, "seed_n", None)})
         up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context),
                          scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
         state["project_id"] = up["project_id"]
@@ -3151,6 +3214,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--goal")
     s.add_argument("--rounds", type=int, default=1, help="passes per question (2 adds 'did anything change your mind?')")
     s.add_argument("--run-dir", help="where focus_group.json lands (default mirofish_runs/<simulation>)")
+
+    s = sub.add_parser("forecast", help="pre-registered forecasts: lock a run's predictions (hashed) before the real "
+                                        "result exists, score them later, publish hits and misses")
+    s.add_argument("action", choices=["lock", "score", "table"])
+    s.add_argument("--run-dir", help="the run to lock or score")
+    s.add_argument("--ledger", help="append-only ledger (default mirofish_runs/forecast_ledger.jsonl)")
+    s.add_argument("--note", help="lock: what this forecast is for")
+    s.add_argument("--due", help="lock: when the real result is expected (e.g. 2026-12-15)")
+    s.add_argument("--actual", help="score: @real.json {rate, segment_rates, message_rates, creative_rates, decision_held}")
+    s.add_argument("--source", help="score: where the real numbers come from")
+    s.add_argument("--out", help="table: Markdown path (default next to the ledger)")
 
     s = sub.add_parser("questionnaire", help="your own questions (scale, nps, choice, multi, open) answered by the "
                                              "saved personas, with option order shuffled per person")
@@ -3627,7 +3701,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test, "seed-check": cmd_seed_check,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "questionnaire": cmd_questionnaire, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "questionnaire": cmd_questionnaire, "forecast": cmd_forecast, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -3641,7 +3715,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check", "forecast") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":
