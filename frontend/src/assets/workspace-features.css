@@ -116,3 +116,14 @@ html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radiu
 .ws[data-theme='dark'] .workflow-app.embedded textarea,
 .ws[data-theme='dark'] .workflow-app.embedded select { background: #1c1d20; color: #ececec; border-color: #2a2c30; }
 .ws[data-theme='dark'] .workflow-app.embedded .recipe { background: #1c1d20; color: #ececec; }
+
+/* ==== Chat home fixes: Continue cards and quick looks (ChatWorkspace.vue) ==== */
+.dw-continue .dw-continue-head h2 { font-size: 13px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: normal; }
+.dw-continue .dw-chat-card b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.dw-quick .dw-quick-label small { white-space: nowrap; }
+@media (max-width: 600px) {
+  .dw-quick { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; }
+  .dw-quick > * { flex: none; white-space: nowrap; }
+  .dw-quick .dw-quick-label { max-width: none; overflow: visible; }
+}
+/* ==== end chat home fixes ==== */

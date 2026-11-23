@@ -4,14 +4,13 @@
     <TeamPresence v-if="cloudAccount && conversationId" :chat-id="conversationId" :busy="busy && answerMode !== 'note'" />
     <div ref="scrollArea" class="direct-scroll" tabindex="0" role="region" aria-label="Conversation">
       <div v-if="!messages.length" class="direct-welcome">
-        <div class="direct-symbol" aria-hidden="true"><MarketMirrorLogo :size="40" /></div>
         <p v-if="!activeProject" class="dw-greet">{{ greeting }}</p>
         <h1>{{ activeProject ? activeProject.name : 'What do you want to explore?' }}</h1>
-        <p>{{ activeProject?.description || 'Ask a question, test an idea, or explore your results.' }}</p>
+        <p class="dw-sub">{{ activeProject?.description || 'Ask a question, test an idea, or explore your results.' }}</p>
         <p v-if="!activeProject && latestRun" class="dw-context">
           {{ runs.length }} saved {{ runs.length === 1 ? 'experiment' : 'experiments' }} · latest:
           <RouterLink :to="{ path: '/', query: { run: latestRun.name, show: 'reports' } }" :title="latestRun.title || latestRun.name">{{ shortTitle(latestRun.title || latestRun.name, 48) }}</RouterLink>
-          <span v-if="latestRun.decision" class="dw-decision" :class="decisionTone(latestRun.decision)">{{ decisionText(latestRun.decision) }}</span>
+          <span v-if="latestRun.decision" class="dw-decision" :class="decisionTone(latestRun.decision)">Simulated verdict: {{ decisionText(latestRun.decision) }}</span>
         </p>
         <button v-if="activeProject" class="direct-project-edit" @click="knowledgeOpen = true">Project context</button><button v-if="activeProject" class="direct-project-edit" @click="editProject">Edit project</button>
         <button class="direct-project-edit" @click="openSkills">Browse all {{ featureCatalog.length }} skills</button>
@@ -24,6 +23,7 @@
           <MarkdownText v-if="m.role === 'assistant'" :text="m.content" /><div v-else class="direct-message-text">{{ m.content }}</div>
           <p v-if="m.kind === 'comment' || (m.role === 'user' && m.author && m.author.id !== cloudAccount?.account.id)" class="direct-author">{{ m.author?.email || 'You' }}{{ m.kind === 'comment' ? ' · Team note' : '' }}</p>
           <UploadedContext v-if="m.attachedFiles?.length" :files="m.attachedFiles" :theme="theme" />
+          <CompareRuns v-if="m.compare" embedded :runs="runs" :theme="theme" :a="m.compare.a" :b="m.compare.b" @pick="(p) => updateCompare(m, p)" />
           <ReportBrowser v-if="m.reportBrowser" :name="m.reportBrowser.run" :files="m.reportBrowser.files" :initial-view="m.reportBrowser.view" :theme="theme" :review-disabled="busy || !connected" @review="startResultsReview" />
           <details v-if="m.agent_activity?.length" class="direct-team"><summary><UsersRound :size="16" />Team review</summary><div class="direct-team-grid"><article v-for="agent in m.agent_activity" :key="agent.id"><header><b>{{ agent.role }}</b><Check v-if="agent.status === 'completed'" :size="14" /><CircleAlert v-else :size="14" /></header><p>{{ agent.summary }}</p></article></div></details>
           <details v-if="m.trace?.length" class="direct-trace"><summary><CheckCheck />{{ m.trace.length }} activity steps</summary><p v-for="(step,i) in m.trace" :key="i"><Check v-if="step.status === 'completed'" /><CircleAlert v-else />{{ step.label || step.tool }}<span>{{ step.status }}</span></p></details>
@@ -86,7 +86,7 @@
           <button v-for="s in homeStarters" :key="s.title" @click="s.to ? router.push(s.to) : s.action ? selectFeature(s) : send(s.prompt)"><component :is="s.icon" /><span><b>{{ s.title }}</b><small>{{ s.text }}</small></span></button>
         </div>
         <section v-if="!messages.length && !activeProject && latestRun" class="dw-quick" aria-label="Quick looks at your latest experiment">
-          <span class="dw-quick-label" :title="latestRun.title || latestRun.name">About {{ shortTitle(latestRun.title || latestRun.name, 38) }} <small>no model call</small></span>
+          <span class="dw-quick-label" :title="latestRun.title || latestRun.name">Latest: {{ displayTitle(latestRun.title || latestRun.name) }} <small>instant, free</small></span>
           <button v-for="q in quickLooks" :key="q.label" type="button" @click="openQuick(q)"><component :is="q.icon" :size="14" aria-hidden="true" />{{ q.label }}</button>
         </section>
         <section v-if="!messages.length && !activeProject && continueItems.length" class="dw-continue" aria-labelledby="dw-continue-title">
@@ -100,7 +100,7 @@
                 <small>{{ c.preview }}</small>
                 <span class="dw-card-meta">
                   <span v-if="c.decision" class="dw-decision" :class="decisionTone(c.decision)">{{ decisionText(c.decision) }}</span>
-                  <span v-for="m in c.meta" :key="m">{{ m }}</span>
+                  <span v-for="x in c.meta" :key="x">{{ x }}</span>
                 </span>
               </span>
             </RouterLink>
@@ -147,6 +147,7 @@ import RequestActivity from './RequestActivity.vue'
 import BrowserObservation from './BrowserObservation.vue'
 import BrowserActivity from './BrowserActivity.vue'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const CompareRuns = defineAsyncComponent(() => import('./CompareRuns.vue'))
 const ExperimentSetup = defineAsyncComponent(() => import('../../views/Home.vue'))
 import ChatConnections from './ChatConnections.vue'
 import SkillPalette from './SkillPalette.vue'
@@ -167,6 +168,7 @@ import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../.
 import { streamChat } from '../../workspace/chatStream'
 import { api, token } from '../../workspace/api.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
+import { continueEntries, decisionText, decisionTone, displayTitle, evidenceTitle, findEvidenceChat, isCompareRequest, pickCompareRuns, shortText as shortTitle } from '../../workspace/compareRuns.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
 const route = useRoute(), router = useRouter(), messages = ref([]), conversationId = ref(''), busy = ref(false), error = ref(''), selectedRun = ref(''), artifactFiles = ref({}), scrollArea = ref(null), context = ref(null), fileInput = ref(null), uploading = ref(false)
 watch(busy, value => window.dispatchEvent(new CustomEvent('mm-chat-status', { detail: { id: conversationId.value, status: value ? 'working' : 'idle' } })))
@@ -398,22 +400,18 @@ const starters = [
 ]
 const greeting = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening' })()
 const latestRun = computed(() => props.runs[0] || null)
-const shortTitle = (t, n) => { const v = String(t || ''); return v.length > n ? `${v.slice(0, n - 1).replace(/[\s,:;·-]+$/, '')}…` : v }
-const decisionText = (d) => String(d || '').replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase())
-const decisionTone = (d) => (/^(go|launch|proceed)$/i.test(d) ? 'go' : /no.?go|stop|reject/i.test(d) ? 'stop' : 'iterate')
 const homeStarters = computed(() => props.runs.length > 1
-  ? [...starters, { title: 'Compare experiments', text: 'Two runs side by side', icon: GitCompare, to: { path: '/workspace/compare', query: { a: props.runs[0].name, b: props.runs[1].name } } }]
+  ? [...starters, { title: 'Compare experiments', text: 'Two runs side by side', icon: GitCompare, prompt: 'Compare my last two experiments' }]
   : starters)
 // these three are answered from the saved run in this browser, without a model call
 const quickLooks = [
-  { label: 'World map of the audience', icon: Globe, prompt: 'Explore the audience on the world map' },
-  { label: 'Social feed', icon: MessagesSquare, prompt: 'Show the social feed' },
-  { label: 'All reports', icon: FileText, prompt: 'Show all reports' }
+  { label: 'World map of the audience', icon: Globe, show: 'audience' },
+  { label: 'Social feed', icon: MessagesSquare, show: 'feed' },
+  { label: 'All reports', icon: FileText, show: 'reports' }
 ]
 function openQuick(q) {
   if (!latestRun.value) return
-  selectedRun.value = latestRun.value.name
-  send(q.prompt)
+  openEvidenceInChat(latestRun.value.name, q.show)
 }
 const ago = (t) => {
   if (!t) return ''
@@ -422,33 +420,48 @@ const ago = (t) => {
 }
 const recentChats = ref([])
 function loadRecent() {
-  recentChats.value = stored().filter((c) => Array.isArray(c.messages) && c.messages.length).slice(0, 3).map((c) => {
+  recentChats.value = stored().filter((c) => Array.isArray(c.messages) && c.messages.length).map((c) => {
     const last = [...c.messages].reverse().find((m) => m.content) || {}
-    return { id: c.id, project: c.project, run: c.run, count: c.messages.length, title: c.title, when: ago(c.updated), preview: `${last.role === 'user' ? 'You' : 'MarketMirror'}: ${String(last.content || '').replace(/[*#_`>]/g, '').slice(0, 110)}` }
+    return { id: c.id, project: c.project, run: c.run, messages: c.messages, title: c.title, when: ago(c.updated), preview: `${last.role === 'user' ? 'You' : 'MarketMirror'}: ${String(last.content || '').replace(/[*#_`>]/g, '').slice(0, 110)}` }
   })
 }
-// recent chats first, then your latest experiments to fill the row
-const continueItems = computed(() => {
-  const runTitle = (name) => props.runs.find((r) => r.name === name)?.title || name
-  const items = recentChats.value.map((c) => ({
-    key: `c-${c.id}`, kind: 'chat', title: c.title || 'New chat', when: c.when, preview: c.preview,
-    meta: [`${c.count} messages`, ...(c.run ? [shortTitle(runTitle(c.run), 28)] : [])],
-    to: { path: '/', query: { chat: c.id, ...(c.project ? { project: c.project } : {}) } }
-  }))
-  const chatRuns = new Set(recentChats.value.map((c) => c.run).filter(Boolean))
-  for (const r of props.runs) {
-    if (items.length >= 3) break
-    if (chatRuns.has(r.name)) continue
-    const when = r.updated_at ? new Date(r.updated_at).getTime() : r.mtime ? r.mtime * 1000 : 0
-    items.push({
-      key: `r-${r.name}`, kind: 'run', title: r.title || r.name, when: when ? ago(when) : '', decision: r.decision,
-      preview: r.summary ? String(r.summary).slice(0, 110) : 'Open its reports, audience and recorded activity.',
-      meta: r.people ? [`${Number(r.people).toLocaleString()} simulated people`] : [],
-      to: { path: '/', query: { run: r.name, show: 'reports' } }
-    })
+// recent chats (one per title and run) first; the last slot is kept for the newest experiment without a chat
+const continueItems = computed(() => continueEntries(recentChats.value, props.runs, 3).map(({ kind, chat: c, run: r }) => {
+  if (kind === 'chat') {
+    const title = c.title || 'New chat'
+    const runName = c.run ? shortTitle(displayTitle(props.runs.find((x) => x.name === c.run)?.title || c.run), 28) : ''
+    return {
+      key: `c-${c.id}`, kind, title, when: c.when, preview: c.preview,
+      meta: runName && !title.includes(runName.replace(/…$/, '')) ? [runName] : [],
+      to: { path: '/', query: { chat: c.id, ...(c.project ? { project: c.project } : {}) } }
+    }
   }
-  return items
-})
+  const when = r.updated_at ? new Date(r.updated_at).getTime() : r.mtime ? r.mtime * 1000 : 0
+  return {
+    key: `r-${r.name}`, kind, title: r.title || r.name, when: when ? ago(when) : '', decision: r.decision,
+    preview: r.summary ? String(r.summary).slice(0, 110) : 'Open its reports, audience and recorded activity.',
+    meta: r.people ? [`${Number(r.people).toLocaleString()} simulated people`] : [],
+    to: { path: '/', query: { run: r.name, show: 'reports' } }
+  }
+}))
+// chats opened from saved evidence are titled "<View> · <short run title>"
+function evidenceChatTitle() {
+ const first = messages.value[0]
+ if (first?.role !== 'user' || !first.evidenceRun || !first.evidenceView) return ''
+ return evidenceTitle(first.evidenceView, props.runs.find(r => r.name === first.evidenceRun)?.title || first.evidenceRun)
+}
+const runLabel = (name) => displayTitle(props.runs.find(r => r.name === name)?.title || name)
+function compareContent(a, b) {
+ return a && b
+  ? `Here are **${runLabel(a)}** (A) and **${runLabel(b)}** (B) side by side, read from your saved runs without a model call. Every number is simulated: read which way a difference points, not its size.`
+  : 'Choose two saved experiments to compare. Every number is simulated.'
+}
+// changing a pick in the embedded comparison updates this message and the saved chat
+function updateCompare(message, picks) {
+ message.compare = { a: picks.a || '', b: picks.b || '' }
+ message.content = compareContent(message.compare.a, message.compare.b)
+ persist()
+}
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 function stored() { try { const value = JSON.parse(localStorage.getItem(STORE) || '[]'); return Array.isArray(value) ? value : [] } catch { return [] } }
 function persist() {
@@ -456,7 +469,7 @@ function persist() {
  try {
   const previous = stored().find(c => c.id === conversationId.value)
   const chats = stored().filter(c => c.id !== conversationId.value)
-  chats.unshift({ id: conversationId.value, customTitle: previous?.customTitle, title: previous?.customTitle || messages.value.find(m => m.role === 'user')?.content.slice(0, 80) || 'New chat', connectorTools: connectorTools.value, answerMode: answerMode.value, teamAgents: teamAgents.value, teamModels: teamModels.value, updated: Date.now(), messages: messages.value, run: selectedRun.value, model: selectedModel.value, project: activeProject.value?.id || null })
+  chats.unshift({ id: conversationId.value, customTitle: previous?.customTitle, title: previous?.customTitle || evidenceChatTitle() || messages.value.find(m => m.role === 'user')?.content.slice(0, 80) || 'New chat', connectorTools: connectorTools.value, answerMode: answerMode.value, teamAgents: teamAgents.value, teamModels: teamModels.value, updated: Date.now(), messages: messages.value, run: selectedRun.value, model: selectedModel.value, project: activeProject.value?.id || null })
   localStorage.setItem(STORE, JSON.stringify(chats))
   window.dispatchEvent(new Event('mm-chats-updated'))
  } catch { error.value = 'This browser could not save chat history. You can keep chatting in this session.' }
@@ -529,6 +542,7 @@ async function send(text, options = {}) {
   ...(previewUrl ? { previewUrl } : {}),
   ...(inspectUrl ? { inspectUrl } : {}),
   ...(evidenceRun ? { evidenceRun } : {}),
+  ...(evidenceRun && options.evidenceView ? { evidenceView: options.evidenceView } : {}),
   ...(reviewRun ? { reviewRun } : {}),
   ...(page ? { pageId: page.session_id } : {}),
   ...(!previewUrl && context.value?.files?.length ? { attachedFiles: context.value.files.map(file => ({ name: file.name, text: file.text })) } : {})
@@ -546,6 +560,16 @@ async function send(text, options = {}) {
    const observation = await api('/api/workspace/browser/observe',{method:'POST',body:{url:previewUrl},signal:controller.signal})
    if (ownTicket !== ticket) return
    messages.value.push({ id: uid(), role: 'assistant', content: 'Here is the captured page.', browser_observations: [observation] })
+   return
+  }
+  // Comparing two saved runs is read from their files, without a provider call.
+  if (!page && !inspectUrl && !reviewRun && !evidenceRun && isCompareRequest(text, props.runs)) {
+   if (props.runs.length < 2) {
+    messages.value.push({ id: uid(), role: 'assistant', content: props.runs.length ? 'There is only one saved experiment so far. Run a second one, then ask me to compare them.' : 'There are no saved experiments to compare yet. Tell me about your product and the decision you want to test.' })
+    return
+   }
+   const picks = pickCompareRuns(text, props.runs, selectedRun.value)
+   messages.value.push({ id: uid(), role: 'assistant', content: compareContent(picks.a, picks.b), compare: picks })
    return
   }
   // Opening saved evidence is deterministic and does not need a provider call.
@@ -634,6 +658,7 @@ async function attach(event) {
  finally { uploading.value = false; event.target.value = '' }
 }
 let openingEvidence = false
+const evidenceViews = { reports: 'Reports', audience: 'Audience', market: 'Audience', feed: 'Social feed', thinking: 'Thinking', activity: 'Activity' }
 async function openEvidenceInChat(name, show = 'reports') {
  if (busy.value || openingEvidence) return
  openingEvidence = true
@@ -647,7 +672,15 @@ async function openEvidenceInChat(name, show = 'reports') {
    const file = choices.find(file => detail.files.includes(file))
    if (file) prompt = `Show ${file}`
   }
-  await send(prompt, { evidenceRun: name })
+  // from the home page, reopen the chat that already shows this evidence instead of starting another one
+  if (!conversationId.value) {
+   const existing = findEvidenceChat(stored(), name, prompt)
+   if (existing) {
+    await router.replace({ path: route.path, query: { chat: existing.id, ...(existing.project ? { project: existing.project } : {}) } })
+    return
+   }
+  }
+  await send(prompt, { evidenceRun: name, evidenceView: evidenceViews[show] || 'Reports' })
  } catch (err) { error.value = err.message } finally { openingEvidence = false }
 }
 watch(() => [route.query.run, route.query.show], async ([name, show]) => {
@@ -715,4 +748,15 @@ onBeforeUnmount(() => { window.removeEventListener('mm-chats-updated', loadRecen
 }
 .direct-chat .direct-project-toolbar > .direct-browser-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media(max-width:600px) { .direct-chat .direct-project-toolbar:has(.direct-browser-toggle) { gap: 8px; } }
+</style>
+
+<style scoped>
+/* Chat home on a phone: starters in two columns with titles only, no subtitle under the heading */
+@media (max-width: 600px) {
+  .direct-chat:not(.started) .direct-starters,
+  .direct-chat:not(.started) .direct-starters.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .direct-chat:not(.started) .direct-starters button { min-height: 56px; padding: 11px 12px; flex-direction: row; gap: 10px; align-items: center; }
+  .direct-chat:not(.started) .direct-starters small { display: none; }
+  .direct-chat:not(.started) .direct-welcome > p.dw-sub { display: none; }
+}
 </style>
