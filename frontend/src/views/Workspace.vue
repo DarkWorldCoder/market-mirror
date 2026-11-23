@@ -15,7 +15,6 @@
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
           <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
-          <RouterLink to="/workspace/inbox" :class="{ active: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="menuOpen = false"><InboxIcon class="ico" />Inbox<span v-if="inboxCount" class="ws-nav-count" :aria-label="`${inboxCount} saved chats`">{{ inboxCount }}</span></RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
           <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
@@ -65,7 +64,6 @@
         <RunView v-else-if="view === 'run'" :key="route.params.run" :name="route.params.run" :theme="theme" />
 
         <ChatWorkspace v-else-if="view === 'chat' || view === 'connectors'" :runs="runs" :provider="provider" :theme="theme" />
-        <InboxView v-else-if="view === 'inbox'" :runs="runs" />
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
@@ -112,10 +110,9 @@ import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, G
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { featureCatalog, featureGroups, searchFeatures, loadCustomSkills, customSkillError } from '../workspace/featureCatalog'
 import CustomSkillDialog from '../components/workspace/CustomSkillDialog.vue'
-import InboxView from '../components/workspace/InboxView.vue'
 import CompareRuns from '../components/workspace/CompareRuns.vue'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
-import { Inbox as InboxIcon, Pin, PinOff } from 'lucide-vue-next'
+import { Pin, PinOff } from 'lucide-vue-next'
 import { pins, togglePin } from '../workspace/pins'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
@@ -179,9 +176,8 @@ const theme = ref((() => {
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', inbox: 'Inbox', compare: 'Compare' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
-const inboxCount = computed(() => chats.value.filter((c) => Array.isArray(c.messages) && c.messages.length).length)
 const shortcutsOpen = ref(false)
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
 const shortcuts = [
@@ -189,7 +185,7 @@ const shortcuts = [
   { keys: ['Enter'], what: 'Send a message (Shift Enter for a new line)' },
   { keys: ['/'], what: 'Find a skill from the chat box' },
   { keys: ['Alt', '1–4'], what: 'On a run page: switch between Results, Person, Report agent and Focus group' },
-  { keys: ['↑', '↓'], what: 'Move through suggestions and the inbox' },
+  { keys: ['↑', '↓'], what: 'Move through suggestions' },
   { keys: ['?'], what: 'Show these shortcuts' },
   { keys: ['Esc'], what: 'Close a menu or dialog' }
 ]

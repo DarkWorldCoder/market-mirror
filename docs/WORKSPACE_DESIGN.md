@@ -39,7 +39,6 @@ Actual Google Analytics and Meta data require an authorized connector or a suppl
 
 ## Added on top of this design
 
-- **Inbox** (`/workspace/inbox`): saved chats and finished reports in one list, grouped by day, with search across the message text, filters (all, chats, reports, pinned runs) and a reading pane. From the reading pane you can pin the chat's run, download the chat as Markdown or delete it. Arrow keys move through the list; on a phone it shows one pane at a time.
 - **Compare** (`/workspace/compare?a=&b=`): two saved runs side by side: decision, people, would-buy, maybe, strongest audience, top objection and best ad, with a "higher" marker, purchase-intent charts and a too-close-to-call note. Simulated gaps tend to be larger than real ones, and the page says so.
 - **Pinned runs**: pin any saved run to the top of the sidebar. Pins are kept in this browser.
 - **World map** in the audience explorer: next to the 3D globe, every simulated person on a flat world map in their own country. Lines show replies, likes, quotes and shares between people; you can play it round by round or see all of it at once. What people wrote at each step sits beside the map, with interactions per round and the most discussed posts under it. Cities are not geocoded.

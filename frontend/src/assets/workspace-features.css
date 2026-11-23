@@ -30,22 +30,22 @@
 .direct-message-actions.mine:focus-within { opacity: 1; }
 @media (hover: none) { .direct-message-actions.mine { opacity: 1; } }
 
-/* Thin scrollbars everywhere in the app (Firefox: scrollbar-width; Chromium and Safari: ::-webkit-scrollbar). */
-.ws, .ws *, .ws-overlay, .ws-overlay * {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 38%, transparent) transparent;
+/* Slim scrollbars everywhere in the app. Chromium ignores ::-webkit-scrollbar as soon as scrollbar-width or
+   scrollbar-color is set (and then draws arrow buttons on Linux), so those two stay "auto" except in Firefox. */
+.ws, .ws *, .ws-overlay, .ws-overlay * { scrollbar-width: auto; scrollbar-color: auto; }
+.ws .ws-side .ws-side-scroll { scrollbar-width: auto; }
+@supports (-moz-appearance: none) {
+  .ws, .ws *, .ws-overlay, .ws-overlay * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 38%, transparent) transparent; }
 }
-.ws ::-webkit-scrollbar, .ws-overlay ::-webkit-scrollbar, .ws::-webkit-scrollbar { width: 8px; height: 8px; }
+.ws ::-webkit-scrollbar, .ws-overlay ::-webkit-scrollbar { width: 6px; height: 6px; }
+.ws ::-webkit-scrollbar-button, .ws-overlay ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 .ws ::-webkit-scrollbar-track, .ws-overlay ::-webkit-scrollbar-track { background: transparent; }
-.ws ::-webkit-scrollbar-thumb, .ws-overlay ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--muted) 32%, transparent);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.ws ::-webkit-scrollbar-thumb:hover, .ws-overlay ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.ws ::-webkit-scrollbar-thumb, .ws-overlay ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 30%, transparent); border-radius: 999px; }
+.ws ::-webkit-scrollbar-thumb:hover, .ws-overlay ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 58%, transparent); }
 .ws ::-webkit-scrollbar-corner, .ws-overlay ::-webkit-scrollbar-corner { background: transparent; }
-html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparent; }
+html::-webkit-scrollbar { width: 6px; height: 6px; }
+html::-webkit-scrollbar-button { display: none; }
+html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radius: 999px; }
 
 /* Sidebar: the scrollbar lives in the sidebar's right padding, so nav rows line up with the search box and New chat
    instead of stopping short of them (the reserved gutter made the right edge uneven). */

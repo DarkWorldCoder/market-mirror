@@ -90,7 +90,7 @@
           <button v-for="q in quickLooks" :key="q.label" type="button" @click="openQuick(q)"><component :is="q.icon" :size="14" aria-hidden="true" />{{ q.label }}</button>
         </section>
         <section v-if="!messages.length && !activeProject && continueItems.length" class="dw-continue" aria-labelledby="dw-continue-title">
-          <div class="dw-continue-head"><h2 id="dw-continue-title">Continue where you left off</h2><RouterLink v-if="recentChats.length" to="/workspace/inbox">Open inbox<ChevronRight :size="13" aria-hidden="true" /></RouterLink></div>
+          <div class="dw-continue-head"><h2 id="dw-continue-title">Continue where you left off</h2></div>
           <div class="dw-continue-row">
             <RouterLink v-for="c in continueItems" :key="c.key" :to="c.to" class="dw-chat-card" :class="c.kind">
               <span class="dw-card-icon" aria-hidden="true"><component :is="c.kind === 'run' ? ChartNoAxesCombined : MessageSquare" :size="15" /></span>
