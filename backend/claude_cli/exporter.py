@@ -53,6 +53,7 @@ try:  # marketing layer (stdlib only)
     import feed_view  # type: ignore
     import report_view  # type: ignore
     import real_check  # type: ignore
+    import disclosure  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
@@ -64,6 +65,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import feed_view  # type: ignore
     from . import report_view  # type: ignore
     from . import real_check  # type: ignore
+    from . import disclosure  # type: ignore
 try:  # social feed section (Phase 2, optional until wired)
     import social_feed  # type: ignore
 except ImportError:  # pragma: no cover
@@ -1286,6 +1288,7 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
                                                                           focus_group=bundle.get("focus_group"),
                                                                           survey=bundle.get("survey"))),
                          ("sales rehearsal", lambda: report_view.pitch_section(pitch, marketing.chart, insights.get("pitch"))),
+                         ("disclosure", lambda: disclosure.section(bundle, ui.section_head)),
                          ("how sure", lambda: report_view.evidence_section(bundle, {"scopes": {"default": behavior_states(bundle)}}))):
         extra = _safe(label, build)                          # the last one ends up first
         if extra:
@@ -1315,6 +1318,9 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
     for name in ("campaign_plan", "research", "predictions", "study_summary", "thought_stream", "gtm_suite", "competitor_intel", "cro_lab"):
         if bundle.get(name):
             files[name + ".json"] = json.dumps(bundle[name], ensure_ascii=False, indent=2, default=str)
+    disclosed = _safe("disclosure.md", lambda: disclosure.markdown(bundle))
+    if disclosed:                             # AI-use disclosure to attach to a deck (AAPOR 2026, ESOMAR 20 questions)
+        files["disclosure.md"] = disclosed
     kit = _safe("real check", lambda: real_check.build(bundle, mk))
     if kit:                                   # the questions that decided the run, to ask real people
         files["real_check.md"], files["real_check.csv"] = kit["markdown"], kit["csv"]

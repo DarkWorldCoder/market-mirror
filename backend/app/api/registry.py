@@ -38,6 +38,7 @@ ENDPOINTS = [
     {"method": "POST", "path": "/api/simulation/feed-test", "tag": "tests", "summary": "Ads in realistic feeds (attention gate, split test, landing page, projections); background task",
      "body": {"simulation_id": "sim_x", "creatives": [{"id": "fb1", "platform": "facebook", "text": "..."}], "landing": {}, "benchmarks": {}, "seeds": 3, "exposures": 2}, "returns": "{task_id}"},
     {"method": "GET", "path": "/api/simulation/{simulation_id}/feed-test", "tag": "tests", "summary": "Feed-test result", "returns": "feed_test.json"},
+    {"method": "GET", "path": "/api/simulation/provenance", "tag": "tests", "summary": "Models and engine commit a run records in run_manifest.json (no keys or endpoints)", "returns": "{models: [{provider, model}], engine: {commit, local_changes}, at}"},
     {"method": "POST", "path": "/api/simulation/questionnaire", "tag": "tests", "summary": "Your own questionnaire (scale, nps, choice, multi, open) answered by the saved personas, option order shuffled per person; background task",
      "body": {"simulation_id": "sim_x", "questions": [{"id": "trust", "text": "How much do you trust us?", "type": "scale", "low": 1, "high": 5}], "people": 0, "segment": "", "seed": 7}, "returns": "{task_id, people, questions}"},
     {"method": "GET", "path": "/api/simulation/{simulation_id}/questionnaire", "tag": "tests", "summary": "Questionnaire result: per-question distributions by segment, too-alike and position checks", "returns": "questionnaire.json"},

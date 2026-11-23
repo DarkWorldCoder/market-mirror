@@ -444,6 +444,35 @@ def pool_ssr(rows: List[Dict[str, Any]], scale: str) -> Optional[Dict[str, Any]]
 
 
 SPLIT_SHRINK_PRIOR = 0.55     # simulated effects run large (Hewitt et al. 2024: r = .85 with real effects, but inflated)
+# simulated gaps between segments run 2-4x larger than real ones, and the top segment is wrong about half the time
+# (Chen, Zhu & Zheng 2026, arXiv 2607.26348); 0.4 undoes a 2.5x inflation, the middle of that range
+SEGMENT_SHRINK_PRIOR = 0.4
+SEGMENT_CLOSE_CALL = 3.0      # points of "would convert" between the top two segments after shrinking
+
+
+def segment_shrink(by_segment: List[Dict[str, Any]], overall: Optional[float], factor: float = SEGMENT_SHRINK_PRIOR,
+                   basis: str = "") -> Optional[Dict[str, Any]]:
+    """Pull each segment's would-convert share toward the overall share (in place: convert_yes_shrunk) and say
+    whether the choice of segment is a close call once the inflation is taken out. None with fewer than 2 segments."""
+    rows = [r for r in by_segment if r.get("convert_yes") is not None]
+    if overall is None or len(rows) < 2:
+        return None
+    for r in rows:
+        r["convert_yes_shrunk"] = round(overall + factor * (r["convert_yes"] - overall), 1)
+    top = sorted(rows, key=lambda r: -r["convert_yes"])
+    raw_gap = round(top[0]["convert_yes"] - top[1]["convert_yes"], 1)
+    shrunk_gap = round(factor * raw_gap, 1)
+    thin = [r["key"] for r in top[:2] if r.get("n", 0) < 10]
+    close = shrunk_gap < SEGMENT_CLOSE_CALL or bool(thin)
+    return {"factor": factor, "leader": top[0]["key"], "runner_up": top[1]["key"], "raw_gap": raw_gap,
+            "shrunk_gap": shrunk_gap, "close_call": close, "thin_segments": thin,
+            "basis": basis or "prior: simulated segment gaps run 2-4x larger than real ones (Chen, Zhu & Zheng 2026)",
+            "note": ((f"{top[0]['key']} and {top[1]['key']} are tied as simulated. " if raw_gap <= 0 else
+                      f"{top[0]['key']} leads {top[1]['key']} by {raw_gap} points as simulated, about {shrunk_gap} after "
+                      f"shrinking by {factor}. ")
+                     + (f"Fewer than 10 people in {' and '.join(thin)}. " if thin else "")
+                     + ("Treat the choice of segment as a close call: check it with real people before targeting."
+                        if close else "The order is more likely to hold than the size of the gap."))}
 
 
 def _tv(a: List[float], b: List[float]) -> float:
@@ -664,6 +693,10 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         return sorted(res, key=lambda x: (-(x["convert_yes"] or 0), -_intent_mean(x), -(x["interest"] or 0), -x["n"]))
 
     out["by_segment"] = breakdown(lambda r: [r["segment"]])
+    seg_cfg = survey.get("shrink") or {}
+    out["segment_shrink"] = segment_shrink(out["by_segment"], (out.get("overall") or {}).get("convert_yes"),
+                                           float(seg_cfg.get("segment_factor") or SEGMENT_SHRINK_PRIOR),
+                                           seg_cfg.get("segment_basis") or "")
     out["by_country"] = breakdown(lambda r: [r["country"]])
     out["by_community"] = breakdown(lambda r: r["communities"] or ["No community"])
     out["by_age"] = sorted(breakdown(lambda r: [r["age_band"]]),
@@ -1120,6 +1153,16 @@ def models_section(a: Dict[str, Any]) -> Optional[Tuple[str, str, str]]:
             + "</div>")
 
 
+def _segment_shrink_note(a: Dict[str, Any]) -> str:
+    sh = a.get("segment_shrink") or {}
+    if not sh:
+        return ""
+    cls = "pill iterate" if sh.get("close_call") else "pill"
+    return (f'<p class="small" style="margin:0 0 10px"><span class="{cls}">{"Close call" if sh.get("close_call") else "Gap check"}'
+            f'</span> {_e(sh.get("note"))} <span class="muted">Simulated gaps between segments run 2-4x larger than real '
+            f'ones ({_e(sh.get("basis"))}).</span></p>')
+
+
 def _breakdown_block(rows: List[Dict[str, Any]], label: str) -> str:
     if not rows:
         return '<p class="empty">No data.</p>'
@@ -1356,7 +1399,7 @@ def render_sections(a: Dict[str, Any], insights: Optional[Dict[str, str]] = None
     sections.append(("audiences", "Audiences", shead("audiences", "Which audience to target") + '<div class="card">'
                      f'<div class="seg-tabs" role="group" aria-label="Break down by">{tab_btns}</div>'
                      '<p class="muted small" style="margin-top:0">Sorted best first. <span class="legend"><i class="i-yes"></i>would convert '
-                     f'<i class="i-maybe"></i>maybe <i class="i-no"></i>no</span></p>{panels}</div>'))
+                     f'<i class="i-maybe"></i>maybe <i class="i-no"></i>no</span></p>{_segment_shrink_note(a)}{panels}</div>'))
 
     objs = a.get("objections") or []
     obj_chart = '<p class="empty">No objections raised.</p>'

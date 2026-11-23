@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import json
 import re
 import os
@@ -1613,6 +1614,7 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
 
     state.pop("finished_at", None)
     state.pop("spend_cap", None)
+    record_provenance(c, state, cfg)
     cap_id = arm_spend_cap(c, cfg.get("max_spend_usd"), state["out_dir"])
     if cap_id:
         armed.append(cap_id)
@@ -2030,6 +2032,31 @@ def cmd_focus_group(c: Client, a) -> Any:
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
+
+
+def record_provenance(c, state: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> None:
+    """What makes a run describable and repeatable: models, engine commit, this CLI's prompt code, seeds, approvals.
+    Never fails a run: a backend without the endpoint just leaves the model list empty."""
+    try:
+        server = c.data("GET", "/api/simulation/provenance", timeout=15) or {}
+    except Exception:  # noqa: BLE001 - an older backend
+        server = {}
+    services = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "services")
+    digest, hashed = hashlib.sha256(), 0
+    for name in sorted(os.listdir(services)) if os.path.isdir(services) else []:
+        if name.endswith(".py"):           # the prompts live in these files: a changed hash means changed prompts
+            with open(os.path.join(services, name), "rb") as f:
+                digest.update(name.encode() + b"\0" + f.read())
+            hashed += 1
+    cfg = cfg or {}
+    state["provenance"] = {
+        "models": server.get("models") or [], "engine": server.get("engine") or {},
+        "services_hash": digest.hexdigest()[:16] if hashed else None,
+        "recorded_at": server.get("at") or datetime.now().isoformat(timespec="seconds"),
+        "seeds": {k: cfg.get(k) for k in ("seed", "seeds_n") if cfg.get(k) is not None},
+        "spend_approved": bool(cfg.get("approve_spend")) if "approve_spend" in cfg else None,
+        "max_spend_usd": cfg.get("max_spend_usd"),
+    }
 
 
 def cmd_questionnaire(c: Client, a) -> Any:
@@ -2713,6 +2740,7 @@ def cmd_run(c: Client, a) -> Any:
 
     try:
         c.get("/health", retries=2, timeout=10)
+        record_provenance(c, state, {"seed": getattr(a, "seed_n", None)})
         up = step_upload(c, a.seed, requirement, a.name, read_text_arg(a.context),
                          scrub_seeds=a.scrub_seeds, pii_check=not a.no_pii_check)
         state["project_id"] = up["project_id"]

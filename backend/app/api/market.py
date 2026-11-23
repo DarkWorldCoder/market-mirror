@@ -581,6 +581,33 @@ def start_focus_group():
                                               "questions": len([q for q in guide if str(q).strip()])}})
 
 
+def _engine_commit() -> Dict[str, Any]:
+    """The engine's git commit and whether the working tree had local changes (None outside a git checkout)."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, capture_output=True,
+                               text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return {"commit": None, "local_changes": None}
+    return {"commit": commit or None, "local_changes": bool(dirty) if commit else None}
+
+
+@simulation_bp.route('/provenance', methods=['GET'])
+def provenance():
+    """GET -> {models: [{provider, model}], engine: {commit, local_changes}, at}: what a run's manifest records so the
+    run can be described and repeated. Public metadata only; never keys or endpoints."""
+    from datetime import datetime, timezone
+    try:
+        slots = getattr(Config.get_model_pool(), "slots", []) or []
+        models = [{"provider": str(s.provider), "model": str(s.model)} for s in slots]
+    except Exception:  # noqa: BLE001 - no provider configured yet
+        models = []
+    return jsonify({"success": True, "data": {"models": models, "engine": _engine_commit(),
+                                              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}})
+
+
 @simulation_bp.route('/questionnaire', methods=['POST'])
 def start_questionnaire():
     """POST {simulation_id, questions: [...] or text lines, title?, intro?, people?, segment?, agent_ids?, seed?}

@@ -340,6 +340,12 @@ Feed-test result.
 
 Returns: feed_test.json
 
+### `GET /api/simulation/provenance`
+
+Models and engine commit a run records in run_manifest.json (no keys or endpoints).
+
+Returns: {models: [{provider, model}], engine: {commit, local_changes}, at}
+
 ### `POST /api/simulation/questionnaire`
 
 Your own questionnaire (scale, nps, choice, multi, open) answered by the saved personas, option order shuffled per person; background task.

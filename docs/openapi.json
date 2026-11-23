@@ -1161,6 +1161,32 @@
         ]
       }
     },
+    "/api/simulation/provenance": {
+      "get": {
+        "summary": "Models and engine commit a run records in run_manifest.json (no keys or endpoints)",
+        "tags": [
+          "Tests on simulated people"
+        ],
+        "responses": {
+          "200": {
+            "description": "{models: [{provider, model}], engine: {commit, local_changes}, at}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
     "/api/simulation/questionnaire": {
       "post": {
         "summary": "Your own questionnaire (scale, nps, choice, multi, open) answered by the saved personas, option order shuffled per person; background task",
