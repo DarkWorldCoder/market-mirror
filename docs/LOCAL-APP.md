@@ -114,43 +114,22 @@ automated fixture/browser checks are engineering evidence only.
 
 ## Workspace (chat with your runs)
 
-Open **Workspace** in the header, or `/workspace`, in the same app session. It opens dark (the sidebar toggles
-light) and lists the runs saved under `mirofish_runs/` (or `MIROFISH_RUNS_DIR`), plus simulations on this backend
-that have no run folder:
+The app opens straight into a conversation at `/`. The design and its sources are described in
+[WORKSPACE_DESIGN.md](WORKSPACE_DESIGN.md). In short:
 
-- **Home.** A chat box with attach (a text, Markdown or CSV file up to 60 KB, sent with your message), `@` to pick
-  the run, Skills and the model in use; quick actions under it; **Previous chats** (chats saved in this browser,
-  then runs and simulations, with "report ready" when the backend has a finished report) and **Suggested**.
-- **Agents.** The tabs at the top pick who answers: **Results** (common questions answered from the saved files
-  with a chart, no model call), **Report agent** (`POST /api/report/chat`), **Person** (one simulated person,
-  `POST /api/simulation/ask`) and **Focus group** (`POST /api/simulation/focus-group`; each line is a question,
-  then the transcript and the before/after verdicts). The three marked `$` send model calls to your provider; the
-  box says so before you send, and they need the run's simulation on this backend. Every answer is labelled
-  simulated. Chats are kept per run in this browser (`localStorage`) and listed under **Inbox**.
-- **Steps with charts.** People created, the feed test, purchase intent, which audience to target (with the
-  shrunk-gap marker), objections, and the files. Steps fold away once a chat starts.
-- **Visuals** beside the chat: **Thinking** (what the people thought, said and posted, by source, from
-  `GET /api/runs/<name>/thoughts`), **3D market** (3d-force-graph: people coloured by segment, linked to their
-  segment and communities, with the market map's entities and links; a 2D map where the browser has no WebGL),
-  **Live status** (stages, rounds and actions per round; refreshes every 5 s while a run is going, from
-  `GET /api/runs/<name>/status`) and **Social feed** (posts and replies by platform from `feed_story.json`).
-- **Skills and Connectors.** The test types and the data you can bring in, each with its command to copy.
-- **Inbox.** Chats saved in this browser and finished reports, grouped by day, with filters (all, chats, reports,
-  pinned) and search. The reading pane shows the whole conversation; pin the run, download the chat as Markdown
-  (answers marked simulated), delete it, or open the run.
-- **World map.** The World tab beside a chat puts every simulated person on a real world map (Natural Earth country
-  shapes from `world-atlas`, pinned), in their own country; cities are not geocoded, so dots inside a country are spread
-  out. Lines show who replied to, liked, quoted or shared whom in the social rounds; play it round by round, or see all
-  of it at once. Beside the map is what people wrote at that step, and under it interactions per round and the most
-  discussed posts. While a run is going on this backend it follows the newest round. Open it full screen from the tab.
-- **Person card.** Click a dot, a name in Thinking, or a person in the 3D market: their verdict in big type (yes, maybe,
-  no), their own words, what is holding them back, what would change their mind, what they did in the simulation in
-  plain sentences, who they talked to, facts about them and their thinking step by step. "Ask" opens the Person agent
-  with them selected. Community and brand accounts are marked as accounts, not buyers.
-- **Getting around.** `Ctrl K` (or `⌘K`, or `/`) opens a palette that jumps to any run, page, agent or action;
-  `Alt 1` to `Alt 4` switch agents; `?` lists every shortcut. Pin runs to the top of the sidebar; the dot beside each
-  run is its decision. A run page shows its key numbers (people, segments, intent, best click-through) and lets you
-  copy a link, download or clear the chat, and copy any message. Icons are Lucide (`lucide-vue-next`, pinned).
+- **Chat.** Ask in plain words; saved runs open inside the chat as reports, charts, an audience explorer and a social
+  feed. Solo, Team review and Team note modes; `/` finds a skill. Answers about buyers come from simulated people
+  and say so. You can copy any message, edit and send your own again, and download the chat as Markdown.
+- **Sidebar.** Overview, Reports, **Inbox** (saved chats and finished reports, with search across message text and a
+  reading pane), **Compare** (two runs side by side), Skills and Connectors; projects, your chats, pinned runs and
+  saved runs. `⌘K` or `Ctrl K` searches; `?` lists the shortcuts.
+- **Audience explorer.** A 3D globe and a flat **world map** of every simulated person in their country, with the
+  replies, likes, quotes and shares between them, round by round or all at once, and what they wrote at each step.
+  Click a person for a plain-language card: verdict, own words, what holds them back, what would change their mind,
+  what they did, and "Ask … a question", which opens the run's Person chat with them selected.
+- **Run page** (`/workspace/runs/<name>`). Key numbers, saved reports, and four ways to ask: from the saved results
+  (no model call), a simulated person, the report agent, or a focus group (`Alt 1–4`). The last three send model
+  calls to your provider and say so before you send.
 
 The workspace reads runs through `GET /api/runs`, `/api/runs/<name>`, `/api/runs/<name>/thoughts`,
 `/api/runs/<name>/status` and `/api/runs/<name>/files/<file>`. They need the same local setup token and loopback
