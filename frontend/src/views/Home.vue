@@ -535,6 +535,33 @@
                       No usable objections recorded. Review the detailed
                       evidence before drawing a conclusion.
                     </p>
+                    <template v-if="variant.riskiest_phrases?.length">
+                      <h4>Words that bothered people</h4>
+                      <ul>
+                        <li
+                          v-for="item in variant.riskiest_phrases"
+                          :key="item.phrase"
+                        >
+                          “{{ item.phrase }}” · {{ item.people }}
+                        </li>
+                      </ul>
+                    </template>
+                    <p
+                      v-if="
+                        variant.would_do && Object.keys(variant.would_do).length
+                      "
+                      class="small-note"
+                    >
+                      Would do:
+                      {{
+                        Object.entries(variant.would_do)
+                          .map(([k, n]) => `${k.replaceAll('_', ' ')} ${n}`)
+                          .join(' · ')
+                      }}
+                    </p>
+                    <p v-if="variant.instead?.length" class="small-note">
+                      Use today instead: {{ variant.instead.join(' · ') }}
+                    </p>
                     <details v-if="variant.reactions.length">
                       <summary>AI-generated buyer reactions</summary>
                       <blockquote
@@ -661,6 +688,8 @@ const symbols = {
   ecommerce: '▱',
   email: '✉',
   committee: '◎',
+  concept: '◇',
+  statement: '❝',
   regional: '文'
 }
 const recipes = ref([

@@ -1,6 +1,7 @@
 """Local, revisioned decision workflows. Approval and checkpoints survive restarts."""
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -25,6 +26,8 @@ RECIPES = [
     {"id": "ecommerce", "name": "Ecommerce offer", "question": "Is shipping, price or returns causing hesitation?", "hint": "Include your actual shipping, price and return policies."},
     {"id": "email", "name": "Email subject and CTA", "question": "Which email communicates the offer?", "hint": "First line: subject. Then paste the body and CTA. No real email is sent."},
     {"id": "committee", "name": "B2B buying committee", "question": "What might the team question?", "hint": "Describe two offers. Simulated users, managers and finance roles discuss them."},
+    {"id": "concept", "name": "Product or pack concept", "question": "Which idea would people buy?", "hint": "Describe each concept as a shopper would see it: what it is, the price, the pack or format. Each person sees one at a time."},
+    {"id": "statement", "name": "Announcement or crisis statement", "question": "Which wording keeps more trust?", "hint": "Paste two versions of a price change, recall, apology or policy statement. Name who receives it in the audience field."},
     {"id": "regional", "name": "Regional messaging", "question": "Does the wording make sense in this market?", "hint": "Use the same offer and the target language. Validate with native speakers afterward."},
 ]
 IDS = {r["id"] for r in RECIPES}
@@ -417,6 +420,12 @@ def result(record):
                        "mean": round(sum(scores) / len(scores), 4) if scores else None,
                        "objections": list(dict.fromkeys(r["objection"] for r in rows if r.get("objection")))[:6],
                        "reactions": [r["reaction"] for r in rows if r.get("reaction")][:4]})
+        if record["inputs"]["recipe"] == "statement":     # what people would do, and the words that bothered them
+            groups[-1]["would_do"] = dict(Counter(r["would_do"] for r in rows if r.get("would_do")).most_common())
+            groups[-1]["riskiest_phrases"] = [{"phrase": p, "people": n} for p, n in
+                                              Counter(r["riskiest_phrase"] for r in rows if r.get("riskiest_phrase")).most_common(5)]
+        if record["inputs"]["recipe"] == "concept":       # what they use today instead
+            groups[-1]["instead"] = [x for x, _ in Counter(r["instead"] for r in rows if r.get("instead")).most_common(5)]
     complete = record["stages"].get("test", {}).get("status") == "completed"
     means = [g["mean"] for g in groups]
     comparable = complete and all(m is not None for m in means)
@@ -428,11 +437,13 @@ def result(record):
         "Ask real participants to explain each version in their own words. Investigate missing or confusing details before choosing a version."
     what_differed = (f"The two versions differ by {gap * 100:.1f} percentage points in this simulation's descriptive score.") if comparable else \
         "The comparison is incomplete or lacks comparable scores. Review the saved evidence and remaining work."
-    metrics = {"landing": "Simulated share who would continue", "committee": "Simulated share choosing buy", "email": "Simulated share clicking"}
+    metrics = {"landing": "Simulated share who would continue", "committee": "Simulated share choosing buy", "email": "Simulated share clicking",
+               "concept": "Mean simulated chance of buying within a month", "statement": "Mean simulated trust after reading"}
+    leads = {"statement": "kept more simulated trust", "concept": "drew more simulated purchase interest"}
     return {"evidence_type": "simulation", "complete": complete, "variants": groups,
             "metric_label": metrics.get(record["inputs"]["recipe"], "Mean model-reported click likelihood"),
             "failed_exposures": len(record.get("failed_exposures", [])),
-            "verdict": f"{lead} received more simulated interest" if lead else "No clear winner",
+            "verdict": f"{lead} {leads.get(record['inputs']['recipe'], 'received more simulated interest')}" if lead else "No clear winner",
             "what_differed": what_differed,
             "difference": "Descriptive model reactions only; a difference above five percentage points is highlighted for exploration, not statistical significance or predictive confidence.",
             "next_action": next_action,
