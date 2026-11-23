@@ -40,6 +40,7 @@ IS_WINDOWS = sys.platform == 'win32'
 class RunnerStatus(str, Enum):
     """运行器状态"""
     IDLE = "idle"
+    QUEUED = "queued"        # waiting in the job queue's oasis lane for a free runner slot (app/jobs)
     STARTING = "starting"
     RUNNING = "running"
     PAUSED = "paused"
@@ -359,6 +360,57 @@ class SimulationRunner:
             logger.error(f"加载运行状态失败: {str(e)}")
             return None
     
+    @classmethod
+    def active_run_count(cls) -> int:
+        """OASIS runs of this process still playing rounds: starting, or running with a live subprocess and not every
+        started platform finished. A finished run kept alive for interviews does not count."""
+        n = 0
+        for sid, st in list(cls._run_states.items()):
+            if st.runner_status == RunnerStatus.STARTING:
+                proc = cls._processes.get(sid)
+                if proc is not None and proc.poll() is None:
+                    n += 1
+                elif proc is None and cls._recent(st.started_at, 600):
+                    n += 1               # being started right now (no process yet); a stale file left by a crash is not
+                continue
+            if st.runner_status not in (RunnerStatus.RUNNING, RunnerStatus.PAUSED):
+                continue
+            proc = cls._processes.get(sid)
+            if proc is None or proc.poll() is not None:
+                continue
+            if (st.twitter_completed or st.reddit_completed) and not st.twitter_running and not st.reddit_running:
+                continue
+            n += 1
+        return n
+
+    @staticmethod
+    def _recent(iso: Optional[str], seconds: float) -> bool:
+        try:
+            return (datetime.now() - datetime.fromisoformat(str(iso))).total_seconds() < seconds
+        except (TypeError, ValueError):
+            return False
+
+    @classmethod
+    def mark_queued(cls, simulation_id: str, job_id: str) -> SimulationRunState:
+        """Record a start that waits for a runner slot (runner_status "queued"); the queue starts it later."""
+        state = SimulationRunState(simulation_id=simulation_id, runner_status=RunnerStatus.QUEUED,
+                                   error=None)
+        state.started_at = None
+        cls._save_run_state(state)
+        return state
+
+    @classmethod
+    def mark_unqueued(cls, simulation_id: str, error: Optional[str] = None) -> None:
+        """A queued start ended without starting: stopped when it was cancelled, failed (with the error) otherwise.
+        Only a state that is still "queued" changes, under the same lock start_simulation claims with."""
+        with cls._finalization_lock(simulation_id):
+            state = cls.get_run_state(simulation_id)
+            if state is not None and state.runner_status == RunnerStatus.QUEUED:
+                state.runner_status = RunnerStatus.FAILED if error else RunnerStatus.STOPPED
+                state.error = f"queued start failed: {error}" if error else "cancelled while queued"
+                state.updated_at = datetime.now().isoformat()
+                cls._save_run_state(state)
+
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
         """保存运行状态到文件"""

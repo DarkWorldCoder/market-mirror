@@ -278,6 +278,15 @@ def _task_counts() -> Dict[str, int]:
     }
 
 
+def _job_counts() -> Dict[str, Any]:
+    try:
+        from ..jobs import store
+        st = store().stats()
+        return {"counts": st["counts"], "queue_wait_s": st["queue_wait_s"], "workers": len(st["workers"])}
+    except Exception:  # noqa: BLE001 - telemetry only
+        return {}
+
+
 def system_status_report() -> Dict[str, Any]:
     """Detailed production telemetry for `/api/system/status` (behind auth when a token is set)."""
     return {
@@ -287,6 +296,7 @@ def system_status_report() -> Dict[str, Any]:
         "platform": platform.platform(),
         "http": _http_stats(),
         "tasks": _task_counts(),
+        "jobs": _job_counts(),
     }
 
 
@@ -404,6 +414,10 @@ def install_production_middleware(app: Flask) -> None:
 
         # Public probes bypass auth & rate limits
         if request.path in ("/health", "/ready") or request.method == "OPTIONS":
+            return None
+        # A queue worker re-running an accepted request in-process (a contextvar no client can set; app/jobs/replay.py)
+        from ..jobs.context import replaying
+        if replaying():
             return None
 
         # /api/setup/* has its own stricter guard (this computer only + the setup token from ./mm setup)

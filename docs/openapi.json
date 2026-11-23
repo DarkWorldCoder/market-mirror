@@ -5173,13 +5173,13 @@
     },
     "/api/simulation/market-task/status": {
       "post": {
-        "summary": "Status of a background task",
+        "summary": "Status of a background task (job adds its queue place, attempts, model calls and needs_approval)",
         "tags": [
           "Background tasks"
         ],
         "responses": {
           "200": {
-            "description": "{status, progress, message, result}",
+            "description": "{status, progress, message, result, job?}",
             "content": {
               "application/json": {
                 "schema": {
@@ -5204,6 +5204,179 @@
               },
               "example": {
                 "task_id": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "summary": "Background jobs in the durable queue, newest first (?status=queued|running|needs_approval|succeeded|failed|cancelled&kind=&workspace=&subject=&limit=)",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "[{job_id, kind, status, lane, workspace, provider, attempts, max_attempts, model_calls, queue_position, queue_wait_s, message, error, can_retry}]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/jobs/stats": {
+      "get": {
+        "summary": "Queue health: counts per status, running per provider/workspace/lane, queue wait p50/p95 over the last hour, live workers, limits",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{counts, running, queued_by_lane, queue_wait_s, succeeded_in_window, workers, limits, oasis}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "summary": "One job (its id is the task id the starting endpoint returned), with its attempt history",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "{job_id, kind, status, attempts, model_calls, history, ...}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "summary": "Cancel a job: a queued one at once; a running one at its next model call or progress update (its result is not written)",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/jobs/{job_id}/retry": {
+      "post": {
+        "summary": "Approve one more attempt of a job that stopped after making model calls (it will spend again); never automatic",
+        "tags": [
+          "Background tasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "job (queued)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "approve_spend": true
               }
             }
           }

@@ -5,7 +5,6 @@ Report API路由
 
 import os
 import traceback
-import threading
 from flask import request, jsonify, send_file
 
 from . import report_bp
@@ -15,6 +14,7 @@ from ..services.simulation_manager import SimulationManager
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
 from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
 from ..models.project import ProjectManager, ProjectStatus
+from .. import jobs
 from ..models.task import TaskManager, TaskStatus
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
@@ -292,8 +292,7 @@ def generate_report():
                     unregister_graph_reader(graph_id, report_id)
 
             try:
-                thread = threading.Thread(target=run_generate, daemon=True)
-                thread.start()
+                jobs.submit(task_id, run_generate, kind="report_generate", subject=simulation_id)
             except Exception:
                 unregister_graph_reader(graph_id, report_id)
                 raise

@@ -237,7 +237,9 @@ def test_report_reader_lease_blocks_graph_start_and_delete(monkeypatch):
     )
     monkeypatch.setattr(report_api, "TaskManager", Tasks)
     monkeypatch.setattr(report_api, "ReportAgent", Agent)
-    monkeypatch.setattr(report_api.threading, "Thread", ParkedThread)
+    # the background report is queued as a job (app/jobs); park it instead of running it
+    monkeypatch.setattr(report_api.jobs, "submit",
+                        lambda task_id, fn, **_kw: ParkedThread(target=fn, daemon=True).start())
     monkeypatch.setattr(
         simulation_api.SimulationRunner,
         "start_simulation",

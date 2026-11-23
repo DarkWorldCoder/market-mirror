@@ -5,11 +5,13 @@ Step2: Zep实体读取与过滤、OASIS模拟准备与运行（全程自动化�
 
 import json
 import os
+import threading
 import traceback
 from contextlib import nullcontext
 from flask import request, jsonify, send_file
 
 from . import simulation_bp
+from .. import jobs
 from ..config import Config
 from ..services.zep_entity_reader import ZepEntityReader
 from ..services.oasis_profile_generator import OasisProfileGenerator
@@ -662,9 +664,8 @@ def prepare_simulation():
                     state.error = str(e)
                     manager._save_simulation_state(state)
         
-        # 启动后台线程
-        thread = threading.Thread(target=run_prepare, daemon=True)
-        thread.start()
+        # Queue it (app/jobs): limits per provider and workspace, progress, cancellation
+        jobs.submit(task_id, run_prepare, kind="simulation_prepare", subject=simulation_id)
         
         return jsonify({
             "success": True,
@@ -1546,6 +1547,27 @@ def _write_herding_probe(sim_dir: str, value) -> None:
     os.replace(tmp, path)
 
 
+_OASIS_START_LOCK = threading.RLock()
+
+
+def _queued_start_gone(simulation_id: str):
+    """Why a queued start being re-run by the queue must not start any more (stopped meanwhile), or None."""
+    state = SimulationRunner.get_run_state(simulation_id)
+    ctx = jobs.context.current()
+    if ctx is not None and ctx.cancel.is_set():
+        return "this queued start was cancelled"
+    if state is None or state.runner_status != RunnerStatus.QUEUED:
+        return f"this queued start was stopped (run status {state.runner_status.value if state else 'missing'})"
+    return None
+
+
+def _queued_start_reply(run_state, job_id: str) -> dict:
+    reply = run_state.to_dict()
+    reply.update({"queued": True, "task_id": job_id, "job_id": job_id,
+                  "queue_position": jobs.store().position(job_id), "max_concurrent_runs": jobs.oasis_limit()})
+    return reply
+
+
 @simulation_bp.route('/start', methods=['POST'])
 def start_simulation():
     """
@@ -1663,6 +1685,16 @@ def start_simulation():
                             "error": f"platform {platform} is not prepared; available: {', '.join(available)}"}), 400
 
         force_restarted = False
+
+        # MarketMirror: a start already waiting in the queue's oasis lane is returned as it is (force replaces it)
+        if not jobs.replaying():
+            current_run = SimulationRunner.get_run_state(simulation_id)
+            if current_run and current_run.runner_status == RunnerStatus.QUEUED:
+                waiting = jobs.store().list(kind="simulation_start", subject=simulation_id, status=jobs.QUEUED, limit=5)
+                if waiting and not force:
+                    return jsonify({"success": True, "data": _queued_start_reply(current_run, waiting[0]["job_id"])})
+                for job in waiting:
+                    jobs.cancel(job["job_id"])
         
         # 智能处理状态：如果准备工作已完成，允许重新启动
         if state.status != SimulationStatus.READY:
@@ -1766,7 +1798,35 @@ def start_simulation():
             if enable_graph_memory_update
             else nullcontext()
         )
-        with graph_guard:
+        with _OASIS_START_LOCK, graph_guard:
+            # MarketMirror: the OASIS runner is one process with MM_OASIS_MAX_RUNS runs playing rounds at a time.
+            # When it is full (or earlier starts wait), this start joins the job queue's oasis lane and the server
+            # starts it as soon as a run finishes (the queue re-runs this request). Clients keep polling run-status:
+            # "queued" first. The lock makes check-then-start atomic for direct and queued starts in this process.
+            if jobs.replaying():
+                gone = _queued_start_gone(simulation_id)
+                if gone:
+                    return jsonify({"success": False, "error": gone}), 409
+                if jobs.oasis_full_now():
+                    # handed to the queue worker, which puts the start back in line without using an attempt
+                    jobs.context.current().replay_error = jobs.SlotTaken("the OASIS runner filled up before this start")
+                    return jsonify({"success": False, "error": "the OASIS runner is full"}), 409
+            elif jobs.oasis_should_queue():
+                from ..models.task import TaskManager
+                task_id = TaskManager().create_task(task_type="simulation_start",
+                                                    metadata={"simulation_id": simulation_id})
+                run_state = SimulationRunner.mark_queued(simulation_id, task_id)   # before the job can start
+                jobs.submit(task_id, None, kind="simulation_start", subject=simulation_id, replay=True,
+                            lane="oasis")
+                reply = _queued_start_reply(run_state, task_id)
+                if max_rounds:
+                    reply['max_rounds_applied'] = max_rounds
+                if 'herding_probe' in data:
+                    reply['herding_probe'] = herding_probe
+                reply['graph_memory_update_enabled'] = enable_graph_memory_update
+                reply['force_restarted'] = force_restarted
+                return jsonify({"success": True, "data": reply})
+
             if enable_graph_memory_update:
                 # Re-read both references under the same per-graph lock used
                 # by reset/delete. Keep the lock through updater creation in
@@ -1887,7 +1947,18 @@ def stop_simulation():
                 "error": t('api.requireSimulationId')
             }), 400
         
-        run_state = SimulationRunner.stop_simulation(simulation_id)
+        run_state = None
+        with _OASIS_START_LOCK:      # a queued start being begun right now finishes its check first
+            queued_run = SimulationRunner.get_run_state(simulation_id)
+            if queued_run and queued_run.runner_status == RunnerStatus.QUEUED:
+                # never started: cancel the queued start (MarketMirror job queue)
+                for status in (jobs.QUEUED, jobs.RUNNING):
+                    for job in jobs.store().list(kind="simulation_start", subject=simulation_id, status=status, limit=5):
+                        jobs.cancel(job["job_id"])
+                SimulationRunner.mark_unqueued(simulation_id)
+                run_state = SimulationRunner.get_run_state(simulation_id)
+        if run_state is None:
+            run_state = SimulationRunner.stop_simulation(simulation_id)
         
         # 更新模拟状态
         manager = SimulationManager()

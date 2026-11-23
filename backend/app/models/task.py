@@ -243,12 +243,17 @@ class TaskManager:
     def recover_interrupted_tasks(self) -> int:
         """
         Mark pending/processing rows that this process does not own as failed
-        ("server restarted"). Called once at server start-up: the backend runs as
-        a single process, so such a row was left behind by a process that died
-        or was stopped, and nothing will ever finish it.
+        ("server restarted"). Called once at server start-up. Rows behind an
+        active queue job (queued, running, needs approval) are skipped: the job
+        queue requeues or settles them (app/jobs).
         """
         with self._task_lock:
             owned = set(self._tasks)
+        try:   # rows backed by a live queue job are settled by the job queue (app/jobs), not failed here
+            from ..jobs import store as job_store
+            owned |= job_store().active_ids()
+        except Exception:  # noqa: BLE001
+            logger.exception("task store: cannot read queued jobs")
         now = datetime.now().isoformat()
         active = (TaskStatus.PENDING.value, TaskStatus.PROCESSING.value)
         try:
@@ -281,6 +286,15 @@ class TaskManager:
         Returns:
             任务ID
         """
+        try:   # a queue worker re-running the endpoint: the task is the job's own, already polled by the client
+            from ..jobs import context as job_context
+            ctx = job_context.current()
+        except Exception:  # noqa: BLE001
+            ctx = None
+        if ctx is not None and ctx.replay and not ctx.task_claimed:
+            ctx.task_claimed = True
+            self.adopt(ctx.job_id)
+            return ctx.job_id
         task_id = str(uuid.uuid4())
         now = datetime.now()
         task = Task(
@@ -295,6 +309,47 @@ class TaskManager:
             self._tasks[task_id] = task
         self._save_to_db(task)
         return task_id
+
+    def adopt(self, task_id: str) -> bool:
+        """Take ownership of a task another process created (a queue worker running its job). True when this call
+        loaded it; False when it was already owned here or does not exist."""
+        with self._task_lock:
+            if task_id in self._tasks:
+                return False
+        task = self._load_row(task_id)
+        if task is None:
+            return False
+        with self._task_lock:
+            if task_id in self._tasks:
+                return False
+            self._tasks[task_id] = task
+        return True
+
+    def release(self, task_id: str) -> None:
+        """Stop owning a task (its row stays): reads go to SQLite again, so another process's writes are seen."""
+        with self._task_lock:
+            self._tasks.pop(task_id, None)
+
+    def mirror(self, task_id: str, status: Optional[TaskStatus] = None, message: Optional[str] = None,
+               error: Optional[str] = None) -> None:
+        """Set a task's status whether or not this process owns it (the job queue's recovery and cancellation)."""
+        with self._task_lock:
+            owned = task_id in self._tasks
+        if owned:
+            self.update_task(task_id, status=status, message=message, error=error)
+            return
+        task = self._load_row(task_id)
+        if task is None:
+            return
+        task.updated_at = datetime.now()
+        if status is not None:
+            task.status = status
+        if message is not None:
+            task.message = message
+        if error is not None:
+            task.error = error or None
+        with self._write_lock:
+            self._write_row(self._row_values(task))
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """Owned tasks come from memory; any other task is read fresh from SQLite and not cached."""

@@ -40,6 +40,8 @@ backend/claude_cli/stop_server.sh      # stops it, including simulation subproce
 
 The log is written to `backend/logs/server.out`. The CLI reads `MIROFISH_URL` (default `http://localhost:5001`) or takes `--base-url`.
 
+Long steps run as jobs in a durable SQLite queue (`backend/app/jobs/`, `docs/JOBS.md`): limits per provider (`MM_JOB_LIMIT_PROVIDER`, default 4) and per workspace (`X-MM-Workspace`, `MM_JOB_LIMIT_WORKSPACE`, default 2, no cap for the local workspace), cancellation and approval-gated retries via `/api/jobs`, recovery after a restart (a job that already made model calls is never retried without `POST /api/jobs/<id>/retry {"approve_spend": true}`). More throughput: `MM_JOB_EXTERNAL_WORKERS=1` plus `cd backend && uv run --no-sync python -m app.jobs.worker`. OASIS starts beyond `MM_OASIS_MAX_RUNS` (default 2) return `runner_status: "queued"` and start when a run finishes. Load test with a fake LLM: `backend/scripts/load_test_jobs.py`.
+
 ## 3. Run a simulation end to end
 
 ```bash

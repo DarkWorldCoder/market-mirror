@@ -48,6 +48,14 @@ CACHE_WRITE = 1.25
 
 _LOCK = threading.Lock()
 _PROCESS = {"spent_usd": 0.0, "calls": 0}
+_HOOKS: Dict[str, list] = {"check": [], "charge": []}
+
+
+def add_hook(kind: str, fn: Callable) -> None:
+    """Run `fn()` before every model call ("check"; it may raise to stop the call) or `fn(usd)` after one is charged
+    ("charge"). The job queue uses these to count calls per job and to cancel jobs at the next call."""
+    if fn not in _HOOKS[kind]:
+        _HOOKS[kind].append(fn)
 
 
 class SpendCapReached(RuntimeError):
@@ -209,16 +217,26 @@ def _usd(x: float) -> str:
 
 def check() -> None:
     """Raise SpendCapReached when a cap is reached. Costs one stat() when no run cap is armed."""
+    for hook in _HOOKS["check"]:
+        hook()
+    msg = reached_message()
+    if msg:
+        raise SpendCapReached(msg)
+
+
+def reached_message() -> Optional[str]:
+    """Why no new model call may start (a reached cap), or None. Runs no hooks: safe for admission checks."""
     limit = _process_limit()
     if limit is not None and _PROCESS["spent_usd"] >= limit:
-        raise SpendCapReached(f"spend cap reached: about {_usd(_PROCESS['spent_usd'])} of the {_usd(limit)} "
-                              "allowed for this process (MM_MAX_SPEND_USD)")
+        return (f"spend cap reached: about {_usd(_PROCESS['spent_usd'])} of the {_usd(limit)} "
+                "allowed for this process (MM_MAX_SPEND_USD)")
     if not _has_ledger():
-        return
+        return None
     st = status()
     if st and (st.get("reached") or float(st.get("spent_usd") or 0) >= float(st["limit_usd"])):
-        raise SpendCapReached(f"spend cap reached: about {_usd(float(st['spent_usd']))} of the {_usd(float(st['limit_usd']))} "
-                              "allowed for this run (max_spend_usd)")
+        return (f"spend cap reached: about {_usd(float(st['spent_usd']))} of the {_usd(float(st['limit_usd']))} "
+                "allowed for this run (max_spend_usd)")
+    return None
 
 
 def charge_tokens(model: Optional[str], input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0) -> float:
@@ -227,6 +245,11 @@ def charge_tokens(model: Optional[str], input_tokens: int, output_tokens: int, c
     with _LOCK:
         _PROCESS["spent_usd"] += usd
         _PROCESS["calls"] += 1
+    for hook in _HOOKS["charge"]:
+        try:
+            hook(usd)
+        except Exception:  # noqa: BLE001 - accounting never fails a call that already happened
+            pass
     if not _has_ledger():
         return usd
     with _ledger() as (state, write):
