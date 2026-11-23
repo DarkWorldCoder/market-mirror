@@ -37,7 +37,11 @@ a point less keen.
 0.31-0.49 on a 1-5 scale. When almost everyone sits near the line between "maybe" and "no", moving the whole panel by
 half a point moves most people across it. A three-option verdict turns a modest difference into a 70-point swing.
 
-**5. It can change which ad wins.** In the same run's feed test, the Claude and Gemini panels ranked the 7-day
+**5. Every saved run is this tight.** Free-text intent had a standard deviation between 0.25 and 0.56 on the 1-5
+scale in all nine runs that scored it (12 to 3,000 people, all for the same invented brand), so the swing above is
+the normal state of these panels, not a quirk of one run.
+
+**6. It can change which ad wins.** In the same run's feed test, the Claude and Gemini panels ranked the 7-day
 challenge ad first; the Codex panel ranked the price ad first, with an expected click-through of 0.42% against
 1.27-1.59%.
 
