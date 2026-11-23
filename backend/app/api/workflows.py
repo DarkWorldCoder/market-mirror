@@ -147,6 +147,8 @@ def source():
 @workflows_bp.get("/simulation/<wid>/start")
 @workflows_bp.get("/report/<wid>")
 @workflows_bp.get("/interaction/<wid>")
+@workflows_bp.get("/workspace")
+@workflows_bp.get("/workspace/<path:wid>")
 def web_app(wid=None):
     if not _loopback():
         return Response("The MarketMirror app is available only on this computer.", status=403)

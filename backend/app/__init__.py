@@ -105,6 +105,8 @@ def create_app(config_class=Config):
     app.register_blueprint(setup_bp)
     from .api.workflows import workflows_bp
     app.register_blueprint(workflows_bp)
+    from .api.runs import runs_bp
+    app.register_blueprint(runs_bp)
     
     # 健康检查
     @app.route('/health')
