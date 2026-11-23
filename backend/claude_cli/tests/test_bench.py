@@ -369,6 +369,22 @@ class CLI(unittest.TestCase):
         self.assertTrue(res["dry_run"])
         self.assertEqual(res["estimate"]["calls"], 3 + 3 + 6)        # no_persona, demographics_only, twin
 
+    def test_broken_twin_cache_file_names_file_and_suggests_fetch(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        with open(os.path.join(d, "twin_0.json"), "w", encoding="utf-8") as f:
+            json.dump(with_demographics(twin_row(0, [1, 2, 2]), "R0"), f)
+        with open(os.path.join(d, "twin_1.json"), "w", encoding="utf-8") as f:
+            f.write("{truncated")
+        with open(os.path.join(d, "notes.txt"), "w", encoding="utf-8") as f:
+            f.write("ignored")
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = mirofish.main(["bench", "--suite", "twin2k", "--cache", d, "--out", d])
+        self.assertEqual(code, 1)
+        self.assertIn("twin_1.json", err.getvalue())
+        self.assertIn("--fetch", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
