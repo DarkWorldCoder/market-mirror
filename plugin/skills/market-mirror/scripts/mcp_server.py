@@ -1294,8 +1294,10 @@ def drop_pending(reason: str) -> None:
 def tool_result(res: Any, is_error: bool = False) -> Dict[str, Any]:
     text = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False, indent=2, default=str)
     out: Dict[str, Any] = {"content": [{"type": "text", "text": text}], "isError": is_error}
-    if isinstance(res, (dict, list)):
+    if isinstance(res, dict):
         out["structuredContent"] = res
+    elif isinstance(res, list):
+        out["structuredContent"] = {"items": res}
     return out
 
 

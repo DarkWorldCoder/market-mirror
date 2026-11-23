@@ -59,6 +59,27 @@ class Resources(unittest.TestCase):
         res = out[1]["result"]["structuredContent"]
         self.assertEqual(res["resources"]["market_report.md"], "marketmirror://runs/demo/market_report.md")
 
+    def test_list_runs_structured_content_is_object(self):
+        out = call([self.rpc(1, "tools/call", {"name": "list_runs", "arguments": {}})], self.home)
+        result = out[1]["result"]
+        self.assertFalse(result["isError"])
+        text_runs = json.loads(result["content"][0]["text"])
+        self.assertIsInstance(text_runs, list)
+        self.assertEqual(len(text_runs), 1)
+        self.assertEqual(text_runs[0]["run"], "demo")
+        self.assertEqual(text_runs[0]["decision"], "iterate")
+        structured = result["structuredContent"]
+        self.assertIsInstance(structured, dict)
+        self.assertEqual(structured, {"items": text_runs})
+
+        empty_home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty_home, True)
+        empty_out = call([self.rpc(1, "tools/call", {"name": "list_runs", "arguments": {}})], empty_home)
+        empty_res = empty_out[1]["result"]
+        self.assertEqual(json.loads(empty_res["content"][0]["text"]), [])
+        self.assertIsInstance(empty_res["structuredContent"], dict)
+        self.assertEqual(empty_res["structuredContent"], {"items": []})
+
     def test_prompts(self):
         out = call([self.rpc(1, "prompts/list"),
                     self.rpc(2, "prompts/get", {"name": "pull_real_results", "arguments": {"source": "meta_ads", "run": "demo"}}),
