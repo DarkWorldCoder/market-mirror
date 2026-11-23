@@ -44,6 +44,7 @@ import market_cli  # noqa: E402
 import live_view  # noqa: E402
 import quota  # noqa: E402
 import settle as settle_mod  # noqa: E402
+import fit_check  # noqa: E402
 
 # Interview-based stages (survey, pitch) send this many people per call to the simulation. The simulation answers
 # one call at a time and each call waits for its slowest interview, so bigger calls with every provider in them keep
@@ -1720,16 +1721,26 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
                      timeout=_prepare_timeout(persona_spec))
     state["simulation_id"] = sid
     checkpoint()
-    if not cfg.get("approve_spend"):
+    if not cfg.get("approve_spend") or "fit_check" not in state:
         prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
+        all_people = [p for p in (prof.get("profiles") or []) if isinstance(p, dict)]
+        try:      # an advisory check: it never stops the run
+            state["fit_check"] = fit_check.check(cfg, all_people)
+        except Exception as e:  # noqa: BLE001
+            log(f"fit check skipped: {e}")
+            state["fit_check"] = {}
+        for line in fit_check.lines(state["fit_check"]) if state["fit_check"] else []:
+            log(line)
+        checkpoint()
+    if not cfg.get("approve_spend"):
         people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
-                  for p in (prof.get("profiles") or [])][:60]
+                  for p in all_people][:60]
         if cfg.get("max_spend_usd"):
             save_spend_cap(c, cap_id, out_dir, state)
             disarm_spend_cap(c, cap_id)
             checkpoint()
         return {"stage": "personas_ready", "simulation_id": sid, "out_dir": state["out_dir"], "people": people,
-                "spend_cap": state.get("spend_cap"),
+                "spend_cap": state.get("spend_cap"), "fit_check": state.get("fit_check"),
                 "next": f'Review the people, then add "simulation_id": "{sid}" and "approve_spend": true to {path} and run again.'}
 
     steps = []
