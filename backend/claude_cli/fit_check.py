@@ -1,8 +1,8 @@
-"""When not to trust a simulated panel: a check that runs before any paid step.
+"""When not to trust a simulated panel: a check that runs after the people are prepared, before the paid test steps.
 
 Simulated people are useful for screening ideas, pretesting wording and finding objections. They are weakest where
-decisions often matter most. This reads the test's own config and the people it created, and says which of the known
-weak spots apply, before money is spent:
+decisions often matter most. This reads the test's own config, its brief and the people it created, and says which of
+the known weak spots apply before the test steps spend more:
 
 - small_segments: segments with fewer than 10 people; their results are too thin to compare.
 - less_covered_markets: half or more of the people outside the US, UK, Canada, Australia, New Zealand and Ireland,
@@ -46,17 +46,28 @@ def _texts(cfg: Dict[str, Any]) -> Iterable[str]:
     for key in ("offer", "goal"):
         if isinstance(survey.get(key), str):
             yield survey[key]
-    for m in survey.get("messages") or []:
+    messages = survey.get("messages") or []
+    for m in [messages] if isinstance(messages, str) else messages:   # one message given as plain text, or a list
         if isinstance(m, str):
             yield m
-    for cr in cfg.get("creatives") or []:
+    creatives = cfg.get("creatives") or []
+    if isinstance(creatives, dict):                                    # the inline {"creatives": [...]} form
+        creatives = creatives.get("creatives") or []
+    for cr in creatives if isinstance(creatives, list) else []:
         if isinstance(cr, dict):
             yield " ".join(str(cr.get(k) or "") for k in ("headline", "text", "media"))
 
 
-def check(cfg: Dict[str, Any], people: List[Dict[str, Any]], brief_text: str = "") -> Dict[str, Any]:
-    """{fit: good|caution|poor, warnings: [{code, text, do_instead}]} from the config, the brief and the people."""
+def check(cfg: Dict[str, Any], people: List[Dict[str, Any]], brief_text: str = "",
+          audience_available: bool = True) -> Dict[str, Any]:
+    """{fit: good|caution|poor|unknown, warnings: [{code, text, do_instead}], audience_checked} from the config, the
+    brief and the people. When the people could not be read, the segment and market checks are reported as not done
+    instead of passing."""
     warnings: List[Dict[str, str]] = []
+    if not audience_available:
+        warnings.append({"code": "audience_unavailable",
+                         "text": "The simulated people could not be read, so segment sizes and markets were not checked.",
+                         "do_instead": "Check the people in the run folder before approving spend."})
     segs = Counter(str(p.get("segment") or "").strip() for p in people if str(p.get("segment") or "").strip())
     thin = sorted(s for s, n in segs.items() if n < MIN_SEGMENT)
     if len(segs) >= 2 and thin:
@@ -92,10 +103,12 @@ def check(cfg: Dict[str, Any], people: List[Dict[str, Any]], brief_text: str = "
                                  "often than real ones (our bench: 66% predicted vs 43% real).",
                          "do_instead": "Read which option wins, not the rates; calibrate with real answers before "
                                        "forecasting."})
-    fit = "good" if not warnings else "poor" if len(warnings) >= 3 else "caution"
-    return {"fit": fit, "warnings": warnings,
+    real = [w for w in warnings if w["code"] != "audience_unavailable"]
+    fit = ("unknown" if not audience_available and not real else "good" if not real
+           else "poor" if len(real) >= 3 else "caution")
+    return {"fit": fit, "warnings": warnings, "audience_checked": audience_available,
             "good_uses": "screening ideas, pretesting wording, finding objections, ranking options",
-            "note": "Shown before spending. It never blocks a run."}
+            "note": "Shown after the people are prepared and before the paid test steps. It never blocks a run."}
 
 
 def lines(result: Dict[str, Any]) -> List[str]:

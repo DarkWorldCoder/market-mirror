@@ -45,7 +45,7 @@ records is marked Grounded.
 - Every run gets an A-D evidence grade. It drops for thin samples, flagged answer spread and markets the models cover
   less well.
 - Segment gaps are shrunk by default, because models exaggerate them 2-4x.
-- Before any spend, a fit check warns when a test is a poor fit: small segments, sensitive topics, new categories,
+- After the people are prepared and before the paid test steps, a fit check warns when a test is a poor fit: small segments, sensitive topics, new categories,
   absolute forecasts, or less-covered markets.
 
 **What are the limits, and how do you mitigate them?**
@@ -64,7 +64,9 @@ We say the results are directions, never measurements, and recommend a small rea
 
 **How did you design for a duty of care to people?**
 - The simulated people are invented and are never presented as real.
-- Real customer data stays on the user's machine. Contact details are removed locally during intake.
+- Files are stored on the user's machine. Content the user supplies (briefs, seed documents, customer records) is
+  sent in prompts to the model provider the user configures, so a hosted provider receives it under its own terms.
+  Intake removes contact details locally before that, which reduces but does not remove what reaches the provider.
 - A seed-document check warns about personal data before upload.
 - Website tests mask inputs in screenshots and keep recordings opt-in.
 

@@ -1721,17 +1721,20 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
                      timeout=_prepare_timeout(persona_spec))
     state["simulation_id"] = sid
     checkpoint()
-    if not cfg.get("approve_spend") or "fit_check" not in state:
-        prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
-        all_people = [p for p in (prof.get("profiles") or []) if isinstance(p, dict)]
-        try:      # an advisory check: it never stops the run
-            state["fit_check"] = fit_check.check(cfg, all_people)
-        except Exception as e:  # noqa: BLE001
-            log(f"fit check skipped: {e}")
-            state["fit_check"] = {}
-        for line in fit_check.lines(state["fit_check"]) if state["fit_check"] else []:
-            log(line)
-        checkpoint()
+    # the fit check runs again on every pass, so a config edited after the people were prepared is checked as it is now
+    prof = _try("profiles", lambda: c.data("GET", f"/api/simulation/{sid}/profiles", params={"platform": "reddit"})) or {}
+    all_people = [p for p in (prof.get("profiles") or []) if isinstance(p, dict)]
+    sim_cfg = _try("config", lambda: c.data("GET", f"/api/simulation/{sid}/config")) or {}
+    audience = [r for r in (sim_cfg.get("persona_index") or []) if isinstance(r, dict) and r.get("kind", "persona") == "persona"]
+    try:      # an advisory check: it never stops the run
+        state["fit_check"] = fit_check.check(cfg, audience or all_people, _brief_text(cfg, base),
+                                             audience_available=bool(audience or all_people))
+    except Exception as e:  # noqa: BLE001
+        log(f"fit check skipped: {e}")
+        state["fit_check"] = {}
+    for line in fit_check.lines(state["fit_check"]) if state["fit_check"] else []:
+        log(line)
+    checkpoint()
     if not cfg.get("approve_spend"):
         people = [{"name": p.get("name"), "age": p.get("age"), "country": p.get("country"), "bio": str(p.get("bio") or "")[:120]}
                   for p in all_people][:60]
@@ -2043,6 +2046,21 @@ def cmd_focus_group(c: Client, a) -> Any:
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
+
+
+def _brief_text(cfg: Dict[str, Any], base: str) -> str:
+    """The market test's question as text: the file's contents when 'requirement' names a file."""
+    req = cfg.get("requirement") or ""
+    if not isinstance(req, str):
+        return ""
+    try:
+        path = _cfg_path(base, req.lstrip("@"))
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                return f.read()[:20000]
+    except (OSError, ValueError, UnicodeDecodeError):
+        pass
+    return req
 
 
 def record_provenance(c, state: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> None:
