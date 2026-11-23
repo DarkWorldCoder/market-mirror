@@ -491,6 +491,7 @@ function pickTarget(r) {
   nextTick(() => homeBox.value?.focus())
 }
 function onHomeKey(e) {
+  if (e.isComposing || e.keyCode === 229) return // Enter confirms an IME composition, it does not send
   if (e.key === '@') mentionOpen.value = true
   else if (e.key === 'Escape') mentionOpen.value = false
   else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (!e.shiftKey && agent.value !== 'focus'))) {

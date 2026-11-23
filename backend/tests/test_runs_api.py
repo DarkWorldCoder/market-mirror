@@ -90,3 +90,12 @@ def test_status_from_saved_files(client, tmp_path):
     assert [s["done"] for s in d["stages"]] == [False, True, False]
     assert client.get("/api/runs/acme", headers=H).get_json()["data"]["simulation_on_backend"] is False
     assert client.get("/api/runs/../status", headers=H).status_code in (403, 404)
+
+
+def test_status_reads_the_simulation_id_from_summary_too(client, tmp_path):
+    run = tmp_path / "runs" / "acme"
+    (run / "run_manifest.json").write_text(json.dumps({"title": "Acme test"}))          # no simulation_id here
+    (run / "summary.json").write_text(json.dumps({"simulation_id": "sim_9", "decision": {"decision": "go"}}))
+    d = client.get("/api/runs/acme/status", headers=H).get_json()["data"]
+    assert d["simulation_id"] == "sim_9"
+    assert client.get("/api/runs/acme", headers=H).get_json()["data"]["simulation_id"] == "sim_9"

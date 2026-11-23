@@ -135,6 +135,7 @@
                 <button type="button" class="ws-send" :disabled="!canSend" :aria-label="`Send to ${agentById(agent).label}`" @click="ask(draft)"><Ico name="send" :size="17" :stroke="2.2" /></button>
               </div>
             </div>
+            <p v-if="attachError" class="ws-attach-error" role="alert">{{ attachError }}</p>
             <p class="ws-note">{{ modeNote }}</p>
           </div>
           <p class="ws-disclaimer">Simulated people, not real buyers. Check decisions with real people before you spend.</p>
@@ -319,9 +320,9 @@ const tab = ref('thinking')
 const tabs = [{ id: 'thinking', label: 'Thinking', icon: 'brain' }, { id: 'world', label: 'World', icon: 'globe' }, { id: 'market', label: '3D', icon: 'network' },
   { id: 'status', label: 'Status', icon: 'activity' }, { id: 'feed', label: 'Feed', icon: 'feed' }]
 const messages = ref([]), draft = ref(''), busy = ref(false), busyNote = ref(''), focused = ref(false), active = ref(0)
-const personId = ref(null), scroller = ref(null), fileInput = ref(null), attachment = ref(null)
+const personId = ref(null), scroller = ref(null), fileInput = ref(null), attachment = ref(null), attachError = ref('')
 const groupSize = ref(5), groupSegment = ref(''), thoughtSource = ref(''), platform = ref('')
-let pollTimer = null, alive = true
+let pollTimer = null, alive = true, statusFailures = 0
 
 const key = computed(() => props.name || props.sim)
 const enc = encodeURIComponent
@@ -367,14 +368,16 @@ async function loadStatus() {
       const run = await api(`/api/simulation/${enc(props.sim)}/run-status`)
       status.value = { live: true, run, stages: [], rounds: [], started_at: run.started_at, finished_at: run.completed_at }
     }
+    statusFailures = 0
   } catch {
-    status.value = null
+    // keep the last good status so one failed request does not end live polling; give up after 3 failures in a row
+    statusFailures++
   }
   schedulePoll()
 }
 function schedulePoll() {
   clearTimeout(pollTimer)
-  if (alive && isRunning.value && status.value?.live) {
+  if (alive && isRunning.value && status.value?.live && statusFailures < 3) {
     pollTimer = setTimeout(loadStatus, 5000)
     refreshLive()
   }
@@ -636,6 +639,7 @@ function chartFor(m) {
 }
 
 function onKey(e) {
+  if (e.isComposing || e.keyCode === 229) return // Enter confirms an IME composition, it does not send
   if (showSuggest.value && ['ArrowDown', 'ArrowUp'].includes(e.key)) {
     e.preventDefault()
     const n = suggestions.value.length
@@ -662,9 +666,10 @@ async function onAttach(e) {
   e.target.value = ''
   if (!f) return
   if (f.size > 60000) {
-    error.value = 'Attach a text file under 60 KB.'
+    attachError.value = `${f.name} is too large. Attach a text file under 60 KB.`
     return
   }
+  attachError.value = ''
   attachment.value = { name: f.name, text: (await f.text()).slice(0, 60000) }
 }
 
@@ -677,13 +682,19 @@ async function runFocusGroup(text, files) {
   if (files) body.offer = files.slice(0, 600)
   const started = await api('/api/simulation/focus-group', { method: 'POST', body })
   busyNote.value = `Focus group running: ${started.people} simulated people, ${started.questions} question${started.questions === 1 ? '' : 's'}…`
+  let completed = false
   for (let i = 0; i < 400 && alive; i++) {
     await sleep(3000)
     const t = await api('/api/simulation/market-task/status', { method: 'POST', body: { task_id: started.task_id } })
     if (t.status === 'failed') throw new Error(t.error || 'the focus group failed')
-    if (t.status === 'completed') break
+    if (t.status === 'completed') {
+      completed = true
+      break
+    }
     if (t.message) busyNote.value = `Focus group: ${t.message}`
   }
+  // the result file is shared by every group on this simulation, so read it only after this task finished
+  if (!completed) throw new Error('the focus group did not finish here; open the run again later to see its result')
   const res = await api(`/api/simulation/${enc(sid.value)}/focus-group`)
   const shift = res.shift || {}
   const parts = (res.participants || []).map((p) => `${p.id} (${p.segment || 'no segment'}): ${p.pre} → ${p.post}`)
@@ -719,11 +730,12 @@ async function ask(text) {
         ? { role: 'assistant', who: 'From the saved results', simulated: true, text: local.text, chartKey: local.chartKey, caption: local.caption }
         : { role: 'assistant', who: 'From the saved results', text: 'The saved results cover audiences, objections, ads, purchase intent, the people and the decision. For anything else, pick Report agent, Person or Focus group at the top (model calls).' })
     } else if (who === 'person') {
-      const history = messages.value.filter((m) => m.agent === 'person' && m.person === personId.value).slice(-6)
+      const pid = personId.value // the picker can change while the request waits
+      const history = messages.value.filter((m) => m.agent === 'person' && m.person === pid).slice(-6)
         .map((m) => ({ role: m.role === 'user' ? 'user' : 'person', text: m.text }))
-      messages.value[messages.value.length - 1].person = personId.value
-      const r = await api('/api/simulation/ask', { method: 'POST', body: { simulation_id: sid.value, agent_id: personId.value, message: text + files, history } })
-      say({ role: 'assistant', who: `${r.name} · ${r.segment || 'no segment'}`, agent: 'person', person: personId.value, simulated: true, text: r.reply })
+      messages.value[messages.value.length - 1].person = pid
+      const r = await api('/api/simulation/ask', { method: 'POST', body: { simulation_id: sid.value, agent_id: pid, message: text + files, history } })
+      say({ role: 'assistant', who: `${r.name} · ${r.segment || 'no segment'}`, agent: 'person', person: pid, simulated: true, text: r.reply })
     } else if (who === 'report') {
       const chat_history = messages.value.filter((m) => m.agent === 'report').slice(-9, -1).map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
       const r = await api('/api/report/chat', { method: 'POST', body: { simulation_id: sid.value, message: text + files, chat_history } })

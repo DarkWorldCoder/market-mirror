@@ -21,17 +21,18 @@ const props = defineProps({
 })
 const emit = defineEmits(['select'])
 const el = ref(null), spinning = ref(true)
-let fg = null, observer = null
+let fg = null, observer = null, init = null, mounted = false
 const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const bg = () => getComputedStyle(el.value.closest('.ws') || document.body).getPropertyValue('--panel').trim() || '#161719'
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 
-async function render() {
-  if (!el.value || !props.data) return
-  if (!fg) {
-    const { default: ForceGraph3D } = await import('3d-force-graph')
-    fg = new ForceGraph3D(el.value, { controlType: 'orbit' })
+async function create() {
+  const { default: ForceGraph3D } = await import('3d-force-graph')
+  // the component may have unmounted, or another render may have built the graph, while the chunk loaded
+  if (!mounted || !el.value) return null
+  if (fg) return fg
+  fg = new ForceGraph3D(el.value, { controlType: 'orbit' })
       .showNavInfo(false)
       .enableNodeDrag(false)
       .nodeId('id')
@@ -49,10 +50,19 @@ async function render() {
       .cooldownTicks(120)
       .onEngineStop(fit)
       .onNodeClick((n) => String(n.id).startsWith('p:') && emit('select', Number(String(n.id).slice(2))))
-    fg.d3Force('charge').strength(-26)
-    const controls = fg.controls()
-    controls.autoRotate = spinning.value = !reduced
-    controls.autoRotateSpeed = 1.1
+  fg.d3Force('charge').strength(-26)
+  const controls = fg.controls()
+  controls.autoRotate = spinning.value = !reduced
+  controls.autoRotateSpeed = 1.1
+  return fg
+}
+
+async function render() {
+  if (!el.value || !props.data) return
+  if (!fg) {
+    init = init || create()
+    await init
+    if (!fg || !mounted || !el.value) return
   }
   fg.backgroundColor(bg()).width(el.value.clientWidth).height(el.value.clientHeight)
   fg.__fitted = false
@@ -75,6 +85,7 @@ function reset() {
 }
 
 onMounted(() => {
+  mounted = true
   render()
   observer = new ResizeObserver(() => fg && el.value && fg.width(el.value.clientWidth).height(el.value.clientHeight))
   observer.observe(el.value)
@@ -82,6 +93,7 @@ onMounted(() => {
 watch(() => props.data, render)
 watch(() => props.theme, () => fg && el.value && setTimeout(() => fg.backgroundColor(bg()), 0))
 onBeforeUnmount(() => {
+  mounted = false
   observer && observer.disconnect()
   if (fg) {
     fg.pauseAnimation()

@@ -136,7 +136,7 @@ def run_status(name):
     saved run_status.json) and actions per round from timeline.json."""
     path = _run_dir(name)
     manifest = _read(path / "run_manifest.json") or {}
-    sid = manifest.get("simulation_id")
+    sid = _card(path).get("simulation_id")  # manifest first, then summary.json, as in run detail
     live = None
     if _sim_folder(sid):
         try:
