@@ -32,11 +32,23 @@ def _e(x: Any) -> str:
 def _models(bundle: Dict[str, Any]) -> List[str]:
     prov = (bundle.get("run_manifest") or {}).get("provenance") or {}
     found = [f'{m.get("model")} ({m.get("provider")})' for m in prov.get("models") or [] if isinstance(m, dict) and m.get("model")]
-    if not found:      # older runs: the providers named on survey answers
-        seen = {str(r.get("provider")) for r in (bundle.get("survey") or {}).get("responses") or []
-                if isinstance(r, dict) and r.get("provider")}
+    if not found:      # older runs: the model each simulated person was written by, then the survey's providers
+        idx = [r for r in (bundle.get("config") or {}).get("persona_index") or [] if isinstance(r, dict)]
+        seen = {f'{r["model_name"]} ({r["model_provider"]})' if r.get("model_name") else str(r["model_provider"])
+                for r in idx if r.get("model_provider") and r.get("model_provider") != "grounded"}
+        seen |= {str(r.get("provider")) for r in (bundle.get("survey") or {}).get("responses") or []
+                 if isinstance(r, dict) and r.get("provider")} if not seen else set()
         found = sorted(seen)
     return found
+
+
+def _when(iso: Any) -> str:
+    """'2026-10-20T17:04:11' -> '20 Oct 2026, 17:04'; anything else as given."""
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(iso)).strftime("%d %b %Y, %H:%M").lstrip("0")
+    except (TypeError, ValueError):
+        return str(iso or "")
 
 
 def facts(bundle: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -58,9 +70,10 @@ def facts(bundle: Dict[str, Any]) -> List[Tuple[str, str]]:
          if n_real else "None yet. Use the real-people check kit to collect some."),
         ("Simulated people", f"{len(index)} invented people" + (f", {grounded} built from real customer records" if grounded else "")
          if index else "Not recorded"),
-        ("Model and access", ", ".join(models) + " through the provider's API" if models else "Not recorded for this run"),
-        ("Dates", " to ".join(x for x in (str(m.get("started_at") or "")[:16], str(m.get("finished_at") or "")[:16]) if x)
-         or "Not recorded"),
+        ("Model and access", (", ".join(models) + (" (recorded when the run started)" if prov.get("models")
+                                                    else " (read from the saved people; access method not recorded)"))
+         if models else "Not recorded for this run"),
+        ("Dates", " to ".join(x for x in (_when(m.get("started_at")), _when(m.get("finished_at"))) if x) or "Not recorded"),
         ("Memory", f"People kept memories between tests; feelings mode {emo.get('mode')}" if emo.get("mode")
          else "Not recorded"),
         ("Human review", ("Spending was approved explicitly before the paid steps" if prov.get("spend_approved") else

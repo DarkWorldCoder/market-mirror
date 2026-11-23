@@ -54,6 +54,11 @@ class DisclosureTests(unittest.TestCase):
         self.assertIn("claude-haiku-4-5 (claude)", facts["Model and access"])
         self.assertIn("abcdef123456 with local changes", facts["Repeat this run"])
         self.assertIn("approved explicitly", facts["Human review"])
+        self.assertEqual(facts["Dates"], "23 Nov 2026, 10:00 to 23 Nov 2026, 10:20")
+        older = dict(disclosure.facts({"config": {"persona_index": [
+            {"kind": "persona", "model_provider": "codex", "model_name": "gpt-5"},
+            {"kind": "persona", "model_provider": "grounded"}]}}))
+        self.assertEqual(older["Model and access"], "gpt-5 (codex) (read from the saved people; access method not recorded)")
         md = disclosure.markdown(BUNDLE)
         self.assertIn("not a poll or a survey of real people", md)
         self.assertIn("AAPOR", md)
