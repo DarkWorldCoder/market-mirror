@@ -16,6 +16,7 @@
   --yes: #347556;
   --maybe: #906d1c;
   --no: #a94f58;
+  --data: #4b5563;
   --shadow: 0 2px 5px rgb(57 54 100 / 2%), 0 14px 45px rgb(74 72 122 / 5%);
   background:
     radial-gradient(ellipse at 0% 0%, #dfe7ff 0%, transparent 48%),
@@ -161,6 +162,7 @@
   --yes: #9bd7b9;
   --maybe: #e7cb89;
   --no: #edabb4;
+  --data: #a3adbb;
   background: radial-gradient(ellipse at 0% 0%, #303652, transparent 60%), radial-gradient(ellipse at 100% 100%, #29413d, transparent 56%), #212438;
 }
 .ws[data-theme='dark'] .ws-side {
@@ -290,3 +292,22 @@
 .ws .ws-side .ws-chat-row:hover { background: color-mix(in srgb,var(--panel) 65%,transparent); }
 .ws .ws-side .ws-chat-row:hover>a { background: transparent; }
 .ws .ws-side .ws-chat-move:hover,.ws .ws-side .ws-chat-move[data-state='open'] { background: var(--panel-2); color: var(--text); }
+
+/* Shell: the app owns the viewport. The canvas scrolls, the page never does, so no white band shows under the shell
+   on mobile toolbars or overscroll; the root matches the shell colour for the same reason. */
+html:has(.ws) { background: #f3f3fc; }
+html:has(.ws[data-theme='dark']) { background: #212438; }
+.ws { height: 100dvh; min-height: 0; overflow: hidden; }
+.ws .ws-side { height: 100dvh; }
+.ws .ws-main { min-height: 0; height: 100dvh; }
+.ws .ws-canvas { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.ws .ws-canvas .direct-chat { height: 100%; min-height: 0; }
+
+/* Sidebar search stays put while the sidebar scrolls. Its backing only appears once the sidebar has scrolled, so the
+   resting sidebar gradient shows through instead of a flat rectangle. */
+.ws .ws-side .ws-search-sticky { position: sticky; top: 0; z-index: 2; padding-bottom: 8px; margin-inline: -4px; padding-inline: 4px; }
+.ws .ws-side .ws-search-sticky .ws-search { margin-bottom: 5px; }
+@supports (animation-timeline: scroll()) {
+  .ws .ws-side .ws-search-sticky { animation: ws-search-stuck linear both; animation-timeline: scroll(nearest block); animation-range: 0 8px; }
+}
+@keyframes ws-search-stuck { from { background: transparent; } to { background: var(--bg); } }

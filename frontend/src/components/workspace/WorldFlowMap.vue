@@ -1,5 +1,5 @@
 <template>
-  <section class="wfm" :class="{ big }" aria-label="World map of simulated people and their social interactions">
+  <section class="wfm" :class="{ big, dark: theme === 'dark' }" aria-label="World map of simulated people and their social interactions">
     <div class="wfm-bar">
       <button type="button" class="wfm-icon" :aria-label="playing ? 'Pause the replay' : 'Play the run step by step'" :title="playing ? 'Pause' : 'Play'" :disabled="steps.length < 2" @click="toggle">
         <Pause v-if="playing" :size="16" /><Play v-else :size="16" />
@@ -17,7 +17,7 @@
     <div class="wfm-body">
       <div ref="el" class="wfm-map" :style="{ height: height + 'px' }" role="img" :aria-label="summary"></div>
       <aside class="wfm-feed" aria-label="What people wrote at this step">
-        <h5><Brain :size="14" aria-hidden="true" />{{ feedTitle }}</h5>
+        <h5><Brain :size="14" aria-hidden="true" />{{ feedTitle }} <small>simulated</small></h5>
         <ol>
           <li v-for="(t, i) in stepThoughts" :key="i" :class="{ account: t.account }" :style="{ '--seg': t.account ? 'var(--line)' : t.color }">
             <button type="button" :disabled="!!t.account" :title="t.account ? t.account : `Open ${t.who}`" @click="$emit('select', String(t.agent_id))">
@@ -52,7 +52,11 @@
             <div>
               <b>{{ t.who }}</b><small>{{ t.where }}</small>
               <p>{{ t.text }}</p>
-              <span class="wfm-n"><MessageCircle :size="12" aria-hidden="true" />{{ t.replies }}<Heart :size="12" aria-hidden="true" />{{ t.likes }}<Repeat2 :size="12" aria-hidden="true" />{{ t.quotes }}<span class="sr-only"> replies, likes and quotes</span></span>
+              <span class="wfm-n">
+                <span class="wfm-c" role="img" :aria-label="`${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}`"><MessageCircle :size="12" aria-hidden="true" />{{ t.replies }}</span>
+                <span class="wfm-c" role="img" :aria-label="`${t.likes} ${t.likes === 1 ? 'like' : 'likes'}`"><Heart :size="12" aria-hidden="true" />{{ t.likes }}</span>
+                <span class="wfm-c" role="img" :aria-label="`${t.quotes} ${t.quotes === 1 ? 'quote or share' : 'quotes and shares'}`"><Repeat2 :size="12" aria-hidden="true" />{{ t.quotes }}</span>
+              </span>
             </div>
           </li>
         </ol>
@@ -137,7 +141,7 @@ const stepThoughts = computed(() => thoughts.value.filter(inStep).slice(0, 40).m
     text: t.text, did: plainDid(t.did), kind: t.kind, kindLabel: { private_thought: 'thought', said: 'said', posted: 'posted' }[t.kind] || t.kind, color: colorOf(t.segment || p.segment) }
 }))
 const activeIds = computed(() => new Set([...stepEdges.value.map((e) => String(e.from)), ...stepThoughts.value.filter((t) => !t.account).map((t) => String(t.agent_id))]))
-const feedTitle = computed(() => ({ before: 'Thinking while scrolling', after: 'What they told us afterwards', all: 'Everything written in the rounds' })[current.value?.id] || 'Written this round')
+const feedTitle = computed(() => ({ before: 'Thinking while scrolling', after: 'What they said afterwards', all: 'Everything written in the rounds' })[current.value?.id] || 'Written this round')
 
 const positions = computed(() => {
   const counts = {}, centres = {}, out = {}
@@ -184,7 +188,7 @@ function frame() {
   if (framed) return {}
   const pts = Object.values(positions.value)
   if (!pts.length) return {}
-  const lons = pts.map((x) => x[0]), lats = pts.map((x) => x[1]), pad = 14
+  const lons = pts.map((x) => x[0]), lats = pts.map((x) => x[1]), pad = 8
   framed = { boundingCoords: [[Math.max(-180, Math.min(...lons) - pad), Math.min(85, Math.max(...lats) + pad)], [Math.min(180, Math.max(...lons) + pad), Math.max(-60, Math.min(...lats) - pad)]] }
   return framed
 }
@@ -210,7 +214,7 @@ function option() {
     },
     series: [
       { id: 'past', type: 'lines', coordinateSystem: 'geo', silent: true, zlevel: 1, lineStyle: { width: 0.8, opacity: 0.18, curveness: 0.25 }, data: pastEdges.value.map(line).filter(Boolean) },
-      { id: 'now', type: 'lines', coordinateSystem: 'geo', silent: true, zlevel: 2, effect: { show: !reduced, period: 2.2, trailLength: 0.35, symbol: 'arrow', symbolSize: 6 },
+      { id: 'now', type: 'lines', coordinateSystem: 'geo', silent: true, zlevel: 2, effect: { show: !reduced && current.value?.id !== 'all', period: 2.2, trailLength: 0.35, symbol: 'arrow', symbolSize: 6 },
         lineStyle: { width: 1.6, opacity: 0.75, curveness: 0.25 }, data: stepEdges.value.map(line).filter(Boolean) },
       { id: 'brand', type: 'effectScatter', coordinateSystem: 'geo', silent: true, zlevel: 2, symbolSize: 7, rippleEffect: { scale: reduced ? 1 : 2.4, brushType: 'stroke', number: 2 }, itemStyle: { opacity: 0.8 }, data: pulses },
       { id: 'people', type: 'scatter', coordinateSystem: 'geo', zlevel: 3, data: dots, cursor: 'pointer', emphasis: { scale: 1.6 } }
@@ -282,7 +286,7 @@ onBeforeUnmount(() => {
 .wfm-feed { border: 1px solid var(--line); border-radius: 12px; padding: 10px; max-height: 260px; overflow-y: auto; }
 .wfm.big .wfm-feed { max-height: 520px; }
 .wfm-feed h5, .wfm-box h5 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
-.wfm-box h5 small { margin-left: auto; font-weight: 400; }
+.wfm-feed h5 small, .wfm-box h5 small { margin-left: auto; font-weight: 400; }
 .wfm-feed ol, .wfm-top { list-style: none; margin: 0; padding: 0; }
 .wfm-feed li { margin-bottom: 6px; border-left: 3px solid var(--seg, var(--line)); border-radius: 4px; }
 .wfm-feed li button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.45; padding: 7px 8px 7px 10px; border-radius: 4px; cursor: pointer; }
@@ -292,8 +296,9 @@ onBeforeUnmount(() => {
 .wfm-feed li small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
 .wfm-feed li em { display: block; font-style: normal; color: var(--muted); font-size: 11px; margin-top: 3px; }
 .wfm-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; margin-right: 5px; }
-.wfm-kind.posted { color: #b8612a; border-color: #b8612a; }
+.wfm-kind.posted { color: var(--text); border-color: var(--line); }
 .wfm-kind.private_thought { color: #25785d; border-color: #25785d; }
+.wfm.dark .wfm-kind.private_thought { color: #8fd6b5; border-color: #8fd6b5; }
 .wfm-stats { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .wfm-stats li { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
 .wfm-stats b { color: var(--text); }
@@ -305,8 +310,8 @@ onBeforeUnmount(() => {
 .wfm-top small { margin-left: 6px; color: var(--muted); font-size: 11px; }
 .wfm-top p { margin: 3px 0; color: var(--muted); overflow-wrap: anywhere; }
 .wfm-rank { width: 22px; height: 22px; flex: none; border-radius: 7px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel-2); font-size: 11px; font-weight: 600; }
-.wfm-n { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11.5px; }
-.wfm-n svg + * { margin-right: 6px; }
+.wfm-n { display: inline-flex; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 11.5px; }
+.wfm-c { display: inline-flex; align-items: center; gap: 3px; margin-right: 12px; }
 .wfm-note { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 10px 0 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @keyframes wfm-pulse { 50% { opacity: .3; } }

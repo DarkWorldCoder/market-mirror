@@ -12,12 +12,38 @@ export function palette() {
     muted: css('--muted', '#6c6f73'),
     line: css('--line', '#e6e6e1'),
     accent: css('--accent', '#1f6b4f'),
+    // neutral single-series bars; --accent reads too close to --maybe, so a bar of counts would look like a verdict
+    data: css('--data', '#4b5563'),
     warm: css('--warm', '#f26b2a'),
     yes: css('--yes', '#2f8f5b'),
     maybe: css('--maybe', '#d9a23b'),
     no: css('--no', '#c8584b'),
     series: ['#1f6b4f', '#f26b2a', '#4f7cd6', '#a259c4', '#d9a23b', '#2aa1a1', '#c8584b', '#7a8b2f', '#8c6d5a', '#5a6b8c']
   }
+}
+
+/** Small samples read better as counts: 1 of 28 rather than 3.6%. Returns null when n is 100 or more (or unknown),
+ *  so the caller shows the percentage. The count is rounded from the saved percentage and clamped to 0..n. */
+export function sampleCount(pct, n) {
+  const p = Number(pct), size = Number(n)
+  if (!Number.isFinite(p) || !Number.isInteger(size) || size <= 0 || size >= 100) return null
+  const count = Math.min(size, Math.max(0, Math.round((p / 100) * size)))
+  return { count, n: size, text: `${count} of ${size}`, pct: `${Math.round(p * 10) / 10}%` }
+}
+
+/** Saved decision -> the dw-decision tone class used across the workspace (go / iterate / stop). */
+export function decisionTone(d) {
+  const v = String(d || '')
+  return /^(go|launch|proceed)$/i.test(v) ? 'go' : /no.?go|stop|reject/i.test(v) ? 'stop' : 'iterate'
+}
+
+/** "no_go" -> "No go"; empty stays empty. */
+export const decisionText = (d) => String(d || '').replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase())
+
+/** A survey verdict (yes / maybe / no) -> its palette colour; anything else gets the neutral data colour. */
+export function verdictColor(verdict, p) {
+  const v = String(verdict || '').toLowerCase()
+  return v === 'yes' ? p.yes : v === 'maybe' ? p.maybe : v === 'no' ? p.no : p.data
 }
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -77,7 +103,7 @@ export function objectionsOption(mk) {
     xAxis: { type: 'value', name: 'People raising objection (%)', nameLocation: 'middle', nameGap: 25, axisLabel: { formatter: '{value}%', color: p.muted }, splitLine: { lineStyle: { color: p.line } } },
     yAxis: { type: 'category', data: rows.map(r => r.label).reverse(), axisLabel: { color: p.text, width: 145, overflow: 'truncate' } },
     tooltip: { trigger: 'axis', confine: true, valueFormatter: value => `${value}% of simulated people` },
-    series: [{ type: 'bar', name: 'People raising objection', barMaxWidth: 18, data: rows.map(r => r.share).reverse(), itemStyle: { color: p.accent, borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', formatter: '{c}%', color: p.muted } }]
+    series: [{ type: 'bar', name: 'People raising objection', barMaxWidth: 18, data: rows.map(r => r.share).reverse(), itemStyle: { color: p.data, borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', formatter: '{c}%', color: p.muted } }]
   }
 }
 
@@ -97,7 +123,7 @@ export function creativesOption(feed) {
     series: [{
       type: 'bar',
       barMaxWidth: 16,
-      data: ids.map((id, i) => ({ value: per[id].expected_ctr, itemStyle: { color: i === 0 ? p.warm : p.accent, borderRadius: [0, 4, 4, 0] } })).reverse(),
+      data: ids.map((id, i) => ({ value: per[id].expected_ctr, itemStyle: { color: i === 0 ? p.warm : p.data, borderRadius: [0, 4, 4, 0] } })).reverse(),
       label: { show: true, position: 'right', formatter: '{c}%', color: p.muted, fontSize: 11 }
     }]
   }
@@ -147,7 +173,7 @@ export function peopleOption(index, key = 'country') {
     ...base(p),
     xAxis: { type: 'value', axisLabel: { color: p.muted, hideOverlap: true }, splitNumber: 4, splitLine: { lineStyle: { color: p.line } }, minInterval: 1 },
     yAxis: { type: 'category', data: rows.map(([k]) => short(k)).reverse(), axisLabel: { color: p.text, fontSize: 11 } },
-    series: [{ type: 'bar', barMaxWidth: 16, data: rows.map(([, v]) => v).reverse(), itemStyle: { color: p.accent, borderRadius: [0, 4, 4, 0] } }]
+    series: [{ type: 'bar', barMaxWidth: 16, data: rows.map(([, v]) => v).reverse(), itemStyle: { color: p.data, borderRadius: [0, 4, 4, 0] } }]
   }
 }
 

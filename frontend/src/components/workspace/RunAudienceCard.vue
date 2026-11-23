@@ -16,7 +16,7 @@
       </div>
       <template v-if="people.length && visible && !expanded">
         <div v-if="view === 'map'">
-          <WorldFlowMap :index="index" :story="story" :harvest="harvest" :theme="theme" :live="isRunning" :height="340" :selected="selectedId" @select="selectPerson" />
+          <WorldFlowMap :index="index" :story="story" :harvest="harvest" :theme="theme" :live="isRunning" :height="isPhone ? 260 : 340" :selected="selectedId" @select="selectPerson" />
           <label class="audience-person-pick">Person<select v-model="selectedId" aria-label="Choose a simulated person"><option v-for="p in people" :key="p.agent_id" :value="String(p.agent_id)">{{ p.name || `Person ${p.agent_id}` }} · {{ p.segment || p.country || 'no segment' }}</option></select></label>
           <AudiencePersonCard v-if="selectedPerson" v-bind="cardProps" />
         </div>
@@ -65,6 +65,10 @@ const props = defineProps({ name: { type: String, required: true }, theme: { typ
 const expanded = ref(false), view = ref('')
 const host = ref(null), sceneHost = ref(null), sceneHeight = ref(600), visible = ref(false), loading = ref(true), loaded = ref(false), error = ref(''), detail = ref(null), config = ref(null), survey = ref(null), activity = ref([]), timeline = ref([]), harvest = ref(null), story = ref(null), selectedId = ref(''), checkedAt = ref('')
 let observer, refreshTimer, request = 0, pendingLoads = 0
+// a shorter map on phones, so the person picker and card stay in reach
+const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 600px)') : null
+const isPhone = ref(!!phoneQuery?.matches)
+const onPhoneChange = (e) => { isPhone.value = e.matches }
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter(person => (person.kind || 'persona') === 'persona'))
 const names = computed(() => Object.fromEntries(index.value.map(person => [String(person.agent_id), person.name])))
@@ -109,11 +113,12 @@ async function load() {
 }
 watch(() => props.name, () => { request++; loaded.value = false; view.value = ''; if (visible.value) load() })
 onMounted(() => {
+ phoneQuery?.addEventListener?.('change', onPhoneChange)
  if (typeof IntersectionObserver === 'undefined') { visible.value = true; load(); return }
  observer = new IntersectionObserver(entries => { if (!entries[0].isIntersecting && sceneHost.value) sceneHeight.value = sceneHost.value.offsetHeight; visible.value = entries[0].isIntersecting; if (visible.value && !loaded.value && !error.value && !pendingLoads) load() }, { rootMargin: '250px' }); observer.observe(host.value)
  refreshTimer = setInterval(() => { if (visible.value && loaded.value && !pendingLoads && isRunning.value) load() }, 8000)
 })
-onBeforeUnmount(() => { request++; observer?.disconnect(); clearInterval(refreshTimer) })
+onBeforeUnmount(() => { phoneQuery?.removeEventListener?.('change', onPhoneChange); request++; observer?.disconnect(); clearInterval(refreshTimer) })
 </script>
 <style scoped>
 .audience-card-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:13px;font-weight:550;margin-bottom:16px}.audience-card-toolbar>div{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.audience-card-toolbar>div>button{display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}

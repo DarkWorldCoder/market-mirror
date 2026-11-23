@@ -4,12 +4,14 @@
     <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="menuOpen = false"></button>
     <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace">
       <RouterLink to="/" class="ws-brand" @click="menuOpen = false"><MarketMirrorLogo :size="30" /><span>MarketMirror</span></RouterLink>
-      <button class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat<kbd>↗</kbd></button>
-      <div class="ws-search">
-        <Search :size="16" aria-hidden="true" />
-        <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
-        <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
-        <kbd v-else>⌘ K</kbd>
+      <button class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat</button>
+      <div class="ws-search-sticky">
+        <div class="ws-search">
+          <Search :size="16" aria-hidden="true" />
+          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
+          <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
+          <kbd v-else>⌘ K</kbd>
+        </div>
       </div>
       <div class="ws-side-scroll">
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">

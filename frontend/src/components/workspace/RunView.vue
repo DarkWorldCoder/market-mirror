@@ -11,14 +11,15 @@
         <p v-if="error" class="ws-error" role="alert">{{ error }}</p>
         <div class="ws-title">
           <h2>{{ detail.title }}</h2>
-          <p class="ws-run-context">{{ decision ? `Saved decision: ${decision.replaceAll('_', ' ')}` : 'Saved research' }} · Results from simulated participants</p>
+          <p class="ws-run-verdict">
+            <span v-if="decision" class="dw-decision" :class="decisionTone(decision)">Simulated verdict: <b>{{ decisionText(decision) }}</b></span>
+            <span v-else class="dw-decision">Saved research from simulated participants</span>
+          </p>
+          <p v-if="detail.summary?.decision?.summary" class="ws-run-summary">{{ detail.summary.decision.summary }}</p>
         </div>
         <ul v-if="kpis.length" class="ws-run-kpis" aria-label="Key numbers, simulated">
-          <li v-for="k in kpis" :key="k.label"><b>{{ k.value }}</b><span>{{ k.label }}</span></li>
+          <li v-for="k in kpis" :key="k.label"><b>{{ k.value }}</b><span>{{ k.label }}<small v-if="k.note" class="ws-run-kpi-note">{{ k.note }}</small></span></li>
         </ul>
-        <p v-if="detail.summary?.decision?.summary" class="ws-note" style="font-size: 13px">
-          {{ detail.summary.decision.summary }}
-        </p>
 
         <div class="ws-steps">
           <details v-for="step in steps" :key="step.id" class="ws-step" :open="step.open">
@@ -174,7 +175,7 @@ import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../work
 const PersonaScene = defineAsyncComponent(() => import('./PersonaScene.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
-  creativesOption, intentOption, localAnswer, objectionsOption, palette, peopleOption, segmentsOption
+  creativesOption, decisionText, decisionTone, intentOption, localAnswer, objectionsOption, palette, peopleOption, sampleCount, segmentsOption, verdictColor
 } from '../../workspace/charts.js'
 
 const props = defineProps({ name: { type: String, required: true }, theme: { type: String, default: 'light' } })
@@ -304,7 +305,6 @@ const mk = computed(() => detail.value?.summary?.marketing || null)
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter((r) => (r.kind || 'persona') === 'persona'))
 const decision = computed(() => detail.value?.summary?.decision?.decision || detail.value?.decision || '')
-const decisionClass = computed(() => decision.value.toLowerCase().replace(' ', '-'))
 const runData = computed(() => ({ summary: detail.value?.summary, feed: feed.value, index: index.value }))
 
 function barChart(rows, labelKey, metric, metricLabel) {
@@ -312,7 +312,7 @@ function barChart(rows, labelKey, metric, metricLabel) {
   rows = rows.filter((r) => r && Number.isFinite(r[metric]))
   if (!rows.length) return null
   const p = palette()
-  return { tooltip: { trigger: 'axis', confine: true }, grid: { left: 8, right: 24, top: 14, bottom: 44, containLabel: true }, xAxis: { type: 'value', name: metricLabel, nameLocation: 'middle', nameGap: 30, nameTextStyle: { color: p.muted }, axisLabel: { color: p.muted }, splitLine: { lineStyle: { color: p.line } } }, yAxis: { type: 'category', data: rows.map((r, i) => r[labelKey] ?? r.segment ?? r.country ?? `Round ${r.round_num ?? i + 1}`).reverse(), axisLabel: { color: p.text, width: 155, overflow: 'truncate' } }, series: [{ name: metricLabel, type: 'bar', data: rows.map((r) => r[metric]).reverse(), itemStyle: { color: p.accent, borderRadius: [0, 4, 4, 0] }, barMaxWidth: 18 }] }
+  return { tooltip: { trigger: 'axis', confine: true }, grid: { left: 8, right: 24, top: 14, bottom: 44, containLabel: true }, xAxis: { type: 'value', name: metricLabel, nameLocation: 'middle', nameGap: 30, nameTextStyle: { color: p.muted }, axisLabel: { color: p.muted }, splitLine: { lineStyle: { color: p.line } } }, yAxis: { type: 'category', data: rows.map((r, i) => r[labelKey] ?? r.segment ?? r.country ?? `Round ${r.round_num ?? i + 1}`).reverse(), axisLabel: { color: p.text, width: 155, overflow: 'truncate' } }, series: [{ name: metricLabel, type: 'bar', data: rows.map((r) => r[metric]).reverse(), itemStyle: { color: p.data, borderRadius: [0, 4, 4, 0] }, barMaxWidth: 18 }] }
 }
 function pricingChart(pricing) {
   const rows = pricing?.by_segment
@@ -359,23 +359,20 @@ const runStatus = computed(() => String(detail.value?.status || detail.value?.su
 
 const thoughts = computed(() => {
   const p = palette()
-  const segs = [...new Set(people.value.map((r) => r.segment))]
-  const color = (seg) => p.series[Math.max(0, segs.indexOf(seg)) % p.series.length]
   const byId = Object.fromEntries(index.value.map((r) => [r.agent_id, r]))
   const out = []
   for (const t of (Array.isArray(stream.value) ? stream.value : stream.value?.thoughts || stream.value?.items || [])) {
     const who = byId[t.agent_id] || {}
-    out.push({ who: who.name || t.name || `Person ${t.agent_id}`, where: t.source || 'thought', text: t.text || t.thought, color: color(who.segment) })
+    out.push({ who: who.name || t.name || `Person ${t.agent_id}`, where: t.source || 'thought', text: t.text || t.thought, color: p.data })
   }
   for (const r of survey.value?.responses || []) {
     const a = r.answer || {}
     const text = a.quote || a.main_objection
     if (!text) continue
-    const who = byId[r.agent_id] || {}
-    out.push({ who: r.name || who.name, where: `survey · ${a.would_convert || '–'}`, text, color: color(who.segment) })
+    out.push({ who: r.name || byId[r.agent_id]?.name, where: `survey · ${a.would_convert || '–'}`, text, color: verdictColor(a.would_convert, p) })
   }
   for (const s of feed.value?.sessions || []) {
-    if (s.ad?.thought) out.push({ who: s.name, where: `scrolling ${s.platform} · ${s.creative_id}`, text: s.ad.thought, color: color(s.segment) })
+    if (s.ad?.thought) out.push({ who: s.name, where: `scrolling ${s.platform} · ${s.creative_id}`, text: s.ad.thought, color: p.data })
   }
   return out.filter(item => item.text)
 })
@@ -404,8 +401,13 @@ const kpis = computed(() => {
   if (n) out.push({ value: Number(n).toLocaleString(), label: 'simulated people' })
   if (personSegments.value.length) out.push({ value: personSegments.value.length, label: 'segments' })
   const o = detail.value?.summary?.marketing?.overall
-  if (typeof o?.convert_yes === 'number') out.push({ value: `${o.convert_yes}%`, label: 'say they would buy' })
-  if (typeof o?.convert_maybe === 'number') out.push({ value: `${o.convert_maybe}%`, label: 'maybe' })
+  // answers come from the survey respondents, which can be fewer than the people created
+  const answered = Number.isInteger(o?.n) ? o.n : Number(n)
+  for (const [key, label] of [['convert_yes', 'say they would buy'], ['convert_maybe', 'say maybe']]) {
+    if (typeof o?.[key] !== 'number') continue
+    const small = sampleCount(o[key], answered)
+    out.push(small ? { value: small.text, label, note: `${small.pct} · simulated` } : { value: `${o[key]}%`, label, note: 'simulated' })
+  }
   return out
 })
 const modeNote = computed(() => ({
@@ -548,6 +550,6 @@ async function openDashboard() {
 </script>
 
 <style scoped>
-.ws-run{display:flex!important;flex-direction:column;height:calc(100dvh - 90px);min-height:0;overflow:hidden}.ws-run>.ws-tabs{flex-shrink:0;justify-content:flex-start;gap:6px;padding:11px 22px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}.ws-run>.ws-tabs button{font-size:12px;white-space:nowrap;padding:9px 13px}.ws-run>.ws-tabs button[aria-selected=true]{background:var(--accent-2);color:var(--text)}.ws-run>.ws-run-main{display:block;flex:1;min-height:0;max-height:none;overflow-y:auto;padding:26px 30px 35px;scroll-padding-bottom:30px}.ws-run>.ws-run-side{display:flex;flex:1;min-height:0;max-height:none;border:0;overflow:hidden}.ws-run .ws-tabpanel{padding:22px 26px;min-height:0;overflow:auto}.ws-run .ws-title{display:block;margin-bottom:12px}.ws-run .ws-title h2{font-size:21px;line-height:1.5;font-weight:550;letter-spacing:-.3px;max-width:1000px}.ws-run-context{font-size:11px;color:var(--muted);line-height:1.7;margin-top:8px}.ws-run .ws-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px;align-items:start}.ws-run .ws-step{margin:0;border:1px solid var(--line);border-radius:13px;background:var(--panel);min-width:0;overflow:hidden}.ws-run .ws-step>summary{font-size:13px;font-weight:550;line-height:1.6;padding:16px}.ws-run .ws-step-body{padding:0 16px 16px}.ws-run .ws-step .ws-box{border:0;box-shadow:none;margin:0;padding:0;background:transparent}.ws-run .ws-step h3{font-size:11px;font-weight:500;color:var(--muted);margin-bottom:10px}.ws-run .ws-step time{display:none}.ws-run-questions{margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}.ws-run-questions>summary{font-size:14px;font-weight:550;cursor:pointer}.ws-run-questions .ws-dock{position:static;padding-bottom:0;background:none;margin-top:15px}.ws-run-questions .ws-composer{margin-top:12px}.ws-run-questions .ws-note{font-size:10px;line-height:1.7}.ws-run.wide-visual :deep(.persona-viewport){height:clamp(330px,50vh,620px)}@media(max-width:760px){.ws-run{height:calc(100dvh - 80px)}.ws-run>.ws-run-main{padding:21px 16px 30px}.ws-run .ws-steps{grid-template-columns:1fr;gap:11px}.ws-run>.ws-tabs{padding:9px}.ws-run>.ws-tabs button{padding:8px 10px;font-size:11px}.ws-run .ws-tabpanel{padding:18px 15px}.ws-run .ws-title h2{font-size:18px}}
+.ws-run{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}.ws-run>.ws-tabs{flex-shrink:0;flex-wrap:nowrap;justify-content:flex-start;gap:6px;padding:11px 22px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.ws-run>.ws-tabs::-webkit-scrollbar{display:none}.ws-run>.ws-tabs button{flex:0 0 auto;font-size:12px;white-space:nowrap;padding:9px 13px}.ws-run>.ws-tabs button[aria-selected=true]{border-color:transparent!important;background:transparent!important;box-shadow:none!important;color:var(--text)!important}.ws-run>.ws-run-main{display:block;flex:1;min-height:0;max-height:none;overflow-y:auto;padding:26px 30px 35px;scroll-padding-bottom:30px}.ws-run>.ws-run-side{display:flex;flex:1;min-height:0;max-height:none;border:0;overflow:hidden}.ws-run .ws-tabpanel{padding:22px 26px;min-height:0;overflow:auto}.ws-run .ws-title{display:block;margin-bottom:12px}.ws-run .ws-title h2{font-size:21px;line-height:1.5;font-weight:550;letter-spacing:-.3px;max-width:1000px}.ws-run-verdict{margin-top:10px}.ws-run-verdict .dw-decision{display:inline-block;font-size:12.5px;font-weight:550;line-height:1.6;padding:3px 11px}.ws-run-verdict b{font-weight:700}.ws-run-summary{font-size:15px;line-height:1.6;color:var(--text);margin-top:10px;max-width:760px}.ws-run-kpi-note{margin-left:6px;font-size:11px;color:var(--muted)}.ws-run .ws-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px;align-items:start}.ws-run .ws-step{margin:0;border:1px solid var(--line);border-radius:13px;background:var(--panel);min-width:0;overflow:hidden}.ws-run .ws-step>summary{font-size:13px;font-weight:550;line-height:1.6;padding:16px}.ws-run .ws-step-body{margin:0;border-left:0;padding:0 16px 16px}.ws-run .ws-step .ws-box{border:0;box-shadow:none;margin:0;padding:0;background:transparent}.ws-run .ws-step h3{font-size:11px;font-weight:500;color:var(--muted);margin-bottom:10px}.ws-run .ws-step time{display:none}.ws-run-questions{margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}.ws-run-questions>summary{font-size:14px;font-weight:550;cursor:pointer}.ws-run-questions .ws-dock{position:static;padding-bottom:0;background:none;margin-top:15px}.ws-run-questions .ws-composer{margin-top:12px}.ws-run-questions .ws-note{font-size:10px;line-height:1.7}.ws-run.wide-visual :deep(.persona-viewport){height:clamp(330px,50vh,620px)}@media(max-width:760px){.ws-run>.ws-run-main{padding:21px 16px 30px}.ws-run .ws-steps{grid-template-columns:1fr;gap:11px}.ws-run>.ws-tabs{padding:9px}.ws-run>.ws-tabs button{padding:8px 10px;font-size:11px}.ws-run .ws-tabpanel{padding:18px 15px}.ws-run .ws-title h2{font-size:18px}}
 .ws-post-quote{padding-left:10px;border-left:2px solid var(--accent);margin-bottom:10px}.ws-post-replies{margin-top:12px}.ws-post-replies summary{cursor:pointer;font-size:12px;color:var(--muted)}.ws-audience-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.ws-run.wide-visual{grid-template-columns:minmax(0,1fr)}.ws-run.wide-visual>.ws-run-main{display:none}.ws-run.wide-visual>.ws-run-side{border-left:0}.ws-run.wide-visual :deep(.persona-viewport){height:min(60vh,580px)}.ws-chat-report-links{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.ws-chat-report-select{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);max-width:100%}.ws-chat-report-select select{max-width:180px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);padding:5px;font-size:12px}
 </style>

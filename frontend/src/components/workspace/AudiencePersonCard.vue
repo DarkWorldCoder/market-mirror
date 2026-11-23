@@ -5,14 +5,17 @@
       <div class="apc-who">
         <h4 :id="`apc-${person.agent_id}`">{{ person.name || `Person ${person.agent_id}` }}</h4>
         <p>{{ subtitle }}</p>
-        <span v-if="person.segment && !account" class="apc-chip" :style="{ color, borderColor: color }">{{ person.segment }}</span>
+        <span class="apc-chips">
+          <span class="apc-sim">{{ account ? 'Simulated account' : 'Simulated person' }}</span>
+          <span v-if="person.segment && !account" class="apc-chip" :style="{ color, borderColor: color }">{{ person.segment }}</span>
+        </span>
       </div>
     </header>
 
     <p v-if="account" class="apc-account"><UsersRound :size="15" aria-hidden="true" />{{ account }} in the simulation. It posts and replies like a person but is not a buyer, so it was not asked whether it would buy.</p>
 
     <section v-else class="apc-verdict" :class="verdict ? verdict.tone : 'none'">
-      <small>Would they buy?</small>
+      <small>Would they buy? · simulated answer</small>
       <strong>{{ verdict ? verdict.label : 'Not asked' }}</strong>
       <span>{{ verdict ? verdict.note : 'This person did not answer the buyer survey in this run.' }}</span>
       <div v-if="scores.length" class="apc-scores">
@@ -162,6 +165,8 @@ const shownThoughts = computed(() => (all.value ? props.thoughts : props.thought
 .apc-who h4 { font-size: 15px; font-weight: 600; margin: 0; }
 .apc-who p { color: var(--muted); font-size: 12px; margin: 2px 0 6px; overflow-wrap: anywhere; }
 .apc-chip { display: inline-block; font-size: 11px; border: 1px solid; border-radius: 999px; padding: 0 8px; }
+.apc-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.apc-sim { display: inline-block; font-size: 11px; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 8px; }
 .apc-account { display: flex; gap: 7px; margin: 12px 0 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--panel-2); color: var(--muted); font-size: 12px; }
 .apc-verdict { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; gap: 2px; }
 .apc-verdict small { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
