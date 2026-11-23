@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import socket
+import shutil
 import time
 from urllib.parse import urlparse
 
@@ -508,7 +509,9 @@ def run(client, model, people, spec, out_dir, progress=None):
     sessions = []
     selected = people[:spec["max_personas"]]
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=spec["headless"])
+        # Reuse an installed Chrome when the optional Playwright browser bundle is absent.
+        channel = "chrome" if not Path(playwright.chromium.executable_path).exists() and shutil.which("google-chrome") else None
+        browser = playwright.chromium.launch(headless=spec["headless"], channel=channel)
         try:
             for i, person in enumerate(selected):
                 folder = root / f"visitor-{i:03}"

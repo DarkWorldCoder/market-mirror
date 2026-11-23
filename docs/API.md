@@ -6,8 +6,8 @@ The backend is a Flask app on `http://localhost:5001` (start it with `backend/cl
 engine routes (projects, ontology, graph build, simulations, start/stop, interviews, reports) are documented in
 `docs/MIROFISH-UPSTREAM.md`; the `mirofish.py` CLI and the MCP server wrap all of them.
 
-Authentication: `/api/workflows` and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
-Use `./mm app` for a browser session; never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
+Authentication: `/api/workflows`, `/api/runs`, `/api/workspace/*` (except session bootstrap) and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
+Use `./mm app` for a browser session; the local browser also establishes its session automatically. Never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
 Other endpoints use the configured production authentication policy. Put the backend behind your own auth/network rules before exposing it.
 Webhooks: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`) and the CLI posts a JSON summary when a run, study
 or test finishes. SDK: `pip install -e sdk` then `from marketmirror import MarketMirror`. Machine-readable: `docs/openapi.json`.
@@ -114,6 +114,310 @@ Request body:
 Returns: {plan, file}
 
 ## Local guided workflows (X-Setup-Token required)
+
+### `POST /api/workspace/chat/stream`
+
+Stream actual public model/tool/reviewer progress then result or error; same validated chat inputs; no private reasoning or implicit execution.
+
+Request body:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Explore my saved results"
+    }
+  ],
+  "mode": "team",
+  "model": "server catalog ID",
+  "project": "proj_abcdef123456",
+  "team_agents": [
+    "market-analyst",
+    "critical-reviewer"
+  ],
+  "team_models": {
+    "market-analyst": "server catalog ID"
+  },
+  "connector_tools": [
+    "mcp_abcdef123456/reports"
+  ]
+}
+```
+
+Returns: text/event-stream: progress {type,status,label,tool?,role?,model?,summary?,data?}, result {message,artifacts,trace,suggestions,agent_activity?,tool_results?,browser_observations?,workflow_id?}, error {message,status}; project source text is read in bounded authorized pages
+
+### `POST /api/workspace/projects/{project_id}/sources`
+
+Append a persistent plain-text project source; 10 sources,24k chars each,120k total,30KB request cap; no downloads or model calls.
+
+Request body:
+
+```json
+{
+  "name": "Product brief",
+  "text": "Source facts and references"
+}
+```
+
+Returns: updated project with sources and preferred_model
+
+### `DELETE /api/workspace/projects/{project_id}/sources/{source_id}`
+
+Remove one saved project source by opaque ID.
+
+Returns: updated project
+
+### `GET /api/workspace/skills`
+
+List private workspace prompt templates; no executable imports.
+
+Returns: custom skill array
+
+### `POST /api/workspace/skills`
+
+Save a reusable instruction template without fetching or running code.
+
+Request body:
+
+```json
+{
+  "name": "Ad review",
+  "description": "Review supplied ads",
+  "instructions": "Use supplied evidence",
+  "group": "Custom skills",
+  "source_url": "https://github.com/example/repository"
+}
+```
+
+Returns: custom skill
+
+### `GET /api/workspace/skills/{skill_id}`
+
+Read one saved prompt template.
+
+Returns: custom skill
+
+### `PATCH /api/workspace/skills/{skill_id}`
+
+Edit a saved prompt template; built-in engine skills cannot be changed.
+
+Request body:
+
+```json
+{
+  "name": "Weekly ad review"
+}
+```
+
+Returns: custom skill
+
+### `DELETE /api/workspace/skills/{skill_id}`
+
+Delete a saved custom prompt template.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/browser/observe`
+
+Capture a real bounded read-only public browser page snapshot with JavaScript off and public-IP-pinned GET resources; optional sandboxed Playwright required.
+
+Request body:
+
+```json
+{
+  "url": "https://example.com"
+}
+```
+
+Returns: {session_id,url,title,text,text_truncated,screenshot,screenshots,events,links,mode,javascript,status_code}
+
+### `GET /api/workspace/browser/{session_id}/image`
+
+Guarded PNG screenshot for an opaque observation session; frame=0 or1, expires after24h.
+
+Returns: image/png
+
+### `GET /api/workspace/local-models`
+
+Explicit bounded loopback-only installed-model discovery; refresh=1 refreshes cache, hosted workers skip unconfigured defaults.
+
+Returns: {models:[{id,provider,base_url,source}],sources,checked_at,truncated}
+
+### `GET /api/workspace/connectors`
+
+Safe saved remote MCP configuration and actual discovery status; tokens omitted.
+
+Returns: connector array
+
+### `POST /api/workspace/connectors`
+
+Save a public HTTPS Streamable HTTP MCP server with write-only bearer credential; no connection or tool call.
+
+Request body:
+
+```json
+{
+  "name": "Meta Ads",
+  "url": "https://mcp.facebook.com/ads",
+  "token": "write-only",
+  "enabled": false,
+  "allowed_tools": [],
+  "protocol_version": "2025-11-25"
+}
+```
+
+Returns: safe connector
+
+### `PATCH /api/workspace/connectors/{connector_id}`
+
+Update connector settings, enabled state and explicit read-only tool allowlist.
+
+Request body:
+
+```json
+{
+  "enabled": true,
+  "allowed_tools": [
+    "ads_read"
+  ]
+}
+```
+
+Returns: safe connector
+
+### `DELETE /api/workspace/connectors/{connector_id}`
+
+Remove connector configuration and its stored credential.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/connectors/{connector_id}/discover`
+
+Actually initialize a saved MCP server and list tools with bounded JSON/SSE parsing; no business tool execution.
+
+Returns: safe connector with status, tools, checked_at, error
+
+### `GET /api/workspace/session`
+
+Bootstrap a same-origin browser session on a literal loopback host; Sec-Fetch-Site same-origin required.
+
+Returns: {token}
+
+### `GET /api/workspace/projects`
+
+List persistent projects and chat/run associations.
+
+Returns: project array
+
+### `POST /api/workspace/projects`
+
+Create a real engine project and workspace metadata without model calls.
+
+Request body:
+
+```json
+{
+  "name": "Launch",
+  "description": "Launch research",
+  "instructions": "Project preferences",
+  "chat_ids": [],
+  "run_names": []
+}
+```
+
+Returns: project
+
+### `GET /api/workspace/projects/{project_id}`
+
+Read one project.
+
+Returns: project
+
+### `PATCH /api/workspace/projects/{project_id}`
+
+Update project preferences and associations.
+
+Request body:
+
+```json
+{
+  "name": "Launch"
+}
+```
+
+Returns: project
+
+### `DELETE /api/workspace/projects/{project_id}`
+
+Archive project metadata while preserving evidence.
+
+Returns: {archived:true}
+
+### `GET /api/workspace/settings`
+
+Read safe model, memory, decision engine and spending configuration without secrets.
+
+Returns: {llm,memory,jev,spending}
+
+### `PUT /api/workspace/settings`
+
+Save validated configuration and write-only credentials; no paid connection test.
+
+Request body:
+
+```json
+{
+  "memory": {
+    "backend": "local"
+  }
+}
+```
+
+Returns: safe settings with restart and connection status
+
+### `GET /api/workspace/models`
+
+Safe configured and connected local chat model choices; no credentials or configuration writes.
+
+Returns: {models:[{id,name,provider,model,available,description,connection_required,connection_backend?}],default_id}
+
+### `POST /api/workspace/chat`
+
+Validated conversational assistant with saved evidence, selected-project source index/paged reads, enabled read-only connector tools and explicitly requested public page snapshots; optional2–4 no-tool team reviewers; never executes experiments.
+
+Request body:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What did the pricing test show?"
+    }
+  ],
+  "run": "saved_run",
+  "project": "proj_abcdef123456",
+  "model": "server catalog ID",
+  "mode": "team",
+  "team_agents": [
+    "market-analyst",
+    "critical-reviewer"
+  ],
+  "team_models": {
+    "market-analyst": "server catalog ID"
+  },
+  "connector_tools": [
+    "mcp_abcdef123456/reports"
+  ],
+  "context": {
+    "name": "Product brief",
+    "text": "User-supplied source text"
+  }
+}
+```
+
+Returns: {message,artifacts:[{run,file}],trace,suggestions,workflow_id?,agent_activity:[{id,role,status,summary,model?}]?,tool_results?,browser_observations?}; model IDs are server catalog pointers and never modify global provider settings
 
 ### `GET /api/workflows/meta`
 
@@ -280,19 +584,7 @@ Returns: {root, runs: [{name, title, decision, people, simulation_id, updated_at
 
 One run: manifest, summary and the result files it has.
 
-Returns: {name, title, decision, files, manifest, summary, simulation_on_backend}
-
-### `GET /api/runs/{name}/thoughts`
-
-What the simulated people wrote in this run (feed and landing thoughts, survey and pitch replies, posts), harvested from the run folder and the simulation folder; no model calls.
-
-Returns: {total, people, by_source, by_kind, entries: [{agent_id, name, segment, source, kind, text, did, context}]}
-
-### `GET /api/runs/{name}/status`
-
-The run's stages, round status (live when the simulation is on this backend, else saved) and actions per round.
-
-Returns: {simulation_id, live, run, stages: [{id, label, done}], rounds: [{round, actions, twitter, reddit, active}], started_at, finished_at}
+Returns: {name, title, decision, files, manifest, summary}
 
 ### `GET /api/runs/{name}/files/{filename}`
 

@@ -15,6 +15,7 @@ LOCAL = {"REMOTE_ADDR": "127.0.0.1"}
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(st, "ROOT", tmp_path)
+    monkeypatch.setenv("MIROFISH_ENV_FILE", str(tmp_path / ".env"))
     monkeypatch.setattr(st, "LOGS", tmp_path / "logs")
     (tmp_path / "logs").mkdir()
     for k in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL_NAME", "LLM_API_KEY", "LLM_GATEWAY", "LLM_POOL"):
@@ -108,3 +109,13 @@ def test_gateway_port_conflict_and_missing_cli(client, monkeypatch):
     monkeypatch.setattr(st, "_find_bin", lambda b: None)
     r = client.post("/api/setup/gateway", json={"action": "start", "backend": "codex", "port": 5099}, headers=H(), environ_base=LOCAL)
     assert r.status_code == 400 and "not installed" in r.get_json()["error"]
+
+
+def test_selected_instance_env_is_written_without_touching_root(client, tmp_path, monkeypatch):
+    selected = tmp_path / 'instance.env'
+    selected.write_text('MEMORY_BACKEND=local\n')
+    monkeypatch.setenv('MIROFISH_ENV_FILE', str(selected))
+    st._write_env({'MEMORY_BACKEND': 'cognee'})
+    assert 'cognee' in selected.read_text()
+    assert not (tmp_path / '.env').exists()
+    assert oct(selected.stat().st_mode)[-3:] == '600'

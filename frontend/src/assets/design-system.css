@@ -1,0 +1,38 @@
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tw-animate-css';
+@import '../components/agent-elements/agent-ui.css';
+@font-face { font-family: 'Geist'; src: url('./fonts/Geist-Variable.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
+@custom-variant dark (&:is([data-theme='dark'] *));
+@theme inline {
+  --color-background: var(--bg);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--text);
+  --color-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--primary-foreground, #ffffff);
+  --color-secondary: var(--panel-2);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--panel-2);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--accent-2);
+  --color-accent-foreground: var(--accent);
+  --color-destructive: var(--no);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--accent);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* Scoped form normalization for library components without a global page reset. */
+@layer base {
+  .ws button, .ws-overlay button { appearance: button; background-color: transparent; border: 0 solid var(--line); font: inherit; color: inherit; }
+  .ws input, .ws textarea, .ws select, .ws-overlay input, .ws-overlay textarea, .ws-overlay select { border: 0 solid var(--line); font: inherit; color: inherit; background-color: transparent; }
+}
+
+.ws, .ws-overlay, .workflow-app { font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-optical-sizing: auto; -webkit-font-smoothing: antialiased; }

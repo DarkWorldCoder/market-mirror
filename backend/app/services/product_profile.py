@@ -76,15 +76,12 @@ def html_to_text(page: str) -> str:
 
 
 def fetch_url_text(url: str, timeout: float = 20) -> str:
-    """Landing page / app-store page -> readable text (no JS). Never raises; returns '' on failure."""
-    try:
-        import requests
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "MarketMirror/0.3 (+https://github.com/DarkWorldCoder/market-mirror)"})
-        r.raise_for_status()
-        ctype = r.headers.get("content-type", "")
-        return html_to_text(r.text) if "html" in ctype or r.text.lstrip().startswith("<") else r.text
-    except Exception:  # noqa: BLE001
-        return ""
+    """Readable public page text. Reject unsafe destinations and disclose fetch failures."""
+    from ..utils.public_http import get_public
+    response = get_public(url, timeout=timeout, max_bytes=400000)
+    text = response["body"].decode("utf-8", errors="replace")
+    ctype = response["headers"].get("content-type", "")
+    return html_to_text(text) if "html" in ctype or text.lstrip().startswith("<") else text
 
 
 def compact_material(documents: str = "", url_text: str = "", ads_summary: Optional[Dict[str, Any]] = None,

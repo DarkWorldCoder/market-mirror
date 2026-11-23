@@ -564,3 +564,30 @@ def test_two_gateways_run_at_once_with_their_own_tokens(tmp_path):
         for p in procs:
             p.terminate()
             p.wait(timeout=10)
+
+
+def test_model_inventory_requires_gateway_token_and_does_not_infer(tmp_path):
+    class MetadataOnly:
+        name = "claude"
+        model = "sonnet"
+        def available(self):
+            return True
+        def complete(self, *args, **kwargs):
+            pytest.fail("inventory must not infer")
+    gateway = gw.Gateway(MetadataOnly(), auth_token="metadata-token")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), gw.make_handler(gateway))
+    thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        for token in (None, "wrong-token"):
+            req = urllib.request.Request(url + "/v1/models", headers={"Authorization": "Bearer " + token} if token else {})
+            with pytest.raises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(req, timeout=2)
+            assert error.value.code == 401
+        request = urllib.request.Request(url + "/v1/models", headers={"Authorization": "Bearer metadata-token"})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            assert json.loads(response.read())["data"][0]["id"] == "sonnet"
+        with urllib.request.urlopen(url + "/health", timeout=2) as response:
+            assert json.loads(response.read())["backend"] == "claude"
+    finally:
+        server.shutdown();server.server_close();thread.join()

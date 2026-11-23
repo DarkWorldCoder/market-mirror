@@ -24,3 +24,15 @@ def test_registry_covers_market_routes():
                 if (m, norm) not in documented:
                     missing.append((m, p))
     assert not missing, f"undocumented routes: {missing}"
+
+
+def test_registry_covers_workspace_routes():
+    app = create_app()
+    documented = {(entry["method"], re.sub(r"\{[^}]+\}", "<x>", entry["path"])) for entry in ENDPOINTS}
+    missing = []
+    for rule in app.url_map.iter_rules():
+        if not str(rule).startswith("/api/workspace/"):
+            continue
+        path = re.sub(r"<[^>]+>", "<x>", str(rule))
+        missing.extend((method, str(rule)) for method in rule.methods - {"HEAD", "OPTIONS"} if (method, path) not in documented)
+    assert not missing, f"undocumented workspace routes: {missing}"

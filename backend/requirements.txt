@@ -37,3 +37,8 @@ pydantic>=2.0.0
 
 # 本地记忆后端的向量嵌入 (ONNX, CPU, 无需 API key)
 fastembed>=0.7
+
+# Local provider sign-in gateway
+requests>=2.32.0
+PyJWT[crypto]>=2.10.0
+anthropic>=2.1.0

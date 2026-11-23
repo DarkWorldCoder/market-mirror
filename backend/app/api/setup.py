@@ -95,7 +95,8 @@ def _guard(write: bool = True):
 # --------------------------------------------------------------------------
 
 def _env_path() -> Path:
-    return ROOT / ".env"
+    configured = os.environ.get("MIROFISH_ENV_FILE")
+    return Path(configured).expanduser().resolve() if configured else ROOT / ".env"
 
 
 def _read_env() -> Dict[str, str]:

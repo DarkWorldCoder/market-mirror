@@ -19,8 +19,8 @@ The backend is a Flask app on `http://localhost:5001` (start it with `backend/cl
 engine routes (projects, ontology, graph build, simulations, start/stop, interviews, reports) are documented in
 `docs/MIROFISH-UPSTREAM.md`; the `mirofish.py` CLI and the MCP server wrap all of them.
 
-Authentication: `/api/workflows` and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
-Use `./mm app` for a browser session; never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
+Authentication: `/api/workflows`, `/api/runs`, `/api/workspace/*` (except session bootstrap) and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
+Use `./mm app` for a browser session; the local browser also establishes its session automatically. Never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
 Other endpoints use the configured production authentication policy. Put the backend behind your own auth/network rules before exposing it.
 Webhooks: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`) and the CLI posts a JSON summary when a run, study
 or test finishes. SDK: `pip install -e sdk` then `from marketmirror import MarketMirror`. Machine-readable: `docs/openapi.json`.
@@ -59,7 +59,7 @@ def openapi() -> dict:
             op["requestBody"]["content"]["multipart/form-data"] = {"schema": {"type": "object", "properties": {"file": {"type": "string", "format": "binary"}}, "required": ["file"]}}
         if e.get("html"):
             op["responses"]["200"]["content"] = {"text/html": {"schema": {"type": "string"}}}
-        if e["path"].startswith("/api/workflows"):
+        if e["path"] != "/api/workspace/session" and e["path"].startswith(("/api/workflows", "/api/runs", "/api/workspace/")):
             op["security"] = [{"LocalSetupToken": []}]
             op["responses"].update({"403": {"description": "loopback or local setup token required"}, "409": {"description": "stale approval, immutable history or incompatible provider"}})
         p[e["method"].lower()] = op

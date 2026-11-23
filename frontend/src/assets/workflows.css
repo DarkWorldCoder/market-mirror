@@ -929,3 +929,68 @@
     transition: none !important;
   }
 }
+
+/* App entry shares the public site's product narrative and opens local work directly. */
+.workflow-app{font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;--ink:#24262a;--muted:#68706d;--line:#e7e9e7;--green:#24694e;--light:#f7f9f7}
+.workflow-app .app-header{max-width:1400px;padding:24px 52px;border-bottom-color:#edf0ed;min-height:83px}
+.workflow-app .brand{font-size:19px;font-weight:650;letter-spacing:-.7px;gap:10px;flex-shrink:0}
+.workflow-app .home-brand-mark{width:29px;height:29px;fill:currentColor;flex:none}
+.workflow-app .home-app-tag{font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);background:#f5f6f5;border:1px solid var(--line);border-radius:5px;padding:3px 6px;margin-left:2px}
+.workflow-app .app-header nav{gap:25px;align-items:center;font-size:12px;flex-wrap:wrap;justify-content:flex-end}
+.workflow-app .app-header nav a{color:var(--muted)}.workflow-app .app-header nav a:hover{color:var(--ink)}
+.workflow-app .app-main{max-width:1280px;padding:20px 52px 70px}
+.workflow-app .welcome{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:65px;padding:47px 0 52px;align-items:center}
+.workflow-app .local-label{font-size:11px;color:var(--green);margin-bottom:18px;gap:7px;font-weight:500}
+.workflow-app .local-label span{width:6px;height:6px;background:var(--green)}
+.workflow-app .welcome h1{font-size:clamp(34px,4.3vw,58px);line-height:1.05;letter-spacing:-2.6px;font-weight:550}
+.workflow-app .welcome-subtitle{font-size:clamp(20px,2.5vw,30px);letter-spacing:-1.2px;line-height:1.3;color:#8c6c8e;margin-top:9px;font-weight:450}
+.workflow-app .welcome .intro{font-size:14px;line-height:1.85;max-width:440px;margin:22px 0 24px;color:var(--muted)}
+.workflow-app .welcome .actions{gap:10px;margin:0 0 15px}
+.workflow-app .welcome .primary,.workflow-app .welcome .secondary{gap:8px;font-size:12px;padding:11px 16px;min-height:43px;border-radius:7px;font-weight:550}
+.workflow-app .welcome .primary{background:#24262a;border-color:#24262a;color:#fff}.workflow-app .welcome .primary:hover{background:#3b4340}
+.workflow-app .home-demo-link{font-size:12px;color:var(--muted);display:inline-flex;gap:4px;align-items:center;text-decoration:none}.workflow-app .home-demo-link:hover{text-decoration:underline}
+.workflow-app .home-evidence-note{font-size:11px;line-height:1.7;margin-top:22px;color:#757e78;max-width:400px}
+.workflow-app .rehearsal-preview{border:1px solid #e5e3e9;background:#fcfbfd;border-radius:14px;overflow:hidden;box-shadow:0 14px 45px #43364f08;position:relative}
+.workflow-app .preview-topline{display:flex;align-items:center;justify-content:space-between;padding:15px 17px;border-bottom:1px solid #eeeaf1;background:#fff;gap:10px;color:#5d5364;font-size:11px}
+.workflow-app .preview-topline>span:first-child{display:flex;gap:7px;align-items:center;font-weight:550}
+.workflow-app .preview-mark{width:19px;height:19px;display:grid;place-items:center;border-radius:5px;background:#f1eaf6;color:#8b6f9a;font-size:12px}
+.workflow-app .preview-label{color:#8a818f;font-size:11px;white-space:nowrap}
+.workflow-app .preview-brief,.workflow-app .preview-report{margin:24px 25px 0;display:flex;gap:11px;align-items:center;background:#fff;border:1px solid #e6e0ec;border-radius:9px;padding:15px 13px;position:relative;z-index:1}
+.workflow-app .preview-brief strong,.workflow-app .preview-report strong{font-weight:550;font-size:12px;display:block;color:#443b49}
+.workflow-app .preview-brief p,.workflow-app .preview-report p{font-size:11px;color:#85798d;margin-top:5px;line-height:1.5}
+.workflow-app .preview-icon{display:grid;place-items:center;width:32px;height:36px;flex:none;color:#a58ab5;background:#f7f2fa;border-radius:6px}
+.workflow-app .preview-source-label{margin-left:auto;color:#9682a4;font-size:11px;white-space:nowrap}
+.workflow-app .preview-connection{height:20px;width:1px;background:#ddd3e6;margin:auto}
+.workflow-app .preview-audience{position:relative;margin:0 25px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:center;padding:9px 0 4px}
+.workflow-app .preview-person{display:flex;flex-direction:column;align-items:center;gap:9px;color:#92759f;font-size:11px;text-align:center}
+.workflow-app .preview-person>svg{box-sizing:content-box;border:5px solid #fbf7fd;background:#efe4f5;padding:11px;border-radius:50%}
+.workflow-app .preview-person.person-two{color:#ab876b}.workflow-app .preview-person.person-two>svg{background:#f6e9df;border-color:#fdf9f6}
+.workflow-app .preview-person.person-three{color:#7d9790}.workflow-app .preview-person.person-three>svg{background:#e5eeea;border-color:#f6faf7}
+.workflow-app .preview-audience-label{grid-column:1/-1;font-size:11px;color:#8c8393;text-align:center;margin:8px 0 0;line-height:1.6}
+.workflow-app .preview-report{margin-top:0;border-color:#e2e7e3}.workflow-app .preview-report>.preview-icon{color:#7b9c88;background:#f0f6f2}.workflow-app .preview-report>svg{margin-left:auto;color:#98a29a;flex:none}
+.workflow-app .preview-bottomline{display:flex;align-items:center;justify-content:center;gap:6px;color:#81758b;font-size:11px;line-height:1.6;padding:19px 15px 21px}.workflow-app .preview-check{display:inline-flex;align-items:center;color:#769982}
+.workflow-app .home-pathways{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin:0 0 49px}
+.workflow-app .home-pathways>a{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:9px;text-decoration:none;padding:18px 15px;background:#fff;min-width:0}.workflow-app .home-pathways>a:hover{border-color:#c9d5cc;background:#fcfdfc}
+.workflow-app .home-pathway-icon{color:var(--green);background:#f0f6f2;width:34px;height:36px;display:grid;place-items:center;border-radius:7px;flex:none}
+.workflow-app .home-pathways strong{display:block;font-size:12px;font-weight:550}.workflow-app .home-pathways div>span{display:block;font-size:11px;color:var(--muted);margin-top:4px;line-height:1.6}.workflow-app .home-pathways a>svg{margin-left:auto;color:#8d9790;flex:none}
+.workflow-app .home-all-skills{display:inline-flex;align-items:center;gap:5px;text-decoration:none;white-space:nowrap}
+.workflow-app .section-heading h2{font-size:23px;letter-spacing:-.7px;font-weight:550}
+.workflow-app .recipe-group-name{text-transform:none;letter-spacing:0;font-size:11px;margin-bottom:12px}
+.workflow-app .recipes-grid{gap:12px;border:0;grid-template-columns:repeat(4,minmax(0,1fr))}
+.workflow-app .recipe{border:1px solid var(--line);border-radius:8px;padding:19px 17px;min-height:145px;gap:8px;transition:border-color .15s,background-color .15s}.workflow-app .recipe:hover{border-color:#c4d4c8;background:#f9fcfa}
+.workflow-app .recipe-symbol{font-size:15px;width:30px;height:30px;background:#f1f6f2;border-radius:6px;display:grid;place-items:center;margin-bottom:4px}
+.workflow-app .recipe strong{font-size:12px;font-weight:550}.workflow-app .recipe>span:not(.recipe-symbol):not(.recipe-arrow){font-size:11px;line-height:1.7}.workflow-app .recipe-arrow{font-size:13px;top:15px;right:15px}.workflow-app .recipe-group+.recipe-group{margin-top:24px}
+.workflow-app .recent{margin-top:44px}.workflow-app .recent .empty-state{border-style:solid;border-radius:8px;background:#fafcfb;padding:21px;font-size:12px}
+.workflow-app .app-footer{max-width:1280px;padding:24px 52px;font-size:11px;align-items:flex-start;line-height:1.7}.workflow-app .home-footer-links{display:flex;gap:18px;flex-wrap:wrap;justify-content:flex-end}.workflow-app .home-footer-links a{color:var(--muted);text-decoration:none}.workflow-app .home-footer-links a:hover{text-decoration:underline}
+@media(max-width:1050px){.workflow-app .welcome{gap:35px}.workflow-app .app-header,.workflow-app .app-main{padding-left:32px;padding-right:32px}.workflow-app .app-header nav{gap:15px}.workflow-app .welcome h1{font-size:49px}.workflow-app .welcome-subtitle{font-size:25px}.workflow-app .home-pathways{gap:10px}.workflow-app .home-pathways>a{padding:14px 11px;gap:9px}.workflow-app .home-pathway-icon{width:28px;height:32px}.workflow-app .home-pathways strong{font-size:11px}.workflow-app .home-pathways div>span{font-size:11px}.workflow-app .preview-brief,.workflow-app .preview-report{margin-left:17px;margin-right:17px;padding:13px 10px}.workflow-app .preview-audience{margin-left:15px;margin-right:15px}}
+@media(max-width:780px){.workflow-app .app-header{padding:20px 24px;flex-wrap:wrap;gap:17px}.workflow-app .app-header nav{width:100%;justify-content:flex-start;gap:23px}.workflow-app .app-main{padding:12px 24px 45px}.workflow-app .welcome{padding:33px 0 36px;gap:28px;grid-template-columns:minmax(0,1fr)}.workflow-app .welcome h1{font-size:47px}.workflow-app .welcome-subtitle{font-size:27px}.workflow-app .welcome .intro{max-width:540px;font-size:14px;margin-top:18px}.workflow-app .welcome-copy{max-width:600px}.workflow-app .rehearsal-preview{max-width:570px;width:100%;margin:0 auto;box-shadow:none}.workflow-app .home-pathways{grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:35px}.workflow-app .home-pathways>a{padding:15px 17px}.workflow-app .home-pathways strong{font-size:13px}.workflow-app .home-pathways div>span{font-size:11px}.workflow-app .home-pathway-icon{width:36px;height:38px}.workflow-app .recipes-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workflow-app .app-footer{padding:22px 24px;flex-direction:column;gap:10px}.workflow-app .home-footer-links{justify-content:flex-start}.workflow-app .preview-person{font-size:11px}}
+@media(max-width:420px){.workflow-app .app-header{padding:18px 18px}.workflow-app .app-main{padding:12px 18px 40px}.workflow-app .brand{font-size:18px}.workflow-app .home-app-tag{font-size:11px}.workflow-app .app-header nav{gap:17px;font-size:11px}.workflow-app .welcome h1{font-size:43px;letter-spacing:-2px}.workflow-app .welcome-subtitle{font-size:24px}.workflow-app .welcome .primary,.workflow-app .welcome .secondary{font-size:11px;padding:10px 13px}.workflow-app .welcome .intro{font-size:13px}.workflow-app .preview-topline{padding:12px;font-size:11px}.workflow-app .preview-label{font-size:11px}.workflow-app .preview-source-label{display:none}.workflow-app .preview-audience{gap:5px}.workflow-app .preview-person>svg{padding:9px;border-width:3px}.workflow-app .preview-person{font-size:11px}.workflow-app .preview-brief strong,.workflow-app .preview-report strong{font-size:11px}.workflow-app .preview-brief p,.workflow-app .preview-report p{font-size:11px}.workflow-app .preview-icon{width:27px;height:32px}.workflow-app .preview-audience-label,.workflow-app .preview-bottomline{font-size:11px}.workflow-app .section-heading h2{font-size:21px}.workflow-app .home-all-skills{font-size:11px!important}.workflow-app .recipe{padding:16px 13px;min-height:155px}.workflow-app .recipe strong{font-size:11px}.workflow-app .recipe>span:not(.recipe-symbol):not(.recipe-arrow){font-size:11px}.workflow-app .home-footer-links{gap:10px 15px}}
+
+/* Small preview labels retain readable contrast on their pale surfaces. */
+.workflow-app .preview-label,.workflow-app .preview-source-label,.workflow-app .preview-audience-label,.workflow-app .preview-bottomline{color:#695c73}
+.workflow-app .preview-brief p,.workflow-app .preview-report p{color:#6e6076}
+.workflow-app .preview-person{color:#785685}
+.workflow-app .preview-person.person-two{color:#805b3f}
+.workflow-app .preview-person.person-three{color:#4d7266}
+.workflow-app .preview-mark{color:#735482}
+.workflow-app .home-evidence-note{color:#626d65}

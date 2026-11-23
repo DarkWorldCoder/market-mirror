@@ -19,9 +19,12 @@ logger = logging.getLogger(__name__)
 class LLMResponseError(ValueError):
     """A safe, structured error for unusable model responses."""
 
-    def __init__(self, message: str, *, finish_reason: Optional[str] = None):
+    def __init__(self, message: str, *, finish_reason: Optional[str] = None, raw_text: Optional[str] = None):
         super().__init__(message)
         self.finish_reason = finish_reason
+        # Kept out of the error message/logs. Conversational callers may use a
+        # completed plain-text answer; structured callers still receive an error.
+        self.raw_text = raw_text
 
 
 def _is_response_format_unsupported(error: Exception) -> bool:
@@ -270,6 +273,7 @@ class LLMClient:
                     "LLM returned invalid JSON "
                     f"(line {strict_error.lineno}, column {strict_error.colno})",
                     finish_reason=finish_reason,
+                    raw_text=content,
                 ) from strict_error
 
             trailing = content[end:].strip()

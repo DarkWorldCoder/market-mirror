@@ -31,6 +31,8 @@ dependencies = [
     # Local embeddings for the default memory backend (ONNX, CPU, no API key)
     "fastembed>=0.7",
     "anthropic>=2.1.0",
+    "requests>=2.32.0",
+    "PyJWT[crypto]>=2.10.0",
 ]
 
 [project.optional-dependencies]

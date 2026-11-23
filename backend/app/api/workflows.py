@@ -147,6 +147,7 @@ def source():
 @workflows_bp.get("/simulation/<wid>/start")
 @workflows_bp.get("/report/<wid>")
 @workflows_bp.get("/interaction/<wid>")
+@workflows_bp.get("/start")
 @workflows_bp.get("/workspace")
 @workflows_bp.get("/workspace/<path:wid>")
 def web_app(wid=None):
@@ -165,3 +166,8 @@ def assets(name):
 @workflows_bp.get("/icon.png")
 def icon():
     return send_from_directory(DIST, "icon.png")
+
+
+@workflows_bp.get("/marketmirror.svg")
+def brand_icon():
+    return send_from_directory(DIST, "marketmirror.svg")
