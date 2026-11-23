@@ -32,9 +32,9 @@ MEANING = {"A": "firm enough to act on, within the stated margins",
 # Markets where a plain persona prompt tracks real people best: the models' default respondent already sits close to
 # them. Elsewhere, naming the country moves answers only part of the way (Ghana vs the UK in arXiv 2605.16193), and
 # fluency in a language does not predict cultural fit (arXiv 2502.16534). A rough split, not a measured ranking.
-WELL_COVERED = {"united states", "usa", "us", "u.s.", "america", "united kingdom", "uk", "u.k.", "great britain",
-                "britain", "england", "scotland", "wales", "northern ireland", "canada", "australia", "new zealand",
-                "ireland"}
+WELL_COVERED = {"united states", "united states of america", "usa", "us", "u.s.", "america",
+                "united kingdom", "uk", "u.k.", "gb", "great britain", "britain", "england", "scotland", "wales",
+                "northern ireland", "canada", "ca", "australia", "au", "new zealand", "nz", "ireland", "ie"}
 COVERAGE_SOURCES = ("arXiv 2605.16193", "arXiv 2502.16534")
 
 
