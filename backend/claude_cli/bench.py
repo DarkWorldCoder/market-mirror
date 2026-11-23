@@ -489,6 +489,77 @@ def twin_demographics(row: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+GROUP_QUESTIONS = {"region": "part of the united states", "sex": "sex that you were assigned", "age": "how old are you",
+                   "income": "total family income", "schooling": "highest level of schooling"}
+MIN_GROUP = 5
+
+
+def demographic_groups(row: Dict[str, Any]) -> Dict[str, str]:
+    """{attribute: answer} for the demographic questions used to compare group gaps (region, sex, age, income,
+    schooling). Region keeps its name only ("Midwest"), not the state list."""
+    raw = row.get("wave1_3_persona_json")
+    try:
+        blocks = json.loads(raw) if isinstance(raw, str) else (raw or [])
+    except ValueError:
+        return {}
+    out: Dict[str, str] = {}
+    for blk in blocks if isinstance(blocks, list) else []:
+        if not isinstance(blk, dict) or "demograph" not in str(blk.get("BlockName") or "").lower():
+            continue
+        for q in blk.get("Questions") or []:
+            text = str(q.get("QuestionText") or "").lower()
+            ans = str((q.get("Answers") or {}).get("SelectedText") or "").strip()
+            for attr, needle in GROUP_QUESTIONS.items():
+                if needle in text and ans:
+                    out[attr] = ans.split(" (")[0]
+    return out
+
+
+def group_gaps(people: List[Dict[str, Any]], preds: Dict[Tuple[Any, str], int]) -> Dict[str, Any]:
+    """Buy share by demographic group, simulated next to real, and how much wider the simulated gaps are.
+    Per attribute: the range (highest minus lowest group share) on each side, their ratio, and whether the
+    simulated top group is the real one. Groups with fewer than MIN_GROUP people are left out. Chen, Zhu & Zheng
+    (2026, arXiv 2607.26348) report simulated segment gaps 2-4x wider than real ones; this measures it here."""
+    by_attr: Dict[str, Dict[str, List[Tuple[bool, bool]]]] = defaultdict(lambda: defaultdict(list))
+    people_in: Dict[str, Dict[str, set]] = defaultdict(lambda: defaultdict(set))
+    for p in people:
+        groups = demographic_groups(p.get("row") or {})
+        for it in p["items"]:
+            pr = preds.get((p["pid"], it["id"]))
+            ys, yr = _is_yes(it, pr), _is_yes(it, it["answer"])
+            if ys is None or yr is None:
+                continue
+            for attr, label in groups.items():
+                by_attr[attr][label].append((ys, yr))
+                people_in[attr][label].add(p["pid"])
+    out: Dict[str, Any] = {}
+    for attr, groups in by_attr.items():
+        rows = []
+        for label, pairs in groups.items():
+            if len(people_in[attr][label]) < MIN_GROUP:
+                continue
+            rows.append({"group": label, "people": len(people_in[attr][label]), "answers": len(pairs),
+                         "simulated": round(sum(a for a, _ in pairs) / len(pairs), 3),
+                         "real": round(sum(b for _, b in pairs) / len(pairs), 3)})
+        if len(rows) < 2:
+            continue
+        sim_range = max(r["simulated"] for r in rows) - min(r["simulated"] for r in rows)
+        real_range = max(r["real"] for r in rows) - min(r["real"] for r in rows)
+        out[attr] = {"groups": sorted(rows, key=lambda r: -r["real"]),
+                     "simulated_range": round(sim_range, 3), "real_range": round(real_range, 3),
+                     "inflation": round(sim_range / real_range, 2) if real_range > 0 else None,
+                     "top_group_hit": max(rows, key=lambda r: r["simulated"])["group"] == max(rows, key=lambda r: r["real"])["group"],
+                     "rank_correlation": spearman([r["simulated"] for r in rows], [r["real"] for r in rows])}
+    ratios = sorted(v["inflation"] for v in out.values() if v.get("inflation") is not None)
+    if ratios:
+        mid = len(ratios) // 2
+        out["_summary"] = {"attributes": len(ratios),
+                           "median_inflation": ratios[mid] if len(ratios) % 2 else round((ratios[mid - 1] + ratios[mid]) / 2, 2),
+                           "top_group_hits": sum(1 for k, v in out.items() if k != "_summary" and v.get("top_group_hit")),
+                           "min_group": MIN_GROUP}
+    return out
+
+
 def answer_items(persona: str, items: List[Dict[str, Any]], ask: Callable[[str, str], str],
                  feel: bool = False) -> Dict[str, int]:
     qs = "\n".join(f"{k + 1}. {it['text']}\n   Options: " + " | ".join(f"{j + 1}) {o}" for j, o in enumerate(it["options"]))
@@ -549,7 +620,7 @@ def score_twin(people: List[Dict[str, Any]], preds: Dict[Tuple[Any, str], int]) 
             "brier_purchase": round(sum(brier) / len(brier), 3) if brier else None,
             "predicted_purchase_share": round(sim_yes / yn, 3) if yn else None,
             "real_purchase_share": round(real_yes / yn, 3) if yn else None,
-            "rank_correlation": rank, "sd_ratio": spread}
+            "rank_correlation": rank, "sd_ratio": spread, "group_gaps": group_gaps(people, preds)}
 
 
 def _sd(xs: Sequence[float]) -> float:
@@ -774,6 +845,21 @@ def render_markdown(res: Dict[str, Any]) -> str:
         lines += ["", "Accuracy is each arm's own; the gain is paired over the people both arms scored, so it can differ "
                       "from the plain difference. An accuracy interval that includes 0 means this sample cannot tell the "
                       "two apart. Rank correlation says how well a method tells people apart, which accuracy alone hides."]
+    gap_rows = []
+    for name, m in res["methods"].items():
+        gg = m.get("group_gaps") if isinstance(m, dict) else None
+        for attr, v in (gg or {}).items():
+            if attr == "_summary":
+                continue
+            gap_rows.append(f"| {name} | {attr} | {round(100 * v['simulated_range'], 1)} | {round(100 * v['real_range'], 1)} | "
+                            f"{v['inflation'] if v.get('inflation') is not None else 'n/a'} | "
+                            f"{'yes' if v.get('top_group_hit') else 'no'} | {v.get('rank_correlation')} |")
+    if gap_rows:
+        lines += ["", "## Gaps between demographic groups", "",
+                  "Highest minus lowest group's buy share, in points (groups with at least "
+                  f"{MIN_GROUP} people). Inflation above 1 means the simulated groups differ more than the real ones.", "",
+                  "| method | attribute | simulated gap | real gap | inflation | same top group | rank correlation |",
+                  "|---|---|---|---|---|---|---|"] + gap_rows
     lines += ["", "Human data: CC BY 4.0. Simulated answers are compared with what real people did; a method that does "
                   "not beat the simpler comparators is reported as such."]
     return "\n".join(lines)

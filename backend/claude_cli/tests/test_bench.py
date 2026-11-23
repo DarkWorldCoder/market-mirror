@@ -294,6 +294,30 @@ class Twin(unittest.TestCase):
         self.assertIn("cannot tell the two apart", md)
         self.assertNotIn("vs_", md.split("## What each")[0])
 
+    def test_group_gaps_measure_how_much_wider_simulated_gaps_are(self):
+        # 10 people in two regions: real buy shares 0.6 (North) and 0.4 (South); the simulation says 1.0 and 0.0
+        people, preds = [], {}
+        for i in range(10):
+            region = "North" if i < 5 else "South"
+            real_yes = (i % 5) < (3 if region == "North" else 2)
+            row = with_demographics(twin_row(i, [1 if real_yes else 2]), f"{region} (states)")
+            it = {"id": "Q0", "options": ["Yes, buy", "No"], "answer": 1 if real_yes else 2}
+            people.append({"pid": i, "items": [it], "row": row})
+            preds[(i, "Q0")] = 1 if region == "North" else 2
+        gg = bench.group_gaps(people, preds)
+        r = gg["region"]
+        self.assertEqual([g["group"] for g in r["groups"]], ["North", "South"])     # "(states)" is dropped
+        self.assertEqual((r["simulated_range"], r["real_range"], r["inflation"]), (1.0, 0.2, 5.0))
+        self.assertTrue(r["top_group_hit"])
+        self.assertNotIn("age", gg)                                                # one age group only
+        self.assertEqual(gg["_summary"]["median_inflation"], 5.0)
+        res = {"suite": "twin2k", "methods": {"demographics_only": {"accuracy": 0.6, "group_gaps": gg}}}
+        md = bench.render_markdown(res)
+        self.assertIn("## Gaps between demographic groups", md)
+        self.assertIn("| demographics_only | region | 100.0 | 20.0 | 5.0 | yes |", md)
+        small = bench.group_gaps(people[:4] + people[5:9], preds)                  # 4 per region: below the minimum
+        self.assertEqual(small, {})
+
     def test_ladder_steps_over_arms_that_did_not_run(self):
         methods = {"majority": {"per_person": {1: 1.0, 2: 0.0}, "accuracy": 0.5},
                    "no_persona": {"per_person": {1: 0.5, 2: 0.5}, "accuracy": 0.5, "rank_correlation": None, "sd_ratio": 0.0},
