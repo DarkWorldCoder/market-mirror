@@ -94,20 +94,27 @@
             <h2>What are you deciding?</h2>
             <p>Start with one question.</p>
           </div>
-          <div class="recipes-grid">
-            <button
-              v-for="recipe in recipes"
-              :key="recipe.id"
-              class="recipe"
-              @click="begin(recipe.id)"
-            >
-              <span class="recipe-symbol" aria-hidden="true">{{
-                symbols[recipe.id]
-              }}</span
-              ><strong>{{ recipe.name }}</strong
-              ><span>{{ recipe.question }}</span
-              ><span class="recipe-arrow" aria-hidden="true">↗</span>
-            </button>
+          <div
+            v-for="group in recipeGroups"
+            :key="group.name"
+            class="recipe-group"
+          >
+            <h3 class="recipe-group-name">{{ group.name }}</h3>
+            <div class="recipes-grid">
+              <button
+                v-for="recipe in group.recipes"
+                :key="recipe.id"
+                class="recipe"
+                @click="begin(recipe.id)"
+              >
+                <span class="recipe-symbol" aria-hidden="true">{{
+                  symbols[recipe.id]
+                }}</span
+                ><strong>{{ recipe.name }}</strong
+                ><span>{{ recipe.question }}</span
+                ><span class="recipe-arrow" aria-hidden="true">↗</span>
+              </button>
+            </div>
           </div>
         </section>
         <section class="recent">
@@ -708,14 +715,45 @@ const symbols = {
   appeal: '♡',
   regional: '文'
 }
-const recipes = ref([
-  {
-    id: 'ads',
-    name: 'Ads or headlines',
-    question: 'Which idea is clearer?',
-    hint: 'Paste two headlines or complete ads.'
+// Shown before the local backend answers; /api/workflows/meta replaces it (same ids, names and questions).
+const recipes = ref(
+  [
+    ['ads', 'Ads or headlines', 'Which idea is clearer?'],
+    ['landing', 'Landing-page clarity', 'Do people understand what I sell?'],
+    ['email', 'Email subject and CTA', 'Which email communicates the offer?'],
+    ['regional', 'Regional messaging', 'Does the wording make sense in this market?'],
+    ['saas', 'SaaS trial offer', 'Is the billing or card requirement confusing?'],
+    ['ecommerce', 'Ecommerce offer', 'Is shipping, price or returns causing hesitation?'],
+    ['concept', 'Product or pack concept', 'Which idea would people buy?'],
+    ['committee', 'B2B buying committee', 'What might the team question?'],
+    ['statement', 'Announcement or crisis statement', 'Which wording keeps more trust?'],
+    ['job', 'Job posting', 'Would the right people apply?'],
+    ['appeal', 'Fundraising appeal', 'Which appeal moves people to give?']
+  ].map(([id, name, question]) => ({ id, name, question, hint: '' }))
+)
+const groupOf = {
+  ads: 'Ads, pages and emails',
+  landing: 'Ads, pages and emails',
+  email: 'Ads, pages and emails',
+  regional: 'Ads, pages and emails',
+  saas: 'Offers, products and sales',
+  ecommerce: 'Offers, products and sales',
+  concept: 'Offers, products and sales',
+  committee: 'Offers, products and sales',
+  statement: 'Announcements, hiring and fundraising',
+  job: 'Announcements, hiring and fundraising',
+  appeal: 'Announcements, hiring and fundraising'
+}
+const recipeGroups = computed(() => {
+  const groups = []
+  for (const recipe of recipes.value) {
+    const name = groupOf[recipe.id] || 'More comparisons'
+    let group = groups.find((g) => g.name === name)
+    if (!group) groups.push((group = { name, recipes: [] }))
+    group.recipes.push(recipe)
   }
-])
+  return groups
+})
 const token = ref(''),
   provider = ref({ configured: false, models: [] }),
   screen = ref('home')
