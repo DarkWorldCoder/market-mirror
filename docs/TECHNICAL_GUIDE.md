@@ -36,6 +36,11 @@ Inspect the generated files and profiles. To continue, retain the returned `simu
 
 The live viewer runs at [127.0.0.1:5050](http://127.0.0.1:5050), and its control room at [127.0.0.1:5050/live](http://127.0.0.1:5050/live) shows every stage, every simulated person lighting up as they act, what they post, and the progress log, updated every two seconds. Use the actual run directory printed by the pipeline if its name differs. The saved `dashboard.html` also opens directly without a server. To generate templates without preparing people, use `./mm cli quickstart --no-run`.
 
+The saved dashboard's market map shows at most 300 entities. When it omits
+entities, the map shows how many are visible out of the total. Its
+`summary.json` also reports `graph.node_count`, `graph.rendered_node_count`,
+and `graph.omitted_node_count`.
+
 <details>
 <summary>Resuming interrupted runs and choosing the right start command</summary>
 
