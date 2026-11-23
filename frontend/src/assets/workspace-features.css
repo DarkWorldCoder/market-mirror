@@ -52,3 +52,37 @@ html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparen
 .ws .ws-side .ws-side-scroll { scrollbar-gutter: auto; margin-right: -10px; padding-right: 10px; }
 /* No hard line between the sidebar and the page; the two surfaces are already set apart by their shades. */
 .ws .ws-side, .ws[data-theme='dark'] .ws-side { border-right: 0; box-shadow: none; }
+
+/* Chat home: greeting, latest experiment, quick looks, recent chats */
+.direct-welcome .dw-greet { font-size: 13px; font-weight: 550; color: var(--accent); margin: -6px 0 6px; letter-spacing: 0.01em; }
+.direct-welcome .dw-context { margin-top: 10px; font-size: 12.5px; color: var(--muted); display: flex; justify-content: center; align-items: center; gap: 6px; flex-wrap: wrap; }
+.direct-welcome .dw-context a { color: var(--text); font-weight: 550; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.direct-welcome .dw-context a:hover { text-decoration-color: currentColor; }
+.dw-decision { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--line); }
+.dw-decision.go { color: var(--yes); border-color: color-mix(in srgb, var(--yes) 45%, var(--line)); }
+.dw-decision.iterate { color: var(--maybe); border-color: color-mix(in srgb, var(--maybe) 50%, var(--line)); }
+.dw-decision.stop { color: var(--no); border-color: color-mix(in srgb, var(--no) 45%, var(--line)); }
+.direct-chat:not(.started) .direct-starters.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dw-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.dw-quick-label { font-size: 12px; color: var(--muted); margin-right: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-quick-label small { margin-left: 4px; font-size: 10.5px; border: 1px dashed var(--line); border-radius: 999px; padding: 0 6px; }
+.dw-quick button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--text); cursor: pointer; }
+.dw-quick button:hover { border-color: var(--accent); background: var(--panel-2); }
+.dw-quick button svg { color: var(--accent); }
+.dw-continue { margin-top: 22px; }
+.dw-continue h2 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.dw-continue-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dw-chat-card { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-decoration: none; color: var(--text); min-width: 0; }
+.dw-chat-card:hover { border-color: var(--accent); background: var(--panel-2); }
+.dw-chat-card svg { color: var(--accent); flex: none; margin-top: 2px; }
+.dw-chat-card span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dw-chat-card b { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-chat-card small { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; }
+.dw-chat-card em { font-style: normal; font-size: 11px; color: var(--muted); }
+@media (max-width: 900px) {
+  .direct-chat:not(.started) .direct-starters.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dw-continue-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .direct-chat:not(.started) .direct-starters.four { grid-template-columns: minmax(0, 1fr); }
+}

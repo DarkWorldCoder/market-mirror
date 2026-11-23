@@ -5,8 +5,14 @@
     <div ref="scrollArea" class="direct-scroll" tabindex="0" role="region" aria-label="Conversation">
       <div v-if="!messages.length" class="direct-welcome">
         <div class="direct-symbol" aria-hidden="true"><MarketMirrorLogo :size="40" /></div>
+        <p v-if="!activeProject" class="dw-greet">{{ greeting }}</p>
         <h1>{{ activeProject ? activeProject.name : 'What do you want to explore?' }}</h1>
         <p>{{ activeProject?.description || 'Ask a question, test an idea, or explore your results.' }}</p>
+        <p v-if="!activeProject && latestRun" class="dw-context">
+          {{ runs.length }} saved {{ runs.length === 1 ? 'experiment' : 'experiments' }} · latest:
+          <RouterLink :to="{ path: '/', query: { run: latestRun.name, show: 'reports' } }" :title="latestRun.title || latestRun.name">{{ shortTitle(latestRun.title || latestRun.name, 48) }}</RouterLink>
+          <span v-if="latestRun.decision" class="dw-decision" :class="decisionTone(latestRun.decision)">{{ decisionText(latestRun.decision) }}</span>
+        </p>
         <button v-if="activeProject" class="direct-project-edit" @click="knowledgeOpen = true">Project context</button><button v-if="activeProject" class="direct-project-edit" @click="editProject">Edit project</button>
         <button class="direct-project-edit" @click="openSkills">Browse all {{ featureCatalog.length }} skills</button>
         <button class="direct-project-edit" @click="openProjectPicker">{{ activeProject ? 'Choose another project' : 'Choose a project' }}</button>
@@ -75,9 +81,22 @@
           <Button type="button" size="sm" variant="outline" @click="capturePastedPage">Preview website</Button>
         </div>
       </div>
-        <div v-if="!messages.length" class="direct-starters">
-          <button v-for="s in starters" :key="s.title" @click="s.action ? selectFeature(s) : send(s.prompt)"><component :is="s.icon" /><span><b>{{ s.title }}</b><small>{{ s.text }}</small></span></button>
+        <div v-if="!messages.length" class="direct-starters" :class="{ four: homeStarters.length === 4 }">
+          <button v-for="s in homeStarters" :key="s.title" @click="s.to ? router.push(s.to) : s.action ? selectFeature(s) : send(s.prompt)"><component :is="s.icon" /><span><b>{{ s.title }}</b><small>{{ s.text }}</small></span></button>
         </div>
+        <section v-if="!messages.length && !activeProject && latestRun" class="dw-quick" aria-label="Quick looks at your latest experiment">
+          <span class="dw-quick-label" :title="latestRun.title || latestRun.name">About {{ shortTitle(latestRun.title || latestRun.name, 38) }} <small>no model call</small></span>
+          <button v-for="q in quickLooks" :key="q.label" type="button" @click="openQuick(q)"><component :is="q.icon" :size="14" aria-hidden="true" />{{ q.label }}</button>
+        </section>
+        <section v-if="!messages.length && !activeProject && recentChats.length" class="dw-continue" aria-label="Continue where you left off">
+          <h2>Continue where you left off</h2>
+          <div class="dw-continue-row">
+            <RouterLink v-for="c in recentChats" :key="c.id" :to="{ path: '/', query: { chat: c.id, ...(c.project ? { project: c.project } : {}) } }" class="dw-chat-card">
+              <MessageSquare :size="15" aria-hidden="true" />
+              <span><b>{{ c.title || 'New chat' }}</b><small>{{ c.preview }}</small><em>{{ c.when }}</em></span>
+            </RouterLink>
+          </div>
+        </section>
 
       <BrowserActivity v-model:open="browserActivityOpen" :captures="browserCaptures" :progress="browserProgress" :theme="theme" />
       <ChatConnections v-model:open="connectionsOpen" :initial-tab="connectionsTab" :theme="theme" :runs="runs" @attach="fileInput?.click()" @choose-run="runPicker?.openPicker()" @connected="loadModels" @configure-model="configureModel" />
@@ -109,7 +128,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Sparkles, Lightbulb, UsersRound, ChartNoAxesCombined, FolderOpen, Paperclip, Database, FileText, Globe, X, FileChartColumn, ChevronRight, FlaskConical, LoaderCircle, CheckCheck, Check, CircleAlert, Copy, RotateCcw, Download, PencilLine } from 'lucide-vue-next'
+import { Sparkles, Lightbulb, UsersRound, ChartNoAxesCombined, FolderOpen, Paperclip, Database, FileText, Globe, X, FileChartColumn, ChevronRight, FlaskConical, LoaderCircle, CheckCheck, Check, CircleAlert, Copy, RotateCcw, Download, PencilLine, GitCompare, MessageSquare, MessagesSquare } from 'lucide-vue-next'
 import MarketMirrorLogo from '../MarketMirrorLogo.vue'
 import RunContextPicker from './RunContextPicker.vue'
 import ChatToolPicker from './ChatToolPicker.vue'
@@ -342,7 +361,7 @@ async function loadModels() {
  catch(e) { error.value = e.message } finally { modelsLoading.value = false }
 }
 function changeModel(id) { const model = modelOptions.value.find(m => m.id === id); if (busy.value || !model) return; if (model.available === false) { connectionsTab.value = 'models'; connectionsOpen.value = true; return } selectedModel.value = id; persist() }
-onMounted(() => { loadModels(); loadProject(); handleRouteAction(); if (route.query.connectors === '1') connectionsOpen.value = true; window.addEventListener('mm-create-project', createProject); window.addEventListener('mm-open-settings', openSettings); window.addEventListener('mm-move-chat', moveChatEvent) })
+onMounted(() => { loadRecent(); window.addEventListener('mm-chats-updated', loadRecent); loadModels(); loadProject(); handleRouteAction(); if (route.query.connectors === '1') connectionsOpen.value = true; window.addEventListener('mm-create-project', createProject); window.addEventListener('mm-open-settings', openSettings); window.addEventListener('mm-move-chat', moveChatEvent) })
 function openSettings() { settingsOpen.value = true }
 function refreshSharedChat() { if (busy.value || !conversationId.value) return; const chat = stored().find(row => row.id === conversationId.value); if (chat) { messages.value = chat.messages || []; loadArtifacts() } }
 window.addEventListener('mm-chats-loaded', refreshSharedChat)
@@ -356,6 +375,37 @@ const starters = [
  { title: 'Explore my audience', text: 'People, responses and 3D views', icon: UsersRound, prompt: 'Show my saved runs so I can explore the simulated audience.' },
  { title: 'Understand the results', text: 'Charts and reports in this chat', icon: ChartNoAxesCombined, prompt: 'Show my saved reports and help me choose a result to explore.' },
 ]
+const greeting = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening' })()
+const latestRun = computed(() => props.runs[0] || null)
+const shortTitle = (t, n) => { const v = String(t || ''); return v.length > n ? `${v.slice(0, n - 1).replace(/[\s,:;·-]+$/, '')}…` : v }
+const decisionText = (d) => String(d || '').replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase())
+const decisionTone = (d) => (/^(go|launch|proceed)$/i.test(d) ? 'go' : /no.?go|stop|reject/i.test(d) ? 'stop' : 'iterate')
+const homeStarters = computed(() => props.runs.length > 1
+  ? [...starters, { title: 'Compare experiments', text: 'Two runs side by side', icon: GitCompare, to: { path: '/workspace/compare', query: { a: props.runs[0].name, b: props.runs[1].name } } }]
+  : starters)
+// these three are answered from the saved run in this browser, without a model call
+const quickLooks = [
+  { label: 'World map of the audience', icon: Globe, prompt: 'Explore the audience on the world map' },
+  { label: 'Social feed', icon: MessagesSquare, prompt: 'Show the social feed' },
+  { label: 'All reports', icon: FileText, prompt: 'Show all reports' }
+]
+function openQuick(q) {
+  if (!latestRun.value) return
+  selectedRun.value = latestRun.value.name
+  send(q.prompt)
+}
+const ago = (t) => {
+  if (!t) return ''
+  const sec = (Date.now() - t) / 1000
+  return sec < 3600 ? `${Math.max(1, Math.floor(sec / 60))} min ago` : sec < 86400 ? `${Math.floor(sec / 3600)} h ago` : new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+const recentChats = ref([])
+function loadRecent() {
+  recentChats.value = stored().filter((c) => Array.isArray(c.messages) && c.messages.length).slice(0, 3).map((c) => {
+    const last = [...c.messages].reverse().find((m) => m.content) || {}
+    return { id: c.id, project: c.project, title: c.title, when: ago(c.updated), preview: String(last.content || '').replace(/[*#_`>]/g, '').slice(0, 90) }
+  })
+}
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 function stored() { try { const value = JSON.parse(localStorage.getItem(STORE) || '[]'); return Array.isArray(value) ? value : [] } catch { return [] } }
 function persist() {
@@ -563,7 +613,7 @@ watch(() => [route.query.run, route.query.show], async ([name, show]) => {
  const query = { ...route.query }; delete query.run; delete query.show
  await router.replace({path:route.path,query})
 }, { immediate: true })
-onBeforeUnmount(() => { window.dispatchEvent(new CustomEvent('mm-chat-status', {detail:{id:conversationId.value,status:'idle'}})); ticket++; controller?.abort(); window.removeEventListener('mm-chats-loaded', refreshSharedChat); window.removeEventListener('mm-create-project', createProject); window.removeEventListener('mm-open-settings', openSettings); window.removeEventListener('mm-move-chat', moveChatEvent) })
+onBeforeUnmount(() => { window.removeEventListener('mm-chats-updated', loadRecent); window.dispatchEvent(new CustomEvent('mm-chat-status', {detail:{id:conversationId.value,status:'idle'}})); ticket++; controller?.abort(); window.removeEventListener('mm-chats-loaded', refreshSharedChat); window.removeEventListener('mm-create-project', createProject); window.removeEventListener('mm-open-settings', openSettings); window.removeEventListener('mm-move-chat', moveChatEvent) })
 </script>
 <style scoped>
 .direct-project-toolbar{display:flex;gap:14px;align-items:center;width:min(100%,var(--chat-width));padding:8px 28px 0;margin:0 auto}.direct-project-toolbar button{display:flex;align-items:center;gap:7px;border:0;background:none;color:var(--muted);font-size:11px;padding:5px 0;cursor:pointer}.direct-project-toolbar button:first-child{min-width:0;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.direct-project-toolbar button+button{margin-left:auto}.direct-project-search{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);color:var(--text);font-size:13px;outline-offset:3px}.direct-project-search:focus-visible{outline:2px solid var(--accent)}.direct-project-choices{display:grid;gap:7px;max-height:340px;overflow:auto}.direct-project-choices button{display:flex;align-items:center;gap:11px;width:100%;padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);text-align:left;cursor:pointer}.direct-project-choices button:hover,.direct-project-choices button[aria-pressed=true]{background:var(--panel-2);border-color:var(--accent)}.direct-project-choices button>span{flex:1;min-width:0}.direct-project-choices b{display:block;font-size:12px;font-weight:550}.direct-project-choices small{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.6;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.direct-project-choices button:disabled{opacity:.6;cursor:wait}.direct-project-note{font-size:12px;line-height:1.7;color:var(--muted);padding:12px 0}
