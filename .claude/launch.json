@@ -55,6 +55,19 @@
         "/home/ayushniroula/Desktop/projects/component-preview/docs"
       ],
       "port": 5088
+    },
+    {
+      "name": "workspace-app",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "MM_LOCAL_APP=1",
+        "FLASK_PORT=5063",
+        "FLASK_DEBUG=false",
+        "MIROFISH_RUNS_DIR=/home/ayushniroula/Desktop/projects/market-mirror/mirofish_runs",
+        "backend/.venv/bin/python",
+        "backend/run.py"
+      ],
+      "port": 5063
     }
   ]
 }

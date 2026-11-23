@@ -7,7 +7,7 @@
 
 <script setup>
 // Apache ECharts in a component: loaded on demand (its own chunk), resized with its box, re-themed when the
-// workspace theme changes. `gl` adds echarts-gl for 3D series.
+// workspace theme changes.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
@@ -15,7 +15,6 @@ const props = defineProps({
   height: { type: Number, default: 260 },
   label: { type: String, default: 'Chart' },
   caption: { type: String, default: '' },
-  gl: { type: Boolean, default: false },
   theme: { type: String, default: '' }
 })
 const el = ref(null)
@@ -25,8 +24,7 @@ let observer = null
 async function render() {
   if (!el.value || !props.option) return
   const echarts = await import('echarts')
-  if (props.gl) await import('echarts-gl')
-  if (!chart) chart = echarts.init(el.value, null, { renderer: props.gl ? 'canvas' : 'svg' })
+  if (!chart) chart = echarts.init(el.value, null, { renderer: 'svg' })
   chart.setOption(props.option, true)
 }
 

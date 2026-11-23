@@ -62,3 +62,40 @@ def test_detail_and_files(client):
                                   "/api/runs/_preview/files/summary.json"])
 def test_refuses_unknown_or_unsafe_paths(client, path):
     assert client.get(path, headers=H).status_code in (404, 403)
+
+
+def test_thoughts_harvest_the_run_folder(client, tmp_path):
+    run = tmp_path / "runs" / "acme"
+    (run / "survey.json").write_text(json.dumps({"offer": "Acme", "responses": [
+        {"agent_id": 3, "name": "Ana", "answer": {"main_objection": "Too dear for me", "would_convert": "no"}}]}))
+    (run / "feed_test.json").write_text(json.dumps({"sessions": [
+        {"agent_id": 3, "name": "Ana", "platform": "twitter", "creative_id": "a1", "ad": {"thought": "Looks fun", "click": True}}]}))
+    assert client.get("/api/runs/acme/thoughts").status_code == 403
+    d = client.get("/api/runs/acme/thoughts", headers=H).get_json()["data"]
+    texts = {(e["source"], e["text"], e["did"]) for e in d["entries"]}
+    assert ("survey", "Too dear for me", "would no take it") in texts
+    assert ("ad in feed", "Looks fun", "clicked") in texts
+    assert d["people"] == 1
+
+
+def test_status_from_saved_files(client, tmp_path):
+    run = tmp_path / "runs" / "acme"
+    (run / "run_status.json").write_text(json.dumps({"runner_status": "completed", "current_round": 3, "total_rounds": 3}))
+    (run / "timeline.json").write_text(json.dumps([{"round_num": 1, "total_actions": 9, "twitter_actions": 4,
+                                                    "reddit_actions": 5, "active_agents_count": 6}]))
+    d = client.get("/api/runs/acme/status", headers=H).get_json()["data"]
+    assert d["live"] is False and d["run"]["runner_status"] == "completed"
+    assert d["rounds"] == [{"round": 1, "actions": 9, "twitter": 4, "reddit": 5, "active": 6}]
+    assert [s["id"] for s in d["stages"]] == ["graph", "people", "report"]
+    assert [s["done"] for s in d["stages"]] == [False, True, False]
+    assert client.get("/api/runs/acme", headers=H).get_json()["data"]["simulation_on_backend"] is False
+    assert client.get("/api/runs/../status", headers=H).status_code in (403, 404)
+
+
+def test_status_reads_the_simulation_id_from_summary_too(client, tmp_path):
+    run = tmp_path / "runs" / "acme"
+    (run / "run_manifest.json").write_text(json.dumps({"title": "Acme test"}))          # no simulation_id here
+    (run / "summary.json").write_text(json.dumps({"simulation_id": "sim_9", "decision": {"decision": "go"}}))
+    d = client.get("/api/runs/acme/status", headers=H).get_json()["data"]
+    assert d["simulation_id"] == "sim_9"
+    assert client.get("/api/runs/acme", headers=H).get_json()["data"]["simulation_id"] == "sim_9"

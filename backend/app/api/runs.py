@@ -94,12 +94,67 @@ def list_runs():
     return ok({"root": str(root), "runs": [_card(d) for d in dirs[:200]]})
 
 
+def _sim_folder(sid: Any) -> Optional[Path]:
+    """The simulation's folder on this backend, when it is there (chat with people and the report agent needs it)."""
+    from ..config import Config
+    if not isinstance(sid, str) or not NAME.match(sid) or ".." in sid:
+        return None
+    root = Path(Config.OASIS_SIMULATION_DATA_DIR).resolve()
+    path = (root / sid).resolve()
+    return path if path.parent == root and path.is_dir() else None
+
+
 @runs_bp.get("/api/runs/<name>")
 def run_detail(name):
     path = _run_dir(name)
     files = sorted(f.name for f in path.iterdir() if f.is_file() and FILE.match(f.name))
-    return ok({**_card(path), "files": files, "manifest": _read(path / "run_manifest.json") or {},
-               "summary": _read(path / "summary.json") or {}})
+    card = _card(path)
+    return ok({**card, "files": files, "manifest": _read(path / "run_manifest.json") or {},
+               "summary": _read(path / "summary.json") or {},
+               "simulation_on_backend": _sim_folder(card.get("simulation_id")) is not None})
+
+
+@runs_bp.get("/api/runs/<name>/thoughts")
+def run_thoughts(name):
+    """What the simulated people wrote (private thoughts in feeds and landing pages, survey and pitch replies, posts),
+    harvested from the run folder and, when it is on this backend, the simulation folder. No model call."""
+    from ..services import agent_thoughts
+    path = _run_dir(name)
+    sim = _sim_folder(_card(path).get("simulation_id"))
+    return ok(agent_thoughts.harvest_thoughts(str(sim) if sim else None, str(path)))
+
+
+STAGES = [("graph", "Market map built", "graph_id"), ("people", "Simulated people created", "simulation_id"),
+          ("rounds", "Social rounds", "runner_status"), ("feed", "Ads scrolled in feeds", "feed_test"),
+          ("survey", "Buyer survey", "survey"), ("pitch", "Sales pitch", "pitch"), ("panel", "Analyst panel", "panel"),
+          ("report", "Report written", "report"), ("export", "Dashboard exported", "export")]
+
+
+@runs_bp.get("/api/runs/<name>/status")
+def run_status(name):
+    """The run's stages, its round status (live from the runner when the simulation is on this backend, else the
+    saved run_status.json) and actions per round from timeline.json."""
+    path = _run_dir(name)
+    manifest = _read(path / "run_manifest.json") or {}
+    sid = _card(path).get("simulation_id")  # manifest first, then summary.json, as in run detail
+    live = None
+    if _sim_folder(sid):
+        try:
+            from ..services.simulation_runner import SimulationRunner
+            state = SimulationRunner.get_run_state(sid)
+            live = state.to_dict() if state else None
+        except Exception:  # noqa: BLE001 - the saved status is shown instead
+            live = None
+    timeline = _read(path / "timeline.json")
+    rounds = [{"round": r.get("round_num"), "actions": r.get("total_actions") or 0,
+               "twitter": r.get("twitter_actions") or 0, "reddit": r.get("reddit_actions") or 0,
+               "active": r.get("active_agents_count") or 0}
+              for r in (timeline if isinstance(timeline, list) else []) if isinstance(r, dict)]
+    stages = [{"id": i, "label": label, "done": bool(manifest.get(key))} for i, label, key in STAGES
+              if manifest.get(key) or i in ("graph", "people", "report")]
+    return ok({"simulation_id": sid, "live": live is not None, "run": live or _read(path / "run_status.json") or {},
+               "stages": stages, "rounds": rounds, "error": manifest.get("error"),
+               "started_at": manifest.get("started_at"), "finished_at": manifest.get("finished_at")})
 
 
 @runs_bp.get("/api/runs/<name>/files/<filename>")
