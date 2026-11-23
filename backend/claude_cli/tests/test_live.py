@@ -1,5 +1,7 @@
 """Tests for `mirofish.py live`: stage labels, page injection, run discovery and the HTTP endpoints."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -77,6 +79,27 @@ class LiveServerTest(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.dir)
+
+    def test_occupied_port_returns_cli_error_without_starting_refresh(self):
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), patch("threading.Thread.start") as start:
+                status = mirofish.main([
+                    "live", "--offline", "--run-dir", self.dir,
+                    "--host", "127.0.0.1", "--port", str(port),
+                ])
+
+        self.assertEqual(status, 1)
+        self.assertEqual(len(output.getvalue().splitlines()), 1)
+        payload = json.loads(output.getvalue())
+        self.assertFalse(payload["success"])
+        self.assertIn(f"127.0.0.1:{port}", payload["error"])
+        self.assertIn("--port", payload["error"])
+        self.assertIn("MIROFISH_LIVE_PORT", payload["error"])
+        start.assert_not_called()
 
     def test_refresh_bumps_version_only_when_content_changes(self):
         live = mirofish.LiveDashboard(None, self.dir)

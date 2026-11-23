@@ -1068,11 +1068,17 @@ def serve_live(live: LiveDashboard, host: str, port: int, interval: float) -> No
                     live.label = f"Refresh failed: {str(e)[:120]}"
             stop.wait(interval)
 
-    threading.Thread(target=loop, daemon=True).start()
-    srv = ThreadingHTTPServer((host, port), H)
-    log(f"live: serving {os.path.abspath(live.run_dir)} at http://{host}:{port}/ (refresh every {interval:g}s, Ctrl+C to stop); "
-        f"live control room at http://{host}:{port}/live")
     try:
+        srv = ThreadingHTTPServer((host, port), H)
+    except OSError as e:
+        raise CLIError(
+            f"live: cannot listen on {host}:{port}: {e}. "
+            "Choose another port with --port or MIROFISH_LIVE_PORT."
+        ) from e
+    try:
+        threading.Thread(target=loop, daemon=True).start()
+        log(f"live: serving {os.path.abspath(live.run_dir)} at http://{host}:{port}/ (refresh every {interval:g}s, Ctrl+C to stop); "
+            f"live control room at http://{host}:{port}/live")
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
