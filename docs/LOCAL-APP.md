@@ -135,6 +135,13 @@ that have no run folder:
   **Live status** (stages, rounds and actions per round; refreshes every 5 s while a run is going, from
   `GET /api/runs/<name>/status`) and **Social feed** (posts and replies by platform from `feed_story.json`).
 - **Skills and Connectors.** The test types and the data you can bring in, each with its command to copy.
+- **Inbox.** Chats saved in this browser and finished reports, grouped by day, with filters (all, chats, reports,
+  pinned) and search. The reading pane shows the whole conversation; pin the run, download the chat as Markdown
+  (answers marked simulated), delete it, or open the run.
+- **Getting around.** `Ctrl K` (or `⌘K`, or `/`) opens a palette that jumps to any run, page, agent or action;
+  `Alt 1` to `Alt 4` switch agents; `?` lists every shortcut. Pin runs to the top of the sidebar; the dot beside each
+  run is its decision. A run page shows its key numbers (people, segments, intent, best click-through) and lets you
+  copy a link, download or clear the chat, and copy any message. Icons are Lucide (`lucide-vue-next`, pinned).
 
 The workspace reads runs through `GET /api/runs`, `/api/runs/<name>`, `/api/runs/<name>/thoughts`,
 `/api/runs/<name>/status` and `/api/runs/<name>/files/<file>`. They need the same local setup token and loopback

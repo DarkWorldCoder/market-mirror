@@ -7,7 +7,18 @@
           <h1>{{ detail.title }}</h1>
           <span v-if="decision" class="pill" :class="decisionClass">{{ decision.toUpperCase() }}</span>
           <span class="pill sim">Simulated</span>
+          <div class="ws-title-actions">
+            <button type="button" class="ws-icon-btn" :aria-pressed="pinned" :title="pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar'" :aria-label="pinned ? 'Unpin run' : 'Pin run'" @click="togglePin(pinKey)"><Ico :name="pinned ? 'unpin' : 'pin'" /></button>
+            <button type="button" class="ws-icon-btn" title="Copy a link to this run" aria-label="Copy a link to this run" @click="copyLink"><Ico name="share" /></button>
+            <button type="button" class="ws-icon-btn" :disabled="!messages.length" title="Download the chat as Markdown" aria-label="Download the chat as Markdown" @click="exportChat(detail.title, messages)"><Ico name="download" /></button>
+            <button type="button" class="ws-icon-btn danger" :disabled="!messages.length" title="Clear this chat" aria-label="Clear this chat" @click="clearChat"><Ico name="eraser" /></button>
+            <button v-if="detail.has_dashboard" type="button" class="ws-btn" @click="openDashboard"><Ico name="external" :size="14" />Dashboard</button>
+            <span class="ws-flash" role="status" aria-live="polite">{{ note }}</span>
+          </div>
         </div>
+        <ul v-if="kpis.length" class="ws-kpis" aria-label="Key numbers, simulated">
+          <li v-for="k in kpis" :key="k.label"><Ico :name="k.icon" :size="15" /><b>{{ k.value }}</b><span>{{ k.label }}</span></li>
+        </ul>
         <p v-if="detail.summary?.decision?.summary" class="ws-note" style="font-size: 13px">
           {{ detail.summary.decision.summary }}
         </p>
@@ -15,15 +26,15 @@
         <div class="ws-steps">
           <details v-for="step in steps" :key="step.id" class="ws-step" :open="step.open">
             <summary>
-              {{ step.title }} <time v-if="step.time">{{ step.time }}</time>
+              <Ico :name="stepIcon[step.id] || 'circle'" :size="15" />{{ step.title }} <time v-if="step.time">{{ step.time }}</time>
             </summary>
             <div class="ws-step-body">
               <div v-if="step.files" class="ws-files">
                 <button v-for="f in step.files" :key="f" type="button" class="ws-file" @click="fetchFile(f)">
-                  <i>{{ f.split('.').pop().toUpperCase() }}</i>{{ f }} <span aria-hidden="true">↓</span>
+                  <i>{{ f.split('.').pop().toUpperCase() }}</i>{{ f }} <Ico name="download" :size="14" />
                 </button>
                 <button v-if="detail.has_dashboard" type="button" class="ws-file" @click="openDashboard">
-                  <i>HTML</i>Full dashboard <span aria-hidden="true">↗</span>
+                  <i>HTML</i>Full dashboard <Ico name="external" :size="14" />
                 </button>
               </div>
               <div v-if="step.chart" class="ws-box">
@@ -39,10 +50,20 @@
         </div>
 
         <div class="ws-chat" role="log" aria-live="polite" aria-label="Chat about this run">
-          <div v-for="(m, i) in messages" :key="i" class="ws-msg" :class="{ me: m.role === 'user' }">
+          <div v-if="!messages.length && !busy" class="ws-starter">
+            <p><Ico name="idea" :size="15" />Try asking {{ agentById(agent).label === 'Results' ? 'the saved results' : 'the ' + agentById(agent).label.toLowerCase() }}</p>
+            <div>
+              <button v-for="s in starters" :key="s" type="button" class="ws-chip" @click="startWith(s)">{{ s }}</button>
+            </div>
+          </div>
+          <div v-for="(m, i) in messages" :key="i" class="ws-msg-row" :class="{ me: m.role === 'user' }">
+            <span class="ws-msg-av" :class="m.role === 'user' ? 'me' : m.agent || 'run'" aria-hidden="true"><Ico :name="m.role === 'user' ? 'user' : agentById(m.agent).icon" :size="14" /></span>
+          <div class="ws-msg" :class="{ me: m.role === 'user', error: m.error || /^Could not answer/.test(m.text || '') }">
             <small>
               {{ m.role === 'user' ? `You → ${agentById(m.agent).label}` : m.who || 'MarketMirror' }}
               <span v-if="m.role !== 'user' && m.simulated" class="pill sim xs">Simulated</span>
+              <time v-if="m.at" :datetime="new Date(m.at).toISOString()">{{ timeAgo(m.at) }}</time>
+              <button type="button" class="ws-msg-copy" :aria-label="`Copy message ${i + 1}`" title="Copy" @click="copyText(m.text)"><Ico name="copy" :size="13" /></button>
             </small>
             <span class="ws-msg-text">{{ m.text }}</span>
             <div v-if="m.chartKey && chartFor(m)" class="ws-box" style="margin-top: 10px">
@@ -54,7 +75,8 @@
               </li>
             </ol>
           </div>
-          <p v-if="busy" class="ws-note" role="status">{{ busyNote }}</p>
+          </div>
+          <p v-if="busy" class="ws-typing" role="status"><span class="ws-dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ busyNote }}</p>
         </div>
 
         <div class="ws-dock">
@@ -75,8 +97,8 @@
           <div class="ws-composer">
             <label class="sr-only" for="ws-ask">Message to {{ agentById(agent).label }}</label>
             <div v-if="attachment" class="ws-attached">
-              <span>📎 {{ attachment.name }}</span>
-              <button type="button" aria-label="Remove attachment" @click="attachment = null">×</button>
+              <Ico name="file" :size="14" /><span>{{ attachment.name }}</span>
+              <button type="button" aria-label="Remove attachment" @click="attachment = null"><Ico name="x" :size="14" /></button>
             </div>
             <textarea
               id="ws-ask"
@@ -90,7 +112,7 @@
               @keydown="onKey"
             ></textarea>
             <div class="ws-composer-row">
-              <button type="button" class="ws-chip icon" aria-label="Attach a text file" @click="fileInput.click()">📎</button>
+              <button type="button" class="ws-icon-btn" aria-label="Attach a text file" title="Attach a text, Markdown or CSV file (up to 60 KB)" @click="fileInput.click()"><Ico name="attach" /></button>
               <input ref="fileInput" type="file" accept=".txt,.md,.csv,.json" class="sr-only" tabindex="-1" @change="onAttach" />
               <select v-if="agent === 'person'" v-model.number="personId" class="ws-chip" aria-label="Simulated person to talk to">
                 <option v-for="p in people" :key="p.agent_id" :value="p.agent_id">
@@ -106,8 +128,10 @@
                   <option v-for="s in segments" :key="s" :value="s">{{ s }}</option>
                 </select>
               </template>
-              <span class="ws-chip ghost" :title="agentById(agent).title">{{ agentById(agent).icon }} {{ agentById(agent).label }}</span>
-              <button type="button" class="ws-send" :disabled="!canSend" :aria-label="`Send to ${agentById(agent).label}`" @click="ask(draft)">↑</button>
+              <div class="ws-composer-end">
+                <span class="ws-composer-to" :title="agentById(agent).title"><Ico :name="agentById(agent).icon" :size="14" />{{ agentById(agent).label }}<span v-if="agentById(agent).paid" class="ws-paid">$</span></span>
+                <button type="button" class="ws-send" :disabled="!canSend" :aria-label="`Send to ${agentById(agent).label}`" @click="ask(draft)"><Ico name="send" :size="17" :stroke="2.2" /></button>
+              </div>
             </div>
             <p class="ws-note">{{ modeNote }}</p>
           </div>
@@ -130,7 +154,7 @@
           :tabindex="tab === t.id ? 0 : -1"
           @click="tab = t.id"
         >
-          {{ t.label }}<span v-if="t.id === 'status' && isRunning" class="ws-live-dot" aria-label="running"></span>
+          <Ico :name="t.icon" :size="14" />{{ t.label }}<span v-if="t.id === 'status' && isRunning" class="ws-live-dot" aria-label="running"></span>
         </button>
       </div>
       <div :id="`ws-panel-${tab}`" class="ws-tabpanel" role="tabpanel" :aria-labelledby="`ws-tab-${tab}`" tabindex="0">
@@ -191,7 +215,7 @@
             </dl>
             <ol v-if="status.stages?.length" class="ws-stages" aria-label="Stages">
               <li v-for="s in status.stages" :key="s.id" :class="{ done: s.done }">
-                <span aria-hidden="true">{{ s.done ? '✓' : '○' }}</span>{{ s.label }}<span class="sr-only">{{ s.done ? ' done' : ' not done' }}</span>
+                <Ico :name="s.done ? 'done' : 'circle'" :size="15" />{{ s.label }}<span class="sr-only">{{ s.done ? ' done' : ' not done' }}</span>
               </li>
             </ol>
             <div v-if="roundsChart" class="ws-box">
@@ -217,10 +241,10 @@
             </header>
             <p>{{ post.text }}</p>
             <footer>
-              <span :aria-label="`${post.likes} likes`">♥ {{ post.likes }}</span>
-              <span v-if="post.dislikes" :aria-label="`${post.dislikes} dislikes`">↓ {{ post.dislikes }}</span>
-              <span :aria-label="`${post.comments.length} comments`">💬 {{ post.comments.length }}</span>
-              <span v-if="post.quotes" :aria-label="`${post.quotes} quotes`">❝ {{ post.quotes }}</span>
+              <span :aria-label="`${post.likes} likes`"><Ico name="star" :size="13" />{{ post.likes }}</span>
+              <span v-if="post.dislikes" :aria-label="`${post.dislikes} dislikes`"><Ico name="no" :size="13" />{{ post.dislikes }}</span>
+              <span :aria-label="`${post.comments.length} comments`"><Ico name="chat" :size="13" />{{ post.comments.length }}</span>
+              <span v-if="post.quotes" :aria-label="`${post.quotes} quotes`"><Ico name="refresh" :size="13" />{{ post.quotes }}</span>
             </footer>
             <div v-for="(c, j) in post.comments.slice(0, 2)" :key="j" class="ws-comment">
               <b>{{ c.author?.name || 'Someone' }}</b> {{ c.content }}
@@ -237,8 +261,9 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import EChart from './EChart.vue'
 import Market3D from './Market3D.vue'
+import Ico from './Ico.vue'
 import { api, download, openHtml } from '../../workspace/api.js'
-import { agent, agentById, pending } from '../../workspace/agents.js'
+import { agent, agentById, exportChat, pending, pins, timeAgo, togglePin } from '../../workspace/agents.js'
 import {
   creativesOption, hasWebGL, intentOption, localAnswer, market2dOption, marketGraph, objectionsOption, palette, peopleOption,
   roundsOption, segmentsOption
@@ -254,7 +279,8 @@ const props = defineProps({
 const detail = ref(null), loading = ref(true), error = ref('')
 const survey = ref(null), feed = ref(null), graph = ref(null), config = ref(null), story = ref(null), harvest = ref(null), status = ref(null)
 const tab = ref('thinking')
-const tabs = [{ id: 'thinking', label: 'Thinking' }, { id: 'market', label: '3D market' }, { id: 'status', label: 'Live status' }, { id: 'feed', label: 'Social feed' }]
+const tabs = [{ id: 'thinking', label: 'Thinking', icon: 'brain' }, { id: 'market', label: '3D market', icon: 'network' },
+  { id: 'status', label: 'Status', icon: 'activity' }, { id: 'feed', label: 'Feed', icon: 'feed' }]
 const messages = ref([]), draft = ref(''), busy = ref(false), busyNote = ref(''), focused = ref(false), active = ref(0)
 const personId = ref(null), scroller = ref(null), fileInput = ref(null), attachment = ref(null)
 const groupSize = ref(5), groupSegment = ref(''), thoughtSource = ref(''), platform = ref('')
@@ -356,7 +382,50 @@ watch(messages, (v) => {
   }
 }, { deep: true })
 
+const stepIcon = { people: 'users', feed: 'megaphone', intent: 'trend', segments: 'target', objections: 'no', files: 'file' }
+const pinKey = computed(() => (props.name ? `r:${props.name}` : `s:${props.sim}`))
+const pinned = computed(() => pins.value.includes(pinKey.value))
+const note = ref('')
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(String(text || ''))
+    note.value = 'Copied'
+  } catch {
+    note.value = 'Copy is blocked in this browser'
+  }
+  setTimeout(() => (note.value = ''), 1800)
+}
+const copyLink = () => copyText(location.origin + location.pathname)
+function clearChat() {
+  if (window.confirm('Clear this chat from this browser? This cannot be undone.')) messages.value = []
+}
+const starters = computed(() => ({
+  run: ['Which audience should we target?', 'Why did people say no?', 'Which ad worked best?', 'How many would buy?'],
+  report: ['What are the three biggest risks in this launch?', 'Which message should we lead with, and why?', 'What should we test with real people first?'],
+  person: ['Would you pay for this? Why or why not?', 'What would make you sign up today?', 'What worries you about it?'],
+  focus: ['What is your first reaction to this offer?\nWhat would stop you from signing up?', 'Which price feels fair, and why?']
+})[agent.value])
+function startWith(s) {
+  if (agentById(agent.value).paid) {
+    draft.value = s // paid agents: fill the box, you press send
+    nextTick(() => document.getElementById('ws-ask')?.focus())
+  } else ask(s)
+}
+
 const mk = computed(() => detail.value?.summary?.marketing || null)
+const kpis = computed(() => {
+  const out = []
+  const n = people.value.length || detail.value?.people
+  if (n) out.push({ icon: 'users', value: Number(n).toLocaleString(), label: 'simulated people' })
+  if (segments.value.length) out.push({ icon: 'target', value: segments.value.length, label: 'segments' })
+  const o = mk.value?.overall
+  if (o?.convert_yes !== undefined) out.push({ icon: 'trend', value: `${o.convert_yes}%`, label: 'say they would convert' })
+  const per = feed.value?.summary?.per_creative || {}
+  const best = Object.values(per).map((x) => x?.expected_ctr).filter((x) => typeof x === 'number').sort((a, b) => b - a)[0]
+  if (best !== undefined) out.push({ icon: 'megaphone', value: `${best}%`, label: 'best expected click-through' })
+  if (harvest.value?.total) out.push({ icon: 'brain', value: harvest.value.total, label: 'thoughts and posts' })
+  return out
+})
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter((r) => (r.kind || 'persona') === 'persona'))
 const segments = computed(() => [...new Set(people.value.map((r) => r.segment).filter(Boolean))])
@@ -568,7 +637,7 @@ async function ask(text) {
       await runFocusGroup(text, att?.text || '')
     }
   } catch (e) {
-    say({ role: 'assistant', who: agentById(who).label, text: `Could not answer: ${e.message}` })
+    say({ role: 'assistant', who: agentById(who).label, agent: who, error: true, text: `Could not answer: ${e.message}` })
   } finally {
     busy.value = false
     focused.value = false
