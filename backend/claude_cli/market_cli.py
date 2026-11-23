@@ -989,6 +989,37 @@ def focus_group(c, simulation_id: str, guide: List[str], out_dir: str, log, peop
             "usage": result.get("usage")}
 
 
+def questionnaire(c, simulation_id: str, questions: Any, out_dir: str, log, people: int = 0, segment: str = "",
+                  seed: int = 7, agent_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+    """Your own questions answered by the saved personas -> questionnaire.json, .csv (one row per person) and .md."""
+    body = {"simulation_id": simulation_id, "questions": questions, "people": people, "segment": segment, "seed": seed,
+            **({"agent_ids": agent_ids} if agent_ids else {})}
+    started = c.data("POST", "/api/simulation/questionnaire", json={**body, **_scope(c)}, timeout=120)
+    log(f"questionnaire: {started.get('people')} people, {started.get('questions')} questions "
+        f"(about {started.get('people')} calls)")
+    wait_task(c, started["task_id"], "questionnaire", log)
+    result = c.data("GET", f"/api/simulation/{simulation_id}/questionnaire")
+    os.makedirs(out_dir, exist_ok=True)
+    paths = {k: os.path.join(out_dir, "questionnaire." + k) for k in ("json", "csv", "md")}
+    rows = result.pop("csv_rows", None) or []
+    markdown = result.pop("markdown", "") or ""
+    with open(paths["json"], "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    with open(paths["csv"], "w", encoding="utf-8", newline="") as f:
+        if rows:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+    with open(paths["md"], "w", encoding="utf-8") as f:
+        f.write(markdown)
+    flagged = result.get("too_alike") or []
+    log(f"questionnaire: {result.get('answered')} of {result.get('people')} answered"
+        + (f"; answers barely vary on {', '.join(flagged)}" if flagged else ""))
+    return {"questionnaire": os.path.abspath(paths["json"]), "csv": os.path.abspath(paths["csv"]),
+            "markdown": os.path.abspath(paths["md"]), "answered": result.get("answered"), "too_alike": flagged,
+            "position_check": result.get("position_check"), "usage": result.get("usage")}
+
+
 def _describe_ad_rows(c, log, rows: List[Dict[str, Any]], base_dir: str, batch: int = 8) -> None:
     """Fill visual_notes from the picture for rows that carry image / image_url / video (in place)."""
     todo = []

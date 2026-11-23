@@ -340,6 +340,38 @@ Feed-test result.
 
 Returns: feed_test.json
 
+### `POST /api/simulation/questionnaire`
+
+Your own questionnaire (scale, nps, choice, multi, open) answered by the saved personas, option order shuffled per person; background task.
+
+Request body:
+
+```json
+{
+  "simulation_id": "sim_x",
+  "questions": [
+    {
+      "id": "trust",
+      "text": "How much do you trust us?",
+      "type": "scale",
+      "low": 1,
+      "high": 5
+    }
+  ],
+  "people": 0,
+  "segment": "",
+  "seed": 7
+}
+```
+
+Returns: {task_id, people, questions}
+
+### `GET /api/simulation/{simulation_id}/questionnaire`
+
+Questionnaire result: per-question distributions by segment, too-alike and position checks.
+
+Returns: questionnaire.json
+
 ### `POST /api/simulation/email-test`
 
 Email campaign test in simulated inboxes; background task.

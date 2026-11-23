@@ -1777,6 +1777,19 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
                 state["focus_group"] = None
             steps.append("focus_group")
             checkpoint()
+        qcfg = cfg.get("questionnaire")
+        if isinstance(qcfg, dict) and qcfg.get("questions") and not (cfg.get("resume_steps") and state.get("questionnaire")):
+            try:
+                state["questionnaire"] = market_cli.questionnaire(
+                    c, sid, qcfg["questions"], out_dir, log, int(qcfg.get("people") or 0), str(qcfg.get("segment") or ""),
+                    int(qcfg.get("seed") if qcfg.get("seed") is not None else 7))
+            except CLIError as e:
+                if cap_id and spend_cap_stopped(e):
+                    raise
+                log(f"collect: skipped questionnaire: {e}")
+                state["questionnaire"] = None
+            steps.append("questionnaire")
+            checkpoint()
         emails = cfg.get("emails")
         if emails:
             epath = _cfg_path(base, emails)
@@ -2017,6 +2030,22 @@ def cmd_focus_group(c: Client, a) -> Any:
     if os.path.exists(os.path.join(out_dir, "run_manifest.json")):
         res["export"] = do_export(out_dir, os.path.join(out_dir, "dashboard.html"), None)
     return res
+
+
+def cmd_questionnaire(c: Client, a) -> Any:
+    out_dir = a.run_dir or os.path.join("mirofish_runs", a.simulation)
+    raw = read_text_arg(a.questions) or ""
+    try:
+        questions = json.loads(raw) if raw.strip()[:1] in "[{" else raw
+    except ValueError as e:
+        raise CLIError(f"questionnaire: --questions is not valid JSON: {e}")
+    if isinstance(questions, dict):
+        questions = questions.get("questions") or []
+    try:
+        return market_cli.questionnaire(c, a.simulation, questions, out_dir, log, a.people, a.segment or "", a.seed,
+                                        a.agents)
+    except (ValueError, RuntimeError, OSError) as e:
+        raise CLIError(str(e))
 
 
 def _bench_complete():
@@ -3123,6 +3152,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--rounds", type=int, default=1, help="passes per question (2 adds 'did anything change your mind?')")
     s.add_argument("--run-dir", help="where focus_group.json lands (default mirofish_runs/<simulation>)")
 
+    s = sub.add_parser("questionnaire", help="your own questions (scale, nps, choice, multi, open) answered by the "
+                                             "saved personas, with option order shuffled per person")
+    s.add_argument("--simulation", required=True)
+    s.add_argument("--questions", required=True, help="@questions.json ({questions: [{id, text, type, options, low, "
+                                                     "high}]}) or @questions.md (one per line; end with [1-5], "
+                                                     "{A | B | C}, {A | B}+ or [nps])")
+    s.add_argument("--people", type=int, default=0, help="how many people (default: everyone)")
+    s.add_argument("--segment", help="only this segment")
+    s.add_argument("--agents", type=int, nargs="+", help="explicit agent ids instead")
+    s.add_argument("--seed", type=int, default=7, help="seed for the option order")
+    s.add_argument("--run-dir", help="where questionnaire.json/.csv/.md land (default mirofish_runs/<simulation>)")
+
     s = sub.add_parser("bench", help="MarketMirror-Bench: score simulated answers against open human data (Upworthy "
                                      "headline tests, Twin-2K-500) next to simpler comparators; dry run unless --approve-spend")
     s.add_argument("--suite", required=True, choices=["upworthy", "twin2k"])
@@ -3586,7 +3627,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test, "seed-check": cmd_seed_check,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "questionnaire": cmd_questionnaire, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,

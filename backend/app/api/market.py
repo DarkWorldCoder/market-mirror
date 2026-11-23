@@ -39,7 +39,8 @@ logger = get_logger('mirofish.api.market')
 RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.json",
                 "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json",
                 "website-test": "website_test.json", "thought-stream": "thought_stream.json",
-                "focus-group": "focus_group.json", "choice-test": "choice_test.json"}
+                "focus-group": "focus_group.json", "choice-test": "choice_test.json",
+                "questionnaire": "questionnaire.json"}
 
 
 @simulation_bp.route('/website-test', methods=['POST'])
@@ -580,6 +581,37 @@ def start_focus_group():
                                               "questions": len([q for q in guide if str(q).strip()])}})
 
 
+@simulation_bp.route('/questionnaire', methods=['POST'])
+def start_questionnaire():
+    """POST {simulation_id, questions: [...] or text lines, title?, intro?, people?, segment?, agent_ids?, seed?}
+    -> background task writing questionnaire.json: your own questions answered by the saved personas."""
+    from ..services import questionnaire
+    data = request.get_json() or {}
+    sid = data.get("simulation_id")
+    try:
+        _sim_dir(sid or "")
+        people, _ = _people(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    try:
+        raw = data.get("questions")
+        spec = questionnaire.normalize(raw if isinstance(raw, (str, dict)) else
+                                       {"questions": raw, "title": data.get("title"), "intro": data.get("intro")})
+        seed = int(data.get("seed") if data.get("seed") is not None else 7)
+        limit = int(data.get("people") or 0)
+    except (ValueError, TypeError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    group = pick_group(_with_history(people, sid, _memory_scope(data), _emotion_mode(data)),
+                       limit if limit > 0 else len(people), str(data.get("segment") or ""), data.get("agent_ids"))
+    if not group:
+        return jsonify({"success": False, "error": "no matching people: prepare the simulation or change the segment"}), 400
+    complete = _plain_complete(temperature=0.8, max_tokens=300 + 120 * len(spec["questions"]))
+    task_id = _start("questionnaire", sid, lambda progress: questionnaire.run(group, spec, complete, seed=seed,
+                                                                             progress=progress))
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(group),
+                                              "questions": len(spec["questions"])}})
+
+
 @simulation_bp.route('/creative-check', methods=['POST'])
 def creative_check():
     """POST {creatives: [{id, platform, image (data URI / https) or frames, text?, headline?, cta?, page?}]} ->
@@ -1098,6 +1130,7 @@ def market_task_status():
 @simulation_bp.route('/<simulation_id>/email-test', methods=['GET'], defaults={"kind": "email-test"})
 @simulation_bp.route('/<simulation_id>/choice-test', methods=['GET'], defaults={"kind": "choice-test"})
 @simulation_bp.route('/<simulation_id>/focus-group', methods=['GET'], defaults={"kind": "focus-group"})
+@simulation_bp.route('/<simulation_id>/questionnaire', methods=['GET'], defaults={"kind": "questionnaire"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
         return jsonify({"success": False, "error": "not found"}), 404
