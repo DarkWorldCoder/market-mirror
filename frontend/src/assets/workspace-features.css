@@ -100,3 +100,19 @@ html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparen
 .dw-card-meta > span:not(.dw-decision) { border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .dw-card-meta > span { display: inline-block; width: auto; }
+
+/* Guided experiment setup shown inside a chat message */
+.direct-experiment { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.workflow-app.embedded { min-height: 0; background: transparent; font-family: inherit; font-size: 14px; }
+.workflow-app.embedded .app-main { max-width: none; padding: 16px 18px 20px; }
+.workflow-app.embedded .workspace-layout { display: block; }
+.workflow-app.embedded .workspace-layout > * + * { margin-top: 16px; }
+.workflow-app.embedded .section-heading h2 { font-size: 16px; }
+.workflow-app.embedded .recipes-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.workflow-app.embedded .editor-heading h1 { font-size: 20px; }
+.workflow-app.embedded .recent { margin-top: 18px; }
+.ws[data-theme='dark'] .workflow-app.embedded { --ink: #ececec; --muted: #a4ada8; --line: #2a2c30; --light: #1c1d20; --green: #5fc79a; color: var(--ink); }
+.ws[data-theme='dark'] .workflow-app.embedded input,
+.ws[data-theme='dark'] .workflow-app.embedded textarea,
+.ws[data-theme='dark'] .workflow-app.embedded select { background: #1c1d20; color: #ececec; border-color: #2a2c30; }
+.ws[data-theme='dark'] .workflow-app.embedded .recipe { background: #1c1d20; color: #ececec; }

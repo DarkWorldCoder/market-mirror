@@ -29,6 +29,7 @@
           <details v-if="m.trace?.length" class="direct-trace"><summary><CheckCheck />{{ m.trace.length }} activity steps</summary><p v-for="(step,i) in m.trace" :key="i"><Check v-if="step.status === 'completed'" /><CircleAlert v-else />{{ step.label || step.tool }}<span>{{ step.status }}</span></p></details>
           <div v-if="m.runs?.length" class="direct-run-list"><button v-for="r in m.runs" :key="r.name" @click="openEvidenceInChat(r.name, m.runIntent || 'reports')"><FileChartColumn /><span><b>{{ r.title || r.name }}</b><small>{{ r.people == null ? 'Saved experiment' : `${r.people} simulated participants` }}{{ r.decision ? ` · ${r.decision}` : '' }}</small></span><ChevronRight /></button></div>
           <RunAudienceCard v-if="m.audience_run" :name="m.audience_run" :theme="theme" />
+          <div v-if="m.experiment_setup" class="direct-experiment"><ExperimentSetup embedded :initial-workflow="m.experiment_setup.workflow || ''" @workflow="(id) => { m.experiment_setup.workflow = id; persist() }" /></div>
           <BrowserObservation
             v-for="observation in m.browser_observations || []"
             :key="observation.session_id"
@@ -146,6 +147,7 @@ import RequestActivity from './RequestActivity.vue'
 import BrowserObservation from './BrowserObservation.vue'
 import BrowserActivity from './BrowserActivity.vue'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const ExperimentSetup = defineAsyncComponent(() => import('../../views/Home.vue'))
 import ChatConnections from './ChatConnections.vue'
 import SkillPalette from './SkillPalette.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
@@ -322,9 +324,20 @@ function selectFeature(feature) {
   else if (feature.action === 'models') openModelPicker()
   else if (feature.action === 'project') createProject()
   else if (feature.action === 'analyze') openWebPreview()
-  else if (feature.action === 'experiment') router.push('/start')
+  else if (feature.action === 'experiment') startExperiment()
   else if (feature.action === 'runs') send('Show my saved runs and reports.')
   else setDraft(feature.prompt)
+}
+// A new experiment is set up inside the conversation, as one step of the chat, not on a separate page.
+async function startExperiment() {
+  if (!conversationId.value) {
+    conversationId.value = uid()
+    await router.replace({ path: route.path, query: { chat: conversationId.value, ...(activeProject.value ? { project: activeProject.value.id } : {}) } })
+  }
+  messages.value.push({ id: uid(), role: 'user', content: 'Set up a new experiment' })
+  messages.value.push({ id: uid(), role: 'assistant', content: 'Let’s set it up here. Pick what you are deciding, describe your product and the two ideas to compare, then review the plan. Nothing that costs money runs until you approve it, and every answer comes from simulated buyers.', experiment_setup: { workflow: '' } })
+  persist()
+  scrollBottom()
 }
 async function handleRouteAction() {
  const action = route.query.action

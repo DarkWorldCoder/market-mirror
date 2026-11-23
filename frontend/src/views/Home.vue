@@ -1,7 +1,7 @@
 <template>
-  <div class="workflow-app">
-    <a class="skip-link" href="#workspace">Skip to content</a>
-    <header class="app-header">
+  <div class="workflow-app" :class="{ embedded }">
+    <a v-if="!embedded" class="skip-link" href="#workspace">Skip to content</a>
+    <header v-if="!embedded" class="app-header">
       <RouterLink to="/" class="brand" @click="home" aria-label="MarketMirror home">
         <MarketMirrorLogo class="home-brand-mark" :size="28" />
         <span>MarketMirror</span><span class="home-app-tag">Workspace</span>
@@ -24,7 +24,7 @@
         >
       </nav>
     </header>
-    <main id="workspace" class="app-main">
+    <main :id="embedded ? undefined : 'workspace'" class="app-main">
       <p v-if="error" class="notice error" role="alert">
         {{ error }}
         <button class="text-button" @click="error = ''">Dismiss</button>
@@ -42,7 +42,7 @@
       </p>
 
       <template v-if="screen === 'home'">
-        <section class="welcome" aria-labelledby="home-title">
+        <section v-if="!embedded" class="welcome" aria-labelledby="home-title">
           <div class="welcome-copy">
             <p class="local-label"><span aria-hidden="true"></span>Your local market rehearsal</p>
             <h1 id="home-title">Rehearse your<br />next move.</h1>
@@ -70,7 +70,7 @@
             <div class="preview-bottomline"><span class="preview-check"><Check :size="13" aria-hidden="true" /></span>Choose the next experiment with real buyers.</div>
           </div>
         </section>
-        <section class="home-pathways" aria-label="Explore your workspace">
+        <section v-if="!embedded" class="home-pathways" aria-label="Explore your workspace">
           <RouterLink to="/workspace/skills"><span class="home-pathway-icon"><Shapes :size="19" aria-hidden="true" /></span><div><strong>Choose a test</strong><span>Research, pricing, campaigns and sales</span></div><ChevronRight :size="16" aria-hidden="true" /></RouterLink>
           <RouterLink to="/workspace"><span class="home-pathway-icon"><UsersRound :size="19" aria-hidden="true" /></span><div><strong>Explore your audience</strong><span>Personas, market maps and activity</span></div><ChevronRight :size="16" aria-hidden="true" /></RouterLink>
           <RouterLink to="/workspace/reports"><span class="home-pathway-icon"><Files :size="19" aria-hidden="true" /></span><div><strong>Follow the evidence</strong><span>Every saved run, report and response</span></div><ChevronRight :size="16" aria-hidden="true" /></RouterLink>
@@ -115,8 +115,9 @@
           <RouterLink
             v-for="item in recent"
             :key="item.id"
-            :to="`/workflows/${item.id}`"
+            :to="embedded ? route.fullPath : `/workflows/${item.id}`"
             class="recent-row"
+            @click.capture="embedded && ($event.preventDefault(), action(() => load(item.id)), emit('workflow', item.id))"
             ><div>
               <strong>{{ item.inputs.name || 'Untitled comparison' }}</strong
               ><span
@@ -673,7 +674,7 @@
         </div>
       </template>
     </main>
-    <footer class="app-footer">
+    <footer v-if="!embedded" class="app-footer">
       <span>MarketMirror · Open source · Local workspace</span>
       <div class="home-footer-links"><a href="https://darkworldcoder.github.io/market-mirror/" target="_blank" rel="noopener noreferrer">About MarketMirror</a><RouterLink to="/legacy">Legacy projects</RouterLink><span>Rehearse. Learn. Test with real people.</span></div>
     </footer>
@@ -686,6 +687,10 @@ import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowUpRight, ChartNoAxesCombined, Check, ChevronRight, Files, FileText, LayoutDashboard, Shapes, Split, UserRound, UsersRound } from 'lucide-vue-next'
+// Inside the chat the setup runs as one step of the conversation: no page header, landing hero or address changes;
+// the draft id is handed back to the chat message so reopening the chat reopens the draft.
+const props = defineProps({ embedded: { type: Boolean, default: false }, initialWorkflow: { type: String, default: '' } })
+const emit = defineEmits(['workflow'])
 const route = useRoute(),
   router = useRouter()
 const demo = 'https://darkworldcoder.github.io/market-mirror/demo/'
@@ -878,7 +883,8 @@ function home() {
   record.value = null
   results.value = null
   quote.value = null
-  router.push('/start')
+  if (!props.embedded) router.push('/start')
+  else emit('workflow', '')
   if (token.value)
     refreshRecent().catch((e) => {
       error.value = e.message
@@ -912,7 +918,8 @@ async function persist() {
     json(record.value ? 'PUT' : 'POST', { inputs: clean() })
   )
   record.value = value
-  await router.replace(`/workflows/${value.id}`)
+  if (props.embedded) emit('workflow', value.id)
+  else await router.replace(`/workflows/${value.id}`)
   if (activeSeconds) {
     localEvent('active_seconds', {
       workflow_id: value.id,
@@ -959,7 +966,8 @@ async function editComparison() {
     quote.value = null
     worksheet.value = ''
     screen.value = 'brief'
-    await router.replace(`/workflows/${record.value.id}`)
+    if (props.embedded) emit('workflow', record.value.id)
+    else await router.replace(`/workflows/${record.value.id}`)
     focusTitle()
   })
 }
@@ -1093,7 +1101,7 @@ function statusLabel(item) {
 watch(
   () => route.params.workflowId,
   (id) => {
-    if (id) action(() => load(id))
+    if (id && !props.embedded) action(() => load(id))
   }
 )
 onMounted(async () => {
@@ -1117,7 +1125,8 @@ onMounted(async () => {
       recipes.value = meta.recipes
       provider.value = meta.provider
       await refreshRecent()
-      if (route.params.workflowId) await load(route.params.workflowId)
+      const startId = props.embedded ? props.initialWorkflow : route.params.workflowId
+      if (startId) await load(startId)
     })
   document.addEventListener('keydown', activity)
   document.addEventListener('pointerdown', activity)
