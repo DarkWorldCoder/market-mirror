@@ -747,7 +747,79 @@
         ],
         "responses": {
           "200": {
-            "description": "{name, title, decision, files, manifest, summary}",
+            "description": "{name, title, decision, files, manifest, summary, simulation_on_backend}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{name}/thoughts": {
+      "get": {
+        "summary": "What the simulated people wrote in this run (feed and landing thoughts, survey and pitch replies, posts), harvested from the run folder and the simulation folder; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{total, people, by_source, by_kind, entries: [{agent_id, name, segment, source, kind, text, did, context}]}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{name}/status": {
+      "get": {
+        "summary": "The run's stages, round status (live when the simulation is on this backend, else saved) and actions per round",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{simulation_id, live, run, stages: [{id, label, done}], rounds: [{round, actions, twitter, reddit, active}], started_at, finished_at}",
             "content": {
               "application/json": {
                 "schema": {

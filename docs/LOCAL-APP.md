@@ -114,22 +114,29 @@ automated fixture/browser checks are engineering evidence only.
 
 ## Workspace (chat with your runs)
 
-Open **Workspace** in the header, or `/workspace`, in the same app session. It lists the runs saved under
-`mirofish_runs/` (or `MIROFISH_RUNS_DIR`) and opens each as a page you can talk to:
+Open **Workspace** in the header, or `/workspace`, in the same app session. It opens dark (the sidebar toggles
+light) and lists the runs saved under `mirofish_runs/` (or `MIROFISH_RUNS_DIR`), plus simulations on this backend
+that have no run folder:
 
-- **Steps with charts.** People created, the feed test (expected click-through per ad), purchase intent, which
-  audience to target (with the shrunk-gap marker when the run has it), objections, and the files: `disclosure.md`,
-  `real_check.csv`, the reports and the full dashboard. Charts are Apache ECharts: hover for values, every chart is
-  labelled simulated.
-- **Chat.** "From the results" answers common questions (audience, objections, ads, intent, the people, the
-  decision) from the saved files with a chart, without a model call. "Ask a person" and "Report agent" send model
-  calls to your provider; the box says so before you send. ↑ ↓ pick a suggested question, Enter asks, Esc closes.
-- **Visuals.** Thinking (what the simulated people said and thought, from the saved answers), a 3D market of every
-  person grouped by segment (WebGL; drag to turn), shown as a 2D force map where the browser has no WebGL, and the
-  social feed.
-- **Skills and Connectors.** The test types and the data you can bring in (GA4, PostHog, ad exports, customer
-  records, real answers, agents over MCP), each with its command to copy.
+- **Home.** A chat box with attach (a text, Markdown or CSV file up to 60 KB, sent with your message), `@` to pick
+  the run, Skills and the model in use; quick actions under it; **Previous chats** (chats saved in this browser,
+  then runs and simulations, with "report ready" when the backend has a finished report) and **Suggested**.
+- **Agents.** The tabs at the top pick who answers: **Results** (common questions answered from the saved files
+  with a chart, no model call), **Report agent** (`POST /api/report/chat`), **Person** (one simulated person,
+  `POST /api/simulation/ask`) and **Focus group** (`POST /api/simulation/focus-group`; each line is a question,
+  then the transcript and the before/after verdicts). The three marked `$` send model calls to your provider; the
+  box says so before you send, and they need the run's simulation on this backend. Every answer is labelled
+  simulated. Chats are kept per run in this browser (`localStorage`) and listed under **Inbox**.
+- **Steps with charts.** People created, the feed test, purchase intent, which audience to target (with the
+  shrunk-gap marker), objections, and the files. Steps fold away once a chat starts.
+- **Visuals** beside the chat: **Thinking** (what the people thought, said and posted, by source, from
+  `GET /api/runs/<name>/thoughts`), **3D market** (3d-force-graph: people coloured by segment, linked to their
+  segment and communities, with the market map's entities and links; a 2D map where the browser has no WebGL),
+  **Live status** (stages, rounds and actions per round; refreshes every 5 s while a run is going, from
+  `GET /api/runs/<name>/status`) and **Social feed** (posts and replies by platform from `feed_story.json`).
+- **Skills and Connectors.** The test types and the data you can bring in, each with its command to copy.
 
-The workspace reads runs through `GET /api/runs`, `/api/runs/<name>` and `/api/runs/<name>/files/<file>`. They need
-the same local setup token and loopback connection as the rest of the app, and only read plain result files directly
-inside a run folder.
+The workspace reads runs through `GET /api/runs`, `/api/runs/<name>`, `/api/runs/<name>/thoughts`,
+`/api/runs/<name>/status` and `/api/runs/<name>/files/<file>`. They need the same local setup token and loopback
+connection as the rest of the app, and only read plain result files directly inside a run folder (and the run's
+simulation folder for thoughts and live status).
