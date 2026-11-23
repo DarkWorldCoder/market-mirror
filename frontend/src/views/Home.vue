@@ -7,7 +7,8 @@
         >MarketMirror</RouterLink
       >
       <nav aria-label="Main navigation">
-        <a :href="demo" target="_blank" rel="noopener noreferrer">Saved demo</a
+        <RouterLink to="/workspace">Workspace</RouterLink
+        ><a :href="demo" target="_blank" rel="noopener noreferrer">Saved demo</a
         ><a
           :href="settings"
           target="_blank"

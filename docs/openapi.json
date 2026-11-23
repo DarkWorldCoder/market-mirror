@@ -713,6 +713,112 @@
         ]
       }
     },
+    "/api/runs": {
+      "get": {
+        "summary": "Saved run folders (mirofish_runs or MIROFISH_RUNS_DIR), newest first; no model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{root, runs: [{name, title, decision, people, simulation_id, updated_at, has_dashboard}]}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/runs/{name}": {
+      "get": {
+        "summary": "One run: manifest, summary and the result files it has",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{name, title, decision, files, manifest, summary}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{name}/files/{filename}": {
+      "get": {
+        "summary": "A result file directly inside the run folder (.json parsed; .md, .csv, .html as files; ?download=1)",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "file contents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/graph/profile": {
       "post": {
         "summary": "Product profile from text/url/ads (no project)",

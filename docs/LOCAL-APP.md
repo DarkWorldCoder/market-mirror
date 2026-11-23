@@ -111,3 +111,25 @@ claiming an improvement. Five sessions alone do not establish a conversion effec
 
 Human sessions and a real paid-provider smoke test are outstanding until performed;
 automated fixture/browser checks are engineering evidence only.
+
+## Workspace (chat with your runs)
+
+Open **Workspace** in the header, or `/workspace`, in the same app session. It lists the runs saved under
+`mirofish_runs/` (or `MIROFISH_RUNS_DIR`) and opens each as a page you can talk to:
+
+- **Steps with charts.** People created, the feed test (expected click-through per ad), purchase intent, which
+  audience to target (with the shrunk-gap marker when the run has it), objections, and the files: `disclosure.md`,
+  `real_check.csv`, the reports and the full dashboard. Charts are Apache ECharts: hover for values, every chart is
+  labelled simulated.
+- **Chat.** "From the results" answers common questions (audience, objections, ads, intent, the people, the
+  decision) from the saved files with a chart, without a model call. "Ask a person" and "Report agent" send model
+  calls to your provider; the box says so before you send. ↑ ↓ pick a suggested question, Enter asks, Esc closes.
+- **Visuals.** Thinking (what the simulated people said and thought, from the saved answers), a 3D market of every
+  person grouped by segment (WebGL; drag to turn), shown as a 2D force map where the browser has no WebGL, and the
+  social feed.
+- **Skills and Connectors.** The test types and the data you can bring in (GA4, PostHog, ad exports, customer
+  records, real answers, agents over MCP), each with its command to copy.
+
+The workspace reads runs through `GET /api/runs`, `/api/runs/<name>` and `/api/runs/<name>/files/<file>`. They need
+the same local setup token and loopback connection as the rest of the app, and only read plain result files directly
+inside a run folder.

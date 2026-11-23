@@ -6,6 +6,7 @@ const SimulationView = () => import('../views/SimulationView.vue')
 const SimulationRunView = () => import('../views/SimulationRunView.vue')
 const ReportView = () => import('../views/ReportView.vue')
 const InteractionView = () => import('../views/InteractionView.vue')
+const Workspace = () => import('../views/Workspace.vue')
 
 const routes = [
   {
@@ -16,6 +17,9 @@ const routes = [
   { path: '/app', redirect: '/' },
   { path: '/workflows/:workflowId', name: 'Workflow', component: Home },
   { path: '/legacy', name: 'LegacyHome', component: LegacyHome },
+  { path: '/workspace', name: 'Workspace', component: Workspace },
+  { path: '/workspace/runs/:run', name: 'WorkspaceRun', component: Workspace },
+  { path: '/workspace/:page(projects|skills|connectors)', name: 'WorkspacePage', component: Workspace },
   {
     path: '/process/:projectId',
     name: 'Process',

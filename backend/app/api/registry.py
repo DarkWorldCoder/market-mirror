@@ -16,6 +16,10 @@ ENDPOINTS = [
     {"method": "POST", "path": "/api/workflows/source", "tag": "workflows", "summary": "Extract editable public page text or an uploaded PDF/Markdown/text file up to 5MB; no model calls", "body": {"url": "https://your-product.example"}, "upload": True, "returns": "{text, method, url?}"},
     {"method": "POST", "path": "/api/workflows/events", "tag": "workflows", "summary": "Record an allowlisted local usage event; no external telemetry", "body": {"name": "active_seconds", "workflow_id": None, "seconds": 20}, "returns": "{saved}"},
     {"method": "GET", "path": "/api/workflows/metrics", "tag": "workflows", "summary": "Local setup confirmations, completions, failures, retries and editing time; no product text", "returns": "local aggregate counts"},
+    # Local-only saved runs for the workspace dashboard: X-Setup-Token required.
+    {"method": "GET", "path": "/api/runs", "tag": "workflows", "summary": "Saved run folders (mirofish_runs or MIROFISH_RUNS_DIR), newest first; no model calls", "returns": "{root, runs: [{name, title, decision, people, simulation_id, updated_at, has_dashboard}]}"},
+    {"method": "GET", "path": "/api/runs/{name}", "tag": "workflows", "summary": "One run: manifest, summary and the result files it has", "returns": "{name, title, decision, files, manifest, summary}"},
+    {"method": "GET", "path": "/api/runs/{name}/files/{filename}", "tag": "workflows", "summary": "A result file directly inside the run folder (.json parsed; .md, .csv, .html as files; ?download=1)", "returns": "file contents"},
     # product understanding
     {"method": "POST", "path": "/api/graph/profile", "tag": "understand", "summary": "Product profile from text/url/ads (no project)",
      "body": {"text": "...", "url": "https://...", "ads_summary": {}, "name": "Brand"}, "returns": "product profile + quickstart_answers"},

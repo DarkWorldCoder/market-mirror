@@ -270,6 +270,24 @@ Local setup confirmations, completions, failures, retries and editing time; no p
 
 Returns: local aggregate counts
 
+### `GET /api/runs`
+
+Saved run folders (mirofish_runs or MIROFISH_RUNS_DIR), newest first; no model calls.
+
+Returns: {root, runs: [{name, title, decision, people, simulation_id, updated_at, has_dashboard}]}
+
+### `GET /api/runs/{name}`
+
+One run: manifest, summary and the result files it has.
+
+Returns: {name, title, decision, files, manifest, summary}
+
+### `GET /api/runs/{name}/files/{filename}`
+
+A result file directly inside the run folder (.json parsed; .md, .csv, .html as files; ?download=1).
+
+Returns: file contents
+
 ## Tests on simulated people
 
 ### `POST /api/simulation/website-test`
