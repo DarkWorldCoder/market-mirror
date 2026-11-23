@@ -75,7 +75,7 @@ html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparen
 .dw-chat-card { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-decoration: none; color: var(--text); min-width: 0; }
 .dw-chat-card:hover { border-color: var(--accent); background: var(--panel-2); }
 .dw-chat-card svg { color: var(--accent); flex: none; margin-top: 2px; }
-.dw-chat-card span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dw-chat-card > span:not(.dw-card-icon) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .dw-chat-card b { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dw-chat-card small { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; }
 .dw-chat-card em { font-style: normal; font-size: 11px; color: var(--muted); }
@@ -86,3 +86,17 @@ html { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 35%) transparen
 @media (max-width: 600px) {
   .direct-chat:not(.started) .direct-starters.four { grid-template-columns: minmax(0, 1fr); }
 }
+.dw-continue-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dw-continue-head h2 { margin: 0; }
+.dw-continue-head a { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); text-decoration: none; }
+.dw-continue-head a:hover { color: var(--text); }
+.dw-chat-card { align-items: stretch; }
+.dw-card-icon { width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--accent-2); color: var(--accent); }
+.dw-chat-card.run .dw-card-icon { background: color-mix(in srgb, var(--warm) 14%, transparent); color: var(--warm); }
+.dw-chat-card .dw-card-icon svg { margin: 0; color: inherit; }
+.dw-card-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.dw-card-kind { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.dw-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.dw-card-meta > span:not(.dw-decision) { border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dw-card-meta > span { display: inline-block; width: auto; }

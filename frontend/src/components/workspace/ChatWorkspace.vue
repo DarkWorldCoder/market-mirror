@@ -88,12 +88,20 @@
           <span class="dw-quick-label" :title="latestRun.title || latestRun.name">About {{ shortTitle(latestRun.title || latestRun.name, 38) }} <small>no model call</small></span>
           <button v-for="q in quickLooks" :key="q.label" type="button" @click="openQuick(q)"><component :is="q.icon" :size="14" aria-hidden="true" />{{ q.label }}</button>
         </section>
-        <section v-if="!messages.length && !activeProject && recentChats.length" class="dw-continue" aria-label="Continue where you left off">
-          <h2>Continue where you left off</h2>
+        <section v-if="!messages.length && !activeProject && continueItems.length" class="dw-continue" aria-labelledby="dw-continue-title">
+          <div class="dw-continue-head"><h2 id="dw-continue-title">Continue where you left off</h2><RouterLink v-if="recentChats.length" to="/workspace/inbox">Open inbox<ChevronRight :size="13" aria-hidden="true" /></RouterLink></div>
           <div class="dw-continue-row">
-            <RouterLink v-for="c in recentChats" :key="c.id" :to="{ path: '/', query: { chat: c.id, ...(c.project ? { project: c.project } : {}) } }" class="dw-chat-card">
-              <MessageSquare :size="15" aria-hidden="true" />
-              <span><b>{{ c.title || 'New chat' }}</b><small>{{ c.preview }}</small><em>{{ c.when }}</em></span>
+            <RouterLink v-for="c in continueItems" :key="c.key" :to="c.to" class="dw-chat-card" :class="c.kind">
+              <span class="dw-card-icon" aria-hidden="true"><component :is="c.kind === 'run' ? ChartNoAxesCombined : MessageSquare" :size="15" /></span>
+              <span class="dw-card-body">
+                <span class="dw-card-kind">{{ c.kind === 'run' ? 'Experiment' : 'Chat' }}<template v-if="c.when"> · {{ c.when }}</template></span>
+                <b :title="c.title">{{ c.title }}</b>
+                <small>{{ c.preview }}</small>
+                <span class="dw-card-meta">
+                  <span v-if="c.decision" class="dw-decision" :class="decisionTone(c.decision)">{{ decisionText(c.decision) }}</span>
+                  <span v-for="m in c.meta" :key="m">{{ m }}</span>
+                </span>
+              </span>
             </RouterLink>
           </div>
         </section>
@@ -403,9 +411,31 @@ const recentChats = ref([])
 function loadRecent() {
   recentChats.value = stored().filter((c) => Array.isArray(c.messages) && c.messages.length).slice(0, 3).map((c) => {
     const last = [...c.messages].reverse().find((m) => m.content) || {}
-    return { id: c.id, project: c.project, title: c.title, when: ago(c.updated), preview: String(last.content || '').replace(/[*#_`>]/g, '').slice(0, 90) }
+    return { id: c.id, project: c.project, run: c.run, count: c.messages.length, title: c.title, when: ago(c.updated), preview: `${last.role === 'user' ? 'You' : 'MarketMirror'}: ${String(last.content || '').replace(/[*#_`>]/g, '').slice(0, 110)}` }
   })
 }
+// recent chats first, then your latest experiments to fill the row
+const continueItems = computed(() => {
+  const runTitle = (name) => props.runs.find((r) => r.name === name)?.title || name
+  const items = recentChats.value.map((c) => ({
+    key: `c-${c.id}`, kind: 'chat', title: c.title || 'New chat', when: c.when, preview: c.preview,
+    meta: [`${c.count} messages`, ...(c.run ? [shortTitle(runTitle(c.run), 28)] : [])],
+    to: { path: '/', query: { chat: c.id, ...(c.project ? { project: c.project } : {}) } }
+  }))
+  const chatRuns = new Set(recentChats.value.map((c) => c.run).filter(Boolean))
+  for (const r of props.runs) {
+    if (items.length >= 3) break
+    if (chatRuns.has(r.name)) continue
+    const when = r.updated_at ? new Date(r.updated_at).getTime() : r.mtime ? r.mtime * 1000 : 0
+    items.push({
+      key: `r-${r.name}`, kind: 'run', title: r.title || r.name, when: when ? ago(when) : '', decision: r.decision,
+      preview: r.summary ? String(r.summary).slice(0, 110) : 'Open its reports, audience and recorded activity.',
+      meta: r.people ? [`${Number(r.people).toLocaleString()} simulated people`] : [],
+      to: { path: '/', query: { run: r.name, show: 'reports' } }
+    })
+  }
+  return items
+})
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 function stored() { try { const value = JSON.parse(localStorage.getItem(STORE) || '[]'); return Array.isArray(value) ? value : [] } catch { return [] } }
 function persist() {
