@@ -559,6 +559,20 @@
                           .join(' · ')
                       }}
                     </p>
+                    <p
+                      v-if="variant.fit && Object.keys(variant.fit).length"
+                      class="small-note"
+                    >
+                      Think they qualify:
+                      {{
+                        Object.entries(variant.fit)
+                          .map(([k, n]) => `${k} ${n}`)
+                          .join(' · ')
+                      }}
+                    </p>
+                    <p v-if="variant.moved_by?.length" class="small-note">
+                      Moved by: {{ variant.moved_by.join(' · ') }}
+                    </p>
                     <p v-if="variant.instead?.length" class="small-note">
                       Use today instead: {{ variant.instead.join(' · ') }}
                     </p>
@@ -690,6 +704,8 @@ const symbols = {
   committee: '◎',
   concept: '◇',
   statement: '❝',
+  job: '⚑',
+  appeal: '♡',
   regional: '文'
 }
 const recipes = ref([

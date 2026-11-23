@@ -28,6 +28,8 @@ RECIPES = [
     {"id": "committee", "name": "B2B buying committee", "question": "What might the team question?", "hint": "Describe two offers. Simulated users, managers and finance roles discuss them."},
     {"id": "concept", "name": "Product or pack concept", "question": "Which idea would people buy?", "hint": "Describe each concept as a shopper would see it: what it is, the price, the pack or format. Each person sees one at a time."},
     {"id": "statement", "name": "Announcement or crisis statement", "question": "Which wording keeps more trust?", "hint": "Paste two versions of a price change, recall, apology or policy statement. Name who receives it in the audience field."},
+    {"id": "job", "name": "Job posting", "question": "Would the right people apply?", "hint": "Paste two versions of the posting with the real pay, location and hours. Describe the candidates you want in the audience field."},
+    {"id": "appeal", "name": "Fundraising appeal", "question": "Which appeal moves people to give?", "hint": "Paste two versions of a donation email, letter or page. Put the organisation in the name field."},
     {"id": "regional", "name": "Regional messaging", "question": "Does the wording make sense in this market?", "hint": "Use the same offer and the target language. Validate with native speakers afterward."},
 ]
 IDS = {r["id"] for r in RECIPES}
@@ -420,11 +422,17 @@ def result(record):
                        "mean": round(sum(scores) / len(scores), 4) if scores else None,
                        "objections": list(dict.fromkeys(r["objection"] for r in rows if r.get("objection")))[:6],
                        "reactions": [r["reaction"] for r in rows if r.get("reaction")][:4]})
-        if record["inputs"]["recipe"] == "statement":     # what people would do, and the words that bothered them
+        recipe = record["inputs"]["recipe"]
+        if recipe == "statement":                         # what people would do
             groups[-1]["would_do"] = dict(Counter(r["would_do"] for r in rows if r.get("would_do")).most_common())
+        if recipe == "job":                               # whether people think they qualify
+            groups[-1]["fit"] = dict(Counter(r["fit"] for r in rows if r.get("fit")).most_common())
+        if recipe == "appeal":                            # what moved people
+            groups[-1]["moved_by"] = [x for x, _ in Counter(r["moved_by"] for r in rows if r.get("moved_by")).most_common(5)]
+        if recipe in ("statement", "job"):                # the exact words that bothered people
             groups[-1]["riskiest_phrases"] = [{"phrase": p, "people": n} for p, n in
                                               Counter(r["riskiest_phrase"] for r in rows if r.get("riskiest_phrase")).most_common(5)]
-        if record["inputs"]["recipe"] == "concept":       # what they use today instead
+        if recipe == "concept":                           # what they use today instead
             groups[-1]["instead"] = [x for x, _ in Counter(r["instead"] for r in rows if r.get("instead")).most_common(5)]
     complete = record["stages"].get("test", {}).get("status") == "completed"
     means = [g["mean"] for g in groups]
@@ -438,8 +446,10 @@ def result(record):
     what_differed = (f"The two versions differ by {gap * 100:.1f} percentage points in this simulation's descriptive score.") if comparable else \
         "The comparison is incomplete or lacks comparable scores. Review the saved evidence and remaining work."
     metrics = {"landing": "Simulated share who would continue", "committee": "Simulated share choosing buy", "email": "Simulated share clicking",
-               "concept": "Mean simulated chance of buying within a month", "statement": "Mean simulated trust after reading"}
-    leads = {"statement": "kept more simulated trust", "concept": "drew more simulated purchase interest"}
+               "concept": "Mean simulated chance of buying within a month", "statement": "Mean simulated trust after reading",
+               "job": "Mean simulated chance of applying", "appeal": "Mean simulated chance of giving"}
+    leads = {"statement": "kept more simulated trust", "concept": "drew more simulated purchase interest",
+             "job": "drew more simulated applications", "appeal": "moved more simulated people to give"}
     return {"evidence_type": "simulation", "complete": complete, "variants": groups,
             "metric_label": metrics.get(record["inputs"]["recipe"], "Mean model-reported click likelihood"),
             "failed_exposures": len(record.get("failed_exposures", [])),

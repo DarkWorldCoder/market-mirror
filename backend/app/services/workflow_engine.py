@@ -107,14 +107,17 @@ def test_one(client, model, inputs, person, variant):
         row = sessions[0]
         return {"score": float(row.get("action") == "click"), "raw": raw,
                 "objection": row.get("what_would_make_you_click", ""), "reaction": row.get("reason", "")}
-    if kind in ("concept", "statement"):
-        prompt = (idea_tests.concept_prompt(person, text, inputs["name"]) if kind == "concept"
-                  else idea_tests.statement_prompt(person, text, inputs["name"], inputs["audience"]))
+    if kind in ("concept", "statement", "job", "appeal"):
+        prompt = {"concept": lambda: idea_tests.concept_prompt(person, text, inputs["name"]),
+                  "statement": lambda: idea_tests.statement_prompt(person, text, inputs["name"], inputs["audience"]),
+                  "job": lambda: idea_tests.job_prompt(person, text, inputs["name"], inputs["audience"]),
+                  "appeal": lambda: idea_tests.appeal_prompt(person, text, inputs["name"])}[kind]()
         asked = gtm_suite.ask_people(client, model, [{"person": person, "prompt": prompt}], parallel=1, max_tokens=500)
         if not asked or not asked[0].get("ok"):
             raise RuntimeError("Model did not return a usable reaction. Retry the failed exposure.")
         answer = asked[0]["data"]
-        read = idea_tests.read_concept(answer) if kind == "concept" else idea_tests.read_statement(answer, text)
+        read = {"concept": lambda: idea_tests.read_concept(answer), "statement": lambda: idea_tests.read_statement(answer, text),
+                "job": lambda: idea_tests.read_job(answer, text), "appeal": lambda: idea_tests.read_appeal(answer)}[kind]()
         return {**read, "raw": {"answer": answer, "provider": asked[0].get("provider"), "model": asked[0].get("model")}}
     creative = {"headline": text.splitlines()[0], "text": text, "cta": "",
                 "platform": inputs["platform"]}
