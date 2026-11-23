@@ -16,7 +16,7 @@
       <div v-if="numberEntries.length" class="result-metrics"><article v-for="([key,item]) in numberEntries" :key="key"><span>{{ label(key) }}</span><strong :title="String(item)">{{ formatNumber(item) }}</strong></article></div>
       <div v-if="textEntries.length" class="result-narrative"><article v-for="([key,item]) in textEntries" :key="key"><h5>{{ Array.isArray(value) ? Number(key) + 1 : label(key) }}</h5><p>{{ item === null || item === '' ? 'Not recorded' : typeof item === 'boolean' ? item ? 'Yes' : 'No' : item }}</p></article></div>
       <details v-for="([key,item], index) in nestedEntries" :key="key" :open="openSection(key,index)"><summary>{{ Array.isArray(value) ? Number(key) + 1 : label(key) }}<small>{{ Array.isArray(item) ? item.length + ' recorded entries' : '' }}</small></summary><ResultTree :value="item" :theme="theme" :depth="depth + 1" /></details>
-      <details v-if="technicalEntries.length" class="result-technical"><summary>Advanced record details</summary><dl><template v-for="([key,item]) in technicalEntries" :key="key"><dt>{{ label(key) }}</dt><dd><ResultTree v-if="!isSimple(item)" :value="item" :theme="theme" :depth="depth + 1" /><span v-else>{{ item }}</span></dd></template></dl></details>
+      <details v-if="technicalEntries.length" class="result-technical"><summary>Technical details</summary><dl><template v-for="([key,item]) in technicalEntries" :key="key"><dt>{{ label(key) }}</dt><dd><ResultTree v-if="!isSimple(item)" :value="item" :theme="theme" :depth="depth + 1" /><span v-else>{{ item }}</span></dd></template></dl></details>
       <p v-if="!Object.keys(value || {}).length" class="ws-note">No entries recorded.</p>
     </template>
   </div>
@@ -25,14 +25,14 @@
 import { computed, ref, watch } from 'vue'
 import EChart from './EChart.vue'
 import { palette } from '../../workspace/charts.js'
-import { readableLabel, tableRows } from '../../workspace/reportPresentation'
+import { readableLabel, tableRows, technicalKey } from '../../workspace/reportPresentation'
 const props = defineProps({ value: { default: null }, theme: { default: 'light' }, depth: { type: Number, default: 0 } })
 const fieldLabels = { n: 'Recorded count', people: 'Simulated participants', agents: 'Participant count', convert_yes: 'Would convert: yes', convert_maybe: 'Would convert: maybe', convert_no: 'Would convert: no', by_segment: 'Results by audience segment', by_country: 'Results by country', by_community: 'Results by community', by_age: 'Results by age', marketing: 'Audience findings', decision: 'Saved decision', persona_index: 'Persona profiles', funnel: 'Buyer funnel', pricing: 'Pricing reactions' }
 const label = key => fieldLabels[key] || readableLabel(key)
 const isSimple = (x) => x === null || typeof x !== 'object'
 const scalar = computed(() => isSimple(props.value))
 const entries = computed(() => Object.entries(props.value || {}))
-const technical = key => /(^id$|_ids?$|^run_dir$|^output_dir$|^file_path$|^base_url$|_status$|^generated_at$|^created_at$|^updated_at$|^simulation_requirement$|^has_|^files$|^file_paths$)/.test(key)
+const technical = key => technicalKey(key)
 const technicalEntries = computed(() => entries.value.filter(([key]) => technical(key)))
 const numberEntries = computed(() => entries.value.filter(([key,item]) => !technical(key) && typeof item === 'number' && Number.isFinite(item)))
 const textEntries = computed(() => entries.value.filter(([key,item]) => !technical(key) && isSimple(item) && typeof item !== 'number'))

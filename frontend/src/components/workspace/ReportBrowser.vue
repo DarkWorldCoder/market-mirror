@@ -4,7 +4,7 @@ import { FileChartColumn, ChartNoAxesCombined, MessagesSquare, Search, UsersRoun
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui'
 import ChatArtifact from './ChatArtifact.vue'
 import ExperimentHighlights from './ExperimentHighlights.vue'
-import SocialFeedCard from './SocialFeedCard.vue'
+import SocialFeedPlatform from './SocialFeedPlatform.vue'
 import { Button } from '../ui/button'
 import { preferredReport, reportInfo } from '../../workspace/reportPresentation'
 import { api } from '../../workspace/api'
@@ -20,7 +20,7 @@ const emit = defineEmits(['review'])
 const query = ref(''), selected = ref(''), view = ref('reports'), summary = ref(null)
 const loading = ref(false), error = ref('')
 let ticket = 0
-const hasFeed = computed(() => props.files.some(file => ['feed_story.json', 'timeline.json', 'posts_reddit.json', 'posts_twitter.json'].includes(file)))
+const hasFeed = computed(() => props.files.some(file => ['feed_story.json', 'timeline.json', 'posts_reddit.json', 'posts_twitter.json', 'feed_test.json'].includes(file)))
 const hasSummary = computed(() => props.files.includes('summary.json'))
 const preferredView = computed(() => {
   if (props.initialView === 'social' && hasFeed.value) return 'social'
@@ -83,7 +83,7 @@ watch(view, value => {
         </template>
       </TabsContent>
       <TabsContent v-if="hasFeed" value="social">
-        <SocialFeedCard v-if="view === 'social'" :name="name" :files="files" />
+        <SocialFeedPlatform v-if="view === 'social'" :name="name" :files="files" />
       </TabsContent>
       <TabsContent value="reports">
         <header>
