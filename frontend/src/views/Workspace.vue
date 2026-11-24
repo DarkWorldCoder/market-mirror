@@ -8,12 +8,12 @@
       <div class="ws-search-sticky">
         <div class="ws-search">
           <Search :size="16" aria-hidden="true" />
-          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
+          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" aria-describedby="ws-search-count" @keydown="onSearchKeydown" />
           <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
           <kbd v-else>⌘ K</kbd>
         </div>
       </div>
-      <div class="ws-side-scroll">
+      <div class="ws-side-scroll" @keydown="onResultsKeydown">
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
           <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
@@ -21,7 +21,7 @@
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
           <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
-        <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
+        <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
@@ -274,6 +274,31 @@ function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUser
 async function loadProjects() {
   if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
+}
+function searchResults() {
+  return [...document.querySelectorAll('.ws-side-scroll a[href], .ws-side-scroll .ws-history button, .ws-side-scroll .ws-skill-card')]
+}
+function onSearchKeydown(event) {
+  if (event.key !== 'ArrowDown') return
+  const items = searchResults()
+  if (!items.length) return
+  event.preventDefault()
+  items[0].focus()
+}
+function onResultsKeydown(event) {
+  if (!search.value.trim() || !['ArrowDown', 'ArrowUp', 'Escape'].includes(event.key)) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    searchBox.value?.focus()
+    return
+  }
+  const items = searchResults()
+  const index = items.indexOf(document.activeElement)
+  if (!items.length) return
+  event.preventDefault()
+  const step = event.key === 'ArrowDown' ? 1 : -1
+  const next = index < 0 ? items[0] : items[Math.min(items.length - 1, Math.max(0, index + step))]
+  next?.focus()
 }
 function onSlash(e) {
   if (e.key === 'Escape') menuOpen.value = false
