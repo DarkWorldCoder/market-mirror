@@ -2190,7 +2190,7 @@ def cmd_bench(c: Optional[Client], a) -> Any:
                 except (OSError, ValueError) as e:
                     raise CLIError(
                         f"bench twin2k: cannot read cache file {os.path.basename(f)} ({e}); "
-                        f"delete it or re-run with --fetch"
+                        f"delete that file, then re-run with --fetch"
                     ) from e
             methods = a.methods or ["no_persona", "demographics_only", "twin"]
             res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
