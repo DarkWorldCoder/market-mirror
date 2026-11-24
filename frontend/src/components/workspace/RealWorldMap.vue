@@ -173,8 +173,9 @@ function applyStyle() {
 
 async function init() {
   try {
-    const mod = await import('maplibre-gl')
+    const [mod, worker] = await Promise.all([import('maplibre-gl'), import('maplibre-gl/dist/maplibre-gl-worker.mjs?url')])
     maplibre = mod.default || mod
+    maplibre.setWorkerUrl?.(worker.default)
   } catch {
     failed.value = 'The map library could not load.'
     return
