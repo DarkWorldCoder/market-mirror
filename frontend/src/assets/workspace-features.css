@@ -332,3 +332,15 @@ button.ovi-cal-cell:hover { border-color: var(--text); }
 /* page buttons (Refresh, Export index): the base reset's font: inherit outranked .ws-btn and blew them up to 16px */
 .ws .ws-btn { font-size: 13px; line-height: 1.4; }
 /* ==== end design pass ==== */
+
+/* People explorer (PeopleExplorer.vue): the person sheet slides in from the right on wide screens and is a centred
+   dialog on phones; the comparison is a wide dialog. reka-ui traps focus in both. The overlay palette has no verdict
+   colours of its own, so they are set here for light and dark. */
+.ws-overlay.pe-sheet, .ws-overlay.pe-compare { --yes: #347556; --maybe: #906d1c; --warm: #a55c32; --no: #a94f58; background: var(--panel) !important; color: var(--text) !important; border-color: var(--line) !important; }
+.ws-overlay.pe-sheet[data-theme='dark'], .ws-overlay.pe-compare[data-theme='dark'] { --yes: #9bd7b9; --maybe: #e7cb89; --warm: #e4b096; --no: #edabb4; }
+.ws-overlay.pe-sheet { top: 0 !important; right: 0 !important; bottom: 0 !important; left: auto !important; translate: none !important; width: min(480px, 100vw) !important; max-width: min(480px, 100vw) !important; height: 100dvh; max-height: 100dvh; display: block !important; overflow-y: auto; overscroll-behavior: contain; padding: 22px 22px 26px !important; border-radius: 18px 0 0 18px !important; border-width: 0 0 0 1px !important; }
+.ws-overlay.pe-compare { width: min(1040px, calc(100vw - 24px)) !important; max-width: min(1040px, calc(100vw - 24px)) !important; max-height: 88dvh; display: flex !important; flex-direction: column; gap: 0 !important; padding: 0 !important; overflow: hidden; border-radius: 18px !important; }
+@media (max-width: 600px) {
+  .ws-overlay.pe-sheet { top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; translate: -50% -50% !important; width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important; height: auto; max-height: 92dvh; padding: 18px 16px 20px !important; border-radius: 16px !important; border-width: 1px !important; }
+  .ws-overlay.pe-compare { width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important; max-height: 92dvh; border-radius: 16px !important; }
+}

@@ -21,8 +21,8 @@ const summary = {
 }
 
 test('card tabs match the run page tabs and their order', () => {
-  assert.deepEqual(RUN_CARD_TABS.map((t) => t.id), ['results', 'market', 'thinking', 'activity', 'feed'])
-  assert.deepEqual(RUN_CARD_TABS.map((t) => t.label), ['Results', 'Audience & world', 'Buyer responses', 'Activity', 'Social feed'])
+  assert.deepEqual(RUN_CARD_TABS.map((t) => t.id), ['results', 'market', 'people', 'thinking', 'activity', 'feed'])
+  assert.deepEqual(RUN_CARD_TABS.map((t) => t.label), ['Results', 'Audience & world', 'People', 'Buyer responses', 'Activity', 'Social feed'])
 })
 
 test('views from links, the agent and evidence labels map to card tabs', () => {
@@ -30,6 +30,8 @@ test('views from links, the agent and evidence labels map to card tabs', () => {
   assert.equal(tabForView('world_map'), 'market')
   assert.equal(tabForView('Audience'), 'market')
   assert.equal(tabForView('social_feed'), 'feed')
+  assert.equal(tabForView('people'), 'people')
+  assert.equal(tabForView('Personas'), 'people')
   assert.equal(tabForView('Social feed'), 'feed')
   assert.equal(tabForView('Thinking'), 'thinking')
   assert.equal(tabForView('activity'), 'activity')
@@ -153,6 +155,7 @@ test('only near-exact phrases are answered from the saved run', () => {
   assert.deepEqual(localRunIntent('Which audience should we target?'), { kind: 'segments', tab: 'market' })
   assert.deepEqual(localRunIntent('Show the world map'), { kind: 'view', tab: 'market' })
   assert.deepEqual(localRunIntent('show the social feed'), { kind: 'view', tab: 'feed' })
+  assert.deepEqual(localRunIntent('Show the people'), { kind: 'view', tab: 'people' })
   assert.deepEqual(localRunIntent('Show all reports'), { kind: 'view', tab: 'results' })
   assert.deepEqual(localRunIntent('Show the 3D world and audience'), { kind: 'view', tab: 'market' })
   for (const p of Object.values(EVIDENCE_PROMPTS)) assert.equal(localRunIntent(p)?.kind, 'view')
