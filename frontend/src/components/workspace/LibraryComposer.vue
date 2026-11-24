@@ -164,4 +164,17 @@ defineExpose({ setValue, focus })
 
 <style>
 .library-model-connect{font-size:11px;line-height:1.4;flex-shrink:0;padding:4px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;opacity:.8}
+.library-model-side{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+.library-model-status{white-space:nowrap}
+.library-model-status[data-tone='ok']{color:#1f7a4d;border-color:color-mix(in srgb,#1f7a4d 30%,transparent)}
+.library-model-status[data-tone='bad']{color:#b42318;border-color:color-mix(in srgb,#b42318 35%,transparent);opacity:1}
+.library-model-popup[data-theme='dark'] .library-model-status[data-tone='ok']{color:#7fd6a8}
+.library-model-popup[data-theme='dark'] .library-model-status[data-tone='bad']{color:#ffa39a}
+.library-model-alert{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 15px;border-bottom:1px solid #e6e7ef;font-size:12px;line-height:1.45}
+.library-model-alert p{margin:0;color:#b42318}
+.library-model-fallback{padding:5px 10px;border:1px solid currentColor;border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:12px;font-weight:550;cursor:pointer}
+.library-model-fallback:hover,.library-model-fallback:focus-visible{background:#f2f2f8;outline:none}
+.library-model-popup[data-theme='dark'] .library-model-alert{border-color:#454961}
+.library-model-popup[data-theme='dark'] .library-model-alert p{color:#ffa39a}
+.library-model-popup[data-theme='dark'] .library-model-fallback:hover,.library-model-popup[data-theme='dark'] .library-model-fallback:focus-visible{background:#393d56}
 </style>
