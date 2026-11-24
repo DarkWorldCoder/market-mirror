@@ -72,8 +72,10 @@
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
-          <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
-          <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
+          <p v-if="search.trim()" class="ws-note ws-filter-note" role="status">Filtered by sidebar search: “{{ search.trim() }}” <button class="ws-retry" @click="search = ''">Clear</button></p>
+          <div v-if="filteredProjects.length" class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
+          <div v-else-if="projects.length && search.trim()" class="ws-project-empty"><Search :size="30" /><h2>No projects match</h2><p>Nothing matches “{{ search.trim() }}”.</p><button class="ws-project-create" @click="search = ''">Clear search</button></div>
+          <div v-else-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
         </div>
 
         <div v-else-if="view === 'skills'" class="ws-section ws-skills-page" style="padding-top: 24px">
