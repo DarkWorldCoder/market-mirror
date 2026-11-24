@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, Globe, Mail, FlaskConical, Lightbulb, Target, Image, Camera, ClipboardList, ShieldCheck, Scale, Wallet, Network, Mic, Tag, Route, Workflow, GitCompare, Layers, Clock, BookOpen, ArrowUpRight, UsersRound, Megaphone, Compass, Sparkles, LayoutDashboard, MessageSquare, ChartNoAxesCombined, FolderOpen, Shapes, Plug, Split, Plus, Search, X, ChevronDown, Settings2, Sun, Moon, Menu } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
@@ -198,6 +198,11 @@ const shortcuts = [
   { keys: ['Esc'], what: 'Close a menu or dialog' }
 ]
 const contextualTitle = computed(() => view.value === 'chat' ? (currentChat.value?.title || projects.value.find(p => p.id === route.query.project)?.name || 'New conversation') : crumb.value)
+// Keep the browser tab and history entry named after the page, chat or run, so
+// several open tabs are distinguishable and a rename shows up at once.
+watch(contextualTitle, (title) => {
+  document.title = title ? `${title} · MarketMirror` : 'MarketMirror'
+}, { immediate: true })
 const greeting = computed(() => {
   const hr = new Date().getHours()
   return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'
