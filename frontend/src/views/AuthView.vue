@@ -53,7 +53,8 @@
 
           <p v-if="!signedIn" class="text-center text-sm">
             <template v-if="screen === 'signup'">Already have an account? <button type="button" class="underline underline-offset-4" @click="screen = 'login'">Sign in</button></template>
-            <template v-else>New here? <button type="button" class="underline underline-offset-4" @click="screen = 'signup'">Create an account</button></template>
+            <template v-else-if="signUpAllowed">New here? <button type="button" class="underline underline-offset-4" @click="screen = 'signup'">Create an account</button></template>
+            <template v-else>Sign-ups are unavailable without an invitation.</template>
           </p>
         </CardContent>
       </Card>
@@ -64,7 +65,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LoaderCircle } from 'lucide-vue-next'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
@@ -75,6 +76,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { account as accountState, acceptInvitation, invitationFromHash, previewInvitation, signedIn, signIn, signUp } from '../workspace/account.js'
+import { canSignUp, signupSubheading } from '../workspace/authCopy.js'
 
 const props = defineProps({ mode: { type: String, default: 'login' } })
 const route = useRoute()
@@ -88,15 +90,16 @@ const token = ref(''), invite = ref(null)
 const theme = (() => { try { return localStorage.getItem('mm-theme') || 'light' } catch { return 'light' } })()
 const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 const heading = computed(() => invite.value ? `Join ${invite.value.workspace}` : screen.value === 'signup' ? 'Create your account' : 'Welcome back')
+const signUpAllowed = computed(() => canSignUp(account.value.signups, Boolean(invite.value), Boolean(account.value.first_account)))
 const subheading = computed(() => {
   if (invite.value) return screen.value === 'signup' ? 'Create an account to accept this invitation.' : 'Sign in to accept this invitation.'
   if (screen.value === 'login') return 'Sign in with your email and password.'
   if (account.value.first_account) return 'You are the first person here, so you will own the first workspace.'
-  if (account.value.signups !== 'open') return 'Sign-up on this server needs an invitation link from a workspace owner.'
-  return 'Start a workspace for your team.'
+  return signupSubheading(account.value.signups)
 })
 
 onMounted(() => { readInvite(); window.addEventListener('hashchange', readInvite) })
+watch(signUpAllowed, (allowed) => { if (!allowed && screen.value === 'signup' && !invite.value) screen.value = 'login' })
 onUnmounted(() => window.removeEventListener('hashchange', readInvite))
 async function readInvite() {
   inviteError.value = ''
