@@ -326,3 +326,121 @@ def _spending_values(data):
         else:
             values["MM_USD_PER_MTOK"] = ",".join(str(_nonnegative(data[field], field)) for field in ("input_price_usd_per_mtok", "output_price_usd_per_mtok"))
     return values
+
+
+# Key check: a free models-list request when the provider has one; a one-token call only after the person agrees.
+_TEST_FIELDS = {"provider", "model", "base_url", "api_key", "allow_call"}
+_TEST_MAX_BYTES = 1024 * 1024
+
+
+def _test_request(method, url, headers, body=None):
+    """One bounded request with no redirects or retries. Returns (status, parsed JSON or None)."""
+    import urllib3
+    pool = urllib3.PoolManager(timeout=urllib3.Timeout(connect=5, read=15), retries=False)
+    response = None
+    try:
+        response = pool.request(method, url, headers=headers, body=json.dumps(body).encode() if body is not None else None,
+                                redirect=False, preload_content=False)
+        raw = response.read(_TEST_MAX_BYTES + 1, decode_content=True)
+        try:
+            data = json.loads(raw) if raw and len(raw) <= _TEST_MAX_BYTES else None
+        except ValueError:
+            data = None
+        return response.status, data
+    finally:
+        if response is not None:
+            response.release_conn()
+        pool.clear()
+
+
+def _auth_headers(name, key):
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if not key or key == "local":
+        return headers
+    if name == "claude":
+        # Anthropic's own models list takes x-api-key; the key goes only to the provider being checked.
+        return {**headers, "x-api-key": key, "anthropic-version": "2023-06-01"}
+    return {**headers, "Authorization": "Bearer " + key}
+
+
+def _saved_route(name):
+    """The address and key this server would use for the provider today."""
+    spec = _cloud_providers()[name]
+    same = name == Config.LLM_PROVIDER and not os.environ.get("LLM_GATEWAY")
+    base_url = (Config.LLM_BASE_URL if same else os.environ.get(f"{name.upper()}_BASE_URL") or spec.get("base_url") or "").rstrip("/")
+    key = provider_api_key(name) or (Config.LLM_API_KEY if same else "") or ""
+    if key == os.environ.get("MM_WORKER_SECRET"):
+        key = ""
+    return base_url, key
+
+
+def _label(name):
+    spec = _cloud_providers().get(name) or {}
+    return spec.get("label") or {"claude": "Anthropic", "openai": "OpenAI", "gemini": "Google Gemini", "ollama": "Ollama"}.get(name, name)
+
+
+def test_connection(data):
+    """Check a provider key without spending: list the models when the provider supports it.
+
+    Never returns the key. A saved key is only sent to that provider's saved or default address; to check another
+    address the person types the key again. Without allow_call no model is asked anything.
+    """
+    if Config.is_production():
+        raise ValueError("This deployment sets its models in its configuration. Model settings cannot be changed here.")
+    if not isinstance(data, dict) or set(data) - _TEST_FIELDS:
+        raise ValueError("Use provider, model, base_url, api_key or allow_call")
+    name = data.get("provider")
+    spec = _cloud_providers().get(name)
+    if not spec:
+        raise ValueError("Choose a supported API provider")
+    saved_url, saved_key = _saved_route(name)
+    typed_key = _text(data.get("api_key", ""), "api_key")
+    base_url = _url(data["base_url"], "base_url") if data.get("base_url") else saved_url
+    if not base_url:
+        raise ValueError("Enter the address of the model server")
+    key = typed_key
+    if not key:
+        default_url = (spec.get("base_url") or "").rstrip("/")
+        if saved_key and base_url.rstrip("/") not in {saved_url.rstrip("/"), default_url}:
+            raise ValueError("Type the key again to check a different address. A saved key is only sent to its own provider.")
+        key = saved_key
+    if not key and name not in {"ollama", "custom"}:
+        return {"ok": False, "status": "not_set_up", "message": "Add a key first, then check it."}
+    label = _label(name)
+    headers = _auth_headers(name, key)
+    try:
+        status, body = _test_request("GET", base_url.rstrip("/") + "/models", headers)
+        rows = (body["data"] if isinstance(body.get("data"), list) else body.get("models")) if isinstance(body, dict) else None
+        if status == 200 and isinstance(rows, list):
+            ids = [str(row.get("id") or row.get("name") or "")[:160] for row in rows[:300] if isinstance(row, dict)]
+            ids = [i for i in ids if i]
+            from .workspace_chat import clear_rejections
+            clear_rejections()
+            return {"ok": True, "status": "connected", "method": "models_list", "models": ids[:200],
+                    "message": f"{label} accepted the key and lists {len(ids)} model{'' if len(ids) == 1 else 's'}. Nothing was charged."}
+        if status in (401, 403):
+            return {"ok": False, "status": "key_rejected", "method": "models_list",
+                    "message": f"{label} rejected this key. Check it was copied in full and is still active."}
+        if status not in (200, 404, 405, 501):
+            return {"ok": False, "status": "error", "method": "models_list",
+                    "message": f"{label} answered with an error (HTTP {status}). Check the address and try again."}
+        if data.get("allow_call") is not True:
+            return {"ok": None, "status": "needs_call", "method": "models_list",
+                    "message": "This server has no free way to check a key. Checking needs one small model call (one token, usually well under a cent)."}
+        model = _text(data.get("model", ""), "model", 200)
+        if not model:
+            raise ValueError("Enter a model name to run the check call")
+        status, body = _test_request("POST", base_url.rstrip("/") + "/chat/completions", headers,
+                                     {"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "ok"}]})
+        if status == 200:
+            return {"ok": True, "status": "connected", "method": "one_call", "models": [model],
+                    "message": f"{label} answered a one-token check with {model}."}
+        if status in (401, 403):
+            return {"ok": False, "status": "key_rejected", "method": "one_call", "message": f"{label} rejected this key."}
+        return {"ok": False, "status": "error", "method": "one_call",
+                "message": f"The check call failed (HTTP {status}). Check the model name and address."}
+    except ValueError:
+        raise
+    except Exception:
+        # Never reflect transport text: it can echo headers or an address carrying a key.
+        return {"ok": False, "status": "unreachable", "message": f"Could not reach {label} at that address. Check the address and your connection."}
