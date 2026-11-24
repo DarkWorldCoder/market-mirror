@@ -70,6 +70,10 @@
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
         <TeamPanel v-else-if="view === 'team'" />
 
+        <div v-else-if="view === 'notfound'" class="ws-section" style="padding-top: 24px">
+          <div class="ws-project-empty"><Compass :size="30" /><h2>This page does not exist</h2><p>The link may be old or mistyped. Pick up where you left off instead.</p><div class="ws-notfound-actions"><RouterLink class="ws-project-create" to="/">Go to chat</RouterLink><RouterLink class="ws-project-create" to="/workspace">Open overview</RouterLink></div></div>
+        </div>
+
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
           <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
@@ -182,9 +186,9 @@ const theme = ref((() => {
   }
 })())
 
-const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
+const view = computed(() => (route.name === 'NotFound' ? 'notfound' : route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare', notfound: 'Page not found' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
