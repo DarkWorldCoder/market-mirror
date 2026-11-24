@@ -4,7 +4,7 @@
     <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="menuOpen = false"></button>
     <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace">
       <RouterLink to="/" class="ws-brand" @click="menuOpen = false"><MarketMirrorLogo :size="30" /><span>MarketMirror</span></RouterLink>
-      <button class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat</button>
+      <button v-if="canEdit" class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat</button>
       <div class="ws-search-sticky">
         <div class="ws-search">
           <Search :size="16" aria-hidden="true" />
@@ -23,7 +23,7 @@
         </div>
         <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
-          <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
+          <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button v-if="canEdit" aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
             <RouterLink v-for="p in filteredProjects" :key="p.id" :to="{path:'/',query:{project:p.id}}" :class="{active: route.query.project === p.id}" :title="p.name" @click="menuOpen = false"><FolderOpen :size="14" /><span>{{ p.name }}</span></RouterLink>
             <button v-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
@@ -35,7 +35,7 @@
         </section>
         <details v-if="!search.trim() || filteredChats.length" class="ws-side-section" open>
           <summary>Your chats<ChevronDown :size="13" /></summary>
-          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :aria-label="`Actions for ${c.title}`" title="Chat actions"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end"><button @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
+          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover v-if="canEdit" :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :aria-label="`Actions for ${c.title}`" title="Chat actions"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end"><button @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
         </details>
         <details v-if="!search.trim() || filteredRuns.length" class="ws-side-section" :open="!!search.trim()">
           <summary>Saved runs<ChevronDown :size="13" /></summary>
@@ -47,6 +47,7 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
+        <p v-if="signedIn && !canEdit" class="ws-side-empty">You can view this workspace. Ask an owner for edit access.</p>
         <button @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
@@ -58,7 +59,7 @@
           <button class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
           <div v-if="currentChat" class="ws-inline-title"><input :value="currentChat.title" class="ws-page-title ws-chat-title-input" aria-label="Chat name" maxlength="120" @change="renameInPlace(currentChat,$event)" @keydown.enter="$event.target.blur()" @keydown.esc="$event.target.value=currentChat.title; $event.target.blur()" /><span v-if="inlineRenameError" role="alert">{{ inlineRenameError }}</span></div><b v-else class="ws-page-title">{{ contextualTitle }}</b>
         </div>
-        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
+        <div class="ws-top-actions"><button v-if="canEdit" class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
       </header>
       <p v-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-retry" @click="refresh">Retry</button></p>
 
@@ -71,9 +72,9 @@
         <TeamPanel v-else-if="view === 'team'" />
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
-          <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
+          <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button v-if="canEdit" class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
           <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
-          <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
+          <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button v-if="canEdit" class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button><p v-else class="ws-note">You can view this workspace. Ask an owner for edit access.</p></div>
         </div>
 
         <div v-else-if="view === 'skills'" class="ws-section ws-skills-page" style="padding-top: 24px">
@@ -125,7 +126,7 @@ import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
 import { cloudAccount } from '../workspace/cloud.js'
-import { account as accountRef, role, signedIn, teamMode } from '../workspace/account.js'
+import { account as accountRef, canEdit, role, signedIn, teamMode } from '../workspace/account.js'
 import TeamPanel from '../components/workspace/TeamPanel.vue'
 import OnboardingDialog from '../components/workspace/OnboardingDialog.vue'
 import '../assets/workspace.css'
