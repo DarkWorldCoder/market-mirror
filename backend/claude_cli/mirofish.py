@@ -2171,15 +2171,21 @@ def cmd_bench(c: Optional[Client], a) -> Any:
             res = bench.run_upworthy(a.data, a.n, complete, methods, people, a.panel_size, a.approve_spend)
         else:
             files = [os.path.join(cache, f) for f in sorted(os.listdir(cache))] if os.path.isdir(cache) else []
-            files = [f for f in files if os.path.basename(f).startswith("twin_")]
+            files = [f for f in files if os.path.basename(f).startswith("twin_") and f.endswith(".json")]
             if a.fetch and len(files) < a.pool:
                 files = bench.fetch_twin(cache, a.pool, log)
             if not files:
                 raise ValueError(f"bench twin2k: no rows in {cache}; add --fetch to download them (public, no key)")
             rows = []
             for f in files:
-                with open(f, encoding="utf-8") as fh:
-                    rows.append(json.load(fh))
+                try:
+                    with open(f, encoding="utf-8") as fh:
+                        rows.append(json.load(fh))
+                except (OSError, ValueError) as e:
+                    raise CLIError(
+                        f"bench twin2k: cannot read cache file {os.path.basename(f)} ({e}); "
+                        f"delete it or re-run with --fetch"
+                    ) from e
             methods = a.methods or ["no_persona", "demographics_only", "twin"]
             res = bench.run_twin(rows, a.n, complete, methods, a.items, a.blocks, a.approve_spend, cache)
     except (ValueError, OSError) as e:
