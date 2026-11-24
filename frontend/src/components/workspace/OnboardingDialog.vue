@@ -8,7 +8,7 @@
       </DialogHeader>
       <div class="grid gap-2">
         <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
-        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" :aria-valuenow="doneCount" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all" :style="{ width: `${doneCount * 25}%` }"></div></div>
+        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" aria-label="Setup progress" :aria-valuenow="doneCount" :aria-valuetext="`${doneCount} of 4 steps done`" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all motion-reduce:transition-none" :style="{ width: `${doneCount * 25}%` }"></div></div>
       </div>
 
       <ol class="grid gap-3">
