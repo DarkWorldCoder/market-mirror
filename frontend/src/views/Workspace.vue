@@ -8,7 +8,7 @@
       <div class="ws-search-sticky">
         <div class="ws-search">
           <Search :size="16" aria-hidden="true" />
-          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
+          <input ref="searchBox" v-model="search" type="search" placeholder="Search projects, chats, runs and skills" aria-label="Search projects, chats and runs" />
           <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
           <kbd v-else>⌘ K</kbd>
         </div>
