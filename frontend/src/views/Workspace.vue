@@ -124,6 +124,7 @@ import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
+import { OFFLINE_MESSAGE, requestErrorText } from '../workspace/network.js'
 import { cloudAccount } from '../workspace/cloud.js'
 import { account as accountRef, role, signedIn, teamMode } from '../workspace/account.js'
 import TeamPanel from '../components/workspace/TeamPanel.vue'
@@ -305,13 +306,15 @@ async function refresh() {
     error.value = ''
     loadProjects()
   } catch (e) {
-    error.value = e.message
+    error.value = requestErrorText(e)
   } finally {
     loaded.value = true
     refreshing.value = false
   }
 }
 function refreshVisible() { if (!document.hidden) refresh() }
+function onOffline() { error.value = OFFLINE_MESSAGE }
+function onOnline() { refresh() }
 onMounted(() => {
   loadChats()
   if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
@@ -325,6 +328,8 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refreshVisible)
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
+  window.addEventListener('offline', onOffline)
+  window.addEventListener('online', onOnline)
   refresh()
   loadOnboarding()
   loadUserTheme()
@@ -333,6 +338,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('offline', onOffline)
+  window.removeEventListener('online', onOnline)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
