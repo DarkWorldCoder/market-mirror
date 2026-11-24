@@ -47,6 +47,7 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
+        <button v-if="spendMeter" class="ws-spend-meter" @click="openSettings"><Wallet class="ico" /><span>Estimated spend {{ spendMeter }}<template v-if="spend.limit"> of {{ money(spend.limit) }}</template></span></button>
         <button @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
@@ -187,6 +188,23 @@ const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.na
   : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
+const spend = ref({ spent: 0, limit: 0 })
+const money = (value) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0)
+const spendMeter = computed(() => {
+  const spent = Number(spend.value.spent) || 0
+  const limit = Number(spend.value.limit) || 0
+  if (!spent && !limit) return ''
+  return money(spent)
+})
+async function loadSpend() {
+  try {
+    const settings = await api('/api/workspace/settings')
+    spend.value = {
+      spent: Number(settings.spending?.process_spent_usd) || 0,
+      limit: Number(settings.spending?.process_limit_usd) || 0,
+    }
+  } catch { /* the meter is optional */ }
+}
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
 const shortcuts = [
   { keys: [isMac ? '⌘' : 'Ctrl', 'K'], what: 'Search projects, chats, runs and skills' },
@@ -326,6 +344,7 @@ onMounted(() => {
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
   refresh()
+  loadSpend()
   loadOnboarding()
   loadUserTheme()
   refreshTimer = setInterval(refreshVisible, 15000)
