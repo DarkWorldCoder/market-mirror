@@ -77,6 +77,24 @@ def test_tool_list_shows_cost_classes(client):
     assert rows["research"]["cost"] == "outside" and rows["open_view"]["source"] == "app"
 
 
+def test_real_loop_pauses_and_resumes_over_http(client, monkeypatch):
+    """The real loop behind the endpoint (fake model and tools): spend card, then the user's Run resumes the turn."""
+    from chat_agent_fakes import FakeAdapter, FakeExecutor, say, tool
+    from app.services.chat_agent import state
+    state.reset()
+    ex = FakeExecutor(results={"market_test": {"job_id": "abcdef0123", "result_path": "/r"}})
+    adapter = FakeAdapter([tool("market_test", {"config": {"requirement": "x", "auto_personas": 10}}), say("Started.")])
+    monkeypatch.setattr(loop, "Executor", lambda: ex)
+    monkeypatch.setattr(loop, "default_adapter_factory", lambda mid: adapter)
+    first = frames(client.post("/api/workspace/agent/stream", json=BODY, headers=H))
+    card = next(d for n, d in first if n == "approval_request")
+    assert card["kind"] == "spend" and first[-1][0] == "done" and ex.calls == []
+    resume = {**BODY, "resume": {"id": card["id"], "answer": {"decision": "run"}}}
+    second = frames(client.post("/api/workspace/agent/stream", json=resume, headers=H))
+    assert second[-1][0] == "done" and second[-1][1]["message"] == "Started."
+    assert [c[0] for c in ex.calls] == ["market_test"]
+
+
 def test_job_ids_are_validated(client):
     assert client.get("/api/workspace/agent/jobs/../../etc", headers=H).status_code == 404
     assert client.get("/api/workspace/agent/jobs/notahexid!", headers=H).status_code == 404
