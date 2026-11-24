@@ -235,6 +235,7 @@ async function moveChat(chatId) {
   window.dispatchEvent(new CustomEvent('mm-move-chat', { detail: { chatId } }))
 }
 
+watch(theme, (value) => { document.documentElement.dataset.theme = value }, { immediate: true })
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
   if (signedIn.value) api('/api/workspace/preferences', { method: 'PUT', body: { user: { theme: theme.value } } }).catch(() => {})
