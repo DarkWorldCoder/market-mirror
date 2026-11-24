@@ -20,6 +20,7 @@ from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..utils.zep_lifecycle import get_graph_readers, graph_lifecycle_lock
+from .. import jobs
 from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
 from ..services.simulation_manager import SimulationManager
@@ -815,9 +816,8 @@ def _build_graph_impl():
                         error=traceback.format_exc()
                     )
         
-        # 启动后台线程
-        thread = threading.Thread(target=build_task, daemon=True)
-        thread.start()
+        # Queue it (app/jobs): limits per provider and workspace, progress, cancellation
+        jobs.submit(task_id, build_task, kind="graph_build", subject=project_id)
         
         return jsonify({
             "success": True,

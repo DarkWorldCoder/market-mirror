@@ -212,7 +212,8 @@ def test_stale_build_resumes_a_persisted_processing_batch(monkeypatch):
     monkeypatch.setattr(graph_api.Config, "ZEP_API_KEY", "test-key")
     monkeypatch.setattr(graph_api, "TaskManager", Tasks)
     monkeypatch.setattr(graph_api, "GraphBuilderService", Builder)
-    monkeypatch.setattr(graph_api.threading, "Thread", Thread)
+    # the build is queued as a job (app/jobs); record it instead of running it
+    monkeypatch.setattr(graph_api.jobs, "submit", lambda task_id, fn, **_kw: Thread(target=fn, daemon=True).start())
     monkeypatch.setattr(
         graph_api.ProjectManager,
         "get_project",

@@ -243,12 +243,19 @@ class TaskManager:
     def recover_interrupted_tasks(self) -> int:
         """
         Mark pending/processing rows that this process does not own as failed
-        ("server restarted"). Called once at server start-up: the backend runs as
-        a single process, so such a row was left behind by a process that died
-        or was stopped, and nothing will ever finish it.
+        ("server restarted"). Called once at server start-up. Rows behind an
+        active queue job (queued, running, needs approval) are skipped: the job
+        queue requeues or settles them (app/jobs).
         """
         with self._task_lock:
             owned = set(self._tasks)
+        try:   # rows backed by a live queue job are settled by the job queue (app/jobs), not failed here
+            from ..jobs import store as job_store
+            owned |= job_store().active_ids()
+        except Exception:  # noqa: BLE001
+            # without knowing which tasks the queue still owns, failing "orphans" could fail queued work: skip
+            logger.exception("task store: cannot read queued jobs; interrupted-task cleanup skipped")
+            return 0
         now = datetime.now().isoformat()
         active = (TaskStatus.PENDING.value, TaskStatus.PROCESSING.value)
         try:
@@ -281,6 +288,15 @@ class TaskManager:
         Returns:
             任务ID
         """
+        try:   # a queue worker re-running the endpoint: the task is the job's own, already polled by the client
+            from ..jobs import context as job_context
+            ctx = job_context.current()
+        except Exception:  # noqa: BLE001
+            ctx = None
+        if ctx is not None and ctx.replay and not ctx.task_claimed:
+            ctx.task_claimed = True
+            self.adopt(ctx.job_id)
+            return ctx.job_id
         task_id = str(uuid.uuid4())
         now = datetime.now()
         task = Task(
@@ -295,6 +311,51 @@ class TaskManager:
             self._tasks[task_id] = task
         self._save_to_db(task)
         return task_id
+
+    def adopt(self, task_id: str) -> bool:
+        """Take ownership of a task another process created (a queue worker running its job). True when this call
+        loaded it; False when it was already owned here or does not exist."""
+        with self._task_lock:
+            if task_id in self._tasks:
+                return False
+        task = self._load_row(task_id)
+        if task is None:
+            return False
+        with self._task_lock:
+            if task_id in self._tasks:
+                return False
+            self._tasks[task_id] = task
+        return True
+
+    def release(self, task_id: str) -> None:
+        """Stop owning a task (its row stays): reads go to SQLite again, so another process's writes are seen."""
+        with self._task_lock:
+            self._tasks.pop(task_id, None)
+
+    def mirror(self, task_id: str, status: Optional[TaskStatus] = None, message: Optional[str] = None,
+               error: Optional[str] = None) -> None:
+        """Set a task's status whether or not this process owns it (the job queue's recovery and cancellation)."""
+        with self._task_lock:
+            owned = task_id in self._tasks
+        if owned:
+            self.update_task(task_id, status=status, message=message, error=error)
+            return
+        # another process may own the row and write progress or a result at any moment: change only these columns
+        sets, args = ["updated_at = ?"], [datetime.now().isoformat()]
+        if status is not None:
+            sets.append("status = ?")
+            args.append(status.value)
+        if message is not None:
+            sets.append("message = ?")
+            args.append(str(message))
+        if error is not None:
+            sets.append("error = ?")
+            args.append(error or None)
+        try:
+            with self._write_lock, self._db() as conn:
+                conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", (*args, task_id))
+        except Exception:  # noqa: BLE001
+            logger.exception("task store: cannot update task %s", task_id)
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """Owned tasks come from memory; any other task is read fresh from SQLite and not cached."""

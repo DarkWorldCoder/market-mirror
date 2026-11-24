@@ -18,7 +18,6 @@ are saved as JSON in the simulation folder so exports can pick them up later.
 
 import json
 import os
-import threading
 import traceback
 from typing import Any, Dict, List
 
@@ -30,6 +29,7 @@ from ..services import creative_vision, feed_test
 
 from . import simulation_bp
 from ..config import Config
+from .. import jobs
 from ..models.task import TaskManager, TaskStatus
 from ..services.simulation_manager import SimulationManager
 from ..utils.logger import get_logger
@@ -73,7 +73,7 @@ def start_website_test():
         if result["status"] == "failed":
             raise RuntimeError("All browser sessions failed; inspect " + result["files"]["result"])
         return result
-    return jsonify({"success": True, "data": {"task_id": _start("website-test", sid, work),
+    return jsonify({"success": True, "data": {"task_id": _start("website-test", sid, work, replay=False),
                                                "simulation_id": sid, "run_id": run_id}})
 
 
@@ -330,27 +330,35 @@ def _record_memory(kind: str, simulation_id: str, result, scope: str, emotions: 
         logger.warning(f"{kind}: behaviour memory not recorded: {e}")
 
 
-def _start(kind: str, simulation_id: str, work, memory_scope: str = "", emotions: str = None, traits=None):
+def _start(kind: str, simulation_id: str, work, memory_scope: str = "", emotions: str = None, traits=None,
+           replay: bool = True, spends=True):
+    """Queue `work` as a durable job (app/jobs) behind a task the client polls. The job keeps this request, so a queue
+    worker in another process, or this server after a restart, can run it again; cancelled jobs write no result.
+    replay=False for an endpoint that hands the client an id it made up before queueing (the re-run would make
+    another): such a job runs only in this process. spends="out_of_process" for work whose model calls happen in
+    the simulation subprocess (pitch): an interrupted attempt then always waits for approval."""
     tm = TaskManager()
     task_id = tm.create_task(task_type=f"market_{kind}", metadata={"simulation_id": simulation_id})
 
-    def run():
-        try:
-            tm.update_task(task_id, status=TaskStatus.PROCESSING, progress=1, message=f"{kind} started")
-            result = work(lambda done, total: tm.update_task(
-                task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}"))
-            _words_check(result)
-            _jev_extras(kind, simulation_id, result)
-            _record_memory(kind, simulation_id, result, memory_scope, emotions, traits)
-            path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
-            tm.complete_task(task_id, {"simulation_id": simulation_id, "file": path})
-        except Exception as e:  # noqa: BLE001 - reported through the task
-            logger.error(f"{kind} failed: {e}\n{traceback.format_exc()}")
-            tm.fail_task(task_id, str(e))
+    def progress(done, total):
+        jobs.checkpoint()                    # a cancelled job stops at its next progress update
+        tm.update_task(task_id, progress=int(100 * done / max(total, 1)), message=f"{kind}: {done}/{total}")
 
-    threading.Thread(target=run, daemon=True).start()
+    def run():
+        tm.update_task(task_id, status=TaskStatus.PROCESSING, progress=1, message=f"{kind} started")
+        result = work(progress)
+        _words_check(result)
+        _jev_extras(kind, simulation_id, result)
+        jobs.checkpoint()                    # cancelled: keep no memory and write no result
+        _record_memory(kind, simulation_id, result, memory_scope, emotions, traits)
+        path = os.path.join(_sim_dir(simulation_id), RESULT_FILES[kind])
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        out = {"simulation_id": simulation_id, "file": path}
+        tm.complete_task(task_id, out)
+        return out
+
+    jobs.submit(task_id, run, kind=f"market_{kind}", subject=simulation_id, replay=replay, spends=spends)
     return task_id
 
 
@@ -846,7 +854,7 @@ def start_pitch():
                              str(data.get("channel") or "message"), batch=batch, progress=progress, emotions=emo)
 
     task_id = _start("pitch", sid, work, **({"memory_scope": scope} if scope else {}), emotions=emo,
-                     traits=_traits_by_agent(people))
+                     traits=_traits_by_agent(people), spends="out_of_process")   # interviews spend in OASIS
     return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "people": len(people),
                                               "rebuttals": sorted(rebuttals)}})
 
@@ -1148,7 +1156,11 @@ def market_task_status():
     task = TaskManager().get_task(task_id) if task_id else None
     if not task:
         return jsonify({"success": False, "error": "task not found"}), 404
-    return jsonify({"success": True, "data": task.to_dict()})
+    data = task.to_dict()
+    queue = jobs.summary(task_id)
+    if queue:
+        data["job"] = queue                  # additive: queue place, attempts, model calls, needs_approval
+    return jsonify({"success": True, "data": data})
 
 
 @simulation_bp.route('/<simulation_id>/feed-test', methods=['GET'], defaults={"kind": "feed-test"})

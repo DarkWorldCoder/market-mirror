@@ -12,7 +12,6 @@ import math
 import os
 from pathlib import Path
 import re
-import threading
 import uuid
 
 from ..config import Config
@@ -313,7 +312,8 @@ def approve(wid, phase, supplied_digest, limit, retry=False):
 
 
 def start_worker(wid, phase, task_id):
-    threading.Thread(target=run, args=(wid, phase, task_id), daemon=True).start()
+    from .. import jobs
+    jobs.submit(task_id, lambda: run(wid, phase, task_id), kind="workflow_" + phase, subject=wid)
 
 
 def run(wid, phase, task_id):

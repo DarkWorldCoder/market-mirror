@@ -1489,7 +1489,7 @@ Returns: {pairs, brands, fits}
 
 ### `POST /api/simulation/market-task/status`
 
-Status of a background task.
+Status of a background task (job adds its queue place, attempts, model calls and needs_approval).
 
 Request body:
 
@@ -1499,7 +1499,45 @@ Request body:
 }
 ```
 
-Returns: {status, progress, message, result}
+Returns: {status, progress, message, result, job?}
+
+### `GET /api/jobs`
+
+Background jobs in the durable queue, newest first (?status=queued|running|needs_approval|succeeded|failed|cancelled&kind=&workspace=&subject=&limit=).
+
+Returns: [{job_id, kind, status, lane, workspace, provider, attempts, max_attempts, model_calls, queue_position, queue_wait_s, message, error, can_retry}]
+
+### `GET /api/jobs/stats`
+
+Queue health: counts per status, running per provider/workspace/lane, queue wait p50/p95 over the last hour, live workers, limits.
+
+Returns: {counts, running, queued_by_lane, queue_wait_s, succeeded_in_window, workers, limits, oasis}
+
+### `GET /api/jobs/{job_id}`
+
+One job (its id is the task id the starting endpoint returned), with its attempt history.
+
+Returns: {job_id, kind, status, attempts, model_calls, history, ...}
+
+### `POST /api/jobs/{job_id}/cancel`
+
+Cancel a job: a queued one at once; a running one at its next model call or progress update (its result is not written).
+
+Returns: job
+
+### `POST /api/jobs/{job_id}/retry`
+
+Approve one more attempt of a job that stopped after making model calls (it will spend again); never automatic.
+
+Request body:
+
+```json
+{
+  "approve_spend": true
+}
+```
+
+Returns: job (queued)
 
 ### `POST /api/simulation/spend-cap`
 

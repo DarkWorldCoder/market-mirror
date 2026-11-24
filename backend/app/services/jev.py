@@ -281,6 +281,11 @@ def _post(url: str, key: str, body: Dict[str, Any], timeout: float, retries: int
     last = ""
     for attempt in range(retries + 1):
         wait: Optional[float] = None
+        from ..utils import spend_cap
+        try:
+            spend_cap.check()            # a paid call: counted against its job, stopped by a reached cap or a cancel
+        except spend_cap.SpendCapReached as e:
+            raise JevError(str(e)) from None
         try:
             resp = requests.post(url, json=body, headers=headers, timeout=timeout)
         except (requests.ConnectionError, requests.Timeout) as e:

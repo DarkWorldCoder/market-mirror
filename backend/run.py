@@ -4,10 +4,13 @@ MiroFish Backend 启动入口
 Development (default): Flask's built-in server, optional debug reloader.
 
 Production (`MM_ENV=production` or `--prod`): one process, a bounded thread pool
-(`MM_THREADS`, default 32) on Werkzeug's threaded WSGI server. It is deliberately
-a single process: the SimulationRunner registry (OASIS subprocesses and their
-monitor threads), background task threads and the live-environment IPC state
-all live in this process's memory, so a second worker would not see them.
+(`MM_THREADS`, default 32) on Werkzeug's threaded WSGI server. The HTTP server is
+deliberately a single process: the SimulationRunner registry (OASIS subprocesses
+and their monitor threads) and the live-environment IPC state live in its memory.
+Background work scales separately through the durable job queue (app/jobs,
+docs/JOBS.md): `MM_JOB_WORKERS` threads here, plus any number of
+`python -m app.jobs.worker` processes with `MM_JOB_EXTERNAL_WORKERS=1`; OASIS
+starts beyond `MM_OASIS_MAX_RUNS` wait in the queue's oasis lane.
 Put a reverse proxy (TLS, buffering, request size/time limits) in front of it.
 
 SIGTERM / SIGINT: the handler does no work itself. A separate thread chains to
