@@ -119,6 +119,17 @@ def create_app(config_class=Config):
     app.register_blueprint(workspace_connectors_bp)
     from .api.workspace_browser import workspace_browser_bp
     app.register_blueprint(workspace_browser_bp)
+    from .api.accounts import accounts_bp
+    app.register_blueprint(accounts_bp)
+    from .api.workspace_data import workspace_data_bp
+    app.register_blueprint(workspace_data_bp)
+
+    # Team mode fails at start, not at the first sign-in, when its password hasher or database is missing.
+    from . import auth
+    if auth.accounts_enabled():
+        auth._hasher()
+        from .db import get_db
+        get_db()
     
     # 健康检查
     @app.route('/health')

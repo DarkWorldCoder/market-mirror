@@ -947,6 +947,8 @@
 .ws .ws-side .ws-side-scroll { padding-bottom: 16px; scrollbar-width: thin; scrollbar-gutter: stable; }
 .ws .ws-side .ws-foot { gap: 2px; padding-top: 10px; }
 .ws .ws-side .ws-foot a { overflow-wrap: anywhere; }
+.ws .ws-foot-workspace { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.ws .ws-foot-workspace small { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws .ws-side a:focus-visible,.ws .ws-side button:focus-visible,.ws .ws-side summary:focus-visible { outline-offset: -2px; }
 .ws-chat-action-menu.ws-overlay { width: 208px!important; padding: 6px!important; }
 .ws-chat-action-menu.ws-overlay button { min-height: 38px; padding: 9px 12px; gap: 10px; font-size: 13px; line-height: 20px; white-space: nowrap; }

@@ -27,6 +27,11 @@ def _isolated_local_graph_db(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     (tmp_path / "no.env").write_text("")
     monkeypatch.setenv("MIROFISH_ENV_FILE", str(tmp_path / "no.env"))
+    # The workspace database lives in the test's folder (via UPLOAD_ROOT); team mode is off unless a test turns it on.
+    for k in ("MM_DATABASE_URL", "MM_ACCOUNTS", "MM_SIGNUPS", "MM_PUBLIC_ORIGIN"):
+        monkeypatch.delenv(k, raising=False)
+    from app import db as _db
+    _db.reset_cache()
     local_graph.clear_local_zep_clients()
     yield
     local_graph.clear_local_zep_clients()

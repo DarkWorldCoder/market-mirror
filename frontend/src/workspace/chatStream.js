@@ -1,4 +1,5 @@
-import { ensureSession, token } from './api.js'
+import { authHeaders, ensureSession } from './api.js'
+import { signedIn } from './account.js'
 
 const MAX_FRAME = 512 * 1024
 const encoder = new TextEncoder()
@@ -64,10 +65,10 @@ export async function consumeChatStream(response, { signal, onEvent, maxFrameByt
 export async function streamChat(body, { signal, onEvent } = {}) {
   await ensureSession(); signal?.throwIfAborted()
   const encoded = JSON.stringify(body)
-  const send = () => fetch('/api/workspace/chat/stream', { method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:{'Content-Type':'application/json', Accept:'text/event-stream', 'X-Setup-Token':token()}, body:encoded })
+  const send = () => fetch('/api/workspace/chat/stream', { method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:{'Content-Type':'application/json', Accept:'text/event-stream', ...authHeaders()}, body:encoded })
   let response = await send()
   // This guard response precedes model execution. No stream or model failure is replayed.
-  if (response.status === 403) { signal?.throwIfAborted(); await ensureSession(true); signal?.throwIfAborted(); response = await send() }
+  if (response.status === 403 && !signedIn.value) { signal?.throwIfAborted(); await ensureSession(true); signal?.throwIfAborted(); response = await send() }
   if (!response.ok) {
     let message = `Request failed (${response.status}).`
     if (response.headers.get('Content-Type')?.includes('json')) { try { const value = await response.json(); message = value.error || value.message || message } catch { /* Keep the HTTP status when an error body is not valid JSON. */ } }

@@ -604,6 +604,327 @@ A result file directly inside the run folder (.json parsed; .md, .csv, .html as 
 
 Returns: file contents
 
+## Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)
+
+### `GET /api/auth/session`
+
+Which mode the server is in (local or accounts) and, in team mode, the signed-in person, CSRF token, chosen workspace and all their workspaces.
+
+Returns: {mode,account,csrf,workspace,workspaces,signups,first_account?}
+
+### `POST /api/auth/signup`
+
+Team mode only. Create an account (argon2id); the first account is always allowed, later ones follow MM_SIGNUPS (open, invite, closed); exact Origin; rate limited.
+
+Request body:
+
+```json
+{
+  "email": "person@example.com",
+  "password": "12 to 256 characters",
+  "name": "Sam",
+  "workspace_name": "Acme marketing",
+  "invitation": "token from an invitation link"
+}
+```
+
+Returns: session state; sets the HttpOnly mm_session cookie
+
+### `POST /api/auth/login`
+
+Team mode only. Sign in; 10 failures per email and 30 attempts per client in 15 minutes, then 429.
+
+Request body:
+
+```json
+{
+  "email": "person@example.com",
+  "password": "..."
+}
+```
+
+Returns: session state; sets the mm_session cookie
+
+### `POST /api/auth/logout`
+
+Delete this browser's session (CSRF token required).
+
+Returns: {signed_out:true}
+
+### `POST /api/auth/password`
+
+Change your password; signs out every other browser.
+
+Request body:
+
+```json
+{
+  "current_password": "...",
+  "new_password": "..."
+}
+```
+
+Returns: session state
+
+### `POST /api/auth/workspaces`
+
+Create a workspace you own and switch to it.
+
+Request body:
+
+```json
+{
+  "name": "Second team"
+}
+```
+
+Returns: session state
+
+### `POST /api/auth/workspaces/select`
+
+Switch this session to a workspace you belong to.
+
+Request body:
+
+```json
+{
+  "id": "ws_..."
+}
+```
+
+Returns: session state
+
+### `GET /api/auth/invitations/{token}`
+
+Preview an open invitation: workspace name, role, bound email, expiry.
+
+Returns: {workspace,role,email,expires_at}
+
+### `POST /api/auth/invitations/accept`
+
+Accept an invitation as the signed-in person (one use; email must match when bound).
+
+Request body:
+
+```json
+{
+  "token": "..."
+}
+```
+
+Returns: session state
+
+### `GET /api/team`
+
+Workspace, members with roles and (for owners) open invitations.
+
+Returns: {workspace,members,invitations,you,mode}
+
+### `PATCH /api/team/workspace`
+
+Owner: rename the workspace.
+
+Request body:
+
+```json
+{
+  "name": "Acme marketing"
+}
+```
+
+Returns: {id,name}
+
+### `PATCH /api/team/members/{user_id}`
+
+Owner: change a member's role (owner, editor, viewer); the last owner stays.
+
+Request body:
+
+```json
+{
+  "role": "viewer"
+}
+```
+
+Returns: member array
+
+### `DELETE /api/team/members/{user_id}`
+
+Owner: remove a member; anyone: leave (yourself). Their open tabs lose access at once.
+
+Returns: member array
+
+### `POST /api/team/invitations`
+
+Owner, team mode: one-use invitation link (token after #, stored hashed), optional email, 5 minutes to 30 days; no email is sent.
+
+Request body:
+
+```json
+{
+  "email": "optional",
+  "role": "editor",
+  "expires_in_days": 7
+}
+```
+
+Returns: {id,email,role,expires_at,url}
+
+### `DELETE /api/team/invitations/{invite_id}`
+
+Owner: revoke an open invitation.
+
+Returns: {id,revoked:true}
+
+### `GET /api/workspace/chats`
+
+Chats of the workspace from the database (viewer); since=ms for changes only, summary=1 without messages.
+
+Returns: {chats,imported_sources,role}
+
+### `GET /api/workspace/chats/{chat_id}`
+
+One chat with messages and authors.
+
+Returns: chat
+
+### `PUT /api/workspace/chats/{chat_id}`
+
+Editor: create or replace a chat; a stale base_revision returns 409 with the stored chat to merge.
+
+Request body:
+
+```json
+{
+  "chat": {
+    "id": "chat-1",
+    "title": "Pricing",
+    "messages": [
+      {
+        "role": "user",
+        "content": "..."
+      }
+    ]
+  },
+  "base_revision": 3
+}
+```
+
+Returns: chat with new revision
+
+### `DELETE /api/workspace/chats/{chat_id}`
+
+Delete a chat: its creator or an owner.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/chats/import`
+
+Editor: one-time upload of a browser's localStorage chats; existing ids are skipped; once per browser id.
+
+Request body:
+
+```json
+{
+  "source": "browser id",
+  "chats": []
+}
+```
+
+Returns: {imported,skipped,already_imported}
+
+### `GET /api/workspace/pins`
+
+Your pinned runs in this workspace.
+
+Returns: {pins}
+
+### `PUT /api/workspace/pins`
+
+Replace your pinned runs (only runs this workspace can see are kept).
+
+Request body:
+
+```json
+{
+  "pins": [
+    "run_name"
+  ]
+}
+```
+
+Returns: {pins}
+
+### `GET /api/workspace/preferences`
+
+Workspace preferences (default_model) and yours (theme).
+
+Returns: {workspace,user}
+
+### `PUT /api/workspace/preferences`
+
+Set preferences; workspace keys need an owner.
+
+Request body:
+
+```json
+{
+  "user": {
+    "theme": "dark"
+  }
+}
+```
+
+Returns: {workspace,user}
+
+### `GET /api/workspace/onboarding`
+
+First-run steps done, whether a model is connected and who can connect one or invite.
+
+Returns: {steps,workspace,model_connected,can_connect_model,can_invite,members,runs_in_workspace,mode,demo_url}
+
+### `PUT /api/workspace/onboarding`
+
+Editor: mark onboarding steps (workspace, model, invite, demo, dismissed).
+
+Request body:
+
+```json
+{
+  "steps": {
+    "demo": true
+  }
+}
+```
+
+Returns: onboarding state
+
+### `GET /api/workspace/runs-index`
+
+Saved runs this workspace can see.
+
+Returns: {runs}
+
+### `POST /api/workspace/runs-index`
+
+Editor: add a saved run (local caller: any run folder; team member: a run they already edit in another workspace).
+
+Request body:
+
+```json
+{
+  "name": "run_name"
+}
+```
+
+Returns: {runs}
+
+### `DELETE /api/workspace/runs-index/{name}`
+
+Editor: remove a run from this workspace's list (the folder stays).
+
+Returns: {runs}
+
 ## Tests on simulated people
 
 ### `POST /api/simulation/website-test`

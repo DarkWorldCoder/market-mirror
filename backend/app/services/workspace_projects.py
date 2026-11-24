@@ -1,13 +1,17 @@
-"""Workspace metadata attached to real engine projects, without deleting run evidence."""
+"""Workspace projects, stored in the workspace database and tied to real engine projects.
+
+Each workspace project shares its id with an engine (graph) project under uploads/projects/. Older installs kept
+the workspace part in uploads/projects/<id>/workspace.json; the local workspace imports those files the first
+time it sees them and leaves them in place. Engine projects made outside the app (the CLI, MCP) appear in the
+local workspace too, as before. The workspace comes from the caller's scope (app/auth.py).
+"""
 import json
-import os
 import re
-import tempfile
 import threading
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import auth
+from ..db import get_db, repo
 from ..models.project import ProjectManager
 
 _LOCK = threading.RLock()
@@ -15,28 +19,8 @@ _ID = re.compile(r"^proj_[a-f0-9]{12}$")
 _CHAT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
 _FIELDS = {"name", "description", "instructions", "chat_ids", "run_names", "preferred_model"}
 _SOURCE_ID = re.compile(r"^src_[a-f0-9]{12}$")
-
-
-def _path(project_id):
-    if not isinstance(project_id, str) or not _ID.fullmatch(project_id):
-        raise LookupError("Project not found")
-    root = Path(ProjectManager.PROJECTS_DIR).resolve()
-    directory = root / project_id
-    if directory.is_symlink() or directory.resolve().parent != root:
-        raise LookupError("Project not found")
-    return directory / "workspace.json"
-
-
-def _write(path, value):
-    fd, temporary = tempfile.mkstemp(prefix=".workspace.", dir=path.parent)
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+MAX_SOURCES = 10
+MAX_SOURCE_CHARS = 120000
 
 
 def _validate(data, creating=False):
@@ -73,72 +57,110 @@ def _validate(data, creating=False):
     return result
 
 
-def get_project(project_id):
-    path = _path(project_id)
+# ---------------------------------------------------------------------------------------------- legacy files
+
+def _legacy_values(project_id):
+    """The workspace.json written by earlier versions, or the engine project's own name and dates."""
+    root = Path(ProjectManager.PROJECTS_DIR).resolve()
+    directory = root / project_id
+    if directory.is_symlink() or directory.resolve().parent != root or not directory.is_dir():
+        return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        engine = ProjectManager.get_project(project_id)
-        if not engine:
-            raise LookupError("Project not found") from exc
-        # Existing graph projects remain visible before workspace metadata is added.
-        value = {"id": engine.project_id, "engine_project_id": engine.project_id,
-                 "name": engine.name, "description": "", "instructions": "", "chat_ids": [],
-                 "run_names": [], "created_at": engine.created_at, "updated_at": engine.updated_at}
-    if value.get("archived"):
+        value = json.loads((directory / "workspace.json").read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            return value
+    except (OSError, ValueError):
+        pass
+    engine = ProjectManager.get_project(project_id)
+    if not engine:
+        return None
+    return {"name": engine.name, "created_at": engine.created_at, "updated_at": engine.updated_at}
+
+
+def _import_one(conn, project_id):
+    value = _legacy_values(project_id)
+    if value is None:
+        return False
+    stamp = repo.now_ms()
+    clean = {"name": str(value.get("name") or project_id)[:120], "description": str(value.get("description") or "")[:2000],
+             "instructions": str(value.get("instructions") or "")[:12000],
+             "preferred_model": value.get("preferred_model") if isinstance(value.get("preferred_model"), str) else "",
+             "chat_ids": [c for c in value.get("chat_ids") or [] if isinstance(c, str) and _CHAT.fullmatch(c)][:200],
+             "run_names": [r for r in value.get("run_names") or [] if isinstance(r, str)][:200],
+             "sources": [s for s in value.get("sources") or [] if isinstance(s, dict)][:MAX_SOURCES]}
+    created = repo.from_iso(value.get("created_at"), stamp)
+    repo.insert_project(conn, repo.LOCAL_WORKSPACE, project_id, clean, repo.LOCAL_USER, created,
+                        repo.from_iso(value.get("updated_at"), created), stamp if value.get("archived") else None)
+    return True
+
+
+def _import_local(conn, only=None):
+    """Bring engine projects this database has not seen into the local workspace (once each)."""
+    root = Path(ProjectManager.PROJECTS_DIR)
+    if not root.exists():
+        return
+    names = [only] if only else [d.name for d in root.iterdir() if _ID.fullmatch(d.name)]
+    for name in names:
+        if not repo.project_known(conn, name):
+            _import_one(conn, name)
+
+
+def _local():
+    scope = auth.current_scope()
+    return scope is None or scope.is_local
+
+
+# ---------------------------------------------------------------------------------------------- service
+
+def get_project(project_id):
+    if not isinstance(project_id, str) or not _ID.fullmatch(project_id):
         raise LookupError("Project not found")
-    value.setdefault("sources", [])
-    value.setdefault("preferred_model", "")
-    return value
+    with _LOCK, get_db().transaction() as conn:
+        if _local():
+            _import_local(conn, project_id)
+        return repo.get_project(conn, auth.workspace_id(), project_id)
 
 
 def list_projects():
-    root = Path(ProjectManager.PROJECTS_DIR)
-    if not root.exists():
-        return []
-    projects = []
-    for directory in root.iterdir():
-        if _ID.fullmatch(directory.name):
-            try:
-                projects.append(get_project(directory.name))
-            except (LookupError, ValueError, OSError):
-                continue
-    return sorted(projects, key=lambda p: p["updated_at"], reverse=True)
+    with _LOCK, get_db().transaction() as conn:
+        if _local():
+            _import_local(conn)
+        return repo.list_projects(conn, auth.workspace_id())
 
 
 def create_project(data):
     values = _validate(data, creating=True)
     with _LOCK:
         engine = ProjectManager.create_project(values["name"])
-        value = {"id": engine.project_id, "engine_project_id": engine.project_id,
-                 "name": engine.name, "description": "", "instructions": "", "chat_ids": [],
-                 "run_names": [], "sources": [], "preferred_model": "", "created_at": engine.created_at, "updated_at": engine.updated_at, **values}
-        _write(_path(engine.project_id), value)
-        return value
+        with get_db().transaction() as conn:
+            repo.insert_project(conn, auth.workspace_id(), engine.project_id, values, auth.user_id())
+            return repo.get_project(conn, auth.workspace_id(), engine.project_id)
 
 
 def update_project(project_id, data):
     values = _validate(data)
+    get_project(project_id)
     with _LOCK:
-        value = get_project(project_id)
-        value.update(values)
-        value["updated_at"] = datetime.now(timezone.utc).isoformat()
+        with get_db().transaction() as conn:
+            project = repo.update_project(conn, auth.workspace_id(), project_id, values)
         if "name" in values:
             engine = ProjectManager.get_project(project_id)
             if engine:
                 engine.name = values["name"]
                 ProjectManager.save_project(engine)
-        _write(_path(project_id), value)
-        return value
+        return project
+
+
+def project_creator(project_id):
+    get_project(project_id)
+    with get_db().transaction() as conn:
+        return repo.project_row(conn, auth.workspace_id(), project_id)["created_by"]
 
 
 def archive_project(project_id):
-    with _LOCK:
-        value = get_project(project_id)
-        value["archived"] = True
-        value["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _write(_path(project_id), value)
-
+    get_project(project_id)
+    with _LOCK, get_db().transaction() as conn:
+        repo.archive_project(conn, auth.workspace_id(), project_id)
 
 
 def add_source(project_id, data):
@@ -149,28 +171,14 @@ def add_source(project_id, data):
         raise ValueError("Source name must be a single line of at most 160 characters")
     if not isinstance(text, str) or not text.strip() or len(text) > 24000 or "\x00" in text:
         raise ValueError("Source text must contain 1 to 24000 characters without null bytes")
-    with _LOCK:
-        project = get_project(project_id)
-        if len(project["sources"]) >= 10:
-            raise ValueError("A project can contain up to 10 sources")
-        if sum(len(source.get("text", "")) for source in project["sources"]) + len(text) > 120000:
-            raise ValueError("Project source text is limited to 120000 characters in total")
-        project["sources"].append({"id": "src_" + uuid.uuid4().hex[:12], "name": name.strip(), "text": text,
-                                   "created_at": datetime.now(timezone.utc).isoformat()})
-        project["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _write(_path(project_id), project)
-        return project
+    get_project(project_id)
+    with _LOCK, get_db().transaction() as conn:
+        return repo.add_source(conn, auth.workspace_id(), project_id, name.strip(), text, MAX_SOURCES, MAX_SOURCE_CHARS)
 
 
 def remove_source(project_id, source_id):
     if not isinstance(source_id, str) or not _SOURCE_ID.fullmatch(source_id):
         raise LookupError("Project source not found")
-    with _LOCK:
-        project = get_project(project_id)
-        remaining = [source for source in project["sources"] if source["id"] != source_id]
-        if len(remaining) == len(project["sources"]):
-            raise LookupError("Project source not found")
-        project["sources"] = remaining
-        project["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _write(_path(project_id), project)
-        return project
+    get_project(project_id)
+    with _LOCK, get_db().transaction() as conn:
+        return repo.remove_source(conn, auth.workspace_id(), project_id, source_id)
