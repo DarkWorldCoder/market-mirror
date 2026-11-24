@@ -111,11 +111,10 @@ html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radiu
 .workflow-app.embedded .recipes-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .workflow-app.embedded .editor-heading h1 { font-size: 20px; }
 .workflow-app.embedded .recent { margin-top: 18px; }
-.ws[data-theme='dark'] .workflow-app.embedded { --ink: #ececec; --muted: #a4ada8; --line: #2a2c30; --light: #1c1d20; --green: #5fc79a; color: var(--ink); }
 .ws[data-theme='dark'] .workflow-app.embedded input,
 .ws[data-theme='dark'] .workflow-app.embedded textarea,
-.ws[data-theme='dark'] .workflow-app.embedded select { background: #1c1d20; color: #ececec; border-color: #2a2c30; }
-.ws[data-theme='dark'] .workflow-app.embedded .recipe { background: #1c1d20; color: #ececec; }
+.ws[data-theme='dark'] .workflow-app.embedded select { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+.ws[data-theme='dark'] .workflow-app.embedded .recipe { background: var(--panel); color: var(--text); }
 
 /* ==== Chat home fixes: Continue cards and quick looks (ChatWorkspace.vue) ==== */
 .dw-continue .dw-continue-head h2 { font-size: 13px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: normal; }
