@@ -893,6 +893,10 @@
 .ws-project-empty h2 { font-size: 22px; letter-spacing: -.5px; margin: 0; color: var(--text); }
 .ws-project-empty p { font-size: 13px; line-height: 22px; margin: 0; max-width: 320px; }
 .ws-project-card { gap: 14px; }
+.ws-project-card-wrap { position: relative; min-width: 0; }
+.ws-project-card-wrap > .ws-project-card { height: 100%; }
+.ws-project-archive { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); cursor: pointer; }
+.ws-project-archive:hover, .ws-project-archive:focus-visible { color: var(--no); border-color: var(--no); }
 .ws-retry { margin-left: 8px; padding: 2px 7px; border: 1px solid currentColor; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
 @media (max-width: 760px) {
  .ws .ws-side { width: 272px; padding-top: 20px; }

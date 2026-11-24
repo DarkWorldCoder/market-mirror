@@ -72,7 +72,7 @@
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
-          <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
+          <div class="ws-cards"><div v-for="p in filteredProjects" :key="p.id" class="ws-project-card-wrap"><RouterLink class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink><button class="ws-project-archive" :aria-label="`Archive ${p.name}`" title="Archive project" @click="archiveProject(p)"><Archive :size="15" /></button></div></div>
           <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
         </div>
 
@@ -111,7 +111,7 @@
 <script setup>
 import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, Globe, Mail, FlaskConical, Lightbulb, Target, Image, Camera, ClipboardList, ShieldCheck, Scale, Wallet, Network, Mic, Tag, Route, Workflow, GitCompare, Layers, Clock, BookOpen, ArrowUpRight, UsersRound, Megaphone, Compass, Sparkles, LayoutDashboard, MessageSquare, ChartNoAxesCombined, FolderOpen, Shapes, Plug, Split, Plus, Search, X, ChevronDown, Settings2, Sun, Moon, Menu } from 'lucide-vue-next'
+import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, Globe, Mail, FlaskConical, Lightbulb, Target, Image, Camera, ClipboardList, ShieldCheck, Scale, Wallet, Network, Mic, Tag, Route, Workflow, GitCompare, Layers, Clock, BookOpen, ArrowUpRight, UsersRound, Megaphone, Compass, Sparkles, LayoutDashboard, MessageSquare, ChartNoAxesCombined, FolderOpen, Shapes, Plug, Split, Plus, Search, X, ChevronDown, Settings2, Sun, Moon, Menu, Archive } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { featureCatalog, featureGroups, searchFeatures, loadCustomSkills, customSkillError } from '../workspace/featureCatalog'
 import CustomSkillDialog from '../components/workspace/CustomSkillDialog.vue'
@@ -274,6 +274,18 @@ function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUser
 async function loadProjects() {
   if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
+}
+async function archiveProject(project) {
+  if (!confirm(`Archive “${project.name}”? It leaves the sidebar and the Projects page.`)) return
+  try {
+    await api(`/api/workspace/projects/${encodeURIComponent(project.id)}`, { method: 'DELETE' })
+  } catch (e) {
+    error.value = e.message
+    return
+  }
+  projects.value = projects.value.filter(item => item.id !== project.id)
+  if (route.query.project === project.id) router.push('/')
+  window.dispatchEvent(new Event('mm-projects-updated'))
 }
 function onSlash(e) {
   if (e.key === 'Escape') menuOpen.value = false
