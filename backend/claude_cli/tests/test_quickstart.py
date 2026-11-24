@@ -73,6 +73,20 @@ class QuickstartTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             quickstart.build_scenario({"brand": "X"}, tempfile.mkdtemp())
 
+    def test_spanish_questions_write_same_scenario(self):
+        import io
+        stdin = io.StringIO("Fitloop\nUna app de entrenamiento.\njóvenes en India\n\n\n\n\n\n\n")
+        stderr = io.StringIO()
+        answers = quickstart.ask(stdin, stderr, lang="es")
+        self.assertIn("¿Nombre de la marca o del producto?", stderr.getvalue())
+        self.assertEqual(answers["brand"], "Fitloop")
+        self.assertEqual(answers["platforms"], "facebook, instagram")          # empty answer takes the default; keys unchanged
+        self.assertEqual(quickstart.resolve_lang("es_ES.UTF-8"), "es")
+        self.assertEqual(quickstart.resolve_lang("fr_FR"), "en")
+        d = tempfile.mkdtemp()
+        r = quickstart.build_scenario({**ANSWERS, "brand": "Fitloop"}, os.path.join(d, "es"))
+        self.assertIn("market_test.json", r["files"])
+
     def test_past_ads_import_is_called(self):
         d = tempfile.mkdtemp()
         ads = os.path.join(d, "ads.csv")
@@ -186,6 +200,30 @@ class SectionTests(unittest.TestCase):
         self.assertIn('class="callout insight" role="note">Pitch score 83/100: 66.7% say yes (from 33.3% before the rebuttals), 1 hot leads.', pitch)
         ideas = re.search(r'<section id="ideas">(.*?)</section>', html, re.S).group(1)
         self.assertIn("1 tests proposed; first: Proof &lt;ad&gt;.", ideas)
+
+
+class QuickstartLangTests(unittest.TestCase):
+    def setUp(self):
+        self._old_lang = os.environ.get("LANG")
+        os.environ["LANG"] = "es_ES.UTF-8"
+
+    def tearDown(self):
+        if self._old_lang is None:
+            os.environ.pop("LANG", None)
+        else:
+            os.environ["LANG"] = self._old_lang
+
+    def test_explicit_en_overrides_LANG(self):
+        import mirofish
+        args = mirofish.build_parser().parse_args(["--lang", "en", "quickstart"])
+        self.assertEqual(mirofish._quickstart_lang(args), "en")
+        self.assertEqual(quickstart.resolve_lang(mirofish._quickstart_lang(args)), "en")
+
+    def test_omitted_lang_falls_back_to_LANG(self):
+        import mirofish
+        args = mirofish.build_parser().parse_args(["quickstart"])
+        self.assertIsNone(mirofish._quickstart_lang(args))
+        self.assertEqual(quickstart.resolve_lang(mirofish._quickstart_lang(args)), "es")
 
 
 if __name__ == "__main__":

@@ -29,6 +29,27 @@ QUESTIONS: List[Dict[str, Any]] = [
     {"key": "past_ads", "q": "Past ad results export (CSV/JSON path), or leave empty", "default": ""},
     {"key": "docs", "q": "Extra documents to learn from (paths, comma separated), or leave empty", "default": ""},
 ]
+# Question text per language. Answer keys, defaults and the answer format stay the same in every language.
+QUESTION_TEXT: Dict[str, Dict[str, str]] = {
+    "es": {
+        "brand": "¿Nombre de la marca o del producto?",
+        "product": "¿Qué vendes, a quién y a qué precio? (una o dos frases)",
+        "buyers": "¿Quién compra y dónde? p. ej. 'profesionales jóvenes en India y Filipinas; padres en Kenia'",
+        "platforms": "¿Dónde te ven? (facebook, instagram, tiktok, reddit, linkedin, x; separados por comas)",
+        "tests": "¿Qué quieres probar? (ads, messages, price, launch, pitch; separados por comas)",
+        "budget": "¿Presupuesto mensual de anuncios y moneda, p. ej. '500 USD'",
+        "size": "¿Cuántas personas simuladas? small (20), medium (60) o large (150)",
+        "past_ads": "Ruta a una exportación de resultados de anuncios anteriores (CSV/JSON), o deja vacío",
+        "docs": "Documentos extra de los que aprender (rutas, separadas por comas), o deja vacío",
+    },
+}
+SUPPORTED_LANGS = ["en"] + sorted(QUESTION_TEXT)
+UI_TEXT: Dict[str, Dict[str, str]] = {
+    "en": {"intro": "MarketMirror quickstart. Press Enter to accept a default; empty answers are fine.",
+           "required": "(this one is needed)"},
+    "es": {"intro": "Inicio rápido de MarketMirror. Pulsa Enter para aceptar el valor por defecto; las respuestas vacías están bien.",
+           "required": "(esta respuesta es necesaria)"},
+}
 SIZES = {"small": 20, "medium": 60, "large": 150}
 GENERATED = {"brief.md", "question.txt", "personas.json", "creatives.json", "messages.txt", "posts.json", "events.json",
              "pitch.md", "rebuttals.md", "market_test.json", "past_ads.md", "past_ads.json"}
@@ -73,12 +94,28 @@ def load_answers(arg: str) -> Dict[str, Any]:
     return data
 
 
-def ask(stdin, stderr, prefill: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def resolve_lang(value: Optional[str] = None) -> str:
+    """'es', 'es_ES.UTF-8' -> 'es'. Unsupported or empty values fall back to English."""
+    if value is None:
+        value = os.environ.get("LANG", "")
+    code = re.split(r"[_.@-]", str(value or "").strip().lower())[0]
+    return code if code in SUPPORTED_LANGS else "en"
+
+
+def questions(lang: Optional[str] = None) -> List[Dict[str, Any]]:
+    """The nine questions in `lang` (default from LANG); keys and defaults are unchanged."""
+    text = QUESTION_TEXT.get(resolve_lang(lang), {})
+    return [{**q, "q": text.get(q["key"], q["q"])} for q in QUESTIONS]
+
+
+def ask(stdin, stderr, prefill: Optional[Dict[str, Any]] = None, lang: Optional[str] = None) -> Dict[str, Any]:
     """Terminal wizard; stderr for prompts so stdout stays JSON. prefill (from `understand`) becomes the defaults."""
     answers: Dict[str, Any] = {}
     prefill = prefill or {}
-    stderr.write("MarketMirror quickstart. Press Enter to accept a default; empty answers are fine.\n\n")
-    for q in QUESTIONS:
+    code = resolve_lang(lang)
+    ui = UI_TEXT[code]
+    stderr.write(ui["intro"] + "\n\n")
+    for q in questions(code):
         default = str(prefill.get(q["key"]) or q.get("default", ""))
         while True:
             stderr.write(q["q"] + (f" [{default}]" if default else "") + "\n> ")
@@ -90,7 +127,7 @@ def ask(stdin, stderr, prefill: Optional[Dict[str, Any]] = None) -> Dict[str, An
             if v or not q.get("required"):
                 answers[q["key"]] = v
                 break
-            stderr.write("(this one is needed)\n")
+            stderr.write(ui["required"] + "\n")
     return answers
 
 
