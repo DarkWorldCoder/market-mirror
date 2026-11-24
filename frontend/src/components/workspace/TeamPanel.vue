@@ -1,7 +1,7 @@
 <template>
   <!-- Blocks: shadcn.io "account team members" (rows with avatar, role and pending invitations) and the
        ui.shadcn.com cards example "Share this document" (link with Copy, people with access). -->
-  <div class="ws-section mm-team mx-auto grid w-full max-w-3xl gap-6" style="padding-top: 24px">
+  <div class="ws-section ws-section-pad mm-team mx-auto grid w-full max-w-3xl gap-6">
     <div class="grid gap-1">
       <h1 class="text-2xl font-semibold tracking-tight">Workspace and team</h1>
       <p class="text-muted-foreground text-sm">{{ intro }}</p>
