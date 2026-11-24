@@ -580,6 +580,12 @@ Saved run folders (mirofish_runs or MIROFISH_RUNS_DIR), newest first; no model c
 
 Returns: {root, runs: [{name, title, decision, people, simulation_id, updated_at, has_dashboard}]}
 
+### `GET /api/runs/insights`
+
+One aggregate across all saved runs for the workspace overview, from saved files only (no model calls); cached per run by file mtimes.
+
+Returns: {root, generated_at, total_runs, runs, activity: [{date, count, runs}], decisions: {go, iterate, no_go, unrecorded}, intent: [{run, rate, n, low, high, small_sample}], objections: [{label, runs, people}], segments: [{segment, runs, people, rate}], geography: {countries: [{country, people, runs, segments}], cities: [{country, city, people, runs}]}, trust: {runs, graded, calibrated, grades}, spend: {runs, total_usd, estimate}, forecasts: {locked, scored, hits, checks, entries}, running}
+
 ### `GET /api/runs/{name}`
 
 One run: manifest, summary and the result files it has.
