@@ -371,6 +371,43 @@ Actually initialize a saved MCP server and list tools with bounded JSON/SSE pars
 
 Returns: safe connector with status, tools, checked_at, error
 
+### `POST /api/workspace/connectors/test`
+
+Check an MCP server before saving it: initialize and list tools, save nothing; ?connector=<id> reuses that connector's saved token only for its saved address.
+
+Request body:
+
+```json
+{
+  "url": "https://mcp.example.com/mcp",
+  "token": "write-only",
+  "protocol_version": "2025-11-25"
+}
+```
+
+Returns: {status,error,tools,tools_truncated,checked_at}
+
+### `GET /api/workspace/mcp-setup`
+
+Copy-ready settings for adding MarketMirror's own MCP server to Claude Desktop, Claude Code, Cursor, VS Code, Codex and other apps; real paths, no secrets.
+
+Returns: {server_path,server_found,home,python,clients:[{id,label,format,where,steps,snippet}],http}
+
+### `POST /api/workspace/settings/test`
+
+Check a provider key with its free models list; a one-token call only with allow_call=true; a saved key goes only to its own provider.
+
+Request body:
+
+```json
+{
+  "provider": "openai",
+  "api_key": "write-only"
+}
+```
+
+Returns: {ok,status,method,models,message}
+
 ### `GET /api/workspace/session`
 
 Bootstrap a same-origin browser session on a literal loopback host; Sec-Fetch-Site same-origin required.

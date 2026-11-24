@@ -19,7 +19,7 @@
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
+          <RouterLink to="/workspace/connectors" :class="{ active: view === 'connectors' }" :aria-current="view === 'connectors' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connections</RouterLink>
         </div>
         <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
@@ -66,7 +66,8 @@
         <WorkspaceOverview v-if="view === 'dashboard' || view === 'reports'" :runs="runs" :projects="projects" :mode="view" :provider="provider" :loading="!loaded" :theme="theme" @refresh="refresh" @select-run="openRun" />
         <RunView v-else-if="view === 'run'" :key="route.params.run" :name="route.params.run" :theme="theme" />
 
-        <ChatWorkspace v-else-if="view === 'chat' || view === 'connectors'" :runs="runs" :provider="provider" :theme="theme" />
+        <ChatWorkspace v-else-if="view === 'chat'" :runs="runs" :provider="provider" :theme="theme" />
+        <ConnectionsPage v-else-if="view === 'connectors'" :runs="runs" :theme="theme" />
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
         <TeamPanel v-else-if="view === 'team'" />
 
@@ -121,6 +122,7 @@ import { Pin, PinOff } from 'lucide-vue-next'
 import { pins, togglePin } from '../workspace/pins'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
+import ConnectionsPage from '../components/workspace/ConnectionsPage.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
@@ -184,7 +186,7 @@ const theme = ref((() => {
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
@@ -314,7 +316,6 @@ async function refresh() {
 function refreshVisible() { if (!document.hidden) refresh() }
 onMounted(() => {
   loadChats()
-  if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
   window.addEventListener('mm-chats-updated', loadChats)
   window.addEventListener('mm-chats-loaded', loadChats)
   window.addEventListener('mm-chat-status', onChatStatus)

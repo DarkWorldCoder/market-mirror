@@ -27,6 +27,7 @@
             <p v-else-if="results.error" class="rcc-error" role="alert">{{ results.error }} <button type="button" class="rcc-link" @click="loadResults">Try again</button></p>
             <ReadableReport v-else-if="results.report" :report="results.report" />
             <p v-else class="rcc-empty">No plain-language results in this run yet. Browse the saved reports below.</p>
+            <LandingAnalysis v-if="!results.loading" :name="name" :files="detail.files || []" :title="stats.title || name" compact :level="4" @prompt="landingPrompt" />
             <div v-if="detail.files?.length" class="rcc-more">
               <button type="button" class="rcc-link" :aria-expanded="allReports" @click="allReports = !allReports">{{ allReports ? 'Hide saved reports' : `Browse all ${detail.files.length} saved reports` }}</button>
             </div>
@@ -34,6 +35,8 @@
           </template>
 
           <RunAudienceCard v-else-if="t.id === 'market'" class="rcc-audience" :name="name" :theme="theme" />
+
+          <PeopleExplorer v-else-if="t.id === 'people'" compact :name="name" :theme="theme" @ask="(p) => act('ask', p)" />
 
           <template v-else-if="t.id === 'thinking'">
             <LoadingSkeleton v-if="buyers.loading" :lines="5" label="Loading what the buyers said" />
@@ -116,8 +119,10 @@ import { presentReport } from '../../workspace/reportPresentation.js'
 import { decisionText, decisionTone } from '../../workspace/compareRuns.js'
 import { RUN_CARD_TABS, actionMix, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, reportDownloadFile, resultsFile, runCardStats, tabForView, topActors, verdictCounts } from '../../workspace/runCard.js'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const PeopleExplorer = defineAsyncComponent(() => import('./PeopleExplorer.vue'))
 const SocialFeedPlatform = defineAsyncComponent(() => import('./SocialFeedPlatform.vue'))
 const ReportBrowser = defineAsyncComponent(() => import('./ReportBrowser.vue'))
+const LandingAnalysis = defineAsyncComponent(() => import('./LandingAnalysis.vue'))
 
 const props = defineProps({
   name: { type: String, required: true },
@@ -230,7 +235,9 @@ const rounds = computed(() => activityRounds(activity.timeline))
 const actors = computed(() => topActors(activity.stats))
 const mix = computed(() => actionMix(activity.timeline))
 
-function act(type) { emit('action', { type, run: props.name, title: stats.value.title || props.name }) }
+function act(type, person) { emit('action', { type, run: props.name, title: stats.value.title || props.name, ...(person ? { person } : {}) }) }
+// landing analysis: a fix goes to the chat agent (cost on its approval card first); "Test a landing page" only fills the box
+function landingPrompt({ text, send } = {}) { if (text) emit('action', { type: send ? 'agent-prompt' : 'draft', run: props.name, title: stats.value.title || props.name, prompt: text }) }
 function compareWith(other) { compareOpen.value = false; emit('action', { type: 'compare', run: props.name, other, title: stats.value.title || props.name }) }
 async function save() {
   if (!downloadFile.value) return
