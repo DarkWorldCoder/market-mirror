@@ -5,7 +5,7 @@
         <h1>{{ mode === 'reports' ? 'Your experiment reports' : 'Turn research into your next decision.' }}</h1>
         <p>{{ mode === 'reports' ? 'Find an experiment, then explore its reports, audience, and recorded activity.' : 'Pick up your latest experiment or bring a new question to chat.' }}</p>
       </div>
-      <button class="ws-btn" :disabled="loading" @click="$emit('refresh')"><RefreshCw :size="15" />{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+      <button class="ws-btn" :disabled="loading || insightsLoading" @click="refreshAll"><RefreshCw :size="15" />{{ loading || insightsLoading ? 'Refreshing…' : 'Refresh' }}</button>
     </header>
 
     <div class="overview-stats" role="group" aria-label="Workspace totals">
@@ -15,7 +15,11 @@
       <article><span><FolderOpen :size="16" />Projects</span><strong>{{ loading ? '…' : number(projects.length) }}</strong><small>Related chats and research, organized together</small></article>
     </div>
 
+    <!-- Reserved for the audience world map (built separately). It receives `geography` (insights.geography). -->
+    <div class="overview-map-slot" data-slot="world-map"></div>
 
+    <LiveNow v-if="showInsights" :runs="liveRuns" @changed="loadInsights" />
+    <p v-if="showInsights && insightsError" class="ovi-error" role="status">Couldn’t load the cross-run summary. {{ insightsError }} <button type="button" class="overview-link" @click="loadInsights">Try again</button></p>
 
     <div v-if="runs.length" class="overview-insights">
       <section class="overview-panel overview-next" aria-labelledby="latest-heading">
@@ -31,6 +35,15 @@
       </section>
     </div>
 
+    <div v-if="showInsights && insights.total_runs" class="ovi-grid">
+      <ActivityCalendar :activity="insights.activity" :selected="day" @select-day="selectDay" />
+      <IntentPanel :intent="insights.intent" />
+      <ObjectionsPanel :objections="insights.objections" />
+      <AudiencesPanel :segments="insights.segments" />
+      <TrustPanel :trust="insights.trust" :forecasts="insights.forecasts" :total-runs="insights.total_runs" />
+      <SpendPanel :spend="insights.spend" />
+    </div>
+
     <details v-if="activeRuns.length" class="overview-active" aria-labelledby="active-heading">
       <summary class="overview-section-title"><h2 id="active-heading">{{ activeRuns.length }} {{ activeRuns.length === 1 ? 'run' : 'runs' }} didn’t record a finish</h2><span class="overview-live">Their last saved status still said running. Open one to see what was saved.</span></summary>
       <button v-for="run in activeRuns" :key="run.name" class="overview-active-run" @click="$emit('select-run', run.name)">
@@ -42,12 +55,13 @@
 
     <section v-if="mode !== 'reports' && (projects.length || !runs.length)" class="overview-projects" aria-labelledby="overview-projects-heading"><div class="overview-section-title"><div><h2 id="overview-projects-heading">Your projects</h2><p>Continue a conversation with its product context and instructions.</p></div><RouterLink class="overview-link" to="/workspace/projects">{{ projects.length ? 'View all projects' : 'Manage projects' }}<ArrowUpRight :size="14" /></RouterLink></div><div v-if="projects.length" class="overview-project-grid"><RouterLink v-for="project in projects.slice(0,3)" :key="project.id" :to="{path:'/',query:{project:project.id}}"><FolderOpen :size="19" /><div><h3>{{ project.name }}</h3><p>{{ project.description || 'Open this project to continue your research.' }}</p><small>{{ project.chat_ids?.length || 0 }} linked chats · {{ project.run_names?.length || 0 }} linked runs</small></div><ChevronRight :size="16" /></RouterLink></div><RouterLink v-else class="overview-project-empty" :to="{path:'/',query:{action:'project'}}"><FolderPlus :size="23" /><span><strong>Create a space for your next idea</strong><small>Keep related conversations and instructions in one project.</small></span><Plus :size="18" /></RouterLink></section>
 
-    <section class="overview-runs" aria-labelledby="runs-heading">
+    <section ref="runsSection" class="overview-runs" aria-labelledby="runs-heading">
       <div class="overview-section-title"><div><h2 id="runs-heading">All experiments</h2><p>Open a run for its saved reports, 3D audience, and recorded agents.</p></div><button v-if="runs.length" class="ws-btn" @click="exportRuns"><Download :size="15" />Export index</button></div>
       <div class="overview-toolbar">
         <label class="overview-search"><Search :size="16" aria-hidden="true" /><input v-model="search" type="search" aria-label="Search experiment names and summaries" placeholder="Search names or saved summaries…" /></label>
         <label class="overview-filter"><span class="sr-only">Filter by decision</span><select v-model="decision"><option value="">All decisions</option><option v-for="label in decisionOptions" :key="label" :value="label">{{ decisionLabel(label) }}</option></select></label>
         <label class="overview-filter"><span class="sr-only">Sort experiments</span><select v-model="sort"><option value="latest">Latest first</option><option value="name">Name A–Z</option><option value="people">Most participants</option></select></label>
+        <button v-if="day" type="button" class="ovi-chip" :aria-label="`Showing runs saved on ${dayText}. Clear the day filter`" @click="day = ''"><CalendarDays :size="13" aria-hidden="true" />{{ dayText }}<X :size="13" aria-hidden="true" /></button>
       </div>
       <div v-if="loading && !runs.length" class="overview-empty" role="status">Loading saved experiments…</div>
       <div v-else-if="!runs.length" class="overview-empty"><FlaskConical :size="32" /><h3>Start with a decision you need to make.</h3><p>Describe your product, audience, and alternatives in chat. MarketMirror can help prepare a test, then show its saved results here.</p><RouterLink :to="{path:'/',query:{prompt:'Help me plan a market test. Ask about my product, target audience, and decision.'}}" class="ws-btn primary">Plan a test in chat<ArrowUpRight :size="15" /></RouterLink><RouterLink class="overview-link" to="/workspace/skills">Explore all skills</RouterLink></div>
@@ -62,7 +76,7 @@
         </tbody></table></div>
         <p class="overview-table-note">{{ filteredRuns.length }} of {{ runs.length }} runs · Participant counts represent simulated people.</p>
       </template>
-      <div v-else class="overview-empty"><Search :size="25" /><h3>No experiments match.</h3><button class="overview-link" @click="search = ''; decision = ''">Clear filters</button></div>
+      <div v-else class="overview-empty"><Search :size="25" /><h3>No experiments match.</h3><button class="overview-link" @click="search = ''; decision = ''; day = ''">Clear filters</button></div>
     </section>
 
 
@@ -70,14 +84,56 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Activity, ArrowUpRight, CircleCheck, Download, Files, FlaskConical, FolderOpen, FolderPlus, Globe2, MessageSquare, ChevronRight, Plus, RefreshCw, Search, UsersRound } from 'lucide-vue-next'
+import { Activity, ArrowUpRight, CalendarDays, CircleCheck, Download, Files, FlaskConical, FolderOpen, FolderPlus, Globe2, MessageSquare, ChevronRight, Plus, RefreshCw, Search, UsersRound, X } from 'lucide-vue-next'
 import EChart from './EChart.vue'
+import ActivityCalendar from './overview/ActivityCalendar.vue'
+import IntentPanel from './overview/IntentPanel.vue'
+import ObjectionsPanel from './overview/ObjectionsPanel.vue'
+import AudiencesPanel from './overview/AudiencesPanel.vue'
+import TrustPanel from './overview/TrustPanel.vue'
+import SpendPanel from './overview/SpendPanel.vue'
+import LiveNow from './overview/LiveNow.vue'
+import { api } from '../../workspace/api.js'
+import { namesOnDay, normalizeInsights, pollable } from '../../workspace/overviewInsights.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
-defineEmits(['refresh', 'select-run'])
-const search = ref(''), decision = ref(''), sort = ref('latest')
+const emit = defineEmits(['refresh', 'select-run'])
+const search = ref(''), decision = ref(''), sort = ref('latest'), day = ref('')
+const runsSection = ref(null)
+
+// Cross-run insights (GET /api/runs/insights): loaded once on the dashboard, then again with the Refresh button.
+const insights = ref(normalizeInsights(null))
+const insightsLoaded = ref(false), insightsLoading = ref(false), insightsError = ref('')
+const showInsights = computed(() => props.mode !== 'reports')
+/** Audience geography across runs, ready to pass to the world map in the slot above (countries and cities). */
+const geography = computed(() => insights.value.geography)
+const liveRuns = computed(() => pollable(insights.value.running))
+const dayNames = computed(() => (day.value ? namesOnDay(insights.value.activity, day.value) : null))
+const dayText = computed(() => { const [y, m, d] = day.value.split('-').map(Number); return y ? new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '' })
+async function loadInsights() {
+  if (insightsLoading.value) return
+  insightsLoading.value = true
+  try {
+    insights.value = normalizeInsights(await api('/api/runs/insights'))
+    insightsError.value = ''
+    if (day.value && !insights.value.activity.some(a => a.date === day.value)) day.value = ''
+  } catch (e) {
+    insightsError.value = e?.message || ''
+  } finally {
+    insightsLoaded.value = true
+    insightsLoading.value = false
+  }
+}
+function refreshAll() { emit('refresh'); if (showInsights.value) loadInsights() }
+function selectDay(value) {
+  day.value = value
+  if (value) nextTick(() => runsSection.value?.scrollIntoView({ behavior: globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }))
+}
+onMounted(() => { if (showInsights.value) loadInsights() })
+watch(showInsights, (on) => { if (on && !insightsLoaded.value) loadInsights() })
+defineExpose({ geography })
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const number = value => new Intl.NumberFormat().format(value)
 const normalizedDecision = value => typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : 'unrecorded'
@@ -98,7 +154,7 @@ const featuredRun = computed(() => latestDecision.value || ordered.value[0])
 const decisionOptions = computed(() => [...new Set(props.runs.map(r => normalizedDecision(r.decision)))].sort())
 const filteredRuns = computed(() => {
   const q = search.value.toLowerCase().trim()
-  return props.runs.filter(r => (!q || `${r.title || ''} ${r.name || ''} ${r.summary || ''}`.toLowerCase().includes(q)) && (!decision.value || normalizedDecision(r.decision) === decision.value)).sort((a, b) => sort.value === 'name' ? String(a.title || a.name).localeCompare(String(b.title || b.name)) : sort.value === 'people' ? (finite(b.people) ? b.people : -1) - (finite(a.people) ? a.people : -1) : timestamp(b) - timestamp(a))
+  return props.runs.filter(r => (!q || `${r.title || ''} ${r.name || ''} ${r.summary || ''}`.toLowerCase().includes(q)) && (!decision.value || normalizedDecision(r.decision) === decision.value) && (!dayNames.value || dayNames.value.has(r.name))).sort((a, b) => sort.value === 'name' ? String(a.title || a.name).localeCompare(String(b.title || b.name)) : sort.value === 'people' ? (finite(b.people) ? b.people : -1) - (finite(a.people) ? a.people : -1) : timestamp(b) - timestamp(a))
 })
 const decided = computed(() => {
   const counts = new Map()
