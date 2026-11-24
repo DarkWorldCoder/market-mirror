@@ -7,6 +7,7 @@ import InfoHint from './InfoHint.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import './modal-controls.css'
 import { api } from '../../workspace/api'
+import { formatMoney } from '../../workspace/format.js'
 
 const props = defineProps({ open: Boolean, theme: { type: String, default: 'light' }, initialTab: { type: String, default: 'models' }, initialProvider: { type: String, default: '' } })
 const emit = defineEmits(['update:open', 'saved', 'connectors', 'models'])
@@ -34,7 +35,7 @@ function changeProvider() {
   if (selected) llm.value = { ...llm.value, model: selected.model, base_url: selected.base_url, api_key: '' }
 }
 const selectedModelProvider = computed(() => state.value?.llm?.providers.find(item => item.id === llm.value.provider))
-const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(value || 0)
+const money = value => formatMoney(value)
 const memory = ref({ backend: 'local', embeddings: false, extract_activity: false, cognee_url: '', zep_api_key: '' })
 const jev = ref({ route: 'typesafe', model: '', parallel: 4, timeout: 60, retries: 3, labels: 'auto', ssr_engine: 'embeddings', api_key: '' })
 const provider = computed(() => state.value?.memory?.providers?.find(item => item.id === memory.value.backend))

@@ -41,7 +41,7 @@
             <p v-else-if="!buyers.survey" class="rcc-empty">No buyer survey in this run.</p>
             <template v-else>
               <div class="rcc-filter" role="group" aria-label="Show answers by verdict">
-                <button v-for="f in verdictFilters" :key="f.id" type="button" :aria-pressed="verdict === f.id" @click="verdict = f.id; shown = 8">{{ f.label }} <span>{{ f.count.toLocaleString('en-US') }}</span></button>
+                <button v-for="f in verdictFilters" :key="f.id" type="button" :aria-pressed="verdict === f.id" @click="verdict = f.id; shown = 8">{{ f.label }} <span>{{ formatNumber(f.count) }}</span></button>
               </div>
               <ol v-if="responses.length" class="rcc-responses">
                 <li v-for="r in responses.slice(0, shown)" :key="r.id">
@@ -52,7 +52,7 @@
                 </li>
               </ol>
               <p v-else class="rcc-empty">No answers with words for this verdict.</p>
-              <button v-if="responses.length > shown" type="button" class="rcc-link rcc-show-more" @click="shown += 8">Show 8 more of {{ (responses.length - shown).toLocaleString('en-US') }}</button>
+              <button v-if="responses.length > shown" type="button" class="rcc-link rcc-show-more" @click="shown += 8">Show 8 more of {{ formatNumber(responses.length - shown) }}</button>
               <p class="rcc-note">Written by a model playing each invented person. Simulated.</p>
             </template>
           </template>
@@ -62,7 +62,7 @@
             <p v-else-if="!rounds.length && !actors.length" class="rcc-empty">No activity was saved in this run.</p>
             <template v-else>
               <ul v-if="mix.length" class="rcc-mix" aria-label="Actions recorded, simulated">
-                <li v-for="m in mix.slice(0, 6)" :key="m.key"><b>{{ m.count.toLocaleString('en-US') }}</b> {{ m.label }}</li>
+                <li v-for="m in mix.slice(0, 6)" :key="m.key"><b>{{ formatNumber(m.count) }}</b> {{ m.label }}</li>
               </ul>
               <section v-if="rounds.length" class="rcc-rounds" aria-label="Actions by round">
                 <h4>Actions by round</h4>
@@ -70,7 +70,7 @@
                   <li v-for="r in rounds" :key="r.round">
                     <span>Round {{ r.round }}</span>
                     <span class="rcc-bar" aria-hidden="true"><i :style="{ width: `${Math.max(2, r.share)}%` }"></i></span>
-                    <b>{{ r.total.toLocaleString('en-US') }}</b>
+                    <b>{{ formatNumber(r.total) }}</b>
                   </li>
                 </ol>
               </section>
@@ -115,6 +115,7 @@ import { api, download } from '../../workspace/api.js'
 import { presentReport } from '../../workspace/reportPresentation.js'
 import { decisionText, decisionTone } from '../../workspace/compareRuns.js'
 import { RUN_CARD_TABS, actionMix, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, reportDownloadFile, resultsFile, runCardStats, tabForView, topActors, verdictCounts } from '../../workspace/runCard.js'
+import { formatNumber } from '../../workspace/format.js'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
 const SocialFeedPlatform = defineAsyncComponent(() => import('./SocialFeedPlatform.vue'))
 const ReportBrowser = defineAsyncComponent(() => import('./ReportBrowser.vue'))

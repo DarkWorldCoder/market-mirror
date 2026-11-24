@@ -99,6 +99,7 @@ import SpendPanel from './overview/SpendPanel.vue'
 import LiveNow from './overview/LiveNow.vue'
 import { api } from '../../workspace/api.js'
 import { namesOnDay, normalizeInsights, pollable } from '../../workspace/overviewInsights.js'
+import { formatDate, formatNumber as number } from '../../workspace/format.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['refresh', 'select-run'])
@@ -113,7 +114,7 @@ const showInsights = computed(() => props.mode !== 'reports')
 const geography = computed(() => insights.value.geography)
 const liveRuns = computed(() => pollable(insights.value.running))
 const dayNames = computed(() => (day.value ? namesOnDay(insights.value.activity, day.value) : null))
-const dayText = computed(() => { const [y, m, d] = day.value.split('-').map(Number); return y ? new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '' })
+const dayText = computed(() => { const [y, m, d] = day.value.split('-').map(Number); return y ? formatDate(new Date(y, m - 1, d)) : '' })
 async function loadInsights() {
   if (insightsLoading.value) return
   insightsLoading.value = true
@@ -137,7 +138,6 @@ onMounted(() => { if (showInsights.value) loadInsights() })
 watch(showInsights, (on) => { if (on && !insightsLoaded.value) loadInsights() })
 defineExpose({ geography })
 const finite = value => typeof value === 'number' && Number.isFinite(value)
-const number = value => new Intl.NumberFormat().format(value)
 const normalizedDecision = value => typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : 'unrecorded'
 const decisionLabel = value => { const text = normalizedDecision(value); return text === 'unrecorded' ? 'No decision' : text.replaceAll('_', ' ').replaceAll('-', ' ').replace(/^./, c => c.toUpperCase()) }
 const decisionClass = value => { const d = normalizedDecision(value); return /^(go|launch|proceed|test|test_small)$/.test(d) ? 'positive' : /^(no_go|no-go|stop|reject)$/.test(d) ? 'negative' : d === 'unrecorded' ? '' : 'neutral' }
@@ -149,7 +149,7 @@ const knownFiles = computed(() => props.runs.filter(r => finite(r.file_count)))
 const totalPeople = computed(() => knownPeople.value.reduce((sum, r) => sum + r.people, 0))
 const totalFiles = computed(() => knownFiles.value.reduce((sum, r) => sum + r.file_count, 0))
 const timestamp = run => { const iso = run.updated_at ? new Date(run.updated_at).getTime() : NaN; return Number.isFinite(iso) ? iso : finite(run.mtime) ? run.mtime * 1000 : 0 }
-const date = run => { const t = timestamp(run); return t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not recorded' }
+const date = run => { const t = timestamp(run); return t ? formatDate(t) : 'Not recorded' }
 const ordered = computed(() => [...props.runs].sort((a, b) => timestamp(b) - timestamp(a)))
 const latestDecision = computed(() => ordered.value.find(r => normalizedDecision(r.decision) !== 'unrecorded'))
 const featuredRun = computed(() => latestDecision.value || ordered.value[0])

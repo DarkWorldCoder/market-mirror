@@ -30,7 +30,7 @@
         <div v-for="c in connectors" :key="c.id" class="mcp-server">
           <div class="connection-row"><span class="connection-icon"><BrandIcon v-if="connectorBrand(c)" :brand="connectorBrand(c)" :size="20" /><Plug v-else /></span><div><b>{{ c.name }}</b><p>{{ c.status === 'connected' ? `${c.tools.length} tools discovered` : ['error', 'auth_required'].includes(c.status) ? c.error : 'Saved · connection not checked' }}</p><p class="mcp-endpoint">{{ c.url }}</p></div><Button variant="outline" size="sm" :disabled="!!connecting" @click="discoverConnector(c)">{{ connecting === c.id ? 'Checking…' : 'Check connection' }}</Button></div>
           <div class="mcp-controls"><label><input type="checkbox" :checked="c.enabled" :disabled="updatingConnector === c.id" @change="patchConnector(c, { enabled: $event.target.checked })" />Allow selected tools in chat</label><button type="button" @click="editConnector(c)">Edit</button><button type="button" @click="deleteConnector(c)">Remove</button></div>
-          <p v-if="c.checked_at" class="connection-note">Last checked {{ new Date(c.checked_at * 1000).toLocaleString() }}. A saved check does not guarantee the account remains available.</p>
+          <p v-if="c.checked_at" class="connection-note">Last checked {{ formatDateTime(c.checked_at * 1000) }}. A saved check does not guarantee the account remains available.</p>
           <details v-if="c.tools.length" open class="mcp-tools"><summary>Tools for chat · {{ c.allowed_tools.length }} selected / {{ c.tools.length }} discovered</summary><p v-if="!visibleTools(c).length" class="connection-note">No tools match your search.</p><label v-for="tool in visibleTools(c)" :key="tool.name"><input type="checkbox" :checked="c.allowed_tools.includes(tool.name)" :disabled="!tool.read_only || !!connecting || updatingConnector === c.id" @change="toggleTool(c, tool.name, $event.target.checked)" /><span><b>{{ tool.name }}</b><small>{{ tool.description }}</small><small v-if="!tool.read_only">Unavailable: server does not declare this tool read-only.</small></span></label></details>
           <p v-if="c.tools_truncated" class="connection-note">Tool discovery reached its page or size limit. Only listed tools are available.</p>
         </div>
@@ -64,6 +64,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import BrandIcon from '../BrandIcon.vue'
 import './modal-controls.css'
 import { api } from '../../workspace/api.js'
+import { formatDateTime } from '../../workspace/format.js'
 const props = defineProps({open:Boolean,theme:{type:String,default:'light'},runs:{type:Array,default:()=>[]},initialTab:{type:String,default:'data'}})
 const emit = defineEmits(['update:open','attach','choose-run','connected','configure-model'])
 const toolSearch=ref(''),showMcpForm=ref(false),updatingConnector=ref('')
