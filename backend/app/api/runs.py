@@ -2,7 +2,8 @@
 
 The CLI writes each run to `mirofish_runs/<name>/` (summary.json, survey.json, feed_test.json, graph.json,
 disclosure.md, dashboard.html...). The workspace lists those folders and reads their result files through this
-blueprint. Every route needs the local setup token, like the workflow API. Only plain files directly inside a run
+blueprint. Every route needs the local setup token, like the workflow API, or (in team mode) a signed-in member
+of a workspace, who sees only the runs in that workspace's run index. Only plain files directly inside a run
 folder, with a known extension, can be read; names are checked before any path is built.
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
-from .setup import _guard
+from .. import auth
 
 runs_bp = Blueprint("runs", __name__)
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
@@ -30,7 +31,7 @@ def runs_root() -> Path:
 
 
 def _run_dir(name: str) -> Path:
-    if not isinstance(name, str) or not NAME.fullmatch(name) or ".." in name:
+    if not isinstance(name, str) or not NAME.fullmatch(name) or ".." in name or not auth.run_allowed(name):
         raise LookupError("unknown run")
     root = runs_root()
     candidate = root / name
@@ -89,7 +90,7 @@ def _card(path: Path) -> Dict[str, Any]:
 @runs_bp.before_request
 def protect():
     if request.path.startswith("/api/runs"):
-        return _guard(write=request.method != "GET")
+        return auth.require("viewer")
 
 
 @runs_bp.errorhandler(LookupError)
@@ -110,8 +111,23 @@ def list_runs():
         return ok({"root": str(root), "runs": []})
     dirs = [d for d in root.iterdir() if not d.is_symlink() and d.is_dir() and NAME.fullmatch(d.name) and ".." not in d.name
             and (_plain_file(d / "summary.json") or _plain_file(d / "run_manifest.json"))]
+    dirs = [d for d in dirs if auth.run_allowed(d.name)]
     dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    return ok({"root": str(root), "runs": [_card(d) for d in dirs]})
+    scope = auth.current_scope()
+    if scope is not None and scope.is_local:
+        _index_local(d.name for d in dirs)
+    return ok({"root": "" if scope is not None and not scope.is_local else str(root), "runs": [_card(d) for d in dirs]})
+
+
+def _index_local(names) -> None:
+    """Keep the local workspace's run index in step with the run folders on this computer."""
+    from ..db import get_db, repo
+    try:
+        with get_db().transaction() as conn:
+            for name in names:
+                repo.add_run(conn, repo.LOCAL_WORKSPACE, name, repo.LOCAL_USER)
+    except Exception:  # the folder listing is the answer; the index is bookkeeping
+        pass
 
 
 def _sim_folder(sid: Any) -> Optional[Path]:

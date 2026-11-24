@@ -150,8 +150,15 @@ def source():
 @workflows_bp.get("/start")
 @workflows_bp.get("/workspace")
 @workflows_bp.get("/workspace/<path:wid>")
+@workflows_bp.get("/login")
+@workflows_bp.get("/signup")
+@workflows_bp.get("/join")
+@workflows_bp.get("/team")
+@workflows_bp.get("/account")
 def web_app(wid=None):
-    if not _loopback():
+    from .. import auth
+    # The page itself holds no secret: in team mode people sign in on it; locally the setup token stays loopback-only.
+    if not _loopback() and not auth.accounts_enabled():
         return Response("The MarketMirror app is available only on this computer.", status=403)
     if not (DIST / "index.html").is_file():
         return Response("Build the local app with ./mm app, then reopen it.", status=503)

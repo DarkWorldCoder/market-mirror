@@ -539,6 +539,13 @@ def _page(text: str, args: dict):
             "truncated": end < len(text), "next_offset": end if end < len(text) else None}
 
 
+def _connectors_allowed():
+    """Connectors hold the server owner's own accounts, so team members signed in remotely cannot use them."""
+    from .. import auth
+    scope = auth.current_scope()
+    return scope is None or scope.is_local
+
+
 def _json(value):
     return json.dumps(value, ensure_ascii=False, default=str)
 
@@ -554,6 +561,8 @@ def _tool(name, args):
     if not isinstance(args, dict):
         raise ValueError("tool arguments must be an object")
     if name == "connector_tool":
+        if not _connectors_allowed():
+            raise ValueError("Connected tools are only available on the computer that runs MarketMirror.")
         from .workspace_connectors import call_tool
         return call_tool(args.get("connector_id"), args.get("name"), args.get("arguments", {})), None
     if name == "browse_page":
@@ -748,7 +757,7 @@ def _chat(value, on_event=None):
             or any(not isinstance(item, str) or len(item) > 180 for item in selected_tools)):
         raise ValueError("Choose tools from the connected tools menu.")
     allowed = []
-    for connector in list_connectors():
+    for connector in (list_connectors() if _connectors_allowed() else []):
         if not connector.get("enabled"):
             continue
         for tool in connector.get("tools", []):

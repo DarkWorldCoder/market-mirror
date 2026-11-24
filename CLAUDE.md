@@ -177,6 +177,10 @@ All three backends expose the same `zep_cloud`-shaped client (`get_zep_client()`
 
 Choice: the local backend keeps the "no extra service, no extra key" path and the exact Zep data model, so it is the default. Cognee is the drop-in upgrade for richer extraction when you can run a second process. Every backend uses Claude for extraction, and embeddings are always local and free (Anthropic has no embeddings API).
 
+## 6b. Accounts and the workspace database
+
+Chats, projects, pins, the run index, preferences and onboarding live in `backend/app/db/` (SQLite by default, Postgres with `MM_DATABASE_URL`; numbered SQL migrations in `app/db/migrations/`, run on start or with `python -m app.db.cli migrate`). Local mode (default) keeps the loopback + setup-token check. `MM_ACCOUNTS=on` adds sign-in (argon2id), workspaces, owner/editor/viewer roles and invitation links; `app/auth.py` resolves the caller and scopes saved runs to the workspace's run index. Design note, roles and security: `docs/ACCOUNTS.md`.
+
 ## 7. Code map / rules
 
 - `backend/app/api/{graph,simulation,report}.py` contains the REST endpoints, and `backend/app/services/` the logic (graph builder, OASIS runner, ReportAgent). Runtime data is under `backend/uploads/` (projects, simulations, reports).

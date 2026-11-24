@@ -48,6 +48,15 @@ before dispatch. Cost is labelled unavailable rather than assuming a per-call
 dollar rate. A call limit is **not** a dollar cap; upstream gateways/providers may
 have internal processing or billing. Advertising budget is planning context only.
 
+## Your data and teammates
+
+Chats, projects, pinned runs and the list of saved runs are kept in a local database
+(`backend/uploads/marketmirror.db`). The first time the app opens after this change it
+uploads the chats your browser kept in `localStorage` once, and reads them from the
+database after that. The local app still needs no account. To share a workspace with
+teammates, run MarketMirror on a server with team accounts on; see
+[ACCOUNTS.md](ACCOUNTS.md).
+
 ## Recovery and evidence
 
 - Drafts and immutable executed comparisons live under the instance's upload

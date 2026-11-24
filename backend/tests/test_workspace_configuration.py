@@ -62,8 +62,10 @@ def test_create_update_associate_archive_persists(client):
     project_id = project["id"]
     engine = ProjectManager.get_project(project_id)
     assert engine.name == "Growth"
-    stored = json.loads((__import__("pathlib").Path(ProjectManager.PROJECTS_DIR) / project_id / "workspace.json").read_text())
-    assert stored["chat_ids"] == ["chat-123"]
+    from app.db import get_db  # projects are stored in the workspace database, not a workspace.json file
+    with get_db().transaction() as conn:
+        stored = conn.all("SELECT ref FROM project_links WHERE project_id=? AND kind='chat'", (project_id,))
+    assert [row["ref"] for row in stored] == ["chat-123"]
     assert project["engine_project_id"] == engine.project_id
     assert client.get("/api/workspace/projects", headers=HEADERS).json["data"] == [project]
     updated = client.patch(f"/api/workspace/projects/{project_id}", headers=HEADERS,
