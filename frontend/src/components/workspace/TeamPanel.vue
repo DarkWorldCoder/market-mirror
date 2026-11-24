@@ -106,7 +106,7 @@
         <CardDescription>This app runs for you alone on this computer.</CardDescription>
       </CardHeader>
       <CardContent class="text-muted-foreground grid gap-2 text-sm">
-        <p>To share chats, projects and runs, run MarketMirror on a server with team accounts turned on (<code class="bg-muted rounded px-1 py-0.5 text-xs">MM_ACCOUNTS=on</code>). The steps are in <code class="bg-muted rounded px-1 py-0.5 text-xs">docs/ACCOUNTS.md</code>.</p>
+        <p>To share chats, projects and runs, MarketMirror needs to run on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
         <p>Your chats and projects here are already kept in this computer's database.</p>
       </CardContent>
     </Card>
