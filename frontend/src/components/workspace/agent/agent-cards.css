@@ -1,0 +1,35 @@
+.agent-card { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); font-size: 13px; line-height: 1.6; }
+.agent-card > header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.agent-card > header b { font-weight: 600; }
+.agent-card > header svg { color: var(--accent); flex-shrink: 0; }
+.agent-answered { margin-left: auto; font-size: 11px; color: var(--muted); padding: 1px 8px; border-radius: 999px; background: var(--panel-2); }
+.agent-approval.spend { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.agent-approval-message { white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+.agent-spend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.agent-spend div { padding: 8px 10px; border-radius: 10px; background: var(--panel-2); }
+.agent-spend dt { font-size: 11px; color: var(--muted); }
+.agent-spend dd { margin: 0; font-size: 15px; font-weight: 600; }
+.agent-steps { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+.agent-steps caption { text-align: left; font-size: 11px; color: var(--muted); padding-bottom: 4px; }
+.agent-steps th, .agent-steps td { padding: 4px 0; border-top: 1px solid var(--line); text-align: left; font-weight: 400; }
+.agent-steps td { text-align: right; font-variant-numeric: tabular-nums; }
+.agent-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.agent-outside { list-style: none; padding: 0; margin: 8px 0 0; font-size: 12px; }
+.agent-outside li { display: flex; gap: 6px; align-items: center; }
+.agent-fit { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px dashed var(--line); font-size: 12px; }
+.agent-fit p { margin-top: 4px; }
+.agent-fit em { color: var(--muted); font-style: normal; }
+.agent-cap { display: grid; gap: 4px; margin-top: 10px; font-size: 12px; font-weight: 550; }
+.agent-cap input, .agent-form input, .agent-form textarea, .agent-form select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--text); font: inherit; font-weight: 400; max-width: 100%; }
+.agent-cap small { font-weight: 400; color: var(--muted); font-size: 11px; }
+.agent-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.agent-options button, .agent-actions button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); font-size: 12px; cursor: pointer; }
+.agent-options button.primary, .agent-actions button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.agent-options button:disabled, .agent-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.agent-option-details { list-style: none; padding: 0; margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+.agent-tool-error { color: #c2410c; font-size: 12px; margin-top: 6px; }
+.agent-form { display: grid; gap: 10px; margin-top: 8px; }
+.agent-form label { display: grid; gap: 4px; font-size: 12px; font-weight: 550; }
+.agent-form small { color: #c2410c; font-weight: 400; }
+.agent-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+@media (max-width: 600px) { .agent-spend { grid-template-columns: 1fr; } .agent-card { padding: 12px; } }
