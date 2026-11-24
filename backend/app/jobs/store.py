@@ -198,10 +198,17 @@ class JobStore:
             sql = ("SELECT * FROM jobs WHERE status = ? AND run_after <= ? AND cancel_requested = 0 "
                    f"AND (bound = 0 OR job_id IN ({','.join('?' * len(mine)) or 'NULL'})) "
                    + (f"AND lane NOT IN ({','.join('?' * len(excl))}) " if excl else "")
-                   + "ORDER BY priority DESC, created_at ASC LIMIT 1000")
-            rows = conn.execute(sql, (QUEUED, now, *mine, *excl)).fetchall()
-            if not rows:
-                return None
+                   + "ORDER BY priority DESC, created_at ASC LIMIT ? OFFSET ?")
+
+            def pages():
+                # page through every queued candidate in priority order, so blocked jobs never hide an eligible one
+                offset = 0
+                while True:
+                    page = conn.execute(sql, (QUEUED, now, *mine, *excl, 500, offset)).fetchall()
+                    yield from page
+                    if len(page) < 500:
+                        return
+                    offset += 500
             running_rows = [dict(r) for r in conn.execute(
                 "SELECT job_id, provider, workspace, lane, spends, estimate_usd, attempt_calls FROM jobs "
                 "WHERE status = ?", (RUNNING,))]   # a dead worker's jobs count until the sweep settles them
@@ -209,7 +216,7 @@ class JobStore:
             for r in running_rows:
                 for k in ("provider", "workspace", "lane"):
                     running[k][r[k]] = running[k].get(r[k], 0) + 1
-            for row in rows:
+            for row in pages():
                 job = dict(row)
                 if lanes is not None and not (lanes(job["lane"]) if callable(lanes) else job["lane"] in lanes):
                     continue
@@ -231,7 +238,7 @@ class JobStore:
                     if verdict and verdict.startswith("fail:"):
                         hist = self._history(conn, job["job_id"], {"event": "failed", "error": verdict[5:].strip()})
                         conn.execute("UPDATE jobs SET status = ?, error = ?, message = ?, finished_at = ?, updated_at = ?, "
-                                     "history_json = ? WHERE job_id = ?",
+                                     "history_json = ?, bound = 0 WHERE job_id = ?",   # its closure is discarded
                                      (FAILED, verdict[5:].strip(), "failed before it started", now, now, hist, job["job_id"]))
                         if failed_out is not None:
                             failed_out.append({"job_id": job["job_id"], "kind": job["kind"], "subject": job["subject"],
@@ -250,13 +257,15 @@ class JobStore:
                 return self._row(conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job["job_id"],)).fetchone())
         return None
 
-    def note_first_call(self, job_id: str, worker: str) -> None:
-        """Written at once on the first model call of an attempt: from here on a retry needs approval."""
+    def note_first_call(self, job_id: str, worker: str) -> bool:
+        """Written at once on the first model call of an attempt: from here on a retry needs approval. False when
+        this attempt no longer owns the job (recovered by another process): the call must not be made."""
         with self._db(immediate=True) as conn:
-            conn.execute("UPDATE jobs SET attempt_calls = MAX(attempt_calls, 1), "
+            cur = conn.execute("UPDATE jobs SET attempt_calls = MAX(attempt_calls, 1), "
                          "model_calls = model_calls + (CASE WHEN attempt_calls = 0 THEN 1 ELSE 0 END), "
                          "updated_at = ? WHERE job_id = ? AND worker = ? AND status = ?",
                          (time.time(), job_id, worker, RUNNING))
+            return (cur.rowcount or 0) > 0
 
     def flush_usage(self, job_id: str, worker: str, calls: int, usd: float) -> None:
         """Bring the attempt's counts up to `calls` (model_calls grows by the difference)."""
@@ -304,13 +313,17 @@ class JobStore:
             conn.execute("DELETE FROM job_workers WHERE worker = ?", (worker,))
 
     def finish(self, job_id: str, worker: str, status: str, *, error: Optional[str] = None, result: Any = None,
-               message: str = "", retry_in: Optional[float] = None, refund_attempt: bool = False) -> bool:
-        """End this worker's attempt. status QUEUED = retry after `retry_in` seconds. False when the lease was lost."""
+               message: str = "", retry_in: Optional[float] = None, refund_attempt: bool = False) -> Any:
+        """End this worker's attempt. status QUEUED = retry after `retry_in` seconds. Returns the status committed (a
+        cancellation recorded meanwhile turns a retry or an approval hold into "cancelled"), or False when the
+        attempt no longer owns the job."""
         now = time.time()
         with self._db(immediate=True) as conn:
-            row = conn.execute("SELECT worker, status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            row = conn.execute("SELECT worker, status, cancel_requested FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
             if not row or row["worker"] != worker or row["status"] != RUNNING:
                 return False
+            if row["cancel_requested"] and status in (QUEUED, NEEDS_APPROVAL):
+                status, error, message, retry_in = CANCELLED, "cancelled", "cancelled", None
             hist = self._history(conn, job_id, {"event": status, **({"error": error} if error else {})})
             if status == QUEUED:
                 conn.execute("UPDATE jobs SET status = ?, worker = NULL, lease_until = NULL, run_after = ?, error = ?, "
@@ -324,7 +337,7 @@ class JobStore:
                              "spend_approved = 0 WHERE job_id = ?",
                              (status, error, json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
                               message or status, now if status in TERMINAL else None, now, hist, job_id))
-        return True
+        return status
 
     def cancel(self, job_id: str) -> Optional[Dict[str, Any]]:
         now = time.time()
@@ -360,7 +373,8 @@ class JobStore:
                          (QUEUED, "queued (retry approved)", now, hist, job_id))
         return self.get(job_id)
 
-    def recover(self, alive_worker: Callable[[str], bool]) -> List[Dict[str, Any]]:
+    def recover(self, alive_worker: Optional[Callable[[str], bool]] = None, *, stale_after_s: float = 120.0,
+                also_alive: Iterable[str] = ()) -> List[Dict[str, Any]]:
         """Settle jobs whose worker is gone. Returns [{job_id, action, ...}] for each job it changed.
 
         * running, worker dead (pid gone on this host, or no heartbeat for a while elsewhere): back to queued when the attempt made no model call, attempts are
@@ -368,10 +382,17 @@ class JobStore:
           made model calls; failed otherwise.
         * queued and bound to a dead owner: unbound (any worker may run it through its handler) or failed when it has
           no handler (its closure died with the process; nothing was spent).
+
+        Without `alive_worker`, liveness is read from the heartbeat table inside this same transaction, so a worker
+        that registers and claims in between is never mistaken for a dead one.
         """
         now = time.time()
         changed: List[Dict[str, Any]] = []
         with self._db(immediate=True) as conn:
+            if alive_worker is None:
+                keep = set(also_alive)
+                beats_alive = self.worker_alive_fn(stale_after_s, conn)
+                alive_worker = lambda token: token in keep or beats_alive(token)  # noqa: E731
             for row in conn.execute("SELECT * FROM jobs WHERE status = ?", (RUNNING,)).fetchall():
                 job = dict(row)
                 if alive_worker(job["worker"] or ""):
@@ -411,11 +432,15 @@ class JobStore:
                                     "subject": row["subject"]})
         return changed
 
-    def worker_alive_fn(self, stale_after_s: float) -> Callable[[str], bool]:
-        """A predicate for recover(): a worker is alive when its heartbeat is recent and, on this host, its pid runs."""
+    def worker_alive_fn(self, stale_after_s: float, conn: Optional[sqlite3.Connection] = None) -> Callable[[str], bool]:
+        """A predicate for recover(): a worker is alive when its heartbeat is recent and, on this host, its pid runs.
+        With `conn`, the heartbeats are read in that connection's transaction."""
         now = time.time()
-        with self._db() as conn:
+        if conn is not None:
             beats = {r["worker"]: dict(r) for r in conn.execute("SELECT * FROM job_workers")}
+        else:
+            with self._db() as own:
+                beats = {r["worker"]: dict(r) for r in own.execute("SELECT * FROM job_workers")}
         host = socket.gethostname()
 
         def alive(token: str) -> bool:

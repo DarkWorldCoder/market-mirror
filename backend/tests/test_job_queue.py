@@ -253,9 +253,14 @@ def test_queue_wait_and_stats(store, runners):
 
 @pytest.fixture
 def app_env(tmp_path, monkeypatch):
+    """An app on temporary databases. The process-wide runner it starts is stopped before the paths are restored,
+    so no test thread ever polls the normal queue database."""
+    from app import create_app, jobs
+    jobs.stop_runner(timeout=5)
     monkeypatch.setenv("MM_TASK_DB_PATH", str(tmp_path / "tasks.sqlite"))
-    from app import create_app
-    return create_app()
+    monkeypatch.setenv("MM_JOB_DB_PATH", str(tmp_path / "tasks.sqlite"))
+    yield create_app()
+    jobs.stop_runner(timeout=5)
 
 
 def test_task_recovery_skips_job_backed_tasks(app_env):
@@ -565,3 +570,260 @@ def test_stale_starting_file_does_not_hold_a_slot(tmp_path, monkeypatch):
         assert SimulationRunner.active_run_count() == before + 1
     finally:
         SimulationRunner._run_states.pop(sid, None)
+
+
+# ------------------------------------------------------------------ PR review threads
+
+
+def test_runner_starts_after_every_route_exists(tmp_path, monkeypatch):
+    from app import create_app, jobs
+    jobs.stop_runner(timeout=5)
+    monkeypatch.setenv("MM_TASK_DB_PATH", str(tmp_path / "t.sqlite"))
+    seen = {}
+    real = jobs.start_runner
+
+    def spy(**kw):
+        from app.jobs.replay import _APP
+        seen["routes"] = {str(r) for r in _APP.url_map.iter_rules()}
+        return real(**kw)
+    monkeypatch.setattr(jobs, "start_runner", spy)
+    create_app()
+    try:
+        assert "/api/jobs/<job_id>" in seen["routes"] and "/api/simulation/start" in seen["routes"]
+    finally:
+        jobs.stop_runner(timeout=5)
+
+
+def test_workflow_jobs_keep_the_setup_token_boundary(app_env):
+    from app import jobs
+    from app.api.setup import SETUP_TOKEN
+    jobs.store().enqueue("wf1", "workflow_people", spends=False)
+    jobs.store().enqueue("mk1", "market_survey", spends=False)
+    c = app_env.test_client()
+    ids = {j["job_id"] for j in c.get("/api/jobs").get_json()["data"]}
+    assert "mk1" in ids and "wf1" not in ids
+    assert c.get("/api/jobs/wf1").status_code == 403
+    assert c.post("/api/jobs/wf1/cancel").status_code == 403
+    assert c.post("/api/jobs/wf1/retry", json={"approve_spend": True}).status_code == 403
+    assert c.get("/api/jobs/wf1", headers={"X-Setup-Token": SETUP_TOKEN}).status_code == 200
+    jobs.store().cancel("wf1")
+    jobs.store().cancel("mk1")
+
+
+def test_a_replaced_queued_start_does_not_run(app_env):
+    from app import jobs
+    from app.api import simulation as simulation_api
+    sid = "sim_r_" + uuid.uuid4().hex[:6]
+    jobs.store().enqueue("old_start", "simulation_start", subject=sid, lane="oasis", handler="replay")
+    time.sleep(0.01)
+    jobs.store().enqueue("new_start", "simulation_start", subject=sid, lane="oasis", handler="replay")
+    ctx = jctx.JobContext(job_id="old_start", replay=True)
+    token = jctx.activate(ctx)
+    try:
+        assert "replaced" in simulation_api._queued_start_gone(sid)
+    finally:
+        jctx.deactivate(ctx, token)
+    for j in ("old_start", "new_start"):
+        jobs.store().cancel(j)
+
+
+def test_approval_resets_the_task_before_the_job_can_be_claimed(app_env, monkeypatch):
+    from app import jobs
+    from app.models.task import TaskManager, TaskStatus
+    tm = TaskManager()
+    tid = tm.create_task("held")
+    tm.update_task(tid, status=TaskStatus.FAILED, error="needs approval")
+    monkeypatch.setitem(jobs.GATES, "held", lambda running: False)
+    jobs.store().enqueue(tid, "t", handler="replay", payload={"path": "/x"}, lane="held")
+    with jobs.store()._db(immediate=True) as conn:
+        conn.execute("UPDATE jobs SET status = 'needs_approval' WHERE job_id = ?", (tid,))
+    seen = {}
+    real = jobs.store().approve
+
+    def approve(job_id):
+        seen["task_status"] = TaskManager().get_task(job_id).status
+        return real(job_id)
+    monkeypatch.setattr(jobs.store(), "approve", approve)
+    jobs.stop_runner(timeout=5)                    # nobody claims it during the check
+    monkeypatch.setattr(jobs, "runner", lambda: type("R", (), {"wake": lambda self: None})())
+    assert jobs.approve(tid)["status"] == QUEUED
+    assert seen["task_status"] == TaskStatus.PENDING
+
+
+def test_a_refused_approval_puts_the_task_back(app_env, monkeypatch):
+    from app import jobs
+    from app.models.task import TaskManager, TaskStatus
+    monkeypatch.setitem(jobs.GATES, "held", lambda running: False)
+    tm = TaskManager()
+    tid = tm.create_task("done")
+    tm.complete_task(tid, {"ok": True})
+    jobs.store().enqueue(tid, "t", handler="replay", lane="held")
+    with jobs.store()._db(immediate=True) as conn:
+        conn.execute("UPDATE jobs SET status = 'succeeded' WHERE job_id = ?", (tid,))
+    assert jobs.approve(tid) is None
+    assert tm.get_task(tid).status == TaskStatus.COMPLETED
+
+
+def test_first_call_is_refused_when_the_attempt_lost_its_claim():
+    jctx.install()
+    ctx = jctx.JobContext(job_id="stale")
+    ctx.record_first_call = lambda: False
+    token = jctx.activate(ctx)
+    try:
+        with pytest.raises(RuntimeError, match="no longer owns"):
+            spend_cap.check()
+    finally:
+        jctx.deactivate(ctx, token)
+    assert ctx.calls == 0
+
+
+def test_note_first_call_reports_ownership(store):
+    _fake_running(store, "own", "me:1:x")
+    assert store.note_first_call("own", "me:1:x") is True
+    assert store.note_first_call("own", "me:1:x") is True        # a concurrent call already recorded it: still ours
+    assert store.note_first_call("own", "other:2:y") is False
+
+
+def test_spend_cap_refuses_before_a_call_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("MM_SPEND_FILE", str(tmp_path / "cap4.json"))
+    jctx.install()
+    st = spend_cap.arm(0.01, "test")
+    spend_cap.charge_tokens("claude-haiku-4-5", 100000, 10000)
+    ctx = jctx.JobContext(job_id="capped")
+    recorded = []
+    ctx.record_first_call = lambda: recorded.append(1) or True
+    token = jctx.activate(ctx)
+    try:
+        with pytest.raises(spend_cap.SpendCapReached):
+            spend_cap.check()
+    finally:
+        jctx.deactivate(ctx, token)
+        spend_cap.disarm(st["cap_id"])
+    assert recorded == [] and ctx.calls == 0
+
+
+def test_stop_keeps_claims_while_a_handler_still_runs(store):
+    gate = threading.Event()
+    r = JobRunner(store, threads=1, limits=_limits(), lease_s=1.0, poll_s=0.05,
+                  handlers={"h": lambda p: gate.wait(10)}).start()
+    store.enqueue("busy", "t", handler="h", spends=False)
+    assert _wait(lambda: store.get("busy")["status"] == RUNNING)
+    r.stop(timeout=0.2)
+    assert r.worker in {w["worker"] for w in store.stats(stale_after_s=60)["workers"]}
+    assert store.get("busy")["worker"] == r.worker
+    gate.set()
+    assert _wait(lambda: store.get("busy")["status"] == SUCCEEDED)
+
+
+def test_outcome_write_is_retried_without_rerunning_the_handler(store, runners, monkeypatch):
+    runs = []
+    real = store.finish
+    fails = {"n": 2}
+
+    def flaky_finish(*a, **kw):
+        if fails["n"]:
+            fails["n"] -= 1
+            raise RuntimeError("database is locked")
+        return real(*a, **kw)
+    monkeypatch.setattr(store, "finish", flaky_finish)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    store.enqueue("fw", "t", handler="h", spends=False)
+    runners(store, threads=1, handlers={"h": lambda p: runs.append(1) or "ok"})
+    assert _wait(lambda: store.get("fw")["status"] == SUCCEEDED)
+    assert runs == [1]
+
+
+def test_recovered_cancellation_reaches_the_task(app_env):
+    from app.jobs.runner import _mirror_recovery
+    from app.models.task import TaskManager
+    tm = TaskManager()
+    tid = tm.create_task("x")
+    tm.release(tid)
+    _mirror_recovery({"job_id": tid, "action": CANCELLED})
+    t = tm.get_task(tid)
+    assert t.status.value == "failed" and t.error == "cancelled"
+
+
+def test_blocked_jobs_do_not_hide_an_eligible_one(store, runners):
+    for n in range(600):
+        store.enqueue(f"blocked{n}", "t", handler="h", lane="blocked", spends=False)
+    store.enqueue("free", "t", handler="h", spends=False)
+    runners(store, threads=1, handlers={"h": lambda p: "ok"}, gates={"blocked": lambda running: False})
+    assert _wait(lambda: store.get("free")["status"] == SUCCEEDED, 15)
+
+
+def test_admission_failure_unbinds_the_job(store, runners, tmp_path, monkeypatch):
+    monkeypatch.setenv("MM_SPEND_FILE", str(tmp_path / "cap5.json"))
+    import app.jobs as jobs_mod
+    st = spend_cap.arm(0.01, "test")
+    spend_cap.charge_tokens("claude-haiku-4-5", 100000, 10000)
+    discarded = []
+    try:
+        r = runners(store, threads=1, admit=jobs_mod._admit)
+        store.enqueue("closure_only", "t", owner=r.worker, bound=True)
+        r.bind("closure_only", lambda: "never", on_discard=lambda: discarded.append(1))
+        assert _wait(lambda: store.get("closure_only")["status"] == FAILED)
+    finally:
+        spend_cap.disarm(st["cap_id"])
+    assert store.get("closure_only")["bound"] is False and discarded == [1]
+    with pytest.raises(ValueError):
+        store.approve("closure_only")
+
+
+def test_cancel_recorded_during_an_attempt_wins_over_a_requeue(store):
+    _fake_running(store, "cr", "me:1:x")
+    store.cancel("cr")
+    assert store.finish("cr", "me:1:x", QUEUED, retry_in=1) == CANCELLED
+    assert store.get("cr")["status"] == CANCELLED
+
+
+def test_recovery_reads_heartbeats_in_its_own_transaction(store):
+    import os
+    import socket
+    token = f"{socket.gethostname()}:{os.getpid()}:fresh"
+    store.register_worker(token, {})
+    _fake_running(store, "fresh_job", token)
+    assert store.recover(stale_after_s=60) == []
+    assert store.get("fresh_job")["status"] == RUNNING
+
+
+def test_task_cleanup_is_skipped_when_the_queue_cannot_be_read(app_env, monkeypatch):
+    from app import jobs
+    from app.models.task import TaskManager, TaskStatus
+    tm = TaskManager()
+    tid = tm.create_task("maybe queued")
+    tm.release(tid)
+
+    def broken():
+        raise RuntimeError("queue database unavailable")
+    monkeypatch.setattr(jobs.store(), "active_ids", broken)
+    assert tm.recover_interrupted_tasks() == 0
+    assert tm.get_task(tid).status == TaskStatus.PENDING
+
+
+def test_mirror_changes_only_its_own_columns(app_env):
+    from app.models.task import TaskManager, TaskStatus
+    tm = TaskManager()
+    tid = tm.create_task("x")
+    tm.update_task(tid, status=TaskStatus.PROCESSING, progress=70, result={"partial": 1})
+    tm.release(tid)                               # owned by "another process" now
+    tm.mirror(tid, message="note")
+    t = tm.get_task(tid)
+    assert t.progress == 70 and t.result == {"partial": 1} and t.message == "note"
+    assert t.status == TaskStatus.PROCESSING
+
+
+def test_cancelling_a_queued_report_releases_its_graph_reader(app_env, monkeypatch):
+    from app import jobs
+    from app.models.task import TaskManager
+    from app.utils.zep_lifecycle import get_graph_readers, register_graph_reader, unregister_graph_reader
+    gid, rid = "g_" + uuid.uuid4().hex[:6], "r_" + uuid.uuid4().hex[:6]
+    register_graph_reader(gid, rid)
+    monkeypatch.setitem(jobs.GATES, "held", lambda running: False)     # keep the job queued
+    tid = TaskManager().create_task("report")
+    jobs.submit(tid, lambda: None, kind="report_generate", lane="held",
+                on_discard=lambda: unregister_graph_reader(gid, rid))
+    assert rid in get_graph_readers(gid)
+    jobs.cancel(tid)
+    assert rid not in get_graph_readers(gid)
+    assert TaskManager().get_task(tid).error == "cancelled"

@@ -35,6 +35,7 @@ class JobContext:
     spent_usd: float = 0.0
     first_call_flushed: bool = False
     task_claimed: bool = False            # replay: the endpoint's create_task() already returned this job's id
+    record_first_call: Optional[Callable[[], bool]] = None   # writes the first call against this attempt's claim
     replay_error: Optional[BaseException] = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -42,7 +43,6 @@ class JobContext:
 _CURRENT: contextvars.ContextVar[Optional[JobContext]] = contextvars.ContextVar("mm_job", default=None)
 _ACTIVE: Dict[str, JobContext] = {}       # jobs running in this process
 _ACTIVE_LOCK = threading.Lock()
-_ON_FIRST_CALL: Optional[Callable[[str], None]] = None
 _INSTALLED = False
 
 
@@ -92,14 +92,18 @@ def _on_check() -> None:
     for ctx in _targets():
         with ctx.lock:
             first = not ctx.first_call_flushed
-        if first and _ON_FIRST_CALL is not None:
+        if first and ctx.record_first_call is not None:
             try:
-                _ON_FIRST_CALL(ctx.job_id)
+                owned = ctx.record_first_call()
+                problem = None if owned else "this attempt no longer owns the job (another process took it over)"
             except Exception as e:  # noqa: BLE001
-                # an unrecorded spend could be retried after a crash without approval: refuse the job's call instead
-                # (a call on a thread with no job is only counted conservatively and goes ahead)
+                problem = str(e)
+            if problem:
+                # an unrecorded spend could be retried after a crash without approval, and a stale attempt must not
+                # spend at all: refuse the job's call (a call on a thread with no job is only counted
+                # conservatively and goes ahead)
                 if _CURRENT.get() is ctx:
-                    raise RuntimeError(f"cannot record the first model call of job {ctx.job_id}: {e}") from e
+                    raise RuntimeError(f"cannot record the first model call of job {ctx.job_id}: {problem}")
                 continue
         with ctx.lock:
             ctx.first_call_flushed = True
@@ -121,11 +125,9 @@ def _submit(self, fn, /, *args, **kwargs):
     return _orig_submit(self, fn, *args, **kwargs)
 
 
-def install(on_first_call: Optional[Callable[[str], None]] = None) -> None:
+def install() -> None:
     """Hook spend_cap and thread pools once per process."""
-    global _INSTALLED, _ON_FIRST_CALL
-    if on_first_call is not None:
-        _ON_FIRST_CALL = on_first_call
+    global _INSTALLED
     if _INSTALLED:
         return
     from ..utils import spend_cap

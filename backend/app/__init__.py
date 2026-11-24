@@ -69,17 +69,10 @@ def create_app(config_class=Config):
     if should_log_startup:
         logger.info("已注册模拟进程清理函数")
 
-    # Durable job queue: settle jobs a dead process left behind (requeue, or ask for approval when they had made
-    # model calls), then start this process's worker threads (app/jobs). A queue worker process
-    # (MM_JOB_ROLE=worker, python -m app.jobs.worker) runs its own runner and must not touch the server's tasks.
+    # Durable job queue (app/jobs): the app that queued jobs are replayed against. Its worker threads start at the
+    # end of create_app, once every route exists.
     from . import jobs
     jobs.init_app(app)
-
-    # Tasks left pending/processing by a previous process can never finish: mark them failed
-    # (rows behind an active queue job are left to the queue).
-    if os.environ.get("MM_JOB_ROLE") != "worker":
-        from .models.task import TaskManager
-        TaskManager().recover_interrupted_tasks()
 
     # 注册生产级中间件（API 鉴权、限流、请求追踪ID、安全响应头、/ready 与 /metrics 探针）
     from .utils.production import install_production_middleware
@@ -146,6 +139,17 @@ def create_app(config_class=Config):
     def health():
         return {'status': 'ok', 'service': 'MiroFish Backend', 'workflows': 1}
     
+    # Settle jobs a dead process left behind (requeue, or ask for approval when they had made model calls), then start
+    # this process's worker threads. A queue worker process (MM_JOB_ROLE=worker, python -m app.jobs.worker) runs its
+    # own runner and must not touch the server's tasks.
+    jobs.start_for_app(app)
+
+    # Tasks left pending/processing by a previous process can never finish: mark them failed
+    # (rows behind an active queue job are left to the queue).
+    if os.environ.get("MM_JOB_ROLE") != "worker":
+        from .models.task import TaskManager
+        TaskManager().recover_interrupted_tasks()
+
     if should_log_startup:
         logger.info("MiroFish Backend 启动完成")
     

@@ -20,6 +20,14 @@ jobs_bp = Blueprint("jobs", __name__, url_prefix="/api/jobs")
 _HIDDEN = ("payload", "owner", "worker")
 
 
+def _workflow_refusal(job: dict, write: bool):
+    """Workflow phase jobs keep the workflow boundary (this computer + X-Setup-Token, reads included)."""
+    if not str(job.get("kind") or "").startswith("workflow_"):
+        return None
+    from .setup import _guard
+    return _guard(write=write)
+
+
 def _public(job: dict) -> dict:
     out = {k: v for k, v in job.items() if k not in _HIDDEN}
     out["queue_position"] = jobs.store().position(job["job_id"])
@@ -39,6 +47,10 @@ def list_jobs():
         return jsonify({"success": False, "error": f"unknown status {status}"}), 400
     rows = jobs.store().list(status=status, kind=args.get("kind") or None, workspace=args.get("workspace") or None,
                              subject=args.get("subject") or None, limit=limit)
+    if any(str(j["kind"]).startswith("workflow_") for j in rows):
+        from .setup import _guard
+        if _guard(write=False) is not None:   # without the setup token, workflow jobs are left out
+            rows = [j for j in rows if not str(j["kind"]).startswith("workflow_")]
     return jsonify({"success": True, "data": [_public(j) for j in rows]})
 
 
@@ -57,14 +69,21 @@ def get_job(job_id: str):
     job = jobs.get(job_id)
     if not job:
         return jsonify({"success": False, "error": "job not found"}), 404
+    refusal = _workflow_refusal(job, write=False)
+    if refusal is not None:
+        return refusal
     return jsonify({"success": True, "data": _public(job)})
 
 
 @jobs_bp.route("/<job_id>/cancel", methods=["POST"])
 def cancel_job(job_id: str):
-    job = jobs.cancel(job_id)
+    job = jobs.get(job_id)
     if not job:
         return jsonify({"success": False, "error": "job not found"}), 404
+    refusal = _workflow_refusal(job, write=True)
+    if refusal is not None:
+        return refusal
+    job = jobs.cancel(job_id)
     return jsonify({"success": True, "data": _public(job)})
 
 
@@ -76,6 +95,9 @@ def retry_job(job_id: str):
     job = jobs.get(job_id)
     if not job:
         return jsonify({"success": False, "error": "job not found"}), 404
+    refusal = _workflow_refusal(job, write=True)
+    if refusal is not None:
+        return refusal
     try:
         updated = jobs.approve(job_id)
     except ValueError as e:

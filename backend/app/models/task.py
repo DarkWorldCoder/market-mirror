@@ -253,7 +253,9 @@ class TaskManager:
             from ..jobs import store as job_store
             owned |= job_store().active_ids()
         except Exception:  # noqa: BLE001
-            logger.exception("task store: cannot read queued jobs")
+            # without knowing which tasks the queue still owns, failing "orphans" could fail queued work: skip
+            logger.exception("task store: cannot read queued jobs; interrupted-task cleanup skipped")
+            return 0
         now = datetime.now().isoformat()
         active = (TaskStatus.PENDING.value, TaskStatus.PROCESSING.value)
         try:
@@ -338,18 +340,22 @@ class TaskManager:
         if owned:
             self.update_task(task_id, status=status, message=message, error=error)
             return
-        task = self._load_row(task_id)
-        if task is None:
-            return
-        task.updated_at = datetime.now()
+        # another process may own the row and write progress or a result at any moment: change only these columns
+        sets, args = ["updated_at = ?"], [datetime.now().isoformat()]
         if status is not None:
-            task.status = status
+            sets.append("status = ?")
+            args.append(status.value)
         if message is not None:
-            task.message = message
+            sets.append("message = ?")
+            args.append(str(message))
         if error is not None:
-            task.error = error or None
-        with self._write_lock:
-            self._write_row(self._row_values(task))
+            sets.append("error = ?")
+            args.append(error or None)
+        try:
+            with self._write_lock, self._db() as conn:
+                conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", (*args, task_id))
+        except Exception:  # noqa: BLE001
+            logger.exception("task store: cannot update task %s", task_id)
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """Owned tasks come from memory; any other task is read fresh from SQLite and not cached."""

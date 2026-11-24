@@ -20,6 +20,15 @@ endpoints and `run-status` work as before. The CLI and the MCP server need no ch
 | Recovery | A worker is dead when its pid is gone (same host, seen at once) or, on another host, its heartbeat is older than two leases (`MM_JOB_LEASE_S`, 60 s). A live process on the same host keeps its jobs even after a long pause such as laptop sleep. Any live process then requeues a dead worker's job (no model call yet), holds it for approval (calls made), cancels it (cancel was requested), or fails it (its work lived only in the dead process). A worker whose job was taken over this way drops its own outcome. |
 | Workers | The server runs `MM_JOB_WORKERS` threads (default 4). More processes: `python -m app.jobs.worker`. |
 
+Workflow phase jobs (`workflow_*`) keep the workflow boundary on `/api/jobs`: without the local `X-Setup-Token` they
+are left out of the list, and reading, cancelling or retrying one is refused.
+
+A worker never runs an attempt it no longer owns: the first model call of an attempt is written against its own
+claim and refused when another process has taken the job over. A cancellation recorded while an attempt runs wins
+over a retry. Outcome writes that fail are retried without running the handler again. A stopping runner keeps its
+claims (and renews them) until its handlers finish. Work a job reserved before it was queued, such as a report's
+graph reader, is released when the job is cancelled or refused before it runs.
+
 Workspaces come from the `X-MM-Workspace` header or a `workspace_id` in the body (default `local`), so a login and
 teams layer only has to set that header.
 

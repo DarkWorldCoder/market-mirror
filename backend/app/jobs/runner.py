@@ -68,6 +68,7 @@ class JobRunner:
         self.role = role
         self.on_end = on_end
         self._bound: Dict[str, Callable[[], Any]] = {}
+        self._discard: Dict[str, Callable[[], None]] = {}
         self._running: Dict[str, jctx.JobContext] = {}
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -78,14 +79,25 @@ class JobRunner:
 
     # ------------------------------------------------------------- control
 
-    def bind(self, job_id: str, fn: Callable[[], Any]) -> None:
+    def bind(self, job_id: str, fn: Callable[[], Any], on_discard: Optional[Callable[[], None]] = None) -> None:
+        """Keep `fn` for job_id. `on_discard` runs if the closure is dropped without ever running (cancelled while
+        queued, failed at admission): the place to release what the endpoint reserved for it."""
         with self._lock:
             self._bound[job_id] = fn
+            if on_discard is not None:
+                self._discard[job_id] = on_discard
         self._wake.set()
 
     def unbind(self, job_id: str) -> None:
+        """Drop a closure that will never run, running its discard hook."""
         with self._lock:
             self._bound.pop(job_id, None)
+            hook = self._discard.pop(job_id, None)
+        if hook is not None:
+            try:
+                hook()
+            except Exception:  # noqa: BLE001
+                logger.exception("jobs: discard hook failed for %s", job_id)
 
     def wake(self) -> None:
         self._wake.set()
@@ -95,7 +107,7 @@ class JobRunner:
             return job_id in self._running
 
     def start(self) -> "JobRunner":
-        jctx.install(on_first_call=lambda jid: self.store.note_first_call(jid, self.worker))
+        jctx.install()
         self.store.register_worker(self.worker, {"role": self.role, "threads": self.threads,
                                                  "lanes": sorted(self.lanes) if self.lanes else "all",
                                                  "exclude_lanes": sorted(self.exclude_lanes)})
@@ -118,6 +130,14 @@ class JobRunner:
         deadline = time.monotonic() + timeout
         for t in self._threads:
             t.join(max(0.0, deadline - time.monotonic()))
+        with self._lock:
+            still_running = bool(self._running)
+        if still_running:
+            # keep the claims (and their heartbeat, which the maintenance thread goes on renewing until the work
+            # drains): nobody may take them over while a handler is still running in this process
+            logger.warning("jobs: stopping with %d job(s) still running; their claims stay with %s",
+                           len(self._running), self.worker)
+            return
         try:
             self.store.unregister_worker(self.worker)
         except Exception:  # noqa: BLE001
@@ -169,7 +189,12 @@ class JobRunner:
 
     def _maintain(self) -> None:
         every = max(0.2, self.lease_s / 3)
-        while not self._stop.wait(every):
+        while True:
+            self._stop.wait(every)
+            with self._lock:
+                draining = bool(self._running)
+            if self._stop.is_set() and not draining:
+                return                       # stopped and drained: nothing left to renew
             try:
                 with self._lock:
                     running = dict(self._running)
@@ -183,7 +208,8 @@ class JobRunner:
                         calls, usd = ctx.calls, ctx.spent_usd
                     if calls:
                         self.store.flush_usage(jid, self.worker, calls, 0.0)
-                self.sweep()
+                if not self._stop.is_set():
+                    self.sweep()
             except Exception:  # noqa: BLE001
                 logger.exception("jobs: lease renewal failed")
 
@@ -193,9 +219,7 @@ class JobRunner:
         if not force and now - self._last_sweep < self.lease_s:
             return []
         self._last_sweep = now
-        alive_fn = self.store.worker_alive_fn(stale_after_s=self.lease_s * 2)
-        me = self.worker
-        changed = self.store.recover(lambda token: token == me or alive_fn(token))
+        changed = self.store.recover(stale_after_s=self.lease_s * 2, also_alive={self.worker})
         for c in changed:
             _mirror_recovery(c)
             if c["action"] in (FAILED, NEEDS_APPROVAL, CANCELLED):
@@ -206,12 +230,27 @@ class JobRunner:
             self._wake.set()
         return changed
 
+    def _finish_with_retry(self, jid: str, outcome: str, **kw) -> Any:
+        """Commit an attempt's outcome. A database error is retried (the claim stays ours and its lease keeps being
+        renewed meanwhile) without running the handler again; False means the attempt no longer owns the job."""
+        delay = 0.5
+        for attempt in range(8):
+            try:
+                return self.store.finish(jid, self.worker, outcome, **kw)
+            except Exception:  # noqa: BLE001
+                logger.exception("jobs: cannot record the outcome of %s (try %d)", jid, attempt + 1)
+                time.sleep(delay)
+                delay = min(delay * 2, 10.0)
+        logger.error("jobs: gave up recording the outcome of %s; the sweep will settle it", jid)
+        return False
+
     # ------------------------------------------------------------- one job
 
     def _execute(self, job: Dict[str, Any]) -> None:
         from ..models.task import TaskManager, TaskStatus
         jid = job["job_id"]
         ctx = jctx.JobContext(job_id=jid)
+        ctx.record_first_call = lambda: self.store.note_first_call(jid, self.worker)   # this attempt's own claim
         with self._lock:
             self._running[jid] = ctx
             fn = self._bound.get(jid)
@@ -273,12 +312,11 @@ class JobRunner:
         if outcome in (SUCCEEDED, FAILED, CANCELLED, NEEDS_APPROVAL):
             with self._lock:
                 self._bound.pop(jid, None)
-        try:
-            ok = self.store.finish(jid, self.worker, outcome, error=error, result=result if outcome == SUCCEEDED else None,
-                                   message=message or outcome, retry_in=retry_in, refund_attempt=refund)
-        except Exception:  # noqa: BLE001
-            logger.exception("jobs: cannot finish %s", jid)
-            ok = False
+                self._discard.pop(jid, None)          # it ran: whatever it reserved was its own to release
+        ok = self._finish_with_retry(jid, outcome, error=error, result=result if outcome == SUCCEEDED else None,
+                                     message=message or outcome, retry_in=retry_in, refund_attempt=refund)
+        if ok and ok != outcome:                      # a cancellation recorded meanwhile wins over a retry or hold
+            outcome, error, message = ok, "cancelled", "cancelled"
         if ok:
             _mirror_outcome(tm, jid, outcome, error, result, message)
             if outcome in (FAILED, NEEDS_APPROVAL, CANCELLED):
@@ -318,6 +356,9 @@ def _mirror_outcome(tm, jid: str, outcome: str, error: Optional[str], result: An
 
 def _mirror_recovery(change: Dict[str, Any]) -> None:
     from ..models.task import TaskManager, TaskStatus
+    if change["action"] == CANCELLED:
+        TaskManager().mirror(change["job_id"], status=TaskStatus.FAILED, message="cancelled", error="cancelled")
+        return
     status = {QUEUED: TaskStatus.PENDING, FAILED: TaskStatus.FAILED, NEEDS_APPROVAL: TaskStatus.FAILED}.get(change["action"])
     if status is None:
         return

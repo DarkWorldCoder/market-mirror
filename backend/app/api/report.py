@@ -292,7 +292,10 @@ def generate_report():
                     unregister_graph_reader(graph_id, report_id)
 
             try:
-                jobs.submit(task_id, run_generate, kind="report_generate", subject=simulation_id)
+                # a report cancelled before it runs (or refused at admission) never reaches run_generate's finally:
+                # release its graph reader then
+                jobs.submit(task_id, run_generate, kind="report_generate", subject=simulation_id,
+                            on_discard=lambda: unregister_graph_reader(graph_id, report_id))
             except Exception:
                 unregister_graph_reader(graph_id, report_id)
                 raise

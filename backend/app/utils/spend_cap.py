@@ -217,11 +217,11 @@ def _usd(x: float) -> str:
 
 def check() -> None:
     """Raise SpendCapReached when a cap is reached. Costs one stat() when no run cap is armed."""
-    for hook in _HOOKS["check"]:
-        hook()
-    msg = reached_message()
+    msg = reached_message()          # first: a call the cap refuses is never recorded as started by a job
     if msg:
         raise SpendCapReached(msg)
+    for hook in _HOOKS["check"]:
+        hook()
 
 
 def reached_message() -> Optional[str]:

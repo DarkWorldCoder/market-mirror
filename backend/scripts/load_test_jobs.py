@@ -261,11 +261,15 @@ def main() -> int:
             "workers": args.workers, "worker_threads": args.worker_threads, "people_per_run": args.people,
             "fake_latency_s": args.latency, "live_workers_at_end": len(stats.get("workers", [])), "tmp": tmp,
         }
+        # pass only when every run finished: all jobs succeeded and every polled task says completed
+        ok = (report["lost_jobs"] == 0 and report["tasks_mirror_jobs"]
+              and all(v == "succeeded" for v in statuses.values())
+              and all(v == "completed" for v in task_status.values()))
+        report["passed"] = ok
         print(json.dumps(report, indent=2))
         if args.json:
             with open(args.json, "w") as f:
                 json.dump(report, f, indent=2)
-        ok = report["lost_jobs"] == 0 and report["tasks_mirror_jobs"]
         return 0 if ok else 1
     finally:
         for p in procs or [server]:

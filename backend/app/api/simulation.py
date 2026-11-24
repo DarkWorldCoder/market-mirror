@@ -1551,11 +1551,16 @@ _OASIS_START_LOCK = threading.RLock()
 
 
 def _queued_start_gone(simulation_id: str):
-    """Why a queued start being re-run by the queue must not start any more (stopped meanwhile), or None."""
+    """Why a queued start being re-run by the queue must not start any more (stopped, cancelled or replaced by a
+    newer start meanwhile), or None. The queued run state belongs to the newest start job of the simulation."""
     state = SimulationRunner.get_run_state(simulation_id)
     ctx = jobs.context.current()
-    if ctx is not None and ctx.cancel.is_set():
+    me = jobs.get(ctx.job_id) if ctx is not None else None
+    if ctx is not None and (ctx.cancel.is_set() or (me and me["cancel_requested"])):
         return "this queued start was cancelled"
+    newest = jobs.store().list(kind="simulation_start", subject=simulation_id, limit=1)
+    if ctx is not None and newest and newest[0]["job_id"] != ctx.job_id:
+        return "this queued start was replaced by a newer start of the same simulation"
     if state is None or state.runner_status != RunnerStatus.QUEUED:
         return f"this queued start was stopped (run status {state.runner_status.value if state else 'missing'})"
     return None
@@ -1688,13 +1693,20 @@ def start_simulation():
 
         # MarketMirror: a start already waiting in the queue's oasis lane is returned as it is (force replaces it)
         if not jobs.replaying():
-            current_run = SimulationRunner.get_run_state(simulation_id)
-            if current_run and current_run.runner_status == RunnerStatus.QUEUED:
-                waiting = jobs.store().list(kind="simulation_start", subject=simulation_id, status=jobs.QUEUED, limit=5)
-                if waiting and not force:
-                    return jsonify({"success": True, "data": _queued_start_reply(current_run, waiting[0]["job_id"])})
-                for job in waiting:
-                    jobs.cancel(job["job_id"])
+            with _OASIS_START_LOCK:
+                current_run = SimulationRunner.get_run_state(simulation_id)
+                if current_run and current_run.runner_status == RunnerStatus.QUEUED:
+                    waiting = jobs.store().list(kind="simulation_start", subject=simulation_id, status=jobs.QUEUED,
+                                                limit=5)
+                    if waiting and not force:
+                        return jsonify({"success": True,
+                                        "data": _queued_start_reply(current_run, waiting[0]["job_id"])})
+                    # force: cancel the waiting start and any start the queue has already picked up (its re-run
+                    # checks cancellation under this lock before starting)
+                    for status in (jobs.QUEUED, jobs.RUNNING):
+                        for job in jobs.store().list(kind="simulation_start", subject=simulation_id, status=status,
+                                                     limit=5):
+                            jobs.cancel(job["job_id"])
         
         # 智能处理状态：如果准备工作已完成，允许重新启动
         if state.status != SimulationStatus.READY:

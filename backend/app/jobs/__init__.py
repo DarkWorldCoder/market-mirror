@@ -40,7 +40,8 @@ from .store import (ACTIVE, CANCELLED, FAILED, NEEDS_APPROVAL, QUEUED, RUNNING, 
 logger = logging.getLogger("mirofish.jobs")
 
 __all__ = ["submit", "cancel", "approve", "get", "summary", "checkpoint", "replaying", "JobCancelled",
-           "register_handler", "register_gate", "start_runner", "runner", "stop_runner", "store", "init_app"]
+           "register_handler", "register_gate", "start_runner", "runner", "stop_runner", "store", "init_app",
+           "start_for_app"]
 
 _STORE = JobStore()
 _RUNNER: Optional[JobRunner] = None
@@ -189,9 +190,14 @@ def stop_runner(timeout: float = 5.0) -> None:
 
 
 def init_app(app) -> None:
-    """Called by create_app(): settle jobs a dead process left behind, then start the server runner."""
+    """Called early in create_app(): the app replayed jobs run against."""
     from .replay import set_app
     set_app(app)
+
+
+def start_for_app(app) -> None:
+    """Called at the end of create_app(), after every blueprint is registered (a replay claimed at once must find its
+    route): settle jobs a dead process left behind and start the server runner."""
     if os.environ.get("MM_JOB_ROLE") == "worker":
         return
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
@@ -230,13 +236,15 @@ def _provider() -> str:
 def submit(task_id: str, fn: Optional[Callable[[], Any]], *, kind: str, subject: str = "", replay: bool = False,
            handler: str = "", payload: Any = None, lane: str = "default", spends: Any = True,
            estimate_usd: Optional[float] = None, workspace: Optional[str] = None, provider: Optional[str] = None,
-           max_attempts_: Optional[int] = None, priority: int = 0) -> str:
+           max_attempts_: Optional[int] = None, priority: int = 0,
+           on_discard: Optional[Callable[[], None]] = None) -> str:
     """Queue `fn` as the job behind task `task_id` and return the id.
 
     replay=True keeps the current request so any worker can re-run the endpoint (handler "replay"). Inside such a
     re-run this runs `fn` inline instead (errors are handed back to the worker).
     spends="out_of_process": the work pays for model calls this process cannot count (OASIS interviews in the
-    simulation subprocess): an interrupted attempt always waits for approval."""
+    simulation subprocess): an interrupted attempt always waits for approval.
+    on_discard runs if the closure is dropped without running (cancelled while queued, failed at admission)."""
     ctx = context.current()
     if ctx is not None and ctx.replay and ctx.job_id == task_id:
         if fn is not None:
@@ -256,7 +264,7 @@ def submit(task_id: str, fn: Optional[Callable[[], Any]], *, kind: str, subject:
                    lane=lane, priority=priority, max_attempts=max_attempts_ or max_attempts(), spends=spends,
                    estimate_usd=estimate_usd, owner=run.worker if bind else None, bound=bind)
     if bind:
-        run.bind(task_id, fn)
+        run.bind(task_id, fn, on_discard=on_discard)
     else:
         from ..models.task import TaskManager
         TaskManager().release(task_id)       # whichever process runs it owns its task row from then on
@@ -311,9 +319,22 @@ def _unqueue_simulation(simulation_id: str) -> None:
 
 
 def approve(job_id: str) -> Optional[Dict[str, Any]]:
-    job = _STORE.approve(job_id)
-    if job is not None:
-        from ..models.task import TaskManager, TaskStatus
-        TaskManager().mirror(job_id, status=TaskStatus.PENDING, message="queued (retry approved)", error="")
-        runner().wake()
+    """Queue one more attempt. The task is reset to pending *before* the job becomes claimable, so a worker that
+    takes the retry at once can never be overwritten by a late reset; a refused approval puts the task back."""
+    from ..models.task import TaskManager, TaskStatus
+    tm = TaskManager()
+    before = tm.get_task(job_id)
+    previous = (before.status, before.message, before.error) if before is not None else None
+    tm.mirror(job_id, status=TaskStatus.PENDING, message="queued (retry approved)", error="")
+    try:
+        job = _STORE.approve(job_id)
+    except Exception:
+        if previous:
+            tm.mirror(job_id, status=previous[0], message=previous[1], error=previous[2] or "")
+        raise
+    if job is None:
+        if previous:
+            tm.mirror(job_id, status=previous[0], message=previous[1], error=previous[2] or "")
+        return None
+    runner().wake()
     return job
