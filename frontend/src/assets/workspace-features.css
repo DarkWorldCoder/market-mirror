@@ -332,3 +332,106 @@ button.ovi-cal-cell:hover { border-color: var(--text); }
 /* page buttons (Refresh, Export index): the base reset's font: inherit outranked .ws-btn and blew them up to 16px */
 .ws .ws-btn { font-size: 13px; line-height: 1.4; }
 /* ==== end design pass ==== */
+
+/* ==== Connections page and settings cards ====
+   One card style for MCP servers, data imports, model providers and settings groups. Works inside the page (.ws)
+   and in dialogs (.ws-overlay), which both define the same palette tokens. */
+.ws-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.mm-conn-page { max-width: 980px; margin: 0 auto; padding: 24px 24px 48px; }
+.mm-conn-page .ws-catalog-head { margin-bottom: 18px; }
+.mm-conn-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; }
+.mm-conn-summary li > :is(span, button) { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; color: var(--muted); }
+.mm-conn-summary b { color: var(--text); font-size: 14px; font-weight: 650; }
+.mm-conn-summary button { cursor: pointer; }
+.mm-conn-summary button:hover { color: var(--text); }
+.mm-conn-tabs { display: flex; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel-2); width: fit-content; max-width: 100%; overflow-x: auto; margin-bottom: 22px; }
+.mm-conn-tabs [role='tab'] { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; white-space: nowrap; cursor: pointer; }
+.mm-conn-tabs [role='tab'] svg { width: 16px; height: 16px; }
+.mm-conn-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 0 0 14px; }
+.mm-conn-section-head h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; letter-spacing: -.2px; }
+.mm-conn-section-head p, .mm-conn-help { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); }
+.mm-conn-section-head > button { flex-shrink: 0; }
+.mm-conn-list { display: grid; gap: 10px; }
+.mm-conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.mm-conn-grid > .mm-conn-card { display: flex; flex-direction: column; }
+.mm-conn-grid > .mm-conn-card > .mm-conn-actions { margin-top: auto; padding-top: 12px; }
+.mm-conn-group { margin: 22px 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; }
+.mm-conn-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 14px 16px; min-width: 0; }
+.mm-conn-card.is-active { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+.mm-conn-card-top { display: flex; gap: 12px; align-items: flex-start; }
+.mm-conn-icon { width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; background: var(--panel-2); color: var(--text); }
+.mm-conn-icon svg { width: 18px; height: 18px; }
+.mm-conn-body { flex: 1; min-width: 0; }
+.mm-conn-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.mm-conn-title :is(b, h3) { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.mm-conn-meta { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.mm-conn-error { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--no) 10%, transparent); color: var(--no); font-size: 12px; line-height: 1.6; }
+.mm-conn-ok { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--yes) 11%, transparent); color: var(--yes); font-size: 12px; line-height: 1.6; }
+.mm-conn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.mm-conn-actions .spacer { flex: 1; }
+.mm-conn-actions :is(button, a) { min-height: 32px; font-size: 12.5px; }
+.mm-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; line-height: 18px; font-weight: 550; color: var(--muted); white-space: nowrap; background: var(--panel); }
+.mm-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .85; }
+.mm-badge.plain::before { display: none; }
+.mm-badge.ok { color: var(--yes); border-color: color-mix(in srgb, var(--yes) 35%, var(--line)); }
+.mm-badge.error { color: var(--no); border-color: color-mix(in srgb, var(--no) 35%, var(--line)); }
+.mm-badge.info { color: var(--maybe); border-color: color-mix(in srgb, var(--maybe) 35%, var(--line)); }
+.mm-badge.idle { color: var(--muted); }
+.mm-badge.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accent-2); }
+.mm-badge.accent::before { display: none; }
+.mm-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 4px; border: 0; background: transparent; cursor: pointer; font-size: 12.5px; color: var(--text); }
+.mm-switch > span:first-child { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--line); transition: background .15s; flex-shrink: 0; }
+.mm-switch > span:first-child::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 20%); transition: transform .15s; }
+.mm-switch[aria-checked='true'] > span:first-child { background: var(--accent); }
+.mm-switch[aria-checked='true'] > span:first-child::after { transform: translateX(14px); }
+.mm-switch:disabled { opacity: .5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .mm-switch > span:first-child, .mm-switch > span:first-child::after, .mm-advanced > summary svg { transition: none; } }
+.mm-tools { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.mm-tools input[type='search'] { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 13px; margin-bottom: 6px; }
+.mm-tool { display: flex; gap: 10px; align-items: flex-start; padding: 9px 2px; border-bottom: 1px solid var(--line); }
+.mm-tool:last-child { border-bottom: 0; }
+.mm-tool > div { flex: 1; min-width: 0; }
+.mm-tool b { display: block; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.mm-tool small { display: block; margin-top: 2px; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.mm-tool .mm-badge { margin-top: 5px; }
+.mm-empty { border: 1px dashed var(--line); border-radius: 14px; padding: 26px 18px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.mm-empty svg { width: 26px; height: 26px; margin-bottom: 8px; }
+.mm-empty b { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+.mm-note { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 12.5px; line-height: 1.65; color: var(--muted); }
+.mm-field { display: grid; gap: 6px; font-size: 13px; font-weight: 550; color: var(--text); }
+.mm-field small { font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.mm-field small.err { color: var(--no); }
+.mm-input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line) !important; border-radius: 9px; background: var(--panel) !important; color: var(--text); font-size: 13px; }
+.mm-input[aria-invalid='true'] { border-color: var(--no) !important; }
+.mm-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mm-secret { display: flex; gap: 6px; }
+.mm-secret .mm-input { flex: 1; min-width: 0; }
+.mm-secret > button { flex-shrink: 0; height: 40px; }
+.mm-advanced { border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
+.mm-advanced > summary { min-height: 40px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; font-weight: 550; color: var(--muted); list-style: none; }
+.mm-advanced > summary::-webkit-details-marker { display: none; }
+.mm-advanced > summary svg { width: 15px; height: 15px; transition: transform .15s; }
+.mm-advanced[open] > summary svg { transform: rotate(90deg); }
+.mm-advanced[open] { padding-bottom: 12px; }
+.mm-advanced > div { display: grid; gap: 14px; }
+.mm-form { display: grid; gap: 16px; }
+.mm-code { position: relative; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.mm-code pre { margin: 0; padding: 12px 14px; padding-right: 84px; overflow-x: auto; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); white-space: pre; }
+.mm-code > button { position: absolute; top: 8px; right: 8px; }
+.mm-steps { margin: 0 0 10px; font-size: 12.5px; line-height: 1.65; color: var(--muted); }
+.mm-steps code { font-size: 12px; background: var(--panel-2); border-radius: 5px; padding: 1px 5px; color: var(--text); overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .mm-conn-page { padding: 16px 16px 40px; }
+  .mm-conn-section-head { flex-direction: column; }
+  .mm-conn-grid { grid-template-columns: 1fr; }
+  .mm-conn-tabs { width: 100%; }
+  .mm-conn-actions :is(button, a) { min-height: 40px; }
+  .mm-switch { min-height: 40px; }
+}
+/* shadcn buttons lose their text-sm to the base reset's font: inherit; keep them at 13px, primary in the accent */
+:is(.mm-conn-page, .mm-models, .mm-mcp-dialog, .workspace-settings, .connections-dialog) [data-slot='button'] { font-size: 13px; line-height: 1.4; }
+:is(.mm-conn-page, .mm-models, .mm-mcp-dialog, .workspace-settings) [data-slot='button']:not([data-variant]) { background: var(--accent); color: #fff; }
+.ws[data-theme='dark'] .mm-conn-page [data-slot='button']:not([data-variant]),
+:is(.mm-mcp-dialog, .workspace-settings)[data-theme='dark'] [data-slot='button']:not([data-variant]) { color: var(--primary-foreground); }
+:is(.mm-conn-page, .mm-models, .mm-mcp-dialog, .workspace-settings) [data-slot='button']:not([data-variant]):hover:not(:disabled) { filter: brightness(1.08); }
+/* ==== end connections ==== */
