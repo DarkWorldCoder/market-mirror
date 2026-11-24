@@ -219,12 +219,14 @@ function useChip(chip) {
 }
 // actions from an in-chat run card: asking people and focus groups go to the chat agent, which shows the cost
 // on the approval card before anything runs; comparing is read from saved files
-function runCardAction({ type, run, other, title } = {}) {
+function runCardAction({ type, run, other, title, person } = {}) {
   if (busy.value || !run) return
   const label = shortTitle(displayTitle(title || runLabel(run)), 48)
   if (type === 'compare') { compareInChat(run, other); return }
   selectedRun.value = run
-  if (type === 'ask') setDraft(`Ask one of the simulated buyers from ${label}: `)
+  // a person picked in the People tab: the draft names them; nothing is sent until the user presses send
+  if (type === 'ask' && person?.id != null) setDraft(`Ask ${person.name || 'the simulated person'} (simulated person ${person.id}) from ${label}: `)
+  else if (type === 'ask') setDraft(`Ask one of the simulated buyers from ${label}: `)
   else if (type === 'focus') send(`Run a focus group with simulated buyers from ${label}. Show me the cost before anything runs.`, { chip: { kind: 'agent' } })
 }
 async function compareInChat(a, b) {

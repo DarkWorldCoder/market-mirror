@@ -35,6 +35,8 @@
 
           <RunAudienceCard v-else-if="t.id === 'market'" class="rcc-audience" :name="name" :theme="theme" />
 
+          <PeopleExplorer v-else-if="t.id === 'people'" compact :name="name" :theme="theme" @ask="(p) => act('ask', p)" />
+
           <template v-else-if="t.id === 'thinking'">
             <LoadingSkeleton v-if="buyers.loading" :lines="5" label="Loading what the buyers said" />
             <p v-else-if="buyers.error" class="rcc-error" role="alert">{{ buyers.error }} <button type="button" class="rcc-link" @click="loadBuyers">Try again</button></p>
@@ -116,6 +118,7 @@ import { presentReport } from '../../workspace/reportPresentation.js'
 import { decisionText, decisionTone } from '../../workspace/compareRuns.js'
 import { RUN_CARD_TABS, actionMix, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, reportDownloadFile, resultsFile, runCardStats, tabForView, topActors, verdictCounts } from '../../workspace/runCard.js'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const PeopleExplorer = defineAsyncComponent(() => import('./PeopleExplorer.vue'))
 const SocialFeedPlatform = defineAsyncComponent(() => import('./SocialFeedPlatform.vue'))
 const ReportBrowser = defineAsyncComponent(() => import('./ReportBrowser.vue'))
 
@@ -230,7 +233,7 @@ const rounds = computed(() => activityRounds(activity.timeline))
 const actors = computed(() => topActors(activity.stats))
 const mix = computed(() => actionMix(activity.timeline))
 
-function act(type) { emit('action', { type, run: props.name, title: stats.value.title || props.name }) }
+function act(type, person) { emit('action', { type, run: props.name, title: stats.value.title || props.name, ...(person ? { person } : {}) }) }
 function compareWith(other) { compareOpen.value = false; emit('action', { type: 'compare', run: props.name, other, title: stats.value.title || props.name }) }
 async function save() {
   if (!downloadFile.value) return

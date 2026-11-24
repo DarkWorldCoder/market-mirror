@@ -145,6 +145,7 @@
           </template>
           <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
+        <PeopleExplorer v-else-if="tab === 'people'" :name="name" :theme="theme" preloaded :loading="loading" :config="config" :survey="survey" :stats="extra['agent_stats.json'] || null" :story="story" @ask="askPerson" />
         <template v-else-if="tab === 'activity'">
           <p class="ws-note">Recorded actions and analyst contributions from this run.</p>
           <EChart v-if="timelineChart" :option="timelineChart" :height="230" label="Recorded actions by round" :theme="theme" />
@@ -189,6 +190,7 @@ import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../work
 const PersonaScene = defineAsyncComponent(() => import('./PersonaScene.vue'))
 const WorldFlowMap = defineAsyncComponent(() => import('./WorldFlowMap.vue'))
 const AudiencePersonCard = defineAsyncComponent(() => import('./AudiencePersonCard.vue'))
+const PeopleExplorer = defineAsyncComponent(() => import('./PeopleExplorer.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
   creativesOption, decisionText, decisionTone, intentOption, localAnswer, objectionsOption, palette, peopleOption, sampleCount, segmentsOption, verdictColor
@@ -202,7 +204,7 @@ const extra = ref({}), rawPosts = ref({})
 const thoughtPage = ref(0), postPage = ref(0), analystPage = ref(0), agentPage = ref(0)
 const tab = ref('results'), tabId = useId(), expandedAudience = ref(false)
 watch(tab, value => { if (value !== 'market') expandedAudience.value = false })
-const tabs = [{ id: 'results', label: 'Results' }, { id: 'market', label: 'Audience & world' }, { id: 'thinking', label: 'Buyer responses' }, { id: 'activity', label: 'Activity' }, { id: 'feed', label: 'Social feed' }]
+const tabs = [{ id: 'results', label: 'Results' }, { id: 'market', label: 'Audience & world' }, { id: 'people', label: 'People' }, { id: 'thinking', label: 'Buyer responses' }, { id: 'activity', label: 'Activity' }, { id: 'feed', label: 'Social feed' }]
 const route = useRoute()
 watch(() => route.query.view, value => {
   if (tabs.some(item => item.id === value)) {
@@ -328,6 +330,22 @@ watch(() => [tab.value, props.name], async () => {
   harvestFor = props.name
   try { const h = await api(`/api/runs/${encodeURIComponent(props.name)}/thoughts`); mapHarvest.value = h && Array.isArray(h.entries) ? h : { entries: [] } } catch { mapHarvest.value = { entries: [] } }
 }, { immediate: true })
+// "Ask this person" from the People tab: the Person chat opens with them selected, as the ?ask= link does.
+// Nothing is sent; the composer says it costs one model call and waits for send.
+function askPerson({ id } = {}) {
+  const target = people.value.find((p) => String(p.agent_id) === String(id))
+  if (!target) return
+  mode.value = 'person'
+  personId.value = target.agent_id
+  askOpen.value = true
+  tab.value = 'results'
+  // scroll only the results panel (scrollIntoView would also move the page), then focus the composer
+  nextTick(() => {
+    const box = document.getElementById('ws-ask'), panel = scroller.value
+    if (box && panel) panel.scrollTop += box.getBoundingClientRect().top - panel.getBoundingClientRect().top - panel.clientHeight / 2
+    box?.focus({ preventScroll: true })
+  })
+}
 function showMapProfile() { nextTick(() => document.getElementById('map-person-profile')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
 const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)
 const personNames = computed(() => Object.fromEntries(index.value.map((p) => [String(p.agent_id), p.name])))

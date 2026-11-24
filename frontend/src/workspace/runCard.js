@@ -7,6 +7,7 @@ import { sampleCount } from './charts.js'
 export const RUN_CARD_TABS = [
   { id: 'results', label: 'Results' },
   { id: 'market', label: 'Audience & world' },
+  { id: 'people', label: 'People' },
   { id: 'thinking', label: 'Buyer responses' },
   { id: 'activity', label: 'Activity' },
   { id: 'feed', label: 'Social feed' }
@@ -15,6 +16,7 @@ export const RUN_CARD_TABS = [
 const TAB_ALIASES = {
   results: 'results', reports: 'results', report: 'results', highlights: 'results',
   market: 'market', audience: 'market', world: 'market', world_map: 'market', map: 'market',
+  people: 'people', persons: 'people', personas: 'people', people_explorer: 'people',
   thinking: 'thinking', responses: 'thinking', buyers: 'thinking', survey: 'thinking', buyer_responses: 'thinking',
   activity: 'activity', timeline: 'activity', recorded_activity: 'activity',
   feed: 'feed', social: 'feed', social_feed: 'feed', 'social feed': 'feed'
@@ -197,6 +199,7 @@ export function runCardIntro(tab, title) {
 export const EVIDENCE_PROMPTS = {
   results: 'Show the results',
   market: 'Show the audience and world map',
+  people: 'Show the people',
   thinking: 'Show what the buyers said',
   activity: 'Show the recorded activity',
   feed: 'Show the social feed'
@@ -211,10 +214,10 @@ export function localRunIntent(text) {
   const t = String(text || '').trim().toLowerCase().replace(/[?.!]+$/, '')
   if (/^why did (people|buyers|they) (say no|not buy|walk away)$|^(show|what were) the (top )?objections$/.test(t)) return { kind: 'objections', tab: 'thinking', verdict: 'no' }
   if (/^which (audience|segment) should (we|i) target$|^(which|what) (audience|segment) (is|was) (best|strongest)$/.test(t)) return { kind: 'segments', tab: 'market' }
-  const view = /^(show|open|view|explore) (me )?(the )?(results|world map|audience( and world map)?|3d world and audience|what the buyers said|buyer responses|(recorded )?activity|social feed|all reports)$/.exec(t)
+  const view = /^(show|open|view|explore) (me )?(the )?(results|world map|audience( and world map)?|3d world and audience|what the buyers said|buyer responses|(recorded )?activity|social feed|all reports|people|every simulated person)$/.exec(t)
   if (!view) return null
   const what = view[4]
-  const tab = /world|audience/.test(what) ? 'market' : /buyer/.test(what) ? 'thinking' : /activity/.test(what) ? 'activity' : /feed/.test(what) ? 'feed' : 'results'
+  const tab = /people|person/.test(what) ? 'people' : /world|audience/.test(what) ? 'market' : /buyer/.test(what) ? 'thinking' : /activity/.test(what) ? 'activity' : /feed/.test(what) ? 'feed' : 'results'
   return { kind: 'view', tab }
 }
 
