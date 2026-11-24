@@ -49,3 +49,9 @@ Actual Google Analytics and Meta data require an authorized connector or a suppl
 - **Thin scrollbars** everywhere. The sidebar rows line up with the search box.
 - **Thinking** loads from `GET /api/runs/<name>/thoughts`, which harvests the run folder and the simulation folder. Saved runs have no `thought_stream.json`, so the old source came up empty. `GET /api/runs/<name>/status` reports stages and round status.
 - **Local mode** skips the hosted account probe, so loopback pages no longer log a 404 on every load.
+
+## Design pass: runs in the chat
+
+- **Run card in the thread** (`RunChatCard.vue`, helpers in `workspace/runCard.js`): a saved run opened from the sidebar, the home page, a `?run=&show=` link or the agent's `open_view` shows up as a card in the conversation. It has the simulated verdict, key numbers (people, segments, would buy, maybe), each marked simulated, and the run page's five tabs (Results, Audience & world, Buyer responses, Activity, Social feed). Tabs load the first time you open them and follow the WAI-ARIA tabs pattern: arrow keys, Home and End. The action row holds Ask a person, Run a focus group, Compare with…, Open full page and Download report. Asking a person and focus groups go to the chat agent, which shows the cost on its approval card before anything runs.
+- **Next steps** under the latest answer about a run: chips that fit what the run saved. "Why did people say no?" and "Which audience should we target?" are answered from `summary.json` without a model call. Chips that would spend ("Test a cheaper price", "Ask the buyers a follow-up") send a message to the agent and say "asks first".
+- **Everywhere**: one focus ring, skeleton loaders instead of "Loading…", answers with copy, retry and download, your messages with copy and edit, one chip style, lined tables with numbers in columns, messages that rise in (still under reduced motion), and 40 to 44 px tap targets with sideways-scrolling tabs at phone width.

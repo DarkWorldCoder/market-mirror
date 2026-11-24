@@ -1421,6 +1421,60 @@ def cmd_creative_check(c: Client, a) -> Any:
         raise CLIError(str(e))
 
 
+def brain_module():
+    """app/services/brain_response.py loaded by path: stdlib only, so this works without the Flask app."""
+    import importlib.util
+    name = "mm_brain_response"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "services", "brain_response.py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def brain_creatives(spec: Any, base_dir: str) -> Tuple[List[Dict[str, Any]], str]:
+    """Creatives (and the folder their relative media paths start from) from @file, a JSON list or {creatives}."""
+    if isinstance(spec, str):
+        if spec.startswith("@"):
+            base_dir = os.path.dirname(os.path.abspath(spec[1:]))
+        spec = market_cli._load_json_arg(spec)
+    if isinstance(spec, dict):
+        spec = spec.get("creatives")
+    if not isinstance(spec, list):
+        raise ValueError("creatives must be a JSON list of ads or {creatives: [...]}")
+    return [dict(cr) for cr in spec if isinstance(cr, dict)], base_dir
+
+
+def cmd_brain_response(c: Optional[Client], a) -> Any:
+    """Predicted brain response (Meta TRIBE v2, research model) for each ad, from the owner's own sidecar."""
+    br = brain_module()
+    cfg = br.settings()
+    if not br.enabled(cfg):
+        raise CLIError("brain response is off: set MM_BRAIN_RESPONSE_URL (and MM_BRAIN_RESPONSE_TOKEN) in .env; "
+                       "see docs/brain-response.md")
+    run_dir = os.path.abspath(a.run_dir)
+    try:
+        if a.creatives:
+            creatives, base_dir = brain_creatives(a.creatives, os.getcwd())
+        else:
+            creatives, base_dir = br.creatives_from_run(run_dir), run_dir
+    except (ValueError, OSError) as e:
+        raise CLIError(str(e))
+    if not creatives:
+        raise CLIError("no creatives: pass --creatives @creatives.json or run a feed test in --run-dir first")
+    log(f"brain-response: {len(creatives)} creatives to {cfg['url'].split('//')[-1].split('/')[0]} "
+        "(TRIBE v2, research model, noncommercial license)")
+    result = br.run(creatives, run_dir, base_dir, cfg=cfg, log=log)
+    out = {k: v for k, v in result.items() if k != "cache"}
+    out["file"] = os.path.join(run_dir, br.FILE)
+    if not a.no_export and os.path.exists(os.path.join(run_dir, "dashboard.html")):
+        out["export"] = do_export(run_dir, os.path.join(run_dir, "dashboard.html"))
+    return out
+
+
 def cmd_website_test(c: Client, a) -> Any:
     """Drive a real URL with prepared personas and export browser evidence."""
     from app.services import website_test
@@ -1783,6 +1837,21 @@ def _market_test(c: Client, a, armed: List[str]) -> Any:
                     int(cfg.get("seeds_n") or 1), int(cfg.get("seed") or 5), vision=cfg.get("vision")), log)
             steps.append("feed_test")
             checkpoint()
+        if cfg.get("brain_response") and creatives:
+            br = brain_module()
+            if not br.enabled():
+                log("market-test: brain_response is on but MM_BRAIN_RESPONSE_URL is not set; skipped")
+            else:
+                try:   # a research view next to the feed test; never stops the run, never changes a number
+                    cpath = _cfg_path(base, creatives)
+                    arg = "@" + cpath if isinstance(cpath, str) and os.path.exists(cpath) else creatives
+                    raw, bdir = brain_creatives(arg, base)
+                    state["brain_response"] = {k: v for k, v in br.run(raw, out_dir, bdir, log=log).items()
+                                               if k in ("ok", "skipped", "attached_to_feed_test")}
+                    steps.append("brain_response")
+                except Exception as e:  # noqa: BLE001
+                    log(f"market-test: brain response skipped: {e}")
+                checkpoint()
         fg = cfg.get("focus_group")
         if isinstance(fg, dict) and fg.get("guide") and not (cfg.get("resume_steps") and state.get("focus_group")):
             guide = fg["guide"] if isinstance(fg["guide"], list) else [q for q in str(fg["guide"]).splitlines() if q.strip()]
@@ -3302,6 +3371,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="results folder (default benchmarks/bench/results)")
     s.add_argument("--approve-spend", action="store_true", help="call the configured model; without it only an estimate")
 
+    s = sub.add_parser("brain-response", help="predicted brain response of an average viewer to each ad (Meta TRIBE v2 "
+                                              "research model, noncommercial) from your own sidecar (MM_BRAIN_RESPONSE_URL)")
+    s.add_argument("--run-dir", required=True, help="run folder; writes brain_response.json there")
+    s.add_argument("--creatives", help="@creatives.json with local video / audio paths (default: the run's feed test)")
+    s.add_argument("--no-export", action="store_true", help="do not re-render dashboard.html")
+
     s = sub.add_parser("creative-check", help="pre-flight look at real ad images / videos: what they show, words on "
                                               "them, brand and CTA visibility, platform checks, measured aspect ratio")
     s.add_argument("--creatives", required=True, help="@creatives.json (each with image, video or frames, plus platform)")
@@ -3748,7 +3823,7 @@ COMMANDS = {
     "panel": cmd_panel, "ads-import": cmd_ads_import, "actuals-import": cmd_actuals_import,
     "campaign-plan": cmd_campaign_plan, "holdout-backtest": cmd_holdout_backtest, "website-test": cmd_website_test,
     "backtest": cmd_backtest, "market-test": cmd_market_test, "seed-check": cmd_seed_check,
-    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "questionnaire": cmd_questionnaire, "forecast": cmd_forecast, "bench": cmd_bench, "creative-check": cmd_creative_check, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
+    "captions": cmd_captions, "pitch": cmd_pitch, "ideas": cmd_ideas, "ad-patterns": cmd_ad_patterns, "choice-test": cmd_choice_test, "ask": cmd_ask, "focus-group": cmd_focus_group, "questionnaire": cmd_questionnaire, "forecast": cmd_forecast, "bench": cmd_bench, "creative-check": cmd_creative_check, "brain-response": cmd_brain_response, "intake": cmd_intake, "analytics-audience": cmd_analytics_audience, "real-split": cmd_real_split, "quickstart": cmd_quickstart,
     "understand": cmd_understand, "calibrate": cmd_calibrate, "spend-cap": cmd_spend_cap, "emailtest": cmd_emailtest, "test": cmd_test, "study": cmd_study, "predict": cmd_predict, "research": cmd_research, "context": cmd_context,
     "setup": cmd_setup, "compare": cmd_compare, "gtm": cmd_gtm, "thoughts": cmd_gtm, "gtm-suite": cmd_gtm, "competitor-analysis": cmd_gtm,
     "teardown": cmd_gtm, "roleplay": cmd_gtm, "personalize": cmd_gtm,
@@ -3762,7 +3837,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
         offline_search = a.cmd == "search" and bool(a.run_dir) and not a.ask
-        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check", "forecast") or \
+        offline = offline_export or offline_live or offline_search or a.cmd in ("bench", "ads-import", "actuals-import", "holdout-backtest", "research", "compare", "jev", "analytics-audience", "real-split", "seed-check", "forecast", "brain-response") or \
             (a.cmd == "campaign-plan" and not a.project) or (a.cmd == "quickstart" and a.no_run) or \
             (a.cmd == "ad-patterns" and a.engine == "supplied" and not a.vision) or (a.cmd == "intake" and a.engine == "supplied")
         if a.cmd == "backtest":

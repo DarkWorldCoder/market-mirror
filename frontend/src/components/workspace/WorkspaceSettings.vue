@@ -4,6 +4,7 @@ import { Brain, SlidersHorizontal, LoaderCircle, Check, ChevronRight, Cpu, Walle
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog'
 import { Button } from '../ui/button'
 import InfoHint from './InfoHint.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import './modal-controls.css'
 import { api } from '../../workspace/api'
 
@@ -80,7 +81,7 @@ async function save() {
         <button v-for="item in tabs" :key="item.id" type="button" :class="{ active: tab === item.id }" :aria-pressed="tab === item.id" @click="tab = item.id; saved = false; error = ''"><component :is="item.icon" :size="16" />{{ item.label }}</button>
       </nav>
       <div class="settings-main">
-      <div v-if="loading" class="settings-loading" role="status"><LoaderCircle :size="20" class="settings-spin" />Loading your configuration…</div>
+      <LoadingSkeleton v-if="loading" class="ws-dialog-skeleton" :lines="4" label="Loading your configuration" />
       <form v-else-if="state" class="settings-form" @submit.prevent="save">
         <div v-if="tab === 'connections'" class="settings-fields">
           <div class="settings-intro"><h3>Data & connections</h3><p>Connect analytics, ads and models.</p></div>

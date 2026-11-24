@@ -16,7 +16,7 @@
       </div>
       <template v-if="people.length && visible && !expanded">
         <div v-if="view === 'map'">
-          <WorldFlowMap :index="index" :story="story" :harvest="harvest" :theme="theme" :live="isRunning" :height="isPhone ? 260 : 340" :selected="selectedId" @select="selectPerson" />
+          <WorldFlowMap :index="index" :story="story" :harvest="harvest" :responses="survey?.responses || []" :theme="theme" :live="isRunning" :height="isPhone ? 260 : 340" :selected="selectedId" @select="selectPerson" />
           <label class="audience-person-pick">Person<select v-model="selectedId" aria-label="Choose a simulated person"><option v-for="p in people" :key="p.agent_id" :value="String(p.agent_id)">{{ p.name || `Person ${p.agent_id}` }} · {{ p.segment || p.country || 'no segment' }}</option></select></label>
           <AudiencePersonCard v-if="selectedPerson" v-bind="cardProps" />
         </div>
@@ -38,7 +38,7 @@
             <button type="button" :aria-pressed="view === 'globe'" @click="view = 'globe'"><Globe2 :size="14" aria-hidden="true" />3D globe</button>
           </div>
           <template v-if="view === 'map'">
-            <WorldFlowMap big :index="index" :story="story" :harvest="harvest" :theme="theme" :live="isRunning" :height="480" :selected="selectedId" @select="selectPerson" />
+            <WorldFlowMap big :index="index" :story="story" :harvest="harvest" :responses="survey?.responses || []" :theme="theme" :live="isRunning" :height="480" :selected="selectedId" @select="selectPerson" />
             <label class="audience-person-pick">Person<select v-model="selectedId" aria-label="Choose a simulated person"><option v-for="p in people" :key="p.agent_id" :value="String(p.agent_id)">{{ p.name || `Person ${p.agent_id}` }} · {{ p.segment || p.country || 'no segment' }}</option></select></label>
             <AudiencePersonCard v-if="selectedPerson" v-bind="cardProps" />
           </template>

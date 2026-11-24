@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { FileChartColumn, ChartNoAxesCombined, MessagesSquare, Search, UsersRound } from 'lucide-vue-next'
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui'
 import ChatArtifact from './ChatArtifact.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import ExperimentHighlights from './ExperimentHighlights.vue'
 import SocialFeedPlatform from './SocialFeedPlatform.vue'
 import { Button } from '../ui/button'
@@ -70,7 +71,7 @@ watch(view, value => {
         <TabsTrigger value="reports"><FileChartColumn :size="15" aria-hidden="true" />Reports</TabsTrigger>
       </TabsList>
       <TabsContent v-if="hasSummary" value="highlights">
-        <p v-if="loading" class="report-status" role="status">Loading saved highlights…</p>
+        <LoadingSkeleton v-if="loading" variant="cards" :lines="3" label="Loading saved highlights" />
         <p v-else-if="error" class="report-status" role="alert">{{ error }} <button class="ws-btn" @click="readSummary">Retry</button></p>
         <template v-else-if="summary">
           <div class="report-review-action">

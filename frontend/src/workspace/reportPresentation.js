@@ -44,7 +44,8 @@ function fromSummary(d) {
     cards: compact([card('Decision', plain(dec.decision)), card('Simulated people', mk.people ?? d.agents), card('Would buy', pct(o.convert_yes)), card('Maybe', pct(o.convert_maybe)), card('Would not', pct(o.convert_no))]),
     sections: compact([
       dec.summary && { type: 'summary', title: 'In one line', text: dec.summary },
-      segments.length && { type: 'bars', title: 'Would buy, by audience', unit: '%', rows: segments.sort((a, b) => b.value - a.value) },
+      // the bars use the chance people stated when it is saved, which is not the same number as the yes share above
+      segments.length && { type: 'bars', title: (mk.by_segment || []).some((s) => num(s.expected_convert_yes) !== null) ? 'Chance of buying they stated, by audience' : 'Would buy, by audience', unit: '%', rows: segments.sort((a, b) => b.value - a.value) },
       (mk.objections || []).length && { type: 'bars', title: 'Why people said no', unit: '%', rows: mk.objections.map((x) => ({ label: x.label, value: num(x.share) ?? 0 })) },
       (mk.objections || []).some((x) => x.examples?.length) && { type: 'quotes', title: 'In their words', items: mk.objections.flatMap((x) => (x.examples || []).slice(0, 1)).slice(0, 4).map((e) => ({ text: e.text, who: [e.name, e.segment].filter(Boolean).join(' · ') })) }
     ])

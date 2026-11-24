@@ -130,6 +130,16 @@ def _index_local(names) -> None:
         pass
 
 
+@runs_bp.get("/api/runs/insights")
+def run_insights():
+    """One aggregate across every saved run for the workspace overview, from saved files only (no model calls):
+    activity per day, decision mix, buying intent, objections, segments, geography, evidence and real-sample checks,
+    recorded spend, the forecast ledger and runs still running. Cached per run by file mtimes."""
+    from ..services import run_insights as insights
+    root = runs_root()
+    return ok({**insights.collect(root), "root": str(root)})   # a missing root gives empty lists
+
+
 def _sim_folder(sid: Any) -> Optional[Path]:
     """The simulation's folder on this backend, when it is there (chat with people and the report agent needs it)."""
     from ..config import Config

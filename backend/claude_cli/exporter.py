@@ -54,6 +54,7 @@ try:  # marketing layer (stdlib only)
     import report_view  # type: ignore
     import real_check  # type: ignore
     import disclosure  # type: ignore
+    import brain_view  # type: ignore
 except ImportError:  # pragma: no cover - imported as a package
     from . import tokens  # type: ignore
     from . import ui  # type: ignore
@@ -66,6 +67,7 @@ except ImportError:  # pragma: no cover - imported as a package
     from . import report_view  # type: ignore
     from . import real_check  # type: ignore
     from . import disclosure  # type: ignore
+    from . import brain_view  # type: ignore
 try:  # social feed section (Phase 2, optional until wired)
     import social_feed  # type: ignore
 except ImportError:  # pragma: no cover
@@ -103,7 +105,7 @@ RUN_FILES = [
     "report", "survey", "feed_test", "analyst_panel", "backtest", "run_manifest", "market_report", "feed_story", "pitch", "ideas", "ad_patterns", "choice_maxdiff", "choice_conjoint", "choice_gabor_granger", "focus_group", "calibration", "email_test", "research", "campaign_plan", "predictions", "study_summary", "behavior_state", "thought_stream", "thought_harvest",
     "gtm_suite", "buying_committee", "creative_optimizer", "sales_battlecard", "journey_sim", "pricing_conjoint", "competitor_intel",
     "cro_lab", "landing_teardown", "sales_roleplay", "causal_whatif", "segment_personalization",
-    "geo_visibility", "voc_grounding", "dark_social", "search_index", "spend_cap",
+    "geo_visibility", "voc_grounding", "dark_social", "search_index", "spend_cap", "brain_response",
 ]
 
 
@@ -1262,6 +1264,11 @@ def render_dashboard(bundle: Dict[str, Any], title: Optional[str] = None) -> Tup
         if sf:
             at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "feedtest"), 1)
             mk_sections.insert(at, sf)
+    # predicted brain response (TRIBE v2 research model) directly under the feed test
+    bs = _safe("brain response", lambda: brain_view.section(bundle.get("brain_response"), bundle.get("feed_test")))
+    if bs:
+        at = next((i + 1 for i, sec in enumerate(mk_sections) if sec[0] == "feedtest"), len(mk_sections))
+        mk_sections.insert(at, bs)
     # people: cards with interview summaries, lead scores and survey verdicts
     index = [r for r in (cfg.get("persona_index") or []) if isinstance(r, dict)]
     survey_by_agent = {}

@@ -168,7 +168,158 @@
               </h1>
             </div>
             <form
-              v-if="screen === 'brief'"
+              v-if="screen === 'brief' && embedded"
+              class="lean-form"
+              novalidate
+              @submit.prevent="submitBrief"
+            >
+              <div class="lean-field" :class="{ invalid: shown('brief', 'name') }">
+                <label :for="fid('name')">Product name<span class="required-mark" aria-hidden="true">*</span></label>
+                <input :id="fid('name')" v-model="inputs.name" type="text" required :maxlength="LIMITS.name" autocomplete="off"
+                  placeholder="Your product or business" :aria-invalid="!!shown('brief', 'name')"
+                  :aria-describedby="shown('brief', 'name') ? fid('name-error') : undefined" @blur="touch('name')" />
+                <p v-if="shown('brief', 'name')" :id="fid('name-error')" class="field-error">{{ shown('brief', 'name') }}</p>
+              </div>
+              <div class="lean-field" :class="{ invalid: shown('brief', 'product') }">
+                <label :for="fid('product')">What does it do, and for whom?<span class="required-mark" aria-hidden="true">*</span></label>
+                <textarea :id="fid('product')" v-model="inputs.product" v-autogrow rows="2" required :maxlength="LIMITS.product"
+                  placeholder="Plain words. Include the actual price if it matters." :aria-invalid="!!shown('brief', 'product')"
+                  :aria-describedby="shown('brief', 'product') ? fid('product-error') : undefined" @blur="touch('product')"></textarea>
+                <p v-if="shown('brief', 'product')" :id="fid('product-error')" class="field-error">{{ shown('brief', 'product') }}</p>
+              </div>
+              <div class="lean-field" :class="{ invalid: shown('brief', 'source_url') }">
+                <label :for="fid('source_url')">Product page <span class="optional-mark">optional</span></label>
+                <div class="lean-inline">
+                  <input :id="fid('source_url')" v-model.trim="inputs.source_url" type="url" inputmode="url" :maxlength="LIMITS.source_url"
+                    placeholder="https://your-product.com" :aria-invalid="!!shown('brief', 'source_url')"
+                    :aria-describedby="shown('brief', 'source_url') ? fid('source_url-error') : undefined" @blur="touch('source_url')" />
+                  <button class="secondary" type="button" :disabled="busy || !isWebUrl(inputs.source_url)" @click="readUrl">Read page</button>
+                </div>
+                <p v-if="shown('brief', 'source_url')" :id="fid('source_url-error')" class="field-error">{{ shown('brief', 'source_url') }}</p>
+              </div>
+              <div class="lean-field">
+                <label :for="fid('file')">Or a document <span class="optional-mark">PDF, Markdown or text</span></label>
+                <input :id="fid('file')" type="file" accept=".pdf,.md,.txt" @change="readFile" />
+              </div>
+              <div class="lean-field" :class="{ invalid: shown('brief', 'facts') }">
+                <label :for="fid('facts')">Verified details and policies
+                  <span class="optional-mark">{{ ['saas', 'ecommerce'].includes(inputs.recipe) ? 'billing, shipping or returns' : 'optional' }}</span></label>
+                <textarea :id="fid('facts')" v-model="inputs.facts" v-autogrow rows="3" :maxlength="LIMITS.facts"
+                  placeholder="Actual features, prices and policies" :aria-invalid="!!shown('brief', 'facts')" @blur="touch('facts')"></textarea>
+                <p v-if="shown('brief', 'facts')" class="field-error">{{ shown('brief', 'facts') }}</p>
+              </div>
+              <div class="actions">
+                <button class="primary" :disabled="busy">Continue to ideas</button>
+                <button class="secondary" type="button" :disabled="busy" @click="saveDraft">Save draft</button>
+              </div>
+              <p class="lean-note">Saved on this computer. Paid steps ask first.</p>
+            </form>
+            <form
+              v-if="screen === 'variants' && embedded"
+              class="lean-form"
+              novalidate
+              @submit.prevent="submitIdeas"
+            >
+              <div class="variants-grid">
+                <div v-for="(variant, index) in inputs.variants" :key="variant.id" class="variant-editor">
+                  <div class="lean-field" :class="{ invalid: shown('ideas', `label${index}`) }">
+                    <label :for="fid(`label${index}`)"><span class="version-tag">{{ 'AB'[index] }}</span> Version name<span class="required-mark" aria-hidden="true">*</span></label>
+                    <input :id="fid(`label${index}`)" v-model="variant.label" type="text" required :maxlength="LIMITS.label"
+                      :aria-invalid="!!shown('ideas', `label${index}`)" @blur="touch(`label${index}`)" />
+                    <p v-if="shown('ideas', `label${index}`)" class="field-error">{{ shown('ideas', `label${index}`) }}</p>
+                  </div>
+                  <div class="lean-field" :class="{ invalid: shown('ideas', `text${index}`) }">
+                    <label :for="fid(`text${index}`)">Message<span class="required-mark" aria-hidden="true">*</span></label>
+                    <textarea :id="fid(`text${index}`)" v-model="variant.text" v-autogrow rows="4" required :maxlength="LIMITS.text"
+                      :placeholder="index ? 'The alternative version' : 'Your current version'" :aria-invalid="!!shown('ideas', `text${index}`)"
+                      :aria-describedby="shown('ideas', `text${index}`) ? fid(`text${index}-error`) : index === 0 && recipe.hint ? fid('hint') : undefined"
+                      @blur="touch(`text${index}`)"></textarea>
+                    <p v-if="shown('ideas', `text${index}`)" :id="fid(`text${index}-error`)" class="field-error">{{ shown('ideas', `text${index}`) }}</p>
+                  </div>
+                </div>
+              </div>
+              <p v-if="recipe.hint" :id="fid('hint')" class="field-hint">{{ recipe.hint }}</p>
+              <div class="lean-field" :class="{ invalid: shown('ideas', 'audience') }">
+                <label :for="fid('audience')">Who should consider this?<span class="required-mark" aria-hidden="true">*</span></label>
+                <textarea :id="fid('audience')" v-model="inputs.audience" v-autogrow rows="1" required :maxlength="LIMITS.audience"
+                  placeholder="For example, busy parents looking for home workouts" :aria-invalid="!!shown('ideas', 'audience')"
+                  @blur="touch('audience')"></textarea>
+                <p v-if="shown('ideas', 'audience')" class="field-error">{{ shown('ideas', 'audience') }}</p>
+              </div>
+              <div class="field-pair">
+                <div class="lean-field" :class="{ invalid: shown('ideas', 'country') }">
+                  <label :for="fid('country')">Country or market<span class="required-mark" aria-hidden="true">*</span></label>
+                  <select :id="fid('country')" :value="countryChoice" required :aria-invalid="!!shown('ideas', 'country')"
+                    @change="pick('country', $event.target.value)" @blur="touch('country')">
+                    <option value="" disabled>Choose a country</option>
+                    <option v-for="item in COUNTRIES" :key="item" :value="item">{{ item }}</option>
+                    <option :value="OTHER">Another country or region</option>
+                  </select>
+                  <input v-if="countryChoice === OTHER" :id="fid('country-other')" v-model="inputs.country" type="text" required
+                    :maxlength="LIMITS.country" placeholder="Country or region" aria-label="Country or region" @blur="touch('country')" />
+                  <p v-if="shown('ideas', 'country')" class="field-error">{{ shown('ideas', 'country') }}</p>
+                </div>
+                <div class="lean-field" :class="{ invalid: shown('ideas', 'language') }">
+                  <label :for="fid('language')">Language<span class="required-mark" aria-hidden="true">*</span></label>
+                  <select :id="fid('language')" :value="languageChoice" required :aria-invalid="!!shown('ideas', 'language')"
+                    @change="pick('language', $event.target.value)" @blur="touch('language')">
+                    <option value="" disabled>Choose a language</option>
+                    <option v-for="item in LANGUAGES" :key="item" :value="item">{{ item }}</option>
+                    <option :value="OTHER">Another language</option>
+                  </select>
+                  <input v-if="languageChoice === OTHER" :id="fid('language-other')" v-model="inputs.language" type="text" required
+                    :maxlength="LIMITS.language" placeholder="Language" aria-label="Language" @blur="touch('language')" />
+                  <p v-if="shown('ideas', 'language')" class="field-error">{{ shown('ideas', 'language') }}</p>
+                </div>
+              </div>
+              <fieldset class="lean-field segmented-field" :class="{ invalid: shown('ideas', 'people') }">
+                <legend>Simulated buyers<span class="required-mark" aria-hidden="true">*</span></legend>
+                <div class="segmented">
+                  <label v-for="size in AUDIENCE_SIZES" :key="size" :class="{ selected: Number(inputs.people) === size }">
+                    <input v-model.number="inputs.people" type="radio" :name="fid('people')" :value="size" />{{ size }}
+                  </label>
+                  <input :id="fid('people')" v-model.number="inputs.people" class="segmented-number" type="number" :min="LIMITS.peopleMin"
+                    :max="LIMITS.peopleMax" step="1" inputmode="numeric" required aria-label="Number of simulated buyers"
+                    :aria-invalid="!!shown('ideas', 'people')" @blur="touch('people')" />
+                </div>
+                <p v-if="shown('ideas', 'people')" class="field-error">{{ shown('ideas', 'people') }}</p>
+              </fieldset>
+              <fieldset class="lean-field segmented-field">
+                <legend>Channel<span class="required-mark" aria-hidden="true">*</span></legend>
+                <div class="segmented">
+                  <label v-for="item in PLATFORMS" :key="item.id" :class="{ selected: inputs.platform === item.id }">
+                    <input v-model="inputs.platform" type="radio" :name="fid('platform')" :value="item.id" />{{ item.label }}
+                  </label>
+                </div>
+              </fieldset>
+              <div class="field-pair">
+                <div class="lean-field" :class="{ invalid: shown('ideas', 'ad_budget') }">
+                  <label :for="fid('ad_budget')">Advertising budget <span class="optional-mark">optional</span></label>
+                  <input :id="fid('ad_budget')" v-model.number="inputs.ad_budget" type="number" min="0" :max="LIMITS.budgetMax" step="0.01"
+                    inputmode="decimal" placeholder="Not model-call cost" :aria-invalid="!!shown('ideas', 'ad_budget')" @blur="touch('ad_budget')" />
+                  <p v-if="shown('ideas', 'ad_budget')" class="field-error">{{ shown('ideas', 'ad_budget') }}</p>
+                </div>
+                <div class="lean-field">
+                  <label :for="fid('currency')">Currency</label>
+                  <select :id="fid('currency')" v-model="inputs.currency">
+                    <option v-for="item in currencyOptions" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="lean-field">
+                <label :for="fid('claim_evidence')">Evidence for claims <span class="optional-mark">customer counts, testimonials, guarantees</span></label>
+                <textarea :id="fid('claim_evidence')" v-model="inputs.claim_evidence" v-autogrow rows="1" :maxlength="LIMITS.claim_evidence"
+                  placeholder="Source, or leave empty"></textarea>
+              </div>
+              <div class="actions">
+                <button class="secondary" type="button" @click="screen = 'brief'">Back</button>
+                <button class="primary" :disabled="busy">Review audience and costs</button>
+                <button class="text-button" type="button" :disabled="busy" @click="saveDraft">Save draft</button>
+              </div>
+              <p class="lean-note">Saved on this computer. Paid steps ask first.</p>
+            </form>
+            <form
+              v-if="screen === 'brief' && !embedded"
               @submit.prevent="advance('variants')"
             >
               <label
@@ -240,7 +391,7 @@
               </div>
             </form>
             <form
-              v-if="screen === 'variants'"
+              v-if="screen === 'variants' && !embedded"
               @submit.prevent="advance('review')"
             >
               <p class="help">{{ recipe.hint }}</p>
@@ -649,7 +800,7 @@
               </section>
             </template>
           </section>
-          <aside>
+          <aside v-if="!embedded">
             <h2>One decision at a time.</h2>
             <p>{{ recipe.question }}</p>
             <hr />
@@ -687,6 +838,7 @@ import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowUpRight, ChartNoAxesCombined, Check, ChevronRight, Files, FileText, LayoutDashboard, Shapes, Split, UserRound, UsersRound } from 'lucide-vue-next'
+import { AUDIENCE_SIZES, COUNTRIES, CURRENCIES, LANGUAGES, LIMITS, OTHER, PLATFORMS, briefErrors, choiceOf, ideasErrors, isWebUrl } from '../workspace/setupFields'
 // Inside the chat the setup runs as one step of the conversation: no page header, landing hero or address changes;
 // the draft id is handed back to the chat message so reopening the chat reopens the draft.
 const props = defineProps({ embedded: { type: Boolean, default: false }, initialWorkflow: { type: String, default: '' } })
@@ -788,6 +940,61 @@ const empty = (recipe = 'ads') => ({
   ]
 })
 const inputs = ref(empty())
+// Embedded (chat) setup: typed fields with inline messages. Ids are per instance; a chat can show more than one.
+const uid = `mm${Math.random().toString(36).slice(2, 8)}`
+const fid = (name) => `${uid}-${name}`
+const touched = ref({}),
+  attempted = ref({ brief: false, ideas: false }),
+  otherChoice = ref({ country: false, language: false })
+const issues = computed(() => ({ brief: briefErrors(inputs.value), ideas: ideasErrors(inputs.value) }))
+function shown(form, key) {
+  const text = issues.value[form][key]
+  return text && (attempted.value[form] || touched.value[key]) ? text : ''
+}
+function touch(key) {
+  touched.value = { ...touched.value, [key]: true }
+}
+function resetChecks() {
+  touched.value = {}
+  attempted.value = { brief: false, ideas: false }
+  otherChoice.value = { country: false, language: false }
+}
+const countryChoice = computed(() => (otherChoice.value.country ? OTHER : choiceOf(inputs.value.country, COUNTRIES)))
+const languageChoice = computed(() => (otherChoice.value.language ? OTHER : choiceOf(inputs.value.language, LANGUAGES)))
+const currencyOptions = computed(() =>
+  inputs.value.currency && !CURRENCIES.includes(inputs.value.currency) ? [inputs.value.currency, ...CURRENCIES] : CURRENCIES
+)
+function pick(field, value) {
+  const listed = field === 'country' ? COUNTRIES : LANGUAGES
+  if (value === OTHER) {
+    otherChoice.value = { ...otherChoice.value, [field]: true }
+    if (listed.includes(inputs.value[field])) inputs.value[field] = ''
+    requestAnimationFrame(() => document.getElementById(fid(`${field}-other`))?.focus())
+  } else {
+    otherChoice.value = { ...otherChoice.value, [field]: false }
+    inputs.value[field] = value
+  }
+  touch(field)
+}
+function firstInvalid(form, errors) {
+  attempted.value = { ...attempted.value, [form]: true }
+  const key = Object.keys(errors)[0]
+  if (!key) return false
+  requestAnimationFrame(() => document.getElementById(fid(key))?.focus())
+  return true
+}
+function submitBrief() {
+  if (!firstInvalid('brief', issues.value.brief)) advance('variants')
+}
+function submitIdeas() {
+  if (!firstInvalid('ideas', issues.value.ideas)) advance('review')
+}
+// Long answers grow with their text instead of scrolling inside a small box.
+function grow(el) {
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight + 2}px`
+}
+const vAutogrow = { mounted: grow, updated: grow }
 const settings = computed(() => `/setup#t=${encodeURIComponent(token.value)}`)
 const recipe = computed(
   () =>
@@ -873,6 +1080,7 @@ function begin(kind) {
   worksheet.value = ''
   quote.value = null
   inputs.value = empty(kind)
+  resetChecks()
   screen.value = 'brief'
   error.value = ''
   message.value = ''
@@ -1034,6 +1242,7 @@ async function load(id) {
   const value = await api(`/${id}`)
   record.value = value
   inputs.value = structuredClone(value.inputs)
+  resetChecks()
   screen.value = Object.keys(value.stages).length ? 'review' : 'brief'
   quote.value = null
   results.value = null
