@@ -456,6 +456,14 @@ function openSettings() { settingsOpen.value = true }
 function refreshSharedChat() { if (busy.value || !conversationId.value) return; const chat = stored().find(row => row.id === conversationId.value); if (chat) { messages.value = chat.messages || []; loadArtifacts() } }
 window.addEventListener('mm-chats-loaded', refreshSharedChat)
 watch(() => route.query.connectors, value => { if (value === '1') connectionsOpen.value = true })
+// Drop the query when the dialog closes, so the sidebar link stops looking
+// active and can open the dialog again.
+watch(connectionsOpen, open => {
+  if (open || route.query.connectors !== '1') return
+  const query = { ...route.query }
+  delete query.connectors
+  router.replace({ query })
+})
 watch(() => route.query.skill, async id => { if (typeof id !== 'string' || !id) return; const skill = featureCatalog.find(item => item.skillId === id); if (skill) { await nextTick(); setDraft(skill.prompt) } }, { immediate: true })
 watch(() => route.query.prompt, async value => { if (typeof value === 'string') { await nextTick(); composer.value?.setValue(value); composer.value?.focus() } }, { immediate: true })
 const STORE = 'mm-conversations-v1'
