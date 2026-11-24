@@ -194,6 +194,8 @@ const shortcuts = [
   { keys: ['/'], what: 'Find a skill from the chat box' },
   { keys: ['Alt', '1–4'], what: 'On a run page: switch between Results, Person, Report agent and Focus group' },
   { keys: ['↑', '↓'], what: 'Move through suggestions' },
+  { keys: ['N'], what: 'Start a new chat' },
+  { keys: ['G', 'then O / R / S'], what: 'Jump to Overview, Reports or Skills' },
   { keys: ['?'], what: 'Show these shortcuts' },
   { keys: ['Esc'], what: 'Close a menu or dialog' }
 ]
@@ -275,9 +277,29 @@ async function loadProjects() {
   if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
 }
+let gPressedAt = 0
 function onSlash(e) {
-  if (e.key === 'Escape') menuOpen.value = false
+  if (e.key === 'Escape') { menuOpen.value = false; gPressedAt = 0 }
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
+  const dialogOpen = Boolean(document.querySelector('[role="dialog"]'))
+  if (!typing && !dialogOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const key = e.key.toLowerCase()
+    if (key === 'g') { gPressedAt = Date.now(); return }
+    if (Date.now() - gPressedAt < 1500) {
+      const target = { o: '/workspace', r: '/workspace/reports', s: '/workspace/skills' }[key]
+      if (target) {
+        e.preventDefault()
+        gPressedAt = 0
+        router.push(target)
+        return
+      }
+    }
+    if (key === 'n') {
+      e.preventDefault()
+      newChat()
+      return
+    }
+  }
   if (!typing && e.key === '?') {
     e.preventDefault()
     shortcutsOpen.value = true
