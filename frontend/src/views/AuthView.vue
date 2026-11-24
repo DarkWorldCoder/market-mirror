@@ -55,6 +55,10 @@
             <template v-if="screen === 'signup'">Already have an account? <button type="button" class="underline underline-offset-4" @click="screen = 'login'">Sign in</button></template>
             <template v-else>New here? <button type="button" class="underline underline-offset-4" @click="screen = 'signup'">Create an account</button></template>
           </p>
+          <p v-if="!signedIn && screen === 'login'" class="text-center text-sm">
+            <button type="button" class="underline underline-offset-4" :aria-expanded="showResetHelp" @click="showResetHelp = !showResetHelp">Forgot password?</button>
+          </p>
+          <p v-if="showResetHelp" class="text-muted-foreground text-center text-xs text-balance" role="status">Password reset by email is not available yet. Ask a workspace owner or whoever runs this server to reset your password.</p>
         </CardContent>
       </Card>
 
@@ -64,7 +68,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LoaderCircle } from 'lucide-vue-next'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
@@ -85,6 +89,7 @@ const screen = ref(props.mode === 'join' ? 'signup' : props.mode)
 const name = ref(''), email = ref(''), password = ref(''), workspaceName = ref('')
 const busy = ref(false), error = ref(''), inviteError = ref('')
 const token = ref(''), invite = ref(null)
+const showResetHelp = ref(false)
 const theme = (() => { try { return localStorage.getItem('mm-theme') || 'light' } catch { return 'light' } })()
 const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 const heading = computed(() => invite.value ? `Join ${invite.value.workspace}` : screen.value === 'signup' ? 'Create your account' : 'Welcome back')
@@ -96,6 +101,7 @@ const subheading = computed(() => {
   return 'Start a workspace for your team.'
 })
 
+watch(screen, () => { showResetHelp.value = false })
 onMounted(() => { readInvite(); window.addEventListener('hashchange', readInvite) })
 onUnmounted(() => window.removeEventListener('hashchange', readInvite))
 async function readInvite() {
