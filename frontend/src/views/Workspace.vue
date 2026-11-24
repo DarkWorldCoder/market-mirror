@@ -320,6 +320,7 @@ onMounted(() => {
   window.addEventListener('mm-chat-status', onChatStatus)
   window.addEventListener('mm-projects-updated', loadProjects)
   window.addEventListener('mm-provider-changed', refresh)
+  window.addEventListener('mm-runs-updated', refresh)
   document.addEventListener('keydown', onSlash)
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', refreshVisible)
@@ -333,6 +334,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('mm-runs-updated', refresh)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
