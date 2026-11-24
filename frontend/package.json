@@ -21,6 +21,7 @@
     "echarts": "^6.1.0",
     "echarts-gl": "^2.1.0",
     "lucide-vue-next": "^1.0.0",
+    "maplibre-gl": "^6.19.0",
     "marked": "^18.2.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -37,6 +38,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-vue": "^6.0.1",
+    "all-the-cities": "^3.1.0",
     "tailwindcss": "^4.3.5",
     "vite": "^7.3.6"
   },

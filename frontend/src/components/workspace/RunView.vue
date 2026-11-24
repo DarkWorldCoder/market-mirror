@@ -133,7 +133,15 @@
           <p v-if="!thoughts.length" class="ws-empty">No saved thoughts in this run.</p>
         </template>
         <template v-else-if="tab === 'market'">
-          <PersonaScene :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
+          <div class="ws-audience-mode" role="group" aria-label="How to show the audience">
+            <button type="button" :aria-pressed="audienceMode === 'map'" @click="audienceMode = 'map'"><MapIcon :size="14" aria-hidden="true" />Real world map</button>
+            <button type="button" :aria-pressed="audienceMode === 'globe'" @click="audienceMode = 'globe'"><Globe2 :size="14" aria-hidden="true" />3D audience</button>
+          </div>
+          <template v-if="audienceMode === 'map'">
+            <WorldFlowMap big :index="index" :story="story" :responses="survey?.responses || []" :theme="theme" :live="/^(running|preparing|processing|in_progress)$/i.test(runStatus)" :height="520" :selected="mapPerson" @select="(id) => mapPerson = id" />
+            <AudiencePersonCard v-if="mapPersonRow" :person="mapPersonRow" :answer="(survey?.responses || []).find((r) => String(r.agent_id) === mapPerson)?.answer || null" :names="personNames" />
+          </template>
+          <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
         <template v-else-if="tab === 'activity'">
           <p class="ws-note">Recorded actions and analyst contributions from this run.</p>
@@ -165,6 +173,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { Globe2, Map as MapIcon } from 'lucide-vue-next'
 import EChart from './EChart.vue'
 import ArtifactExplorer from './ArtifactExplorer.vue'
 import ChatArtifact from './ChatArtifact.vue'
@@ -173,6 +182,8 @@ import ResultTree from './ResultTree.vue'
 import { neededRawPosts, socialPosts } from '../../workspace/socialPosts.js'
 import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 const PersonaScene = defineAsyncComponent(() => import('./PersonaScene.vue'))
+const WorldFlowMap = defineAsyncComponent(() => import('./WorldFlowMap.vue'))
+const AudiencePersonCard = defineAsyncComponent(() => import('./AudiencePersonCard.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
   creativesOption, decisionText, decisionTone, intentOption, localAnswer, objectionsOption, palette, peopleOption, sampleCount, segmentsOption, verdictColor
@@ -304,6 +315,9 @@ watch(messages, (v) => {
 const mk = computed(() => detail.value?.summary?.marketing || null)
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter((r) => (r.kind || 'persona') === 'persona'))
+const audienceMode = ref('map'), mapPerson = ref('')
+const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)
+const personNames = computed(() => Object.fromEntries(index.value.map((p) => [String(p.agent_id), p.name])))
 const decision = computed(() => detail.value?.summary?.decision?.decision || detail.value?.decision || '')
 const runData = computed(() => ({ summary: detail.value?.summary, feed: feed.value, index: index.value }))
 
@@ -551,5 +565,5 @@ async function openDashboard() {
 
 <style scoped>
 .ws-run{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}.ws-run>.ws-tabs{flex-shrink:0;flex-wrap:nowrap;justify-content:flex-start;gap:6px;padding:11px 22px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.ws-run>.ws-tabs::-webkit-scrollbar{display:none}.ws-run>.ws-tabs button{flex:0 0 auto;font-size:12px;white-space:nowrap;padding:9px 13px}.ws-run>.ws-tabs button[aria-selected=true]{border-color:transparent!important;background:transparent!important;box-shadow:none!important;color:var(--text)!important}.ws-run>.ws-run-main{display:block;flex:1;min-height:0;max-height:none;overflow-y:auto;padding:26px 30px 35px;scroll-padding-bottom:30px}.ws-run>.ws-run-side{display:flex;flex:1;min-height:0;max-height:none;border:0;overflow:hidden}.ws-run .ws-tabpanel{padding:22px 26px;min-height:0;overflow:auto}.ws-run .ws-title{display:block;margin-bottom:12px}.ws-run .ws-title h2{font-size:21px;line-height:1.5;font-weight:550;letter-spacing:-.3px;max-width:1000px}.ws-run-verdict{margin-top:10px}.ws-run-verdict .dw-decision{display:inline-block;font-size:12.5px;font-weight:550;line-height:1.6;padding:3px 11px}.ws-run-verdict b{font-weight:700}.ws-run-summary{font-size:15px;line-height:1.6;color:var(--text);margin-top:10px;max-width:760px}.ws-run-kpi-note{margin-left:6px;font-size:11px;color:var(--muted)}.ws-run .ws-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px;align-items:start}.ws-run .ws-step{margin:0;border:1px solid var(--line);border-radius:13px;background:var(--panel);min-width:0;overflow:hidden}.ws-run .ws-step>summary{font-size:13px;font-weight:550;line-height:1.6;padding:16px}.ws-run .ws-step-body{margin:0;border-left:0;padding:0 16px 16px}.ws-run .ws-step .ws-box{border:0;box-shadow:none;margin:0;padding:0;background:transparent}.ws-run .ws-step h3{font-size:11px;font-weight:500;color:var(--muted);margin-bottom:10px}.ws-run .ws-step time{display:none}.ws-run-questions{margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}.ws-run-questions>summary{font-size:14px;font-weight:550;cursor:pointer}.ws-run-questions .ws-dock{position:static;padding-bottom:0;background:none;margin-top:15px}.ws-run-questions .ws-composer{margin-top:12px}.ws-run-questions .ws-note{font-size:10px;line-height:1.7}.ws-run.wide-visual :deep(.persona-viewport){height:clamp(330px,50vh,620px)}@media(max-width:760px){.ws-run>.ws-run-main{padding:21px 16px 30px}.ws-run .ws-steps{grid-template-columns:1fr;gap:11px}.ws-run>.ws-tabs{padding:9px}.ws-run>.ws-tabs button{padding:8px 10px;font-size:11px}.ws-run .ws-tabpanel{padding:18px 15px}.ws-run .ws-title h2{font-size:18px}}
-.ws-post-quote{padding-left:10px;border-left:2px solid var(--accent);margin-bottom:10px}.ws-post-replies{margin-top:12px}.ws-post-replies summary{cursor:pointer;font-size:12px;color:var(--muted)}.ws-audience-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.ws-run.wide-visual{grid-template-columns:minmax(0,1fr)}.ws-run.wide-visual>.ws-run-main{display:none}.ws-run.wide-visual>.ws-run-side{border-left:0}.ws-run.wide-visual :deep(.persona-viewport){height:min(60vh,580px)}.ws-chat-report-links{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.ws-chat-report-select{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);max-width:100%}.ws-chat-report-select select{max-width:180px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);padding:5px;font-size:12px}
+.ws-post-quote{padding-left:10px;border-left:2px solid var(--accent);margin-bottom:10px}.ws-post-replies{margin-top:12px}.ws-post-replies summary{cursor:pointer;font-size:12px;color:var(--muted)}.ws-audience-mode{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:0 0 12px}.ws-audience-mode button{display:inline-flex;align-items:center;gap:6px;border:0;background:var(--panel);color:var(--text);font:inherit;font-size:12px;padding:6px 12px;cursor:pointer}.ws-audience-mode button+button{border-left:1px solid var(--line)}.ws-audience-mode button[aria-pressed=true]{background:var(--panel-2);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent)}.ws-audience-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.ws-run.wide-visual{grid-template-columns:minmax(0,1fr)}.ws-run.wide-visual>.ws-run-main{display:none}.ws-run.wide-visual>.ws-run-side{border-left:0}.ws-run.wide-visual :deep(.persona-viewport){height:min(60vh,580px)}.ws-chat-report-links{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.ws-chat-report-select{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);max-width:100%}.ws-chat-report-select select{max-width:180px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);padding:5px;font-size:12px}
 </style>

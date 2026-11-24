@@ -13,9 +13,26 @@
         <button v-for="k in kinds" :key="k.id" type="button" :aria-pressed="layers[k.id]" @click="layers[k.id] = !layers[k.id]"><i :style="{ background: k.color }" aria-hidden="true"></i>{{ k.label }}</button>
       </div>
     </div>
+    <div class="wfm-bar wfm-tools">
+      <div class="wfm-seg" role="group" aria-label="Map style">
+        <button v-for="b in basemaps" :key="b.id" type="button" :aria-pressed="basemap === b.id" :title="b.hint" @click="basemap = b.id"><component :is="b.icon" :size="13" aria-hidden="true" />{{ b.label }}</button>
+      </div>
+      <button type="button" class="wfm-chip" :aria-pressed="globe" title="Show the Earth as a globe" @click="globe = !globe"><Globe2 :size="13" aria-hidden="true" />Globe</button>
+      <div class="wfm-seg" role="group" aria-label="Colour people by">
+        <button type="button" :aria-pressed="colorBy === 'segment'" @click="colorBy = 'segment'">Segment</button>
+        <button type="button" :aria-pressed="colorBy === 'verdict'" :disabled="!hasVerdicts" :title="hasVerdicts ? 'Colour by their survey answer' : 'No survey answers in this run'" @click="colorBy = 'verdict'">Would buy</button>
+      </div>
+      <button type="button" class="wfm-chip" :aria-pressed="heat" :title="hasVerdicts ? 'Glow where people said yes' : 'Glow where people are'" @click="heat = !heat"><Flame :size="13" aria-hidden="true" />{{ hasVerdicts ? 'Where the yeses are' : 'Density' }}</button>
+    </div>
 
     <div class="wfm-body">
-      <div ref="el" class="wfm-map" :style="{ height: height + 'px' }" role="img" :aria-label="summary"></div>
+      <div class="wfm-mapcol">
+        <RealWorldMap ref="mapRef" :points="mapPoints" :arcs="mapArcs" :pulses="mapPulses" :basemap="basemap" :globe="globe" :heat="heat"
+          :cluster="people.length > 300" :theme="theme" :height="height" :label="summary" @select="(id) => $emit('select', id)" />
+        <div class="wfm-legend" aria-label="Colour key">
+          <span v-for="l in legend" :key="l.label"><i :style="{ background: l.color }" aria-hidden="true"></i>{{ l.label }}</span>
+        </div>
+      </div>
       <aside class="wfm-feed" aria-label="What people wrote at this step">
         <h5><Brain :size="14" aria-hidden="true" />{{ feedTitle }} <small>simulated</small></h5>
         <ol>
@@ -36,8 +53,22 @@
       <li><b>{{ count('like') }}</b> likes</li>
       <li><b>{{ count('quote') }}</b> quotes and shares</li>
       <li><b>{{ activeIds.size }}</b> people active</li>
-      <li><b>{{ placed }}</b> of {{ people.length }} people on the map</li>
+      <li><b>{{ atCity }}</b> of {{ people.length }} people at their city<span v-if="placed > atCity">, {{ placed - atCity }} near their country's centre</span></li>
     </ul>
+
+    <div v-if="places.length" class="wfm-places">
+      <h5><MapPin :size="14" aria-hidden="true" />Places <small>select one to fly there</small></h5>
+      <ul>
+        <li v-for="pl in places" :key="pl.key">
+          <button type="button" @click="mapRef?.flyTo(pl.lon, pl.lat, pl.city ? 8 : 4)">
+            <b>{{ pl.label }}</b>
+            <span>{{ pl.n }} {{ pl.n === 1 ? 'person' : 'people' }}</span>
+            <span v-if="pl.asked" class="wfm-yes" :title="`${pl.yes} of ${pl.asked} said yes (simulated)`"><i :style="{ width: Math.round(100 * pl.yes / pl.asked) + '%' }"></i></span>
+            <small v-if="pl.asked">{{ pl.yes }} of {{ pl.asked }} yes</small>
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <div v-if="edges.length" class="wfm-extra">
       <div class="wfm-box">
@@ -63,9 +94,10 @@
       </div>
     </div>
     <p class="wfm-note">
-      Simulated. Each dot is an invented person placed in their country; cities are not mapped, so dots inside a country are
-      spread out for visibility. Lines show replies, likes, quotes and shares between people during the social rounds; a ring
-      means they answered the brand. Select a dot or a post to open that person.
+      Simulated. Each dot is an invented person at the city saved in their profile (towns of 5,000+ people from GeoNames);
+      people whose city is not found sit near their country's centre. Arcs show replies, likes, quotes and shares between
+      people during the social rounds; a ring means they answered the brand. Select a dot or a post to open that person.
+      Street maps © OpenStreetMap via OpenFreeMap; satellite imagery NASA Blue Marble; the Simple map works offline.
     </p>
   </section>
 </template>
@@ -74,16 +106,18 @@
 // The audience on a flat world map: Codex's bundled Natural Earth country shapes drawn with ECharts, every simulated
 // person at their country, and who replied to, liked, quoted or shared whom in each social round, from feed_story.json.
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { Brain, Heart, MessageCircle, Pause, Play, Repeat2 } from 'lucide-vue-next'
+import { Brain, Flame, Globe2, Heart, Layers, Map as MapIcon, MapPin, MessageCircle, Moon, Pause, Play, Repeat2, Satellite } from 'lucide-vue-next'
 import EChart from './EChart.vue'
-import { countries } from '../../workspace/audienceGeography'
-import { SEGMENT_COLORS, placeOfCountry, spread } from '../../workspace/geoPlace'
+import RealWorldMap from './RealWorldMap.vue'
+import { SEGMENT_COLORS, placeOfCountry } from '../../workspace/geoPlace'
+import { findCity, jitter, loadGazetteer } from '../../workspace/cityPlace'
 import { feedEdges, plainDid } from '../../workspace/runActivity'
 
 const props = defineProps({
   index: { type: Array, default: () => [] },
   story: { type: Object, default: null },
   harvest: { type: Object, default: null },
+  responses: { type: Array, default: () => [] },
   theme: { type: String, default: 'light' },
   live: Boolean,
   big: Boolean,
@@ -91,9 +125,19 @@ const props = defineProps({
   selected: { type: String, default: '' }
 })
 const emit = defineEmits(['select'])
-const el = ref(null), step = ref(0), playing = ref(false), scrubbed = ref(false)
+const mapRef = ref(null), step = ref(0), playing = ref(false), scrubbed = ref(false), gazetteer = ref(null)
 const layers = reactive({ reply: true, like: true, quote: true })
-let chart = null, echartsLib = null, timer = null, observer = null, framed = null, disposed = false
+const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
+const basemap = ref(pref('mm-map-style', 'auto')), globe = ref(pref('mm-map-globe', '') === '1'), colorBy = ref('segment'), heat = ref(false)
+watch(basemap, (v) => { try { localStorage.setItem('mm-map-style', v) } catch { /* private window */ } })
+watch(globe, (v) => { try { localStorage.setItem('mm-map-globe', v ? '1' : '') } catch { /* private window */ } })
+const basemaps = [
+  { id: 'auto', label: 'Streets', icon: MapIcon, hint: 'Street map that follows light or dark mode (OpenStreetMap)' },
+  { id: 'satellite', label: 'Satellite', icon: Satellite, hint: 'NASA Blue Marble imagery' },
+  { id: 'dark', label: 'Night', icon: Moon, hint: 'Dark street map' },
+  { id: 'simple', label: 'Simple', icon: Layers, hint: 'Country shapes only; works offline' }
+]
+let timer = null
 const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const people = computed(() => props.index.filter((r) => (r.kind || 'persona') === 'persona'))
@@ -143,20 +187,73 @@ const stepThoughts = computed(() => thoughts.value.filter(inStep).slice(0, 40).m
 const activeIds = computed(() => new Set([...stepEdges.value.map((e) => String(e.from)), ...stepThoughts.value.filter((t) => !t.account).map((t) => String(t.agent_id))]))
 const feedTitle = computed(() => ({ before: 'Thinking while scrolling', after: 'What they said afterwards', all: 'Everything written in the rounds' })[current.value?.id] || 'Written this round')
 
-const positions = computed(() => {
-  const counts = {}, centres = {}, out = {}
-  for (const p of people.value) {
-    const c = placeOfCountry(p.country)
-    if (c) { const key = c.join(','); centres[p.agent_id] = c; counts[key] = (counts[key] || 0) + 1 }
-  }
-  for (const p of people.value) {
-    const c = centres[p.agent_id]
-    if (c) out[String(p.agent_id)] = spread(c, p.agent_id, counts[c.join(',')])
+const VERDICT_COLORS = { yes: '#2f8f5b', maybe: '#c8962e', no: '#c2554d', none: '#8a8f94' }
+const verdictById = computed(() => {
+  const out = {}
+  for (const r of props.responses || []) {
+    const v = String(r?.answer?.would_convert || '').toLowerCase()
+    if (r && r.agent_id !== undefined && v) out[String(r.agent_id)] = /^(yes|maybe|no)$/.test(v) ? v : 'maybe'
   }
   return out
 })
+const hasVerdicts = computed(() => Object.keys(verdictById.value).length > 0)
+// each person at their city when the gazetteer knows it, otherwise spread around their country's centre
+const located = computed(() => {
+  const idx = gazetteer.value, found = {}, centres = {}, counts = {}, out = {}
+  for (const p of people.value) {
+    const id = String(p.agent_id)
+    const city = idx ? findCity(idx, p.city, p.country) : null
+    const at = city ? [city[0], city[1]] : placeOfCountry(p.country)
+    if (!at) continue
+    const key = `${city ? 'c' : 'k'}:${at.join(',')}`
+    ;(city ? found : centres)[id] = { at, key, city: city?.[2] || '' }
+    counts[key] = (counts[key] || 0) + 1
+  }
+  for (const [id, v] of Object.entries(found)) out[id] = { pos: jitter(v.at, id, counts[v.key]), city: v.city, exact: true, key: v.key, at: v.at }
+  for (const [id, v] of Object.entries(centres)) out[id] = { pos: jitter(v.at, id, counts[v.key], true), city: '', exact: false, key: v.key, at: v.at }
+  return out
+})
+const positions = computed(() => Object.fromEntries(Object.entries(located.value).map(([id, v]) => [id, v.pos])))
 const placed = computed(() => Object.keys(positions.value).length)
-const summary = computed(() => `World map: ${placed.value} of ${people.value.length} simulated people placed in their countries. ${current.value?.label || ''}: ${stepEdges.value.length} interactions and ${stepThoughts.value.length} written posts or thoughts.`)
+const atCity = computed(() => Object.values(located.value).filter((v) => v.exact).length)
+const places = computed(() => {
+  const groups = {}
+  for (const p of people.value) {
+    const l = located.value[String(p.agent_id)]
+    if (!l) continue
+    const g = (groups[l.key] ||= { key: l.key, lon: l.at[0], lat: l.at[1], city: l.city, label: l.exact ? `${l.city}, ${p.country}` : `${p.country} (city not found)`, n: 0, yes: 0, asked: 0 })
+    g.n++
+    const v = verdictById.value[String(p.agent_id)]
+    if (v) { g.asked++; if (v === 'yes') g.yes++ }
+  }
+  return Object.values(groups).sort((a, b) => b.n - a.n).slice(0, 12)
+})
+const pointColor = (p) => (colorBy.value === 'verdict' ? VERDICT_COLORS[verdictById.value[String(p.agent_id)] || 'none'] : colorOf(p.segment))
+const legend = computed(() => (colorBy.value === 'verdict'
+  ? [{ label: 'Would buy', color: VERDICT_COLORS.yes }, { label: 'Maybe', color: VERDICT_COLORS.maybe }, { label: 'Would not', color: VERDICT_COLORS.no }, { label: 'Not asked', color: VERDICT_COLORS.none }]
+  : segments.value.slice(0, 8).map((seg) => ({ label: seg, color: colorOf(seg) }))))
+const mapPoints = computed(() => {
+  const active = activeIds.value, pos = positions.value
+  return people.value.filter((x) => pos[String(x.agent_id)]).map((x) => {
+    const id = String(x.agent_id), l = located.value[id], v = verdictById.value[id]
+    return { id, lon: pos[id][0], lat: pos[id][1], color: pointColor(x), title: x.name || `Person ${id}`,
+      sub: [x.segment, l?.exact ? `${l.city}, ${x.country}` : x.country, v ? `would buy: ${v} (simulated)` : ''].filter(Boolean).join(' · '),
+      size: 5, dim: !!current.value && !active.has(id) && props.selected !== id, selected: props.selected === id,
+      weight: hasVerdicts.value ? ({ yes: 1, maybe: 0.4, no: 0.05 })[v] ?? 0.1 : 1 }
+  })
+})
+const mapArcs = computed(() => {
+  const pos = positions.value
+  const arc = (e, past) => (pos[String(e.from)] && pos[String(e.to)] ? { from: pos[String(e.from)], to: pos[String(e.to)], color: kindColor[e.kind], past } : null)
+  return [...pastEdges.value.map((e) => arc(e, true)), ...stepEdges.value.map((e) => arc(e, false))].filter(Boolean)
+})
+const mapPulses = computed(() => {
+  if (current.value?.id === 'all') return []
+  const pos = positions.value, seen = new Set()
+  return stepEdges.value.filter((e) => e.toBrand && pos[String(e.from)] && !seen.has(e.from) && seen.add(e.from))
+    .map((e) => ({ lon: pos[String(e.from)][0], lat: pos[String(e.from)][1], color: kindColor[e.kind] }))
+})
+const summary = computed(() => `World map: ${atCity.value} of ${people.value.length} simulated people at their city, ${placed.value - atCity.value} near their country's centre. ${current.value?.label || ''}: ${stepEdges.value.length} interactions and ${stepThoughts.value.length} written posts or thoughts.`)
 
 const perRound = computed(() => {
   const dark = props.theme === 'dark', muted = dark ? '#b0b3b8' : '#686e73', line = dark ? '#303237' : '#e8ebe9'
@@ -183,60 +280,6 @@ const topPosts = computed(() => {
   return list.sort((x, y) => y.score - x.score).slice(0, 5)
 })
 
-function frame() {
-  // fit the first view to where the people are; afterwards keep the reader's pan and zoom
-  if (framed) return {}
-  const pts = Object.values(positions.value)
-  if (!pts.length) return {}
-  const lons = pts.map((x) => x[0]), lats = pts.map((x) => x[1]), pad = 8
-  framed = { boundingCoords: [[Math.max(-180, Math.min(...lons) - pad), Math.min(85, Math.max(...lats) + pad)], [Math.min(180, Math.max(...lons) + pad), Math.max(-60, Math.min(...lats) - pad)]] }
-  return framed
-}
-function option() {
-  const dark = props.theme === 'dark', pos = positions.value
-  const line = (e) => (pos[String(e.from)] && pos[String(e.to)] ? { coords: [pos[String(e.from)], pos[String(e.to)]], lineStyle: { color: kindColor[e.kind] } } : null)
-  const seen = new Set()
-  const pulses = current.value?.id === 'all' ? [] : stepEdges.value.filter((e) => e.toBrand && pos[String(e.from)] && !seen.has(e.from) && seen.add(e.from))
-    .map((e) => ({ value: pos[String(e.from)], itemStyle: { color: kindColor[e.kind] } }))
-  const active = activeIds.value
-  const dots = people.value.filter((x) => pos[String(x.agent_id)]).map((x) => {
-    const id = String(x.agent_id), on = !current.value || active.has(id), sel = props.selected === id
-    return { id, name: x.name || `Person ${id}`, value: pos[id], segment: x.segment, country: x.country, symbolSize: sel ? 14 : on ? 9 : 5,
-      itemStyle: { color: colorOf(x.segment), opacity: on || sel ? 1 : 0.35, borderColor: sel ? (dark ? '#fff0be' : '#383168') : 'transparent', borderWidth: sel ? 2 : 0 } }
-  })
-  return {
-    backgroundColor: 'transparent', animationDurationUpdate: 400,
-    tooltip: { trigger: 'item', confine: true, formatter: (x) => (x.seriesId === 'people' ? `<b>${esc(x.data.name)}</b><br>${esc([x.data.segment, x.data.country].filter(Boolean).join(' · '))}<br><i>Select to open</i>` : x.componentType === 'geo' ? esc(x.name) : '') },
-    geo: {
-      map: 'mm-world', roam: true, ...frame(), scaleLimit: { min: 0.8, max: 14 },
-      itemStyle: { areaColor: dark ? '#1f2a33' : '#e3ebe8', borderColor: dark ? '#33424d' : '#c3cfc8', borderWidth: 0.6 },
-      emphasis: { itemStyle: { areaColor: dark ? '#2b3a45' : '#d4e1db' }, label: { show: false } }, select: { disabled: true }, label: { show: false }
-    },
-    series: [
-      { id: 'past', type: 'lines', coordinateSystem: 'geo', silent: true, zlevel: 1, lineStyle: { width: 0.8, opacity: 0.18, curveness: 0.25 }, data: pastEdges.value.map(line).filter(Boolean) },
-      { id: 'now', type: 'lines', coordinateSystem: 'geo', silent: true, zlevel: 2, effect: { show: !reduced && current.value?.id !== 'all', period: 2.2, trailLength: 0.35, symbol: 'arrow', symbolSize: 6 },
-        lineStyle: { width: 1.6, opacity: 0.75, curveness: 0.25 }, data: stepEdges.value.map(line).filter(Boolean) },
-      { id: 'brand', type: 'effectScatter', coordinateSystem: 'geo', silent: true, zlevel: 2, symbolSize: 7, rippleEffect: { scale: reduced ? 1 : 2.4, brushType: 'stroke', number: 2 }, itemStyle: { opacity: 0.8 }, data: pulses },
-      { id: 'people', type: 'scatter', coordinateSystem: 'geo', zlevel: 3, data: dots, cursor: 'pointer', emphasis: { scale: 1.6 } }
-    ]
-  }
-}
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
-
-async function render() {
-  if (!el.value || disposed) return
-  if (!echartsLib) {
-    echartsLib = await import('echarts')
-    if (!echartsLib.getMap('mm-world')) echartsLib.registerMap('mm-world', { type: 'FeatureCollection', features: countries })
-  }
-  if (disposed || !el.value) return
-  if (!chart) {
-    chart = echartsLib.init(el.value, null, { renderer: 'canvas' })
-    chart.on('click', (x) => x.seriesId === 'people' && emit('select', String(x.data.id)))
-  }
-  chart.setOption(option(), { replaceMerge: ['series'] })
-}
-
 function toggle() {
   playing.value = !playing.value
   if (playing.value && step.value >= steps.value.length - 1) step.value = 0
@@ -250,23 +293,36 @@ watch(() => steps.value.length, (n, old) => {
   if (props.live && !scrubbed.value) step.value = Math.max(0, n - 1 - (steps.value[n - 1]?.id === 'all' ? 1 : 0))
   else if (!old && n) step.value = n - 1
 }, { immediate: true })
-watch(() => [step.value, props.theme, props.selected, positions.value, layers.reply, layers.like, layers.quote, props.story, props.harvest], render)
 
-onMounted(() => {
-  render()
-  observer = new ResizeObserver(() => chart && chart.resize())
-  observer.observe(el.value)
-})
-onBeforeUnmount(() => {
-  disposed = true
-  clearInterval(timer)
-  observer?.disconnect()
-  chart?.dispose()
-})
+onMounted(async () => { gazetteer.value = await loadGazetteer() })
+onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <style scoped>
 .wfm { min-width: 0; }
+.wfm-tools { gap: 6px; }
+.wfm-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.wfm-seg button, .wfm-chip { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: var(--text); font: inherit; font-size: 11.5px; padding: 5px 9px; cursor: pointer; }
+.wfm-seg button + button { border-left: 1px solid var(--line); }
+.wfm-seg button[aria-pressed='true'], .wfm-chip[aria-pressed='true'] { background: var(--panel-2); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent, #25785d); }
+.wfm-seg button:disabled { opacity: .45; cursor: not-allowed; }
+.wfm-chip { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+.wfm-seg button:focus-visible, .wfm-chip:focus-visible, .wfm-places button:focus-visible { outline: 2px solid var(--accent, #25785d); outline-offset: 1px; }
+.wfm-mapcol { min-width: 0; display: grid; gap: 6px; }
+.wfm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); }
+.wfm-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.wfm-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.wfm-places { margin-top: 12px; }
+.wfm-places h5 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+.wfm-places h5 small { margin-left: auto; font-weight: 400; }
+.wfm-places ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.wfm-places button { width: 100%; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; padding: 7px 10px; cursor: pointer; }
+.wfm-places button:hover { background: var(--panel-2); }
+.wfm-places button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfm-places button > span:not(.wfm-yes) { color: var(--muted); font-size: 11px; }
+.wfm-places small { color: var(--muted); font-size: 10.5px; }
+.wfm-yes { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.wfm-yes i { display: block; height: 100%; background: #2f8f5b; }
 .wfm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .wfm-icon { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; }
 .wfm-icon:disabled { opacity: .4; cursor: not-allowed; }

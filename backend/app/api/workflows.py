@@ -170,6 +170,12 @@ def assets(name):
     return send_from_directory(DIST / "assets", name)
 
 
+@workflows_bp.get("/geo/<path:name>")
+def geo_data(name):
+    # the world map's offline city gazetteer (public data, no secrets), cached by the browser for a day
+    return send_from_directory(DIST / "geo", name, max_age=86400)
+
+
 @workflows_bp.get("/icon.png")
 def icon():
     return send_from_directory(DIST, "icon.png")
