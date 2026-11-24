@@ -501,7 +501,9 @@ def render_graph(graph: Dict[str, Any], max_nodes: int = 300) -> Tuple[str, Dict
     nodes = as_list(graph.get("nodes"))
     edges = as_list(graph.get("edges"))
     if not nodes:
-        return '<p class="empty">No graph data in this run.</p>', {"node_count": 0, "edge_count": 0}
+        return '<p class="empty">No graph data in this run.</p>', {
+            "node_count": 0, "rendered_node_count": 0, "omitted_node_count": 0, "edge_count": 0,
+        }
 
     by_uuid = {n.get("uuid"): n for n in nodes if n.get("uuid")}
     degree: Counter = Counter()
@@ -586,9 +588,11 @@ def render_graph(graph: Dict[str, Any], max_nodes: int = 300) -> Tuple[str, Dict
                       f'<span class="muted">{other_count}</span></li>')
     legend.append("</ul>")
 
+    rendered_count = len(keep)
+    omitted_count = len(nodes) - rendered_count
     note = ""
-    if len(nodes) > len(keep):
-        note = f'<p class="muted small">Showing the {len(keep)} most-connected of {len(nodes)} entities.</p>'
+    if omitted_count:
+        note = f'<p class="muted small">Showing the {rendered_count} most-connected of {len(nodes)} entities.</p>'
     toggle = ('<label class="toggle"><input type="checkbox" id="elab-toggle"'
               f'{" checked" if show_edge_labels else ""}> Show relation labels</label>')
     html_out = (f'<div id="graphbox" class="graph-box{" graph-on" if show_edge_labels else ""}">'
@@ -608,7 +612,8 @@ def render_graph(graph: Dict[str, Any], max_nodes: int = 300) -> Tuple[str, Dict
                      f' ({min(len(edges), 200)} of {len(edges)})</summary><div class="tbl"><table class="sortable">'
                      '<thead><tr><th>Source</th><th>Relation</th><th>Target</th><th>Fact</th></tr></thead><tbody>'
                      + "".join(rel_rows) + "</tbody></table></div></details>")
-    stats = {"node_count": len(nodes), "edge_count": len(edges),
+    stats = {"node_count": len(nodes), "rendered_node_count": rendered_count,
+             "omitted_node_count": omitted_count, "edge_count": len(edges),
              "entity_types": dict(Counter(node_type(n) for n in nodes).most_common())}
     return html_out, stats
 

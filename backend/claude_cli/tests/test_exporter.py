@@ -47,6 +47,23 @@ class MarkdownTests(unittest.TestCase):
         self.assertNotIn("<em>", exporter.markdown_to_html("CREATE_POST and LIKE_POST"))
 
 
+class GraphCountsTests(unittest.TestCase):
+    def test_shown_and_omitted_entity_counts_match_the_dashboard(self):
+        nodes = [{"uuid": str(i), "name": f"Entity {i}"} for i in range(3)]
+        for count, cap in ((3, 2), (2, 2), (1, 2), (0, 2)):
+            with self.subTest(count=count, cap=cap):
+                html, stats = exporter.render_graph({"nodes": nodes[:count]}, max_nodes=cap)
+                shown = min(count, cap)
+                self.assertEqual(stats["node_count"], count)
+                self.assertEqual(stats["rendered_node_count"], shown)
+                self.assertEqual(stats["omitted_node_count"], count - shown)
+                self.assertEqual(html.count("<circle"), shown)
+                if count > cap:
+                    self.assertIn(f"Showing the {shown} most-connected of {count} entities.", html)
+                else:
+                    self.assertNotIn("most-connected of", html)
+
+
 class ExportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,6 +78,8 @@ class ExportTests(unittest.TestCase):
         summary = json.loads(_read(self.paths["summary_json"]))
         self.assertEqual(summary["simulation_id"], "sim_demo123")
         self.assertEqual(summary["graph"]["node_count"], 24)
+        self.assertEqual(summary["graph"]["rendered_node_count"], 24)
+        self.assertEqual(summary["graph"]["omitted_node_count"], 0)
         self.assertEqual(summary["agents"], 24)
         self.assertEqual(summary["rounds_with_actions"], 12)
         self.assertIn("CREATE_POST", summary["action_types"])
