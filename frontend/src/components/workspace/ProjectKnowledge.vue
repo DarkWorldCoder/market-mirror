@@ -6,6 +6,7 @@ import { Button } from '../ui/button'
 import InfoHint from './InfoHint.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import { api } from '../../workspace/api'
+import { SOURCE_LIMITS, sourceFileProblem, summarizeBatch } from '../../workspace/sourceBatch.js'
 const props = defineProps({ project: { type: Object, default: null }, open: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['update:open','updated'])
 const current = ref(null), models = ref([]), loading = ref(false), busy = ref(''), error = ref(''), saved = ref('')
@@ -19,7 +20,7 @@ watch(()=>[props.open,props.project?.id],([open])=>{if(open)load()},{immediate:t
 async function savePreferences(){busy.value='preferences';error.value='';saved.value='';try{hydrate(await api('/api/workspace/projects/'+current.value.id,{method:'PATCH',body:{instructions:instructions.value,preferred_model:preferredModel.value}}));saved.value='Project preferences saved.'}catch(err){error.value=err.message}finally{busy.value=''}}
 async function addSource(name,text){if(!current.value)return;const body={name,text};if(new TextEncoder().encode(JSON.stringify(body)).length>30000)throw new Error('This source exceeds the 30 KB request limit. Shorten or split it.');hydrate(await api('/api/workspace/projects/'+current.value.id+'/sources',{method:'POST',body}),false)}
 async function saveNote(){busy.value='source';error.value='';saved.value='';try{await addSource(noteName.value,noteText.value);noteName.value='';noteText.value='';saved.value='Source saved to this project.'}catch(err){error.value=err.message}finally{busy.value=''}}
-async function readFiles(event){const files=[...(event.target.files||[])];busy.value='files';error.value='';saved.value='';try{for(const file of files){if(!/\.(md|txt|csv|json)$/i.test(file.name))throw new Error('Choose Markdown, text, CSV or JSON files.');if(file.size>100000)throw new Error(file.name+' is too large. Use an excerpt of up to 24,000 characters.');const text=await file.text();if(text.length>24000||text.includes('\0'))throw new Error(file.name+' exceeds the text limit or contains unsupported binary data.');await addSource(file.name,text)}saved.value=files.length?'Project files saved.':''}catch(err){error.value=err.message}finally{busy.value='';event.target.value=''}}
+async function readFiles(event){const files=[...(event.target.files||[])];busy.value='files';error.value='';saved.value='';const skipped=[];let added=0;try{for(const file of files){const problem=sourceFileProblem(file,(current.value?.sources||[]).length);if(problem){skipped.push(file.name+' ('+problem+')');continue}const text=await file.text();if(text.length>SOURCE_LIMITS.characters||text.includes('\0')){skipped.push(file.name+' (text limit or binary data)');continue}try{await addSource(file.name,text);added++}catch(err){skipped.push(file.name+' ('+err.message+')')}}if(files.length){const summary=summarizeBatch(added,files.length,skipped);if(added) saved.value=summary;else error.value=summary}}finally{busy.value='';event.target.value=''}}
 async function removeSource(source){busy.value=source.id;error.value='';saved.value='';try{hydrate(await api('/api/workspace/projects/'+current.value.id+'/sources/'+source.id,{method:'DELETE'}),false);saved.value='Source removed.'}catch(err){error.value=err.message}finally{busy.value=''}}
 </script>
 <template>
