@@ -138,7 +138,7 @@
             <button type="button" :aria-pressed="audienceMode === 'globe'" @click="audienceMode = 'globe'"><Globe2 :size="14" aria-hidden="true" />3D audience</button>
           </div>
           <template v-if="audienceMode === 'map'">
-            <WorldFlowMap big :index="index" :story="story" :responses="survey?.responses || []" :theme="theme" :live="/^(running|preparing|processing|in_progress)$/i.test(runStatus)" :height="520" :selected="mapPerson" @select="(id) => mapPerson = id" />
+            <WorldFlowMap big :index="index" :story="story" :harvest="mapHarvest" :responses="survey?.responses || []" :theme="theme" :live="/^(running|preparing|processing|in_progress)$/i.test(runStatus)" :height="520" :selected="mapPerson" @select="(id) => mapPerson = id" />
             <AudiencePersonCard v-if="mapPersonRow" :person="mapPersonRow" :answer="(survey?.responses || []).find((r) => String(r.agent_id) === mapPerson)?.answer || null" :names="personNames" />
           </template>
           <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
@@ -315,7 +315,14 @@ watch(messages, (v) => {
 const mk = computed(() => detail.value?.summary?.marketing || null)
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter((r) => (r.kind || 'persona') === 'persona'))
-const audienceMode = ref('map'), mapPerson = ref('')
+const audienceMode = ref('map'), mapPerson = ref(''), mapHarvest = ref(null)
+// what people thought and wrote at each step, harvested from the saved files by the backend (no model call)
+let harvestFor = ''
+watch(() => [tab.value, props.name], async () => {
+  if (tab.value !== 'market' || harvestFor === props.name) return
+  harvestFor = props.name
+  try { const h = await api(`/api/runs/${encodeURIComponent(props.name)}/thoughts`); mapHarvest.value = h && Array.isArray(h.entries) ? h : { entries: [] } } catch { mapHarvest.value = { entries: [] } }
+}, { immediate: true })
 const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)
 const personNames = computed(() => Object.fromEntries(index.value.map((p) => [String(p.agent_id), p.name])))
 const decision = computed(() => detail.value?.summary?.decision?.decision || detail.value?.decision || '')

@@ -28,7 +28,7 @@
     <div class="wfm-body">
       <div class="wfm-mapcol">
         <RealWorldMap ref="mapRef" :points="mapPoints" :arcs="mapArcs" :pulses="mapPulses" :basemap="basemap" :globe="globe" :heat="heat"
-          :cluster="people.length > 300" :theme="theme" :height="height" :label="summary" @select="(id) => $emit('select', id)" />
+          :cluster="people.length > 300" :tint-clusters="colorBy === 'verdict'" :theme="theme" :height="height" :label="summary" @select="(id) => $emit('select', id)" />
         <div class="wfm-legend" aria-label="Colour key">
           <span v-for="l in legend" :key="l.label"><i :style="{ background: l.color }" aria-hidden="true"></i>{{ l.label }}</span>
         </div>
@@ -238,7 +238,7 @@ const mapPoints = computed(() => {
     const id = String(x.agent_id), l = located.value[id], v = verdictById.value[id]
     return { id, lon: pos[id][0], lat: pos[id][1], color: pointColor(x), title: x.name || `Person ${id}`,
       sub: [x.segment, l?.exact ? `${l.city}, ${x.country}` : x.country, v ? `would buy: ${v} (simulated)` : ''].filter(Boolean).join(' · '),
-      size: 5, dim: !!current.value && !active.has(id) && props.selected !== id, selected: props.selected === id,
+      verdict: v || '', size: 5, dim: !!current.value && !active.has(id) && props.selected !== id, selected: props.selected === id,
       weight: hasVerdicts.value ? ({ yes: 1, maybe: 0.4, no: 0.05 })[v] ?? 0.1 : 1 }
   })
 })

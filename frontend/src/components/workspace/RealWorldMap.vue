@@ -24,6 +24,7 @@ const props = defineProps({
   globe: Boolean,
   heat: Boolean,
   cluster: Boolean,
+  tintClusters: Boolean, // colour clusters by their share of yes answers
   theme: { type: String, default: 'light' },
   height: { type: Number, default: 360 },
   label: { type: String, default: 'World map' }
@@ -37,6 +38,7 @@ const OFM = 'https://tiles.openfreemap.org/styles/'
 function simpleStyle(dark) {
   return {
     version: 8,
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     sources: { countries: { type: 'geojson', data: { type: 'FeatureCollection', features: countries }, attribution: 'Natural Earth' } },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': dark ? '#11171c' : '#eef3f6' } },
@@ -48,6 +50,7 @@ function simpleStyle(dark) {
 function satelliteStyle() {
   return {
     version: 8,
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     sources: {
       bm: { type: 'raster', tileSize: 256, maxzoom: 8, attribution: 'NASA Blue Marble via GIBS',
         tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg'] },
@@ -78,7 +81,7 @@ const fc = (features) => ({ type: 'FeatureCollection', features })
 function pointData() {
   return fc(props.points.filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat)).map((p) => ({
     type: 'Feature', id: undefined, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-    properties: { id: String(p.id), color: p.color || '#507cba', title: p.title || '', sub: p.sub || '', size: p.size || 5, dim: p.dim ? 1 : 0, sel: p.selected ? 1 : 0, w: p.weight ?? 1 }
+    properties: { id: String(p.id), color: p.color || '#507cba', title: p.title || '', sub: p.sub || '', size: p.size || 5, dim: p.dim ? 1 : 0, sel: p.selected ? 1 : 0, w: p.weight ?? 1, yes: p.verdict === 'yes' ? 1 : 0, asked: p.verdict ? 1 : 0 }
   })))
 }
 let arcPaths = []
@@ -94,8 +97,10 @@ function addLayers() {
   map.addSource('mm-arcs', { type: 'geojson', data: arcData() })
   map.addSource('mm-heads', { type: 'geojson', data: fc([]) })
   map.addSource('mm-pulses', { type: 'geojson', data: pulseData() })
-  map.addSource('mm-people', { type: 'geojson', data: pointData(), ...(props.cluster ? { cluster: true, clusterRadius: 34, clusterMaxZoom: 5 } : {}) })
-  map.addLayer({ id: 'mm-heat', type: 'heatmap', source: 'mm-people', maxzoom: 9, layout: { visibility: props.heat ? 'visible' : 'none' },
+  const data = pointData()
+  map.addSource('mm-people', { type: 'geojson', data, ...(props.cluster ? { cluster: true, clusterRadius: 34, clusterMaxZoom: 5, clusterProperties: { yes: ['+', ['get', 'yes']], asked: ['+', ['get', 'asked']] } } : {}) })
+  map.addSource('mm-heat-src', { type: 'geojson', data })
+  map.addLayer({ id: 'mm-heat', type: 'heatmap', source: 'mm-heat-src', maxzoom: 9, layout: { visibility: props.heat ? 'visible' : 'none' },
     paint: { 'heatmap-weight': ['coalesce', ['get', 'w'], 1], 'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 9, 2.5],
       'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 14, 9, 36], 'heatmap-opacity': 0.75,
       'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.2, '#2b6f8f', 0.45, '#2f8f5b', 0.7, '#e0b03a', 1, '#e0612f'] } })
@@ -107,7 +112,9 @@ function addLayers() {
   map.addLayer({ id: 'mm-pulses', type: 'circle', source: 'mm-pulses', paint: { 'circle-radius': 6, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.6, 'circle-stroke-opacity': 0.8 } })
   if (props.cluster) {
     map.addLayer({ id: 'mm-clusters', type: 'circle', source: 'mm-people', filter: ['has', 'point_count'],
-      paint: { 'circle-color': dark ? 'rgba(143,214,181,.85)' : 'rgba(37,120,93,.85)', 'circle-radius': ['interpolate', ['linear'], ['get', 'point_count'], 2, 11, 50, 20, 500, 30],
+      paint: { 'circle-color': props.tintClusters
+        ? ['interpolate', ['linear'], ['/', ['get', 'yes'], ['max', 1, ['get', 'asked']]], 0, '#c2554d', 0.05, '#c8962e', 0.25, '#2f8f5b']
+        : (dark ? 'rgba(143,214,181,.85)' : 'rgba(37,120,93,.85)'), 'circle-opacity': 0.9, 'circle-radius': ['interpolate', ['linear'], ['get', 'point_count'], 2, 11, 50, 20, 500, 30],
         'circle-stroke-width': 2, 'circle-stroke-color': dark ? '#0b0f12' : '#ffffff' } })
     if (map.getStyle()?.glyphs) map.addLayer({ id: 'mm-cluster-n', type: 'symbol', source: 'mm-people', filter: ['has', 'point_count'],
       layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 11, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': dark ? '#0b0f12' : '#ffffff' } })
@@ -124,7 +131,9 @@ function addLayers() {
 
 function setData() {
   if (!map || !map.getSource('mm-people')) return
-  map.getSource('mm-people').setData(pointData())
+  const data = pointData()
+  map.getSource('mm-people').setData(data)
+  map.getSource('mm-heat-src')?.setData(data)
   map.getSource('mm-arcs').setData(arcData())
   map.getSource('mm-pulses').setData(pulseData())
   if (!fitted) fit()
@@ -195,6 +204,8 @@ async function init() {
   map.addControl(new maplibre.FullscreenControl(), 'top-right')
   popup = new maplibre.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'rwm-pop' })
   map.on('style.load', () => { applyProjection(); addLayers(); setData() })
+  // street styles reference a few icons we do not need; give them a blank image instead of a console warning
+  map.on('styleimagemissing', (e) => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }) })
   map.on('error', (e) => {
     // a street style that cannot load (offline, blocked, or the tile host is down) falls back to the offline map
     const src = String(e?.sourceId || e?.error?.url || e?.error?.message || '')
@@ -235,6 +246,11 @@ defineExpose({ flyTo, fit: () => { fitted = false; fit() } })
 watch(() => [props.points, props.arcs, props.pulses], setData)
 watch(() => [props.basemap, props.theme], applyStyle)
 watch(() => props.globe, () => { applyProjection(); map?.setRenderWorldCopies(!props.globe) })
+watch(() => props.tintClusters, (v) => {
+  if (!map?.getLayer('mm-clusters')) return
+  const dark = props.theme === 'dark' || ['satellite', 'dark'].includes(resolvedBasemap())
+  map.setPaintProperty('mm-clusters', 'circle-color', v ? ['interpolate', ['linear'], ['/', ['get', 'yes'], ['max', 1, ['get', 'asked']]], 0, '#c2554d', 0.05, '#c8962e', 0.25, '#2f8f5b'] : (dark ? 'rgba(143,214,181,.85)' : 'rgba(37,120,93,.85)'))
+})
 watch(() => props.heat, (v) => map?.getLayer('mm-heat') && map.setLayoutProperty('mm-heat', 'visibility', v ? 'visible' : 'none'))
 
 onMounted(init)

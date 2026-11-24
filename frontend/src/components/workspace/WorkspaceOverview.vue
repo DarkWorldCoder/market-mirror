@@ -15,8 +15,7 @@
       <article><span><FolderOpen :size="16" />Projects</span><strong>{{ loading ? '…' : number(projects.length) }}</strong><small>Related chats and research, organized together</small></article>
     </div>
 
-    <!-- Reserved for the audience world map (built separately). It receives `geography` (insights.geography). -->
-    <div class="overview-map-slot" data-slot="world-map"></div>
+    <AudienceWorldMap v-if="showInsights && geography" :geography="geography" :theme="theme" />
 
     <LiveNow v-if="showInsights" :runs="liveRuns" @changed="loadInsights" />
     <p v-if="showInsights && insightsError" class="ovi-error" role="status">Couldn’t load the cross-run summary. {{ insightsError }} <button type="button" class="overview-link" @click="loadInsights">Try again</button></p>
@@ -89,6 +88,8 @@ import { RouterLink } from 'vue-router'
 import { Activity, ArrowUpRight, CalendarDays, CircleCheck, Download, Files, FlaskConical, FolderOpen, FolderPlus, Globe2, MessageSquare, ChevronRight, Plus, RefreshCw, Search, UsersRound, X } from 'lucide-vue-next'
 import EChart from './EChart.vue'
 import ActivityCalendar from './overview/ActivityCalendar.vue'
+import { defineAsyncComponent } from 'vue'
+const AudienceWorldMap = defineAsyncComponent(() => import('./overview/AudienceWorldMap.vue'))
 import IntentPanel from './overview/IntentPanel.vue'
 import ObjectionsPanel from './overview/ObjectionsPanel.vue'
 import AudiencesPanel from './overview/AudiencesPanel.vue'
