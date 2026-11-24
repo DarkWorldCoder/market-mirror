@@ -5,6 +5,8 @@ import os
 import random
 import sys
 
+import pytest
+
 from app.services import evidence, market_report as mr, persona_planner, pitch, say_do
 from app.services import feed_test as ft
 
@@ -114,6 +116,34 @@ def test_market_coverage_flags_less_represented_markets():
     assert gh["grounded_less_covered"] == 3 and "Ghana, Nigeria" in gh["note"]
     few = evidence.market_coverage(_with_countries(_bundle(10), ["Nepal"] * 2 + ["usa"] * 8))
     assert not few["flagged"] and "20%" in few["note"]
+
+
+@pytest.mark.parametrize("alias,country", [
+    ("GB", "United Kingdom"),
+    ("CA", "Canada"),
+    ("AU", "Australia"),
+    ("NZ", "New Zealand"),
+    ("IE", "Ireland"),
+    ("United States of America", "United States"),
+])
+def test_market_country_aliases_keep_coverage_and_grade(alias, country):
+    bundle = _with_countries(_bundle(60, seeds=(3, 67)), [alias, f" {alias.lower()} "] * 30, grounded=1)
+    coverage = evidence.market_coverage(bundle)
+    assert coverage["people"] == 60 and coverage["less_covered"] == 0
+    assert coverage["less_covered_pct"] == 0 and coverage["markets"] == []
+    assert coverage["grounded_less_covered"] == 0 and not coverage["flagged"]
+    assert "note" not in coverage
+    expected = evidence.grade(_with_countries(_bundle(60, seeds=(3, 67)), [country] * 60, grounded=1))
+    assert evidence.grade(bundle) == expected
+    assert expected["grade"] == "C"
+
+
+def test_market_country_aliases_leave_other_markets_flagged():
+    countries = ["GB", "AU", "US", "UK", "Ghana", "Nepal", "Ghana", "Nepal"]
+    coverage = evidence.market_coverage(_with_countries(_bundle(8), countries, grounded=5))
+    assert coverage["people"] == 8 and coverage["less_covered"] == 4
+    assert coverage["less_covered_pct"] == 50 and coverage["flagged"]
+    assert coverage["markets"] == ["Ghana", "Nepal"] and coverage["grounded_less_covered"] == 1
 
 
 def test_grade_drops_one_step_unless_real_answers_checked_it():
