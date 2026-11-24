@@ -214,6 +214,9 @@ button.ovi-cal-cell:hover { border-color: var(--text); }
 .ovi-trust-runs a { flex: 1; min-width: 0; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ovi-trust-runs a:hover { color: var(--accent); }
 .ovi-trust-runs .ovi-tag { margin-left: 0; }
+.ovi-trust-why { flex-basis: 100%; margin-left: 34px; }
+.ovi-trust-why summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.ovi-trust-why ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; line-height: 1.7; }
 .ovi-grade { display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); font-size: 12px; font-weight: 650; }
 .ovi-grade.gA, .ovi-grade.gB { color: var(--yes); }
 .ovi-grade.gC { color: var(--maybe); }
