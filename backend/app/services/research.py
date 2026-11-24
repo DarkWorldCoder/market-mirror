@@ -35,15 +35,16 @@ NEG = {"scam", "bad", "worst", "hate", "broken", "expensive", "useless", "cancel
 # --------------------------------------------------------------------------
 
 def _get(url: str, timeout: float = 20, params: Optional[Dict[str, Any]] = None, json_: bool = True) -> Any:
-    import requests
-    r = requests.get(url, params=params, timeout=timeout, headers={"User-Agent": UA, "Accept": "application/json,text/html;q=0.9"})
-    r.raise_for_status()
+    from ..utils.public_http import get_public
+    response = get_public(url, timeout=timeout, max_bytes=2 * 1024 * 1024, params=params, user_agent=UA,
+                          accept="application/json,text/html;q=0.9")
+    text = response["body"].decode("utf-8", errors="replace")
     if json_:
-        ctype = r.headers.get("content-type", "")
-        if "json" not in ctype and not r.text.lstrip().startswith(("{", "[")):
+        ctype = response["headers"].get("content-type", "")
+        if "json" not in ctype and not text.lstrip().startswith(("{", "[")):
             raise ValueError(f"not JSON ({ctype.split(';')[0] or 'unknown type'}): the source is blocking this client")
-        return r.json()
-    return r.text
+        return json.loads(text)
+    return text
 
 
 def sentiment(text: str) -> str:
@@ -134,7 +135,7 @@ def web_page(url: str, get: Callable = _get) -> Optional[Dict[str, Any]]:
     try:
         text = get(url, json_=False)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"page {url} failed: {e}")
+        logger.warning(f"public page fetch failed: {e}")
         return None
     text = html_to_text(text) if "<" in text[:2000] else text
     return _quote("web", text[:4000], url, "", "", None, {"kind": "page"})
@@ -272,6 +273,9 @@ def run(query: str, sources: List[str], out_dir: str, country: str = "us", subre
         if p:
             quotes.append(p)
             say(f"research: page {u}")
+        else:
+            notes.append("A supplied public page could not be read; no page evidence was added.")
+            say("research: supplied public page unavailable or blocked by network policy")
     seen, uniq = set(), []
     for q in quotes:
         key = q["text"][:120].lower()

@@ -1,0 +1,33 @@
+/* Shared selection treatment for workspace modal navigation, regardless of orientation. */
+.workspace-modal-tabs :is([role='tab'], button[aria-pressed]) {
+  position: relative;
+  min-height: 40px;
+  border: 1px solid transparent !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.workspace-modal-tabs :is([role='tab'], button[aria-pressed]):is([aria-selected='true'], [aria-pressed='true']) {
+  border-color: var(--line) !important;
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 6px #2222220b;
+}
+.workspace-modal-tabs :is([role='tab'], button[aria-pressed]):is([aria-selected='true'], [aria-pressed='true'])::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.workspace-modal-tabs :is([role='tab'], button[aria-pressed]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

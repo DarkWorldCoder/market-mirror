@@ -12,12 +12,38 @@ export function palette() {
     muted: css('--muted', '#6c6f73'),
     line: css('--line', '#e6e6e1'),
     accent: css('--accent', '#1f6b4f'),
+    // neutral single-series bars; --accent reads too close to --maybe, so a bar of counts would look like a verdict
+    data: css('--data', '#4b5563'),
     warm: css('--warm', '#f26b2a'),
     yes: css('--yes', '#2f8f5b'),
     maybe: css('--maybe', '#d9a23b'),
     no: css('--no', '#c8584b'),
     series: ['#1f6b4f', '#f26b2a', '#4f7cd6', '#a259c4', '#d9a23b', '#2aa1a1', '#c8584b', '#7a8b2f', '#8c6d5a', '#5a6b8c']
   }
+}
+
+/** Small samples read better as counts: 1 of 28 rather than 3.6%. Returns null when n is 100 or more (or unknown),
+ *  so the caller shows the percentage. The count is rounded from the saved percentage and clamped to 0..n. */
+export function sampleCount(pct, n) {
+  const p = Number(pct), size = Number(n)
+  if (!Number.isFinite(p) || !Number.isInteger(size) || size <= 0 || size >= 100) return null
+  const count = Math.min(size, Math.max(0, Math.round((p / 100) * size)))
+  return { count, n: size, text: `${count} of ${size}`, pct: `${Math.round(p * 10) / 10}%` }
+}
+
+/** Saved decision -> the dw-decision tone class used across the workspace (go / iterate / stop). */
+export function decisionTone(d) {
+  const v = String(d || '')
+  return /^(go|launch|proceed)$/i.test(v) ? 'go' : /no.?go|stop|reject/i.test(v) ? 'stop' : 'iterate'
+}
+
+/** "no_go" -> "No go"; empty stays empty. */
+export const decisionText = (d) => String(d || '').replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase())
+
+/** A survey verdict (yes / maybe / no) -> its palette colour; anything else gets the neutral data colour. */
+export function verdictColor(verdict, p) {
+  const v = String(verdict || '').toLowerCase()
+  return v === 'yes' ? p.yes : v === 'maybe' ? p.maybe : v === 'no' ? p.no : p.data
 }
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -66,22 +92,18 @@ export function segmentsOption(mk) {
   }
 }
 
-/** Share of people raising each objection. */
+/** Shares may overlap, so each objection gets its own bar rather than a part-to-whole slice. */
 export function objectionsOption(mk) {
-  const rows = (mk?.objections || []).slice(0, 8)
+  const rows = (mk?.objections || []).filter(r => num(r.share) !== null)
   if (!rows.length) return null
   const p = palette()
   return {
     ...base(p),
-    tooltip: { trigger: 'item', confine: true, formatter: (x) => `${x.name}: ${x.value}% (${rows[x.dataIndex].count} people)` },
-    series: [{
-      type: 'pie',
-      radius: ['48%', '74%'],
-      center: ['50%', '52%'],
-      itemStyle: { borderColor: css('--panel', '#fff'), borderWidth: 2, borderRadius: 4 },
-      label: { color: p.text, fontSize: 11, formatter: (x) => `${short(x.name, 18)}\n${x.value}%` },
-      data: rows.map((r, i) => ({ name: r.label, value: num(r.share) ?? 0, itemStyle: { color: p.series[i % p.series.length] } }))
-    }]
+    grid: { left: 8, right: 46, top: 12, bottom: 36, containLabel: true },
+    xAxis: { type: 'value', name: 'People raising objection (%)', nameLocation: 'middle', nameGap: 25, axisLabel: { formatter: '{value}%', color: p.muted }, splitLine: { lineStyle: { color: p.line } } },
+    yAxis: { type: 'category', data: rows.map(r => r.label).reverse(), axisLabel: { color: p.text, width: 145, overflow: 'truncate' } },
+    tooltip: { trigger: 'axis', confine: true, valueFormatter: value => `${value}% of simulated people` },
+    series: [{ type: 'bar', name: 'People raising objection', barMaxWidth: 18, data: rows.map(r => r.share).reverse(), itemStyle: { color: p.data, borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', formatter: '{c}%', color: p.muted } }]
   }
 }
 
@@ -101,7 +123,7 @@ export function creativesOption(feed) {
     series: [{
       type: 'bar',
       barMaxWidth: 16,
-      data: ids.map((id, i) => ({ value: per[id].expected_ctr, itemStyle: { color: i === 0 ? p.warm : p.accent, borderRadius: [0, 4, 4, 0] } })).reverse(),
+      data: ids.map((id, i) => ({ value: per[id].expected_ctr, itemStyle: { color: i === 0 ? p.warm : p.data, borderRadius: [0, 4, 4, 0] } })).reverse(),
       label: { show: true, position: 'right', formatter: '{c}%', color: p.muted, fontSize: 11 }
     }]
   }
@@ -151,78 +173,66 @@ export function peopleOption(index, key = 'country') {
     ...base(p),
     xAxis: { type: 'value', axisLabel: { color: p.muted, hideOverlap: true }, splitNumber: 4, splitLine: { lineStyle: { color: p.line } }, minInterval: 1 },
     yAxis: { type: 'category', data: rows.map(([k]) => short(k)).reverse(), axisLabel: { color: p.text, fontSize: 11 } },
-    series: [{ type: 'bar', barMaxWidth: 16, data: rows.map(([, v]) => v).reverse(), itemStyle: { color: p.accent, borderRadius: [0, 4, 4, 0] } }]
+    series: [{ type: 'bar', barMaxWidth: 16, data: rows.map(([, v]) => v).reverse(), itemStyle: { color: p.data, borderRadius: [0, 4, 4, 0] } }]
   }
 }
 
-/** The market as a graph for the 3D view: every simulated person (coloured by segment) linked to a hub for their
- * segment and to each community they belong to, plus the knowledge graph's entities and their links. */
-export function marketGraph(index, graph) {
-  const people = (index || []).filter((r) => (r.kind || 'persona') === 'persona').slice(0, 3000)
+/** 3D market: every simulated person as a point, grouped by segment around the market map's entities. */
+export function marketOption(index, graph) {
+  const people = (index || []).filter((r) => (r.kind || 'persona') === 'persona')
   if (!people.length && !(graph?.nodes || []).length) return null
   const p = palette()
-  const community = '#e0559a' // not in the segment palette, so communities never share a segment's colour
   const segments = [...new Set(people.map((r) => r.segment || 'No segment'))]
-  const colour = Object.fromEntries(segments.map((s, i) => [s, p.series[i % p.series.length]]))
-  const nodes = segments.map((s) => ({ id: `s:${s}`, name: s, kind: 'Segment', val: 6, color: colour[s] }))
-  const links = []
-  const communities = new Map()
-  for (const r of (index || []).filter((x) => x.kind === 'community')) communities.set(r.name, 0)
-  for (const r of people) {
-    const seg = r.segment || 'No segment'
-    const detail = [seg, r.country, r.age].filter(Boolean).join(' · ')
-    nodes.push({ id: `p:${r.agent_id}`, name: r.name || `Person ${r.agent_id}`, kind: 'Simulated person', detail, val: 1, color: colour[seg] })
-    links.push({ source: `p:${r.agent_id}`, target: `s:${seg}`, kind: 'segment', color: colour[seg] })
-    for (const c of r.communities || []) {
-      if (!c) continue
-      communities.set(c, (communities.get(c) || 0) + 1)
-      links.push({ source: `p:${r.agent_id}`, target: `c:${c}`, kind: 'community', color: community })
+  const centre = (i, n, r = 60) => {
+    const a = (2 * Math.PI * i) / Math.max(n, 1)
+    return [r * Math.cos(a), r * Math.sin(a), 0]
+  }
+  let seed = 7
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1
+  const series = segments.map((seg, i) => {
+    const [cx, cy] = centre(i, segments.length)
+    const pts = people.filter((r) => (r.segment || 'No segment') === seg).map((r) => ({
+      name: r.name || `Person ${r.agent_id}`,
+      value: [cx + rand() * 18, cy + rand() * 18, rand() * 22 + (r.age ? (r.age - 40) / 2 : 0)],
+      country: r.country || '',
+      age: r.age || ''
+    }))
+    return {
+      type: 'scatter3D',
+      name: short(seg, 30),
+      data: pts,
+      symbolSize: 6,
+      itemStyle: { color: p.series[i % p.series.length], opacity: 0.85 },
+      emphasis: { itemStyle: { color: p.warm } }
     }
-  }
-  for (const [name, n] of communities) nodes.push({ id: `c:${name}`, name, kind: 'Community', detail: `${n} members`, val: 4 + Math.min(n, 30) / 3, color: community })
-  const ids = new Set()
-  for (const n of (graph?.nodes || []).slice(0, 120)) {
-    ids.add(n.uuid)
-    nodes.push({ id: `g:${n.uuid}`, name: n.name, kind: 'Market map', detail: (n.labels || []).filter((l) => l !== 'Entity').join(', '), val: 3, color: p.text })
-  }
-  const degree = {}
-  for (const e of graph?.edges || []) {
-    if (ids.has(e.source_node_uuid) && ids.has(e.target_node_uuid) && e.source_node_uuid !== e.target_node_uuid) {
-      links.push({ source: `g:${e.source_node_uuid}`, target: `g:${e.target_node_uuid}`, kind: 'map', color: p.muted, label: e.fact || e.name })
-      degree[e.source_node_uuid] = (degree[e.source_node_uuid] || 0) + 1
-      degree[e.target_node_uuid] = (degree[e.target_node_uuid] || 0) + 1
-    }
-  }
-  // the brand (else the busiest entity) anchors the segments and any entity the graph left unlinked, so the
-  // map and the people form one market instead of pieces drifting apart
-  const brand = (graph?.nodes || []).find((n) => ids.has(n.uuid) && (n.labels || []).some((l) => /brand|company|product/i.test(l)))
-  const anchor = brand?.uuid || [...ids].sort((a, b) => (degree[b] || 0) - (degree[a] || 0))[0]
-  if (anchor) {
-    segments.forEach((s) => links.push({ source: `g:${anchor}`, target: `s:${s}`, kind: 'map', color: p.muted }))
-    for (const id of ids) if (id !== anchor && !degree[id]) links.push({ source: `g:${anchor}`, target: `g:${id}`, kind: 'map', color: p.muted })
+  })
+  const nodes = (graph?.nodes || []).slice(0, 40)
+  if (nodes.length) {
+    series.push({
+      type: 'scatter3D',
+      name: 'Market map',
+      symbol: 'diamond',
+      symbolSize: 12,
+      label: { show: true, formatter: (x) => short(x.name, 18), textStyle: { color: p.text, fontSize: 10, backgroundColor: 'transparent' } },
+      itemStyle: { color: p.text },
+      data: nodes.map((n, i) => ({ name: n.name, value: [...centre(i, nodes.length, 22).slice(0, 2), 30], kind: (n.labels || []).filter((l) => l !== 'Entity').join(', ') }))
+    })
   }
   return {
-    nodes, links,
-    legend: [...segments.map((s) => ({ name: s, color: colour[s] })), communities.size ? { name: 'Communities', color: community } : null,
-      ids.size ? { name: 'Market map', color: p.text } : null].filter(Boolean),
-    counts: { people: people.length, segments: segments.length, communities: communities.size, entities: ids.size }
-  }
-}
-
-/** Actions per round by platform, from the run's timeline. */
-export function roundsOption(rounds) {
-  if (!rounds?.length) return null
-  const p = palette()
-  return {
-    ...base(p),
-    tooltip: { trigger: 'axis', confine: true },
-    legend: { top: 0, textStyle: { color: p.muted, fontSize: 11 } },
-    xAxis: { type: 'category', data: rounds.map((r) => `R${r.round}`), axisLabel: { color: p.muted }, axisLine: { lineStyle: { color: p.line } } },
-    yAxis: { type: 'value', axisLabel: { color: p.muted }, splitLine: { lineStyle: { color: p.line } } },
-    series: [
-      { name: 'Twitter-style', type: 'bar', stack: 'a', data: rounds.map((r) => r.twitter), itemStyle: { color: p.series[2] } },
-      { name: 'Reddit-style', type: 'bar', stack: 'a', data: rounds.map((r) => r.reddit), itemStyle: { color: p.warm } }
-    ]
+    tooltip: {
+      confine: true,
+      formatter: (x) => `<b>${x.name}</b><br>${x.seriesName}${x.data.country ? ' · ' + x.data.country : ''}${x.data.age ? ' · ' + x.data.age : ''}${x.data.kind ? '<br>' + x.data.kind : ''}`
+    },
+    legend: { type: 'scroll', bottom: 0, textStyle: { color: p.muted, fontSize: 11 } },
+    grid3D: {
+      show: false,
+      viewControl: { autoRotate: true, autoRotateSpeed: 6, distance: 230, alpha: 24 },
+      light: { main: { intensity: 1.1 }, ambient: { intensity: 0.5 } }
+    },
+    xAxis3D: { show: false, min: -100, max: 100 },
+    yAxis3D: { show: false, min: -100, max: 100 },
+    zAxis3D: { show: false, min: -60, max: 60 },
+    series
   }
 }
 
@@ -279,7 +289,7 @@ export function market2dOption(index, graph) {
 
 const INTENTS = [
   { id: 'segments', words: /\b(segment|audience|target|who should|which group|best group)\b/i },
-  { id: 'objections', words: /\b(objection|why not|why no|(say|said|says) no|didn.?t (buy|sign|convert)|reject|turn(ed)? down|hesitat|worr|concern|stop|barrier|doubt)/i },
+  { id: 'objections', words: /\b(objection|why not|why no|hesitat|worr|concern|stop|barrier|doubt)\b/i },
   { id: 'creatives', words: /\b(ad|ads|creative|headline|ctr|click|feed)\b/i },
   { id: 'intent', words: /\b(buy|convert|intent|purchase|how many|demand|sign ?up|would they)\b/i },
   { id: 'people', words: /\b(who|people|personas?|countr|where|demograph)\b/i },

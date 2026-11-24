@@ -1,0 +1,129 @@
+/* Additions on top of Codex's workspace design: inbox count, pinned runs, shortcuts dialog. */
+.ws .ws-nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent-2); color: var(--accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) { position: relative; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) > a { padding-right: 34px; }
+.ws .ws-side .ws-history > div:not(.ws-chat-row) > .ws-pin-run { position: absolute; right: 2px; top: 3px; opacity: 0; }
+.ws .ws-side .ws-history > div:hover > .ws-pin-run,
+.ws .ws-side .ws-pin-run:focus-visible,
+.ws .ws-side .ws-pin-run[aria-pressed='true'] { opacity: 1; }
+.ws .ws-side .ws-pin-run[aria-pressed='true'] { color: var(--accent); }
+.ws .ws-side .ws-pin-run:hover { color: var(--text); background: var(--panel); }
+.ws-shortcuts { max-width: 520px; }
+.ws-shortcut-list { margin: 8px 0 0; }
+.ws-shortcut-list div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.ws-shortcut-list dt { display: flex; gap: 4px; flex-wrap: wrap; }
+.ws-shortcut-list dd { margin: 0; color: var(--muted); }
+.ws-shortcut-list kbd { font: inherit; font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; background: var(--panel); color: var(--text); }
+@media (max-width: 760px) {
+  .ws .ws-side .ws-history > div > .ws-pin-run { opacity: 1; }
+  .ws-shortcut-list div { grid-template-columns: 1fr; gap: 4px; }
+}
+.ws-run-kpis { list-style: none; padding: 0; margin: 12px 0 4px; display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-run-kpis li { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; background: var(--panel); font-size: 12px; color: var(--muted); }
+.ws-run-kpis b { color: var(--text); font-size: 15px; font-weight: 650; }
+.ws-run-sim { margin-left: 6px; font-size: 10.5px; color: var(--warm); border: 1px solid color-mix(in srgb, var(--warm) 45%, var(--line)); border-radius: 999px; padding: 0 6px; }
+.ws-run-transcript { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; max-height: 320px; overflow-y: auto; white-space: normal; }
+.ws-run-transcript li { margin: 4px 0; }
+.ws-run-transcript li.mod { color: var(--muted); }
+.direct-message-actions.mine { justify-content: flex-end; margin-top: 4px; opacity: 0; transition: opacity .15s; }
+.direct-message.user:hover .direct-message-actions.mine,
+.direct-message-actions.mine:focus-within { opacity: 1; }
+@media (hover: none) { .direct-message-actions.mine { opacity: 1; } }
+
+/* Slim scrollbars everywhere in the app. Chromium ignores ::-webkit-scrollbar as soon as scrollbar-width or
+   scrollbar-color is set (and then draws arrow buttons on Linux), so those two stay "auto" except in Firefox. */
+.ws, .ws *, .ws-overlay, .ws-overlay * { scrollbar-width: auto; scrollbar-color: auto; }
+.ws .ws-side .ws-side-scroll { scrollbar-width: auto; }
+@supports (-moz-appearance: none) {
+  .ws, .ws *, .ws-overlay, .ws-overlay * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 38%, transparent) transparent; }
+}
+.ws ::-webkit-scrollbar, .ws-overlay ::-webkit-scrollbar { width: 6px; height: 6px; }
+.ws ::-webkit-scrollbar-button, .ws-overlay ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.ws ::-webkit-scrollbar-track, .ws-overlay ::-webkit-scrollbar-track { background: transparent; }
+.ws ::-webkit-scrollbar-thumb, .ws-overlay ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 30%, transparent); border-radius: 999px; }
+.ws ::-webkit-scrollbar-thumb:hover, .ws-overlay ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 58%, transparent); }
+.ws ::-webkit-scrollbar-corner, .ws-overlay ::-webkit-scrollbar-corner { background: transparent; }
+html::-webkit-scrollbar { width: 6px; height: 6px; }
+html::-webkit-scrollbar-button { display: none; }
+html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radius: 999px; }
+
+/* Sidebar: the scrollbar lives in the sidebar's right padding, so nav rows line up with the search box and New chat
+   instead of stopping short of them (the reserved gutter made the right edge uneven). */
+.ws .ws-side .ws-side-scroll { scrollbar-gutter: auto; margin-right: -10px; padding-right: 10px; }
+/* No hard line between the sidebar and the page; the two surfaces are already set apart by their shades. */
+.ws .ws-side, .ws[data-theme='dark'] .ws-side { border-right: 0; box-shadow: none; }
+
+/* Chat home: greeting, latest experiment, quick looks, recent chats */
+.direct-welcome .dw-greet { font-size: 13px; font-weight: 550; color: var(--accent); margin: -6px 0 6px; letter-spacing: 0.01em; }
+.direct-welcome .dw-context { margin-top: 10px; font-size: 12.5px; color: var(--muted); display: flex; justify-content: center; align-items: center; gap: 6px; flex-wrap: wrap; }
+.direct-welcome .dw-context a { color: var(--text); font-weight: 550; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.direct-welcome .dw-context a:hover { text-decoration-color: currentColor; }
+.dw-decision { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--line); }
+.dw-decision.go { color: var(--yes); border-color: color-mix(in srgb, var(--yes) 45%, var(--line)); }
+.dw-decision.iterate { color: var(--maybe); border-color: color-mix(in srgb, var(--maybe) 50%, var(--line)); }
+.dw-decision.stop { color: var(--no); border-color: color-mix(in srgb, var(--no) 45%, var(--line)); }
+.direct-chat:not(.started) .direct-starters.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dw-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.dw-quick-label { font-size: 12px; color: var(--muted); margin-right: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-quick-label small { margin-left: 4px; font-size: 10.5px; border: 1px dashed var(--line); border-radius: 999px; padding: 0 6px; }
+.dw-quick button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--text); cursor: pointer; }
+.dw-quick button:hover { border-color: var(--accent); background: var(--panel-2); }
+.dw-quick button svg { color: var(--accent); }
+.dw-continue { margin-top: 22px; }
+.dw-continue h2 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.dw-continue-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dw-chat-card { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-decoration: none; color: var(--text); min-width: 0; }
+.dw-chat-card:hover { border-color: var(--accent); background: var(--panel-2); }
+.dw-chat-card svg { color: var(--accent); flex: none; margin-top: 2px; }
+.dw-chat-card > span:not(.dw-card-icon) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dw-chat-card b { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-chat-card small { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; }
+.dw-chat-card em { font-style: normal; font-size: 11px; color: var(--muted); }
+@media (max-width: 900px) {
+  .direct-chat:not(.started) .direct-starters.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dw-continue-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .direct-chat:not(.started) .direct-starters.four { grid-template-columns: minmax(0, 1fr); }
+}
+.dw-continue-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dw-continue-head h2 { margin: 0; }
+.dw-continue-head a { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); text-decoration: none; }
+.dw-continue-head a:hover { color: var(--text); }
+.dw-chat-card { align-items: stretch; }
+.dw-card-icon { width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--accent-2); color: var(--accent); }
+.dw-chat-card.run .dw-card-icon { background: color-mix(in srgb, var(--warm) 14%, transparent); color: var(--warm); }
+.dw-chat-card .dw-card-icon svg { margin: 0; color: inherit; }
+.dw-card-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.dw-card-kind { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.dw-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.dw-card-meta > span:not(.dw-decision) { border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dw-card-meta > span { display: inline-block; width: auto; }
+
+/* Guided experiment setup shown inside a chat message */
+.direct-experiment { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.workflow-app.embedded { min-height: 0; background: transparent; font-family: inherit; font-size: 14px; }
+.workflow-app.embedded .app-main { max-width: none; padding: 16px 18px 20px; }
+.workflow-app.embedded .workspace-layout { display: block; }
+.workflow-app.embedded .workspace-layout > * + * { margin-top: 16px; }
+.workflow-app.embedded .section-heading h2 { font-size: 16px; }
+.workflow-app.embedded .recipes-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.workflow-app.embedded .editor-heading h1 { font-size: 20px; }
+.workflow-app.embedded .recent { margin-top: 18px; }
+.ws[data-theme='dark'] .workflow-app.embedded { --ink: #ececec; --muted: #a4ada8; --line: #2a2c30; --light: #1c1d20; --green: #5fc79a; color: var(--ink); }
+.ws[data-theme='dark'] .workflow-app.embedded input,
+.ws[data-theme='dark'] .workflow-app.embedded textarea,
+.ws[data-theme='dark'] .workflow-app.embedded select { background: #1c1d20; color: #ececec; border-color: #2a2c30; }
+.ws[data-theme='dark'] .workflow-app.embedded .recipe { background: #1c1d20; color: #ececec; }
+
+/* ==== Chat home fixes: Continue cards and quick looks (ChatWorkspace.vue) ==== */
+.dw-continue .dw-continue-head h2 { font-size: 13px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: normal; }
+.dw-continue .dw-chat-card b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.dw-quick .dw-quick-label small { white-space: nowrap; }
+@media (max-width: 600px) {
+  .dw-quick { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; }
+  .dw-quick > * { flex: none; white-space: nowrap; }
+  .dw-quick .dw-quick-label { max-width: none; overflow: visible; }
+}
+/* ==== end chat home fixes ==== */

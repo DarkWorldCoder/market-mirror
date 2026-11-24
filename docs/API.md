@@ -6,8 +6,8 @@ The backend is a Flask app on `http://localhost:5001` (start it with `backend/cl
 engine routes (projects, ontology, graph build, simulations, start/stop, interviews, reports) are documented in
 `docs/MIROFISH-UPSTREAM.md`; the `mirofish.py` CLI and the MCP server wrap all of them.
 
-Authentication: `/api/workflows` and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
-Use `./mm app` for a browser session; never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
+Authentication: `/api/workflows`, `/api/runs`, `/api/workspace/*` (except session bootstrap) and `/api/setup` are loopback-only and require the local `X-Setup-Token`, including reads.
+Use `./mm app` for a browser session; the local browser also establishes its session automatically. Never share its token. Workflow approvals are tied to an input/provider digest and a model-call limit.
 Other endpoints use the configured production authentication policy. Put the backend behind your own auth/network rules before exposing it.
 Webhooks: set `MIROFISH_WEBHOOK_URL` (or `"webhook"` in `market_test.json`) and the CLI posts a JSON summary when a run, study
 or test finishes. SDK: `pip install -e sdk` then `from marketmirror import MarketMirror`. Machine-readable: `docs/openapi.json`.
@@ -114,6 +114,310 @@ Request body:
 Returns: {plan, file}
 
 ## Local guided workflows (X-Setup-Token required)
+
+### `POST /api/workspace/chat/stream`
+
+Stream actual public model/tool/reviewer progress then result or error; same validated chat inputs; no private reasoning or implicit execution.
+
+Request body:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Explore my saved results"
+    }
+  ],
+  "mode": "team",
+  "model": "server catalog ID",
+  "project": "proj_abcdef123456",
+  "team_agents": [
+    "market-analyst",
+    "critical-reviewer"
+  ],
+  "team_models": {
+    "market-analyst": "server catalog ID"
+  },
+  "connector_tools": [
+    "mcp_abcdef123456/reports"
+  ]
+}
+```
+
+Returns: text/event-stream: progress {type,status,label,tool?,role?,model?,summary?,data?}, result {message,artifacts,trace,suggestions,agent_activity?,tool_results?,browser_observations?,workflow_id?}, error {message,status}; project source text is read in bounded authorized pages
+
+### `POST /api/workspace/projects/{project_id}/sources`
+
+Append a persistent plain-text project source; 10 sources,24k chars each,120k total,30KB request cap; no downloads or model calls.
+
+Request body:
+
+```json
+{
+  "name": "Product brief",
+  "text": "Source facts and references"
+}
+```
+
+Returns: updated project with sources and preferred_model
+
+### `DELETE /api/workspace/projects/{project_id}/sources/{source_id}`
+
+Remove one saved project source by opaque ID.
+
+Returns: updated project
+
+### `GET /api/workspace/skills`
+
+List private workspace prompt templates; no executable imports.
+
+Returns: custom skill array
+
+### `POST /api/workspace/skills`
+
+Save a reusable instruction template without fetching or running code.
+
+Request body:
+
+```json
+{
+  "name": "Ad review",
+  "description": "Review supplied ads",
+  "instructions": "Use supplied evidence",
+  "group": "Custom skills",
+  "source_url": "https://github.com/example/repository"
+}
+```
+
+Returns: custom skill
+
+### `GET /api/workspace/skills/{skill_id}`
+
+Read one saved prompt template.
+
+Returns: custom skill
+
+### `PATCH /api/workspace/skills/{skill_id}`
+
+Edit a saved prompt template; built-in engine skills cannot be changed.
+
+Request body:
+
+```json
+{
+  "name": "Weekly ad review"
+}
+```
+
+Returns: custom skill
+
+### `DELETE /api/workspace/skills/{skill_id}`
+
+Delete a saved custom prompt template.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/browser/observe`
+
+Capture a real bounded read-only public browser page snapshot with JavaScript off and public-IP-pinned GET resources; optional sandboxed Playwright required.
+
+Request body:
+
+```json
+{
+  "url": "https://example.com"
+}
+```
+
+Returns: {session_id,url,title,text,text_truncated,screenshot,screenshots,events,links,mode,javascript,status_code}
+
+### `GET /api/workspace/browser/{session_id}/image`
+
+Guarded PNG screenshot for an opaque observation session; frame=0 or1, expires after24h.
+
+Returns: image/png
+
+### `GET /api/workspace/local-models`
+
+Explicit bounded loopback-only installed-model discovery; refresh=1 refreshes cache, hosted workers skip unconfigured defaults.
+
+Returns: {models:[{id,provider,base_url,source}],sources,checked_at,truncated}
+
+### `GET /api/workspace/connectors`
+
+Safe saved remote MCP configuration and actual discovery status; tokens omitted.
+
+Returns: connector array
+
+### `POST /api/workspace/connectors`
+
+Save a public HTTPS Streamable HTTP MCP server with write-only bearer credential; no connection or tool call.
+
+Request body:
+
+```json
+{
+  "name": "Meta Ads",
+  "url": "https://mcp.facebook.com/ads",
+  "token": "write-only",
+  "enabled": false,
+  "allowed_tools": [],
+  "protocol_version": "2025-11-25"
+}
+```
+
+Returns: safe connector
+
+### `PATCH /api/workspace/connectors/{connector_id}`
+
+Update connector settings, enabled state and explicit read-only tool allowlist.
+
+Request body:
+
+```json
+{
+  "enabled": true,
+  "allowed_tools": [
+    "ads_read"
+  ]
+}
+```
+
+Returns: safe connector
+
+### `DELETE /api/workspace/connectors/{connector_id}`
+
+Remove connector configuration and its stored credential.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/connectors/{connector_id}/discover`
+
+Actually initialize a saved MCP server and list tools with bounded JSON/SSE parsing; no business tool execution.
+
+Returns: safe connector with status, tools, checked_at, error
+
+### `GET /api/workspace/session`
+
+Bootstrap a same-origin browser session on a literal loopback host; Sec-Fetch-Site same-origin required.
+
+Returns: {token}
+
+### `GET /api/workspace/projects`
+
+List persistent projects and chat/run associations.
+
+Returns: project array
+
+### `POST /api/workspace/projects`
+
+Create a real engine project and workspace metadata without model calls.
+
+Request body:
+
+```json
+{
+  "name": "Launch",
+  "description": "Launch research",
+  "instructions": "Project preferences",
+  "chat_ids": [],
+  "run_names": []
+}
+```
+
+Returns: project
+
+### `GET /api/workspace/projects/{project_id}`
+
+Read one project.
+
+Returns: project
+
+### `PATCH /api/workspace/projects/{project_id}`
+
+Update project preferences and associations.
+
+Request body:
+
+```json
+{
+  "name": "Launch"
+}
+```
+
+Returns: project
+
+### `DELETE /api/workspace/projects/{project_id}`
+
+Archive project metadata while preserving evidence.
+
+Returns: {archived:true}
+
+### `GET /api/workspace/settings`
+
+Read safe model, memory, decision engine and spending configuration without secrets.
+
+Returns: {llm,memory,jev,spending}
+
+### `PUT /api/workspace/settings`
+
+Save validated configuration and write-only credentials; no paid connection test.
+
+Request body:
+
+```json
+{
+  "memory": {
+    "backend": "local"
+  }
+}
+```
+
+Returns: safe settings with restart and connection status
+
+### `GET /api/workspace/models`
+
+Safe configured and connected local chat model choices; no credentials or configuration writes.
+
+Returns: {models:[{id,name,provider,model,available,description,connection_required,connection_backend?}],default_id}
+
+### `POST /api/workspace/chat`
+
+Validated conversational assistant with saved evidence, selected-project source index/paged reads, enabled read-only connector tools and explicitly requested public page snapshots; optional2–4 no-tool team reviewers; never executes experiments.
+
+Request body:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What did the pricing test show?"
+    }
+  ],
+  "run": "saved_run",
+  "project": "proj_abcdef123456",
+  "model": "server catalog ID",
+  "mode": "team",
+  "team_agents": [
+    "market-analyst",
+    "critical-reviewer"
+  ],
+  "team_models": {
+    "market-analyst": "server catalog ID"
+  },
+  "connector_tools": [
+    "mcp_abcdef123456/reports"
+  ],
+  "context": {
+    "name": "Product brief",
+    "text": "User-supplied source text"
+  }
+}
+```
+
+Returns: {message,artifacts:[{run,file}],trace,suggestions,workflow_id?,agent_activity:[{id,role,status,summary,model?}]?,tool_results?,browser_observations?}; model IDs are server catalog pointers and never modify global provider settings
 
 ### `GET /api/workflows/meta`
 
@@ -299,6 +603,327 @@ Returns: {simulation_id, live, run, stages: [{id, label, done}], rounds: [{round
 A result file directly inside the run folder (.json parsed; .md, .csv, .html as files; ?download=1).
 
 Returns: file contents
+
+## Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)
+
+### `GET /api/auth/session`
+
+Which mode the server is in (local or accounts) and, in team mode, the signed-in person, CSRF token, chosen workspace and all their workspaces.
+
+Returns: {mode,account,csrf,workspace,workspaces,signups,first_account?}
+
+### `POST /api/auth/signup`
+
+Team mode only. Create an account (argon2id); the first account is always allowed, later ones follow MM_SIGNUPS (open, invite, closed); exact Origin; rate limited.
+
+Request body:
+
+```json
+{
+  "email": "person@example.com",
+  "password": "12 to 256 characters",
+  "name": "Sam",
+  "workspace_name": "Acme marketing",
+  "invitation": "token from an invitation link"
+}
+```
+
+Returns: session state; sets the HttpOnly mm_session cookie
+
+### `POST /api/auth/login`
+
+Team mode only. Sign in; 10 failures per email and 30 attempts per client in 15 minutes, then 429.
+
+Request body:
+
+```json
+{
+  "email": "person@example.com",
+  "password": "..."
+}
+```
+
+Returns: session state; sets the mm_session cookie
+
+### `POST /api/auth/logout`
+
+Delete this browser's session (CSRF token required).
+
+Returns: {signed_out:true}
+
+### `POST /api/auth/password`
+
+Change your password; signs out every other browser.
+
+Request body:
+
+```json
+{
+  "current_password": "...",
+  "new_password": "..."
+}
+```
+
+Returns: session state
+
+### `POST /api/auth/workspaces`
+
+Create a workspace you own and switch to it.
+
+Request body:
+
+```json
+{
+  "name": "Second team"
+}
+```
+
+Returns: session state
+
+### `POST /api/auth/workspaces/select`
+
+Switch this session to a workspace you belong to.
+
+Request body:
+
+```json
+{
+  "id": "ws_..."
+}
+```
+
+Returns: session state
+
+### `GET /api/auth/invitations/{token}`
+
+Preview an open invitation: workspace name, role, bound email, expiry.
+
+Returns: {workspace,role,email,expires_at}
+
+### `POST /api/auth/invitations/accept`
+
+Accept an invitation as the signed-in person (one use; email must match when bound).
+
+Request body:
+
+```json
+{
+  "token": "..."
+}
+```
+
+Returns: session state
+
+### `GET /api/team`
+
+Workspace, members with roles and (for owners) open invitations.
+
+Returns: {workspace,members,invitations,you,mode}
+
+### `PATCH /api/team/workspace`
+
+Owner: rename the workspace.
+
+Request body:
+
+```json
+{
+  "name": "Acme marketing"
+}
+```
+
+Returns: {id,name}
+
+### `PATCH /api/team/members/{user_id}`
+
+Owner: change a member's role (owner, editor, viewer); the last owner stays.
+
+Request body:
+
+```json
+{
+  "role": "viewer"
+}
+```
+
+Returns: member array
+
+### `DELETE /api/team/members/{user_id}`
+
+Owner: remove a member; anyone: leave (yourself). Their open tabs lose access at once.
+
+Returns: member array
+
+### `POST /api/team/invitations`
+
+Owner, team mode: one-use invitation link (token after #, stored hashed), optional email, 5 minutes to 30 days; no email is sent.
+
+Request body:
+
+```json
+{
+  "email": "optional",
+  "role": "editor",
+  "expires_in_days": 7
+}
+```
+
+Returns: {id,email,role,expires_at,url}
+
+### `DELETE /api/team/invitations/{invite_id}`
+
+Owner: revoke an open invitation.
+
+Returns: {id,revoked:true}
+
+### `GET /api/workspace/chats`
+
+Chats of the workspace from the database (viewer); since=ms for changes only, summary=1 without messages.
+
+Returns: {chats,imported_sources,role}
+
+### `GET /api/workspace/chats/{chat_id}`
+
+One chat with messages and authors.
+
+Returns: chat
+
+### `PUT /api/workspace/chats/{chat_id}`
+
+Editor: create or replace a chat; a stale base_revision returns 409 with the stored chat to merge.
+
+Request body:
+
+```json
+{
+  "chat": {
+    "id": "chat-1",
+    "title": "Pricing",
+    "messages": [
+      {
+        "role": "user",
+        "content": "..."
+      }
+    ]
+  },
+  "base_revision": 3
+}
+```
+
+Returns: chat with new revision
+
+### `DELETE /api/workspace/chats/{chat_id}`
+
+Delete a chat: its creator or an owner.
+
+Returns: {id,deleted:true}
+
+### `POST /api/workspace/chats/import`
+
+Editor: one-time upload of a browser's localStorage chats; existing ids are skipped; once per browser id.
+
+Request body:
+
+```json
+{
+  "source": "browser id",
+  "chats": []
+}
+```
+
+Returns: {imported,skipped,already_imported}
+
+### `GET /api/workspace/pins`
+
+Your pinned runs in this workspace.
+
+Returns: {pins}
+
+### `PUT /api/workspace/pins`
+
+Replace your pinned runs (only runs this workspace can see are kept).
+
+Request body:
+
+```json
+{
+  "pins": [
+    "run_name"
+  ]
+}
+```
+
+Returns: {pins}
+
+### `GET /api/workspace/preferences`
+
+Workspace preferences (default_model) and yours (theme).
+
+Returns: {workspace,user}
+
+### `PUT /api/workspace/preferences`
+
+Set preferences; workspace keys need an owner.
+
+Request body:
+
+```json
+{
+  "user": {
+    "theme": "dark"
+  }
+}
+```
+
+Returns: {workspace,user}
+
+### `GET /api/workspace/onboarding`
+
+First-run steps done, whether a model is connected and who can connect one or invite.
+
+Returns: {steps,workspace,model_connected,can_connect_model,can_invite,members,runs_in_workspace,mode,demo_url}
+
+### `PUT /api/workspace/onboarding`
+
+Editor: mark onboarding steps (workspace, model, invite, demo, dismissed).
+
+Request body:
+
+```json
+{
+  "steps": {
+    "demo": true
+  }
+}
+```
+
+Returns: onboarding state
+
+### `GET /api/workspace/runs-index`
+
+Saved runs this workspace can see.
+
+Returns: {runs}
+
+### `POST /api/workspace/runs-index`
+
+Editor: add a saved run (local caller: any run folder; team member: a run they already edit in another workspace).
+
+Request body:
+
+```json
+{
+  "name": "run_name"
+}
+```
+
+Returns: {runs}
+
+### `DELETE /api/workspace/runs-index/{name}`
+
+Editor: remove a run from this workspace's list (the folder stays).
+
+Returns: {runs}
 
 ## Tests on simulated people
 

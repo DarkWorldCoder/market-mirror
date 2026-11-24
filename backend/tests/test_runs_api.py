@@ -1,6 +1,8 @@
 """Workspace runs API: token and loopback guard, listing, detail, file reads and path checks."""
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -64,8 +66,72 @@ def test_refuses_unknown_or_unsafe_paths(client, path):
     assert client.get(path, headers=H).status_code in (404, 403)
 
 
-def test_thoughts_harvest_the_run_folder(client, tmp_path):
-    run = tmp_path / "runs" / "acme"
+def test_listing_includes_more_than_two_hundred_runs(client):
+    root = Path(os.environ["MIROFISH_RUNS_DIR"])
+    for i in range(205):
+        run = root / f"run-{i:03}"
+        run.mkdir()
+        (run / "summary.json").write_text("{}")
+    runs = client.get("/api/runs", headers=H).get_json()["data"]["runs"]
+    assert len(runs) == 206
+    assert {r["name"] for r in runs} == {"acme", *(f"run-{i:03}" for i in range(205))}
+
+
+@pytest.mark.parametrize("summary,manifest", [([], []), ([1], "bad"),
+    ({"marketing": [], "decision": "bad", "agents": 4}, {}),
+    ({"marketing": {"people": 0}, "decision": [1], "agents": 4}, {})])
+def test_malformed_metadata_does_not_break_listing_or_detail(client, summary, manifest):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
+    (run / "summary.json").write_text(json.dumps(summary))
+    (run / "run_manifest.json").write_text(json.dumps(manifest))
+    (run / "run_status.json").write_text("[]")
+    listed = client.get("/api/runs", headers=H)
+    detail = client.get("/api/runs/acme", headers=H)
+    assert listed.status_code == detail.status_code == 200
+    data = detail.get_json()["data"]
+    assert isinstance(data["summary"], dict) and isinstance(data["manifest"], dict)
+    if isinstance(summary, dict) and summary.get("marketing") == {"people": 0}:
+        assert data["people"] == 0
+
+
+def test_status_and_file_count_are_exposed(client):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
+    (run / "run_status.json").write_text(json.dumps({"runner_status": "running", "progress_percent": 25,
+        "current_round": 1, "total_rounds": 4}))
+    card = client.get("/api/runs", headers=H).get_json()["data"]["runs"][0]
+    assert (card["status"], card["progress_percent"], card["current_round"], card["total_rounds"]) == ("running", 25, 1, 4)
+    assert card["file_count"] == 5
+
+
+def test_symlink_runs_and_files_are_never_exposed(client, tmp_path):
+    root = Path(os.environ["MIROFISH_RUNS_DIR"])
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "summary.json").write_text('{"project_name":"private"}')
+    (root / "external").symlink_to(outside, target_is_directory=True)
+    (root / "alias").symlink_to(root / "acme", target_is_directory=True)
+    (root / "acme" / "leak.json").symlink_to(outside / "summary.json")
+    (root / "acme" / "leak.md").symlink_to(outside / "summary.json")
+    (root / "linked-metadata").mkdir()
+    (root / "linked-metadata" / "summary.json").symlink_to(outside / "summary.json")
+    runs = client.get("/api/runs", headers=H).get_json()["data"]["runs"]
+    assert [r["name"] for r in runs] == ["acme"]
+    detail = client.get("/api/runs/acme", headers=H).get_json()["data"]
+    assert "leak.json" not in detail["files"] and "leak.md" not in detail["files"]
+    for url in ["/api/runs/external", "/api/runs/alias", "/api/runs/acme/files/leak.json", "/api/runs/acme/files/leak.md"]:
+        assert client.get(url, headers=H).status_code == 404
+
+
+def test_invalid_json_metadata_is_tolerated_but_cannot_be_read(client):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
+    (run / "summary.json").write_text("{broken")
+    assert client.get("/api/runs", headers=H).status_code == 200
+    assert client.get("/api/runs/acme", headers=H).get_json()["data"]["summary"] == {}
+    assert client.get("/api/runs/acme/files/summary.json", headers=H).status_code == 404
+
+
+def test_thoughts_harvest_the_run_folder(client):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
     (run / "survey.json").write_text(json.dumps({"offer": "Acme", "responses": [
         {"agent_id": 3, "name": "Ana", "answer": {"main_objection": "Too dear for me", "would_convert": "no"}}]}))
     (run / "feed_test.json").write_text(json.dumps({"sessions": [
@@ -78,8 +144,8 @@ def test_thoughts_harvest_the_run_folder(client, tmp_path):
     assert d["people"] == 1
 
 
-def test_status_from_saved_files(client, tmp_path):
-    run = tmp_path / "runs" / "acme"
+def test_run_status_from_saved_files(client):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
     (run / "run_status.json").write_text(json.dumps({"runner_status": "completed", "current_round": 3, "total_rounds": 3}))
     (run / "timeline.json").write_text(json.dumps([{"round_num": 1, "total_actions": 9, "twitter_actions": 4,
                                                     "reddit_actions": 5, "active_agents_count": 6}]))
@@ -92,8 +158,8 @@ def test_status_from_saved_files(client, tmp_path):
     assert client.get("/api/runs/../status", headers=H).status_code in (403, 404)
 
 
-def test_status_reads_the_simulation_id_from_summary_too(client, tmp_path):
-    run = tmp_path / "runs" / "acme"
+def test_status_reads_the_simulation_id_from_summary_too(client):
+    run = Path(os.environ["MIROFISH_RUNS_DIR"]) / "acme"
     (run / "run_manifest.json").write_text(json.dumps({"title": "Acme test"}))          # no simulation_id here
     (run / "summary.json").write_text(json.dumps({"simulation_id": "sim_9", "decision": {"decision": "go"}}))
     d = client.get("/api/runs/acme/status", headers=H).get_json()["data"]

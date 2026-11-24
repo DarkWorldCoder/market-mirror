@@ -18,14 +18,12 @@ import html as _html
 import json
 import random
 import re
-import urllib.request
 from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, List, Optional
 
 from .gtm_suite import (CONCERN_TYPES, _f, _need, _short, ask_people, envelope, gather_objections, mean_ci, offer_dict,
                         offer_text, person_card, product_facts, ranked, sample_people, score_ad, verdict_from_ci, wilson,
                         write_once, _creative, _meter)
-from .website_test import validate_url
 
 UA = "MarketMirror/0.3 (simulated buyer page check)"
 
@@ -40,19 +38,13 @@ def _strip_tags(raw_html: str) -> str:
     return _html.unescape(re.sub(r"\s+", " ", txt)).strip()
 
 
-class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_url(newurl, allow_loopback=False, resolve=True)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def fetch_url_snapshot(url: str, timeout: float = 8.0) -> Dict[str, Any]:
     """Title, headings, buttons, prices and readable text of a public page. Private and loopback addresses are
     refused, including after a redirect."""
-    safe_url = validate_url(url, allow_loopback=False, resolve=True)
-    opener = urllib.request.build_opener(_CheckedRedirects)
-    with opener.open(urllib.request.Request(safe_url, headers={"User-Agent": UA}), timeout=timeout) as resp:
-        raw = resp.read(400_000).decode("utf-8", errors="replace")
+    from ..utils.public_http import get_public
+    response = get_public(url, timeout=timeout, max_bytes=400000, user_agent=UA)
+    safe_url = response["url"]
+    raw = response["body"].decode("utf-8", errors="replace")
     title = re.search(r"(?is)<title[^>]*>(.*?)</title>", raw)
     meta = re.search(r'(?is)<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']', raw)
     h1 = [t for t in (_strip_tags(m) for m in re.findall(r"(?is)<h1[^>]*>(.*?)</h1>", raw)) if t][:3]

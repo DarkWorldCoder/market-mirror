@@ -2,7 +2,8 @@
 
 The CLI writes each run to `mirofish_runs/<name>/` (summary.json, survey.json, feed_test.json, graph.json,
 disclosure.md, dashboard.html...). The workspace lists those folders and reads their result files through this
-blueprint. Every route needs the local setup token, like the workflow API. Only plain files directly inside a run
+blueprint. Every route needs the local setup token, like the workflow API, or (in team mode) a signed-in member
+of a workspace, who sees only the runs in that workspace's run index. Only plain files directly inside a run
 folder, with a known extension, can be read; names are checked before any path is built.
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
-from .setup import _guard
+from .. import auth
 
 runs_bp = Blueprint("runs", __name__)
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
@@ -30,18 +31,19 @@ def runs_root() -> Path:
 
 
 def _run_dir(name: str) -> Path:
-    if not isinstance(name, str) or not NAME.match(name) or ".." in name:
+    if not isinstance(name, str) or not NAME.fullmatch(name) or ".." in name or not auth.run_allowed(name):
         raise LookupError("unknown run")
     root = runs_root()
-    path = (root / name).resolve()
-    if path.parent != root or not path.is_dir():
+    candidate = root / name
+    path = candidate.resolve()
+    if candidate.is_symlink() or path.parent != root or not path.is_dir():
         raise LookupError("unknown run")
     return path
 
 
 def _read(path: Path) -> Optional[Any]:
     try:
-        if path.stat().st_size > MAX_JSON:
+        if not _plain_file(path) or path.stat().st_size > MAX_JSON:
             return None
         with path.open(encoding="utf-8") as f:
             data = json.load(f)
@@ -52,24 +54,43 @@ def _read(path: Path) -> Optional[Any]:
     return data
 
 
+def _plain_file(path: Path) -> bool:
+    return not path.is_symlink() and path.is_file()
+
+
+def _object(value: Any) -> Dict[str, Any]:
+    """Metadata files and nested metadata must be objects; result files may contain arrays."""
+    return value if isinstance(value, dict) else {}
+
+
+def _files(path: Path):
+    return sorted(f.name for f in path.iterdir() if FILE.fullmatch(f.name) and _plain_file(f))
+
+
 def _card(path: Path) -> Dict[str, Any]:
-    manifest = _read(path / "run_manifest.json") or {}
-    summary = _read(path / "summary.json") or {}
-    mk = summary.get("marketing") if isinstance(summary, dict) else None
-    decision = (summary.get("decision") or {}) if isinstance(summary, dict) else {}
+    manifest = _object(_read(path / "run_manifest.json"))
+    summary = _object(_read(path / "summary.json"))
+    mk = _object(summary.get("marketing"))
+    decision = _object(summary.get("decision"))
+    status = _object(_read(path / "run_status.json"))
     when = manifest.get("finished_at") or manifest.get("started_at")
     return {"name": path.name, "title": manifest.get("title") or summary.get("project_name") or path.name,
             "decision": decision.get("decision"), "summary": decision.get("summary"),
-            "people": (mk or {}).get("people") or summary.get("agents"),
+            "people": mk.get("people", summary.get("agents")),
             "simulation_id": manifest.get("simulation_id") or summary.get("simulation_id"),
             "updated_at": when, "mtime": path.stat().st_mtime,
-            "has_dashboard": (path / "dashboard.html").is_file()}
+            "has_dashboard": _plain_file(path / "dashboard.html"),
+            "file_count": len(_files(path)),
+            "status": status.get("runner_status") or summary.get("runner_status") or summary.get("simulation_status"),
+            "progress_percent": status.get("progress_percent"),
+            "current_round": status.get("current_round", summary.get("current_round")),
+            "total_rounds": status.get("total_rounds", summary.get("total_rounds"))}
 
 
 @runs_bp.before_request
 def protect():
     if request.path.startswith("/api/runs"):
-        return _guard(write=request.method != "GET")
+        return auth.require("viewer")
 
 
 @runs_bp.errorhandler(LookupError)
@@ -88,29 +109,44 @@ def list_runs():
     root = runs_root()
     if not root.is_dir():
         return ok({"root": str(root), "runs": []})
-    dirs = [d for d in root.iterdir() if d.is_dir() and NAME.match(d.name) and not d.name.startswith("_")
-            and ((d / "summary.json").is_file() or (d / "run_manifest.json").is_file())]
+    dirs = [d for d in root.iterdir() if not d.is_symlink() and d.is_dir() and NAME.fullmatch(d.name) and ".." not in d.name
+            and (_plain_file(d / "summary.json") or _plain_file(d / "run_manifest.json"))]
+    dirs = [d for d in dirs if auth.run_allowed(d.name)]
     dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    return ok({"root": str(root), "runs": [_card(d) for d in dirs[:200]]})
+    scope = auth.current_scope()
+    if scope is not None and scope.is_local:
+        _index_local(d.name for d in dirs)
+    return ok({"root": "" if scope is not None and not scope.is_local else str(root), "runs": [_card(d) for d in dirs]})
+
+
+def _index_local(names) -> None:
+    """Keep the local workspace's run index in step with the run folders on this computer."""
+    from ..db import get_db, repo
+    try:
+        with get_db().transaction() as conn:
+            for name in names:
+                repo.add_run(conn, repo.LOCAL_WORKSPACE, name, repo.LOCAL_USER)
+    except Exception:  # the folder listing is the answer; the index is bookkeeping
+        pass
 
 
 def _sim_folder(sid: Any) -> Optional[Path]:
     """The simulation's folder on this backend, when it is there (chat with people and the report agent needs it)."""
     from ..config import Config
-    if not isinstance(sid, str) or not NAME.match(sid) or ".." in sid:
+    if not isinstance(sid, str) or not NAME.fullmatch(sid) or ".." in sid:
         return None
     root = Path(Config.OASIS_SIMULATION_DATA_DIR).resolve()
-    path = (root / sid).resolve()
-    return path if path.parent == root and path.is_dir() else None
+    candidate = root / sid
+    path = candidate.resolve()
+    return path if not candidate.is_symlink() and path.parent == root and path.is_dir() else None
 
 
 @runs_bp.get("/api/runs/<name>")
 def run_detail(name):
     path = _run_dir(name)
-    files = sorted(f.name for f in path.iterdir() if f.is_file() and FILE.match(f.name))
     card = _card(path)
-    return ok({**card, "files": files, "manifest": _read(path / "run_manifest.json") or {},
-               "summary": _read(path / "summary.json") or {},
+    return ok({**card, "files": _files(path), "manifest": _object(_read(path / "run_manifest.json")),
+               "summary": _object(_read(path / "summary.json")),
                "simulation_on_backend": _sim_folder(card.get("simulation_id")) is not None})
 
 
@@ -135,7 +171,7 @@ def run_status(name):
     """The run's stages, its round status (live from the runner when the simulation is on this backend, else the
     saved run_status.json) and actions per round from timeline.json."""
     path = _run_dir(name)
-    manifest = _read(path / "run_manifest.json") or {}
+    manifest = _object(_read(path / "run_manifest.json"))
     sid = _card(path).get("simulation_id")  # manifest first, then summary.json, as in run detail
     live = None
     if _sim_folder(sid):
@@ -152,7 +188,7 @@ def run_status(name):
               for r in (timeline if isinstance(timeline, list) else []) if isinstance(r, dict)]
     stages = [{"id": i, "label": label, "done": bool(manifest.get(key))} for i, label, key in STAGES
               if manifest.get(key) or i in ("graph", "people", "report")]
-    return ok({"simulation_id": sid, "live": live is not None, "run": live or _read(path / "run_status.json") or {},
+    return ok({"simulation_id": sid, "live": live is not None, "run": live or _object(_read(path / "run_status.json")),
                "stages": stages, "rounds": rounds, "error": manifest.get("error"),
                "started_at": manifest.get("started_at"), "finished_at": manifest.get("finished_at")})
 
@@ -160,7 +196,7 @@ def run_status(name):
 @runs_bp.get("/api/runs/<name>/files/<filename>")
 def run_file(name, filename):
     path = _run_dir(name)
-    if not FILE.match(filename) or not (path / filename).is_file():
+    if not FILE.fullmatch(filename) or not _plain_file(path / filename):
         raise LookupError("unknown file")
     if filename.endswith(".json"):
         data = _read(path / filename)

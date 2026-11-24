@@ -1162,6 +1162,9 @@ def make_handler(gw: Gateway):
                                  "workers": gw.workers, "port": self.server.server_address[1], "pid": os.getpid(),
                                  "cache": gw.cache.path, **extra, **stats, **gw.pause_state()})
             elif self.path.startswith("/v1/models"):
+                if gw.auth_token and not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + gw.auth_token):
+                    self._send(401, {"error": {"message": "invalid local gateway token", "type": "authentication_error"}})
+                    return
                 self._send(200, {"object": "list", "data": [{"id": gw.backend.model or gw.backend.name, "object": "model",
                                                              "owned_by": gw.backend.name}]})
             else:

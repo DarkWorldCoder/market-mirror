@@ -24,6 +24,9 @@
       "name": "Local guided workflows (X-Setup-Token required)"
     },
     {
+      "name": "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+    },
+    {
       "name": "Tests on simulated people"
     },
     {
@@ -40,6 +43,2464 @@
     }
   ],
   "paths": {
+    "/api/auth/session": {
+      "get": {
+        "summary": "Which mode the server is in (local or accounts) and, in team mode, the signed-in person, CSRF token, chosen workspace and all their workspaces",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{mode,account,csrf,workspace,workspaces,signups,first_account?}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/auth/signup": {
+      "post": {
+        "summary": "Team mode only. Create an account (argon2id); the first account is always allowed, later ones follow MM_SIGNUPS (open, invite, closed); exact Origin; rate limited",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state; sets the HttpOnly mm_session cookie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "email": "person@example.com",
+                "password": "12 to 256 characters",
+                "name": "Sam",
+                "workspace_name": "Acme marketing",
+                "invitation": "token from an invitation link"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Team mode only. Sign in; 10 failures per email and 30 attempts per client in 15 minutes, then 429",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state; sets the mm_session cookie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "email": "person@example.com",
+                "password": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "summary": "Delete this browser's session (CSRF token required)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{signed_out:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/auth/password": {
+      "post": {
+        "summary": "Change your password; signs out every other browser",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "current_password": "...",
+                "new_password": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/workspaces": {
+      "post": {
+        "summary": "Create a workspace you own and switch to it",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Second team"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/workspaces/select": {
+      "post": {
+        "summary": "Switch this session to a workspace you belong to",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "id": "ws_..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/invitations/{token}": {
+      "get": {
+        "summary": "Preview an open invitation: workspace name, role, bound email, expiry",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{workspace,role,email,expires_at}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/auth/invitations/accept": {
+      "post": {
+        "summary": "Accept an invitation as the signed-in person (one use; email must match when bound)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "session state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "token": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/team": {
+      "get": {
+        "summary": "Workspace, members with roles and (for owners) open invitations",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{workspace,members,invitations,you,mode}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/team/workspace": {
+      "patch": {
+        "summary": "Owner: rename the workspace",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,name}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Acme marketing"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/team/members/{user_id}": {
+      "patch": {
+        "summary": "Owner: change a member's role (owner, editor, viewer); the last owner stays",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "member array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "role": "viewer"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Owner: remove a member; anyone: leave (yourself). Their open tabs lose access at once",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "member array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/team/invitations": {
+      "post": {
+        "summary": "Owner, team mode: one-use invitation link (token after #, stored hashed), optional email, 5 minutes to 30 days; no email is sent",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,email,role,expires_at,url}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "email": "optional",
+                "role": "editor",
+                "expires_in_days": 7
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/team/invitations/{invite_id}": {
+      "delete": {
+        "summary": "Owner: revoke an open invitation",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,revoked:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspace/chats": {
+      "get": {
+        "summary": "Chats of the workspace from the database (viewer); since=ms for changes only, summary=1 without messages",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{chats,imported_sources,role}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/chats/{chat_id}": {
+      "get": {
+        "summary": "One chat with messages and authors",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Editor: create or replace a chat; a stale base_revision returns 409 with the stored chat to merge",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "chat with new revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "chat": {
+                  "id": "chat-1",
+                  "title": "Pricing",
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "..."
+                    }
+                  ]
+                },
+                "base_revision": 3
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a chat: its creator or an owner",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,deleted:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/chats/import": {
+      "post": {
+        "summary": "Editor: one-time upload of a browser's localStorage chats; existing ids are skipped; once per browser id",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{imported,skipped,already_imported}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "source": "browser id",
+                "chats": []
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/pins": {
+      "get": {
+        "summary": "Your pinned runs in this workspace",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{pins}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Replace your pinned runs (only runs this workspace can see are kept)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{pins}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "pins": [
+                  "run_name"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/preferences": {
+      "get": {
+        "summary": "Workspace preferences (default_model) and yours (theme)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{workspace,user}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Set preferences; workspace keys need an owner",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{workspace,user}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "user": {
+                  "theme": "dark"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/onboarding": {
+      "get": {
+        "summary": "First-run steps done, whether a model is connected and who can connect one or invite",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{steps,workspace,model_connected,can_connect_model,can_invite,members,runs_in_workspace,mode,demo_url}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Editor: mark onboarding steps (workspace, model, invite, demo, dismissed)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "onboarding state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "steps": {
+                  "demo": true
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/runs-index": {
+      "get": {
+        "summary": "Saved runs this workspace can see",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{runs}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Editor: add a saved run (local caller: any run folder; team member: a run they already edit in another workspace)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{runs}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "run_name"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/runs-index/{name}": {
+      "delete": {
+        "summary": "Editor: remove a run from this workspace's list (the folder stays)",
+        "tags": [
+          "Accounts, workspaces and team data (setup token locally; session cookie, CSRF token and X-MM-Workspace in team mode)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{runs}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/chat/stream": {
+      "post": {
+        "summary": "Stream actual public model/tool/reviewer progress then result or error; same validated chat inputs; no private reasoning or implicit execution",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream: progress {type,status,label,tool?,role?,model?,summary?,data?}, result {message,artifacts,trace,suggestions,agent_activity?,tool_results?,browser_observations?,workflow_id?}, error {message,status}; project source text is read in bounded authorized pages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Explore my saved results"
+                  }
+                ],
+                "mode": "team",
+                "model": "server catalog ID",
+                "project": "proj_abcdef123456",
+                "team_agents": [
+                  "market-analyst",
+                  "critical-reviewer"
+                ],
+                "team_models": {
+                  "market-analyst": "server catalog ID"
+                },
+                "connector_tools": [
+                  "mcp_abcdef123456/reports"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/projects/{project_id}/sources": {
+      "post": {
+        "summary": "Append a persistent plain-text project source; 10 sources,24k chars each,120k total,30KB request cap; no downloads or model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "updated project with sources and preferred_model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Product brief",
+                "text": "Source facts and references"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/projects/{project_id}/sources/{source_id}": {
+      "delete": {
+        "summary": "Remove one saved project source by opaque ID",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/skills": {
+      "get": {
+        "summary": "List private workspace prompt templates; no executable imports",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "custom skill array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Save a reusable instruction template without fetching or running code",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "custom skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Ad review",
+                "description": "Review supplied ads",
+                "instructions": "Use supplied evidence",
+                "group": "Custom skills",
+                "source_url": "https://github.com/example/repository"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/skills/{skill_id}": {
+      "get": {
+        "summary": "Read one saved prompt template",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "custom skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Edit a saved prompt template; built-in engine skills cannot be changed",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "custom skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Weekly ad review"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a saved custom prompt template",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,deleted:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/browser/observe": {
+      "post": {
+        "summary": "Capture a real bounded read-only public browser page snapshot with JavaScript off and public-IP-pinned GET resources; optional sandboxed Playwright required",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{session_id,url,title,text,text_truncated,screenshot,screenshots,events,links,mode,javascript,status_code}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/browser/{session_id}/image": {
+      "get": {
+        "summary": "Guarded PNG screenshot for an opaque observation session; frame=0 or1, expires after24h",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "image/png",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/local-models": {
+      "get": {
+        "summary": "Explicit bounded loopback-only installed-model discovery; refresh=1 refreshes cache, hosted workers skip unconfigured defaults",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{models:[{id,provider,base_url,source}],sources,checked_at,truncated}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/connectors": {
+      "get": {
+        "summary": "Safe saved remote MCP configuration and actual discovery status; tokens omitted",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "connector array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Save a public HTTPS Streamable HTTP MCP server with write-only bearer credential; no connection or tool call",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "safe connector",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Meta Ads",
+                "url": "https://mcp.facebook.com/ads",
+                "token": "write-only",
+                "enabled": false,
+                "allowed_tools": [],
+                "protocol_version": "2025-11-25"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/connectors/{connector_id}": {
+      "patch": {
+        "summary": "Update connector settings, enabled state and explicit read-only tool allowlist",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "safe connector",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "connector_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "enabled": true,
+                "allowed_tools": [
+                  "ads_read"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Remove connector configuration and its stored credential",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{id,deleted:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "connector_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/connectors/{connector_id}/discover": {
+      "post": {
+        "summary": "Actually initialize a saved MCP server and list tools with bounded JSON/SSE parsing; no business tool execution",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "safe connector with status, tools, checked_at, error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "connector_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/session": {
+      "get": {
+        "summary": "Bootstrap a same-origin browser session on a literal loopback host; Sec-Fetch-Site same-origin required",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{token}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          }
+        }
+      }
+    },
+    "/api/workspace/projects": {
+      "get": {
+        "summary": "List persistent projects and chat/run associations",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "project array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a real engine project and workspace metadata without model calls",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Launch",
+                "description": "Launch research",
+                "instructions": "Project preferences",
+                "chat_ids": [],
+                "run_names": []
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/projects/{project_id}": {
+      "get": {
+        "summary": "Read one project",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Update project preferences and associations",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "Launch"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Archive project metadata while preserving evidence",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{archived:true}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/settings": {
+      "get": {
+        "summary": "Read safe model, memory, decision engine and spending configuration without secrets",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{llm,memory,jev,spending}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Save validated configuration and write-only credentials; no paid connection test",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "safe settings with restart and connection status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "memory": {
+                  "backend": "local"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/models": {
+      "get": {
+        "summary": "Safe configured and connected local chat model choices; no credentials or configuration writes",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{models:[{id,name,provider,model,available,description,connection_required,connection_backend?}],default_id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/chat": {
+      "post": {
+        "summary": "Validated conversational assistant with saved evidence, selected-project source index/paged reads, enabled read-only connector tools and explicitly requested public page snapshots; optional2\u20134 no-tool team reviewers; never executes experiments",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{message,artifacts:[{run,file}],trace,suggestions,workflow_id?,agent_activity:[{id,role,status,summary,model?}]?,tool_results?,browser_observations?}; model IDs are server catalog pointers and never modify global provider settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What did the pricing test show?"
+                  }
+                ],
+                "run": "saved_run",
+                "project": "proj_abcdef123456",
+                "model": "server catalog ID",
+                "mode": "team",
+                "team_agents": [
+                  "market-analyst",
+                  "critical-reviewer"
+                ],
+                "team_models": {
+                  "market-analyst": "server catalog ID"
+                },
+                "connector_tools": [
+                  "mcp_abcdef123456/reports"
+                ],
+                "context": {
+                  "name": "Product brief",
+                  "text": "User-supplied source text"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
     "/api/workflows/meta": {
       "get": {
         "summary": "Recipe catalog and public provider status; no model calls",
@@ -735,8 +3196,19 @@
           },
           "404": {
             "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
           }
-        }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
       }
     },
     "/api/runs/{name}": {
@@ -761,6 +3233,12 @@
           },
           "404": {
             "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
           }
         },
         "parameters": [
@@ -771,6 +3249,11 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
           }
         ]
       }
@@ -797,6 +3280,12 @@
           },
           "404": {
             "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
           }
         },
         "parameters": [
@@ -807,6 +3296,11 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
           }
         ]
       }
@@ -833,6 +3327,12 @@
           },
           "404": {
             "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
           }
         },
         "parameters": [
@@ -843,6 +3343,11 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
           }
         ]
       }
@@ -869,6 +3374,12 @@
           },
           "404": {
             "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
           }
         },
         "parameters": [
@@ -887,6 +3398,11 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "LocalSetupToken": []
           }
         ]
       }

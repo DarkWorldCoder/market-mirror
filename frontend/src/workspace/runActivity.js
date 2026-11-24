@@ -1,7 +1,7 @@
 // What the simulated people did in a saved run, read from its files with no model call: who replied to, liked or
 // quoted whom (from the social feed, with the round), their per-person action counts, and plain-language sentences
 // for a person card.
-import { api } from './api.js'
+import { api } from './api'
 
 const cache = new Map()
 

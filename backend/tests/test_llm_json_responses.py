@@ -257,3 +257,22 @@ def test_chat_json_reports_missing_choices_without_retrying_forever():
         )
 
     assert len(sequence.calls) == 2
+
+
+def test_plain_text_is_available_without_weakening_strict_json_callers():
+    sequence = CompletionSequence(_response("Hello. What would you like to test?"))
+    client = _client_for(sequence)
+    with pytest.raises(LLMResponseError) as captured:
+        client.chat_json(messages=[{"role": "user", "content": "Hi"}], max_attempts=1)
+    assert captured.value.raw_text == "Hello. What would you like to test?"
+    assert "What would" not in str(captured.value)
+    assert len(sequence.calls) == 1
+
+
+def test_truncated_text_cannot_be_recovered_as_a_complete_answer():
+    sequence = CompletionSequence(_response("A partial answer", finish_reason="length"))
+    client = _client_for(sequence)
+    with pytest.raises(LLMResponseError) as captured:
+        client.chat_json(messages=[{"role": "user", "content": "Hi"}], max_attempts=1)
+    assert captured.value.raw_text is None
+    assert len(sequence.calls) == 1

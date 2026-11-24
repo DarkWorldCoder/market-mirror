@@ -1,0 +1,122 @@
+<template>
+  <!-- Pattern from shadcn.io's onboarding blocks: progress, numbered steps that tick off, one action each. -->
+  <Dialog :open="open" @update:open="(v) => { if (!v) finish() }">
+    <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme">
+      <DialogHeader>
+        <DialogTitle>Set up {{ state?.workspace.name || 'your workspace' }}</DialogTitle>
+        <DialogDescription>Four short steps. Skip any of them; Workspace and team has them all later.</DialogDescription>
+      </DialogHeader>
+      <div class="grid gap-2">
+        <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
+        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" :aria-valuenow="doneCount" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all" :style="{ width: `${doneCount * 25}%` }"></div></div>
+      </div>
+
+      <ol class="grid gap-3">
+        <li v-for="(step, index) in stepList" :key="step.id" class="bg-card flex gap-3 rounded-xl border p-4" :class="{ 'opacity-80': isDone(step.id) }">
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium" :class="isDone(step.id) ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'">
+            <Check v-if="isDone(step.id)" class="size-3.5" aria-hidden="true" /><template v-else>{{ index + 1 }}</template>
+          </span>
+          <div class="grid min-w-0 flex-1 gap-2">
+            <p class="text-sm leading-6 font-medium">{{ step.title }}</p>
+
+            <template v-if="step.id === 'workspace'">
+              <form v-if="canRename" class="flex gap-2" @submit.prevent="saveName"><Input v-model.trim="name" maxlength="80" aria-label="Workspace name" class="h-8" /><Button size="sm" :disabled="!name || busy">Save</Button></form>
+              <p v-else class="text-muted-foreground text-sm">{{ state?.workspace.name }}. Only an owner can rename it.</p>
+            </template>
+
+            <template v-else-if="step.id === 'model'">
+              <p class="text-muted-foreground text-sm">{{ modelText }}</p>
+              <div class="flex flex-wrap gap-2">
+                <Button v-if="state?.can_connect_model && !state?.model_connected" size="sm" @click="emit('settings')"><Cpu aria-hidden="true" />Open model settings</Button>
+                <Button variant="ghost" size="sm" @click="mark('model')">{{ state?.model_connected ? 'Done' : 'Skip for now' }}</Button>
+              </div>
+            </template>
+
+            <template v-else-if="step.id === 'invite'">
+              <template v-if="state?.can_invite">
+                <form class="flex flex-wrap gap-2" @submit.prevent="invite">
+                  <Input v-model.trim="email" type="email" placeholder="Email (optional)" aria-label="Teammate email" maxlength="320" class="h-8 min-w-40 flex-1" />
+                  <NativeSelect v-model="inviteRole" aria-label="Role" class="h-8 w-28"><option value="editor">editor</option><option value="viewer">viewer</option></NativeSelect>
+                  <Button size="sm" :disabled="busy"><Link2 aria-hidden="true" />Create link</Button>
+                </form>
+                <div v-if="link" class="flex gap-2"><Input :model-value="link" readonly aria-label="Invitation link" class="h-8" @focus="$event.target.select()" /><Button variant="secondary" size="sm" @click="copy"><component :is="copied ? Check : Copy" aria-hidden="true" />{{ copied ? 'Copied' : 'Copy' }}</Button></div>
+                <p class="text-muted-foreground text-xs">No email is sent; share the link yourself. It works once.</p>
+              </template>
+              <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. To work with teammates, run MarketMirror on a server with team accounts on (<code>MM_ACCOUNTS=on</code>, see docs/ACCOUNTS.md).</p>
+              <p v-else class="text-muted-foreground text-sm">Ask an owner of this workspace to invite people.</p>
+              <div><Button variant="ghost" size="sm" @click="mark('invite')">{{ link ? 'Done' : 'Skip' }}</Button></div>
+            </template>
+
+            <template v-else>
+              <p class="text-muted-foreground text-sm">A finished test with its simulated buyers, report and decision. It needs no model and spends nothing. Every number in it is simulated.</p>
+              <div class="flex flex-wrap gap-2">
+                <Button as="a" size="sm" variant="outline" :href="state?.demo_url" target="_blank" rel="noopener noreferrer" @click="mark('demo')"><ArrowUpRight aria-hidden="true" />Open the demo</Button>
+                <Button v-if="latestRun" variant="ghost" size="sm" @click="openLatest">Open your latest run</Button>
+              </div>
+            </template>
+          </div>
+        </li>
+      </ol>
+      <p v-if="error" class="text-destructive text-sm" role="alert">{{ error }}</p>
+      <DialogFooter><Button @click="finish">{{ allDone ? 'Finish' : 'Close setup' }}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { ArrowUpRight, Check, Copy, Cpu, Link2 } from 'lucide-vue-next'
+import { Button } from '../ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Input } from '../ui/input'
+import { NativeSelect } from '../ui/native-select'
+import { api } from '../../workspace/api.js'
+import { isOwner } from '../../workspace/account.js'
+
+const props = defineProps({ open: Boolean, theme: { type: String, default: 'light' }, latestRun: { type: String, default: '' } })
+const emit = defineEmits(['update:open', 'settings'])
+const router = useRouter()
+const state = ref(null), error = ref(''), busy = ref(false)
+const name = ref(''), email = ref(''), inviteRole = ref('editor'), link = ref(''), copied = ref(false)
+const stepList = [{ id: 'workspace', title: 'Name your workspace' }, { id: 'model', title: 'Connect a model' }, { id: 'invite', title: 'Invite teammates' }, { id: 'demo', title: 'Try the saved demo' }]
+const steps = computed(() => state.value?.steps || {})
+const isDone = (id) => !!steps.value[id] || (id === 'model' && !!state.value?.model_connected)
+const doneCount = computed(() => stepList.filter(s => isDone(s.id)).length)
+const allDone = computed(() => doneCount.value === 4)
+const canRename = computed(() => isOwner.value)
+const modelText = computed(() => state.value?.model_connected
+  ? 'A model is connected. Simulated buyers answer through it, and you approve any spending before a run.'
+  : state.value?.can_connect_model
+    ? 'No model yet. Add an API key or a local login in Settings. The saved demo works without one.'
+    : 'No model yet. Whoever runs MarketMirror on the server connects one there with ./mm setup.')
+
+async function load() {
+  try { state.value = await api('/api/workspace/onboarding'); name.value = state.value.workspace.name } catch (err) { error.value = err.message }
+}
+async function mark(step, value = true) {
+  try { state.value = await api('/api/workspace/onboarding', { method: 'PUT', body: { steps: { [step]: value } } }) }
+  catch (err) { error.value = err.message }
+}
+async function saveName() {
+  busy.value = true; error.value = ''
+  try { await api('/api/team/workspace', { method: 'PATCH', body: { name: name.value } }); await mark('workspace'); window.dispatchEvent(new Event('mm-workspace-renamed')) }
+  catch (err) { error.value = err.message } finally { busy.value = false }
+}
+async function invite() {
+  busy.value = true; error.value = ''
+  try { link.value = (await api('/api/team/invitations', { method: 'POST', body: { email: email.value || null, role: inviteRole.value } })).url; copied.value = false; email.value = '' }
+  catch (err) { error.value = err.message } finally { busy.value = false }
+}
+async function copy() { try { await navigator.clipboard.writeText(link.value); copied.value = true } catch { error.value = 'Select the link and copy it by hand.' } }
+async function openLatest() { await mark('demo'); finish(); router.push({ path: '/', query: { run: props.latestRun, show: 'reports' } }) }
+async function finish() { if (state.value && !steps.value.dismissed) await mark('dismissed'); emit('update:open', false) }
+
+watch(() => props.open, (value) => { if (value) load() }, { immediate: true })
+</script>
+
+<style>
+.ws-overlay.mm-onboard p, .ws-overlay.mm-onboard ol { margin: 0; padding: 0; list-style: none; }
+.ws-overlay.mm-onboard code { font-size: 12px; }
+@layer base { .mm-onboard *, .mm-onboard *::before, .mm-onboard *::after { border-color: var(--line); } }
+</style>

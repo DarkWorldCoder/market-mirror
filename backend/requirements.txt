@@ -8,6 +8,8 @@
 # ============= 核心框架 =============
 flask>=3.0.0
 flask-cors>=6.0.0
+# Team accounts: argon2id password hashing
+argon2-cffi>=23.1.0
 
 # ============= LLM 相关 =============
 # OpenAI SDK（统一使用 OpenAI 格式调用 LLM）
@@ -37,3 +39,8 @@ pydantic>=2.0.0
 
 # 本地记忆后端的向量嵌入 (ONNX, CPU, 无需 API key)
 fastembed>=0.7
+
+# Local provider sign-in gateway
+requests>=2.32.0
+PyJWT[crypto]>=2.10.0
+anthropic>=2.1.0

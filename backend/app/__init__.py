@@ -84,7 +84,7 @@ def create_app(config_class=Config):
     def log_request():
         logger = get_logger('mirofish.request')
         logger.debug(f"请求: {request.method} {request.path}")
-        if log_bodies and not request.path.startswith(('/api/workflows', '/api/setup')) and request.content_type and 'json' in request.content_type:
+        if log_bodies and not request.path.startswith(('/api/workflows', '/api/setup', '/api/workspace/')) and request.content_type and 'json' in request.content_type:
             body = request.get_json(silent=True)
             if request.path == '/api/simulation/website-test' and isinstance(body, dict):
                 body = {**body, 'spec': {**(body.get('spec') or {}), 'test_data': '[redacted]'}} if isinstance(body.get('spec'), dict) else body
@@ -107,6 +107,29 @@ def create_app(config_class=Config):
     app.register_blueprint(workflows_bp)
     from .api.runs import runs_bp
     app.register_blueprint(runs_bp)
+    from .api.workspace_chat import workspace_chat_bp
+    app.register_blueprint(workspace_chat_bp)
+    from .api.workspace_projects import workspace_projects_bp
+    app.register_blueprint(workspace_projects_bp)
+    from .api.workspace_skills import workspace_skills_bp
+    app.register_blueprint(workspace_skills_bp)
+    from .api.workspace_settings import workspace_settings_bp
+    app.register_blueprint(workspace_settings_bp)
+    from .api.workspace_connectors import workspace_connectors_bp
+    app.register_blueprint(workspace_connectors_bp)
+    from .api.workspace_browser import workspace_browser_bp
+    app.register_blueprint(workspace_browser_bp)
+    from .api.accounts import accounts_bp
+    app.register_blueprint(accounts_bp)
+    from .api.workspace_data import workspace_data_bp
+    app.register_blueprint(workspace_data_bp)
+
+    # Team mode fails at start, not at the first sign-in, when its password hasher or database is missing.
+    from . import auth
+    if auth.accounts_enabled():
+        auth._hasher()
+        from .db import get_db
+        get_db()
     
     # 健康检查
     @app.route('/health')

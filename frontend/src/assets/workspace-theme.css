@@ -1,0 +1,313 @@
+/* Reference-led workspace finish: a cool glass shell, warm product accent and colored starter cards.
+   Direction: user references 1 and 3, with chat/dashboard composition research at
+   https://dribbble.com/shots/25369372-AI-Powered-Dashboard-with-Chat-Interface
+   https://dribbble.com/shots/26627253-AI-Chat-Dashboard
+   Existing components and interactions retain their own layout rules. */
+.ws {
+  --bg: #eef0fb;
+  --panel: #ffffff;
+  --panel-2: #f4f5fb;
+  --line: #dfe2ef;
+  --text: #242536;
+  --muted: #626579;
+  --accent: #70530d;
+  --accent-2: #fbf2cc;
+  --warm: #a55c32;
+  --yes: #347556;
+  --maybe: #906d1c;
+  --no: #a94f58;
+  --data: #4b5563;
+  --shadow: 0 2px 5px rgb(57 54 100 / 2%), 0 14px 45px rgb(74 72 122 / 5%);
+  background:
+    radial-gradient(ellipse at 0% 0%, #dfe7ff 0%, transparent 48%),
+    radial-gradient(ellipse at 100% 0%, #f2e6f7 0%, transparent 44%),
+    radial-gradient(ellipse at 100% 100%, #e3f4ec 0%, transparent 47%),
+    #f3f3fc;
+}
+.ws .ws-side {
+  background: linear-gradient(165deg, rgb(226 234 255 / 87%), rgb(239 232 251 / 83%) 52%, rgb(232 242 244 / 91%));
+  border-right-color: rgb(191 200 229 / 56%);
+  box-shadow: inset -1px 0 rgb(255 255 255 / 48%);
+  backdrop-filter: blur(18px);
+}
+.ws .ws-brand { color: #252534; }
+.ws .ws-brand .marketmirror-logo { color: #191a20; }
+.ws .ws-search {
+  background: rgb(255 255 255 / 67%);
+  border-color: rgb(255 255 255 / 86%);
+  box-shadow: 0 2px 7px rgb(87 93 141 / 3%);
+}
+.ws .ws-search input::placeholder { color: #696d82; }
+.ws .ws-search kbd { color: #646b82; }
+.ws .ws-nav a, .ws .ws-nav button { color: #45495e; }
+.ws .ws-nav a:hover, .ws .ws-nav button:hover { background: rgb(255 255 255 / 48%); color: #272a3d; }
+.ws .ws-nav a.active {
+  background: #f4e29b;
+  color: #483c1e;
+  box-shadow: 0 2px 8px rgb(139 111 44 / 7%);
+}
+.ws .ws-group { color: #626780; }
+.ws .ws-history a { color: #535971; }
+.ws .ws-history a:hover, .ws .ws-history a.active { color: #30384f; background: rgb(255 255 255 / 59%); }
+.ws .ws-me {
+  background: rgb(255 255 255 / 48%);
+  border: 1px solid rgb(255 255 255 / 70%);
+  box-shadow: 0 4px 15px rgb(64 70 117 / 3%);
+}
+.ws .ws-avatar { background: linear-gradient(140deg, #e0b999, #be98c5); }
+.ws .ws-me b { color: #35364b; }
+.ws .ws-me span { color: #5e647a; }
+.ws .ws-top { background: transparent; }
+.ws .ws-crumbs { color: #62667b; }
+.ws .ws-top-actions a {
+  background: rgb(255 255 255 / 78%);
+  border-color: rgb(205 207 227 / 84%);
+  box-shadow: 0 2px 5px rgb(46 49 81 / 3%);
+  color: #3e4052;
+}
+.ws .ws-canvas {
+  background:
+    radial-gradient(ellipse at 10% 5%, rgb(226 234 255 / 51%), transparent 55%),
+    radial-gradient(ellipse at 90% 0%, rgb(246 232 250 / 48%), transparent 47%),
+    radial-gradient(ellipse at 85% 100%, rgb(226 247 237 / 48%), transparent 48%),
+    rgb(255 255 255 / 76%);
+  border-color: rgb(255 255 255 / 88%);
+  box-shadow: 0 2px 5px rgb(84 81 129 / 2%), 0 18px 55px rgb(74 72 122 / 5%);
+}
+.ws .direct-chat { background: transparent; }
+.ws .direct-chat .direct-welcome h1 { color: #292b3c; }
+.ws .direct-chat .direct-welcome>p { color: #626579; }
+.ws .direct-chat .direct-symbol {
+  background: linear-gradient(145deg, #fff8dc, #f7e4a2);
+  box-shadow: 0 0 0 6px rgb(255 251 234 / 66%), 0 8px 25px rgb(159 124 34 / 13%);
+  color: #20212a;
+}
+.ws .direct-chat .direct-composer-wrap {
+  background: rgb(255 255 255 / 94%);
+  border-color: #d8dbea;
+  box-shadow: 0 5px 13px rgb(67 67 107 / 3%), 0 18px 55px rgb(70 68 111 / 9%);
+}
+.ws .direct-chat .direct-composer-wrap:focus-within { border-color: #bfa968; }
+.ws .direct-chat .direct-composer-options { border-color: #ebeaf1; background: rgb(250 250 255 / 70%); }
+.ws .library-composer {
+  --an-primary-color: #70530d;
+  --an-input-focus-outline: #a98b32;
+  --an-send-button-bg: #353542;
+  --an-send-button-color: #ffffff;
+  --an-border-color: #dfe2ed;
+  --an-background-secondary: #f1f2f9;
+}
+.ws .direct-chat .library-composer .an-composer-surface { border-color: transparent; box-shadow: none; }
+.ws .direct-chat .library-composer .an-composer-surface:focus-within { border-color: transparent; }
+.ws .direct-chat .direct-starters button {
+  border-color: #e8dcd5;
+  background: linear-gradient(145deg, #fce6d8 0%, #fff5ee 44%, #fff 85%);
+  box-shadow: 0 4px 16px rgb(110 86 100 / 4%);
+  color: #3e3540;
+}
+.ws .direct-chat .direct-starters button:nth-child(2) {
+  border-color: #e0dcef;
+  background: linear-gradient(145deg, #e8dff9 0%, #f6f2ff 44%, #fff 85%);
+}
+.ws .direct-chat .direct-starters button:nth-child(3) {
+  border-color: #d3e7e0;
+  background: linear-gradient(145deg, #d8f0e6 0%, #f0fbf7 44%, #fff 85%);
+}
+.ws .direct-chat .direct-starters button:hover {
+  border-color: #c9ad98;
+  box-shadow: 0 7px 20px rgb(110 86 100 / 8%);
+}
+.ws .direct-chat .direct-starters button:nth-child(2):hover { border-color: #b5a3d5; }
+.ws .direct-chat .direct-starters button:nth-child(3):hover { border-color: #93bba9; }
+.ws .direct-chat .direct-starters button>svg { color: #8b5435; background: rgb(255 255 255 / 78%); }
+.ws .direct-chat .direct-starters button:nth-child(2)>svg { color: #70518e; }
+.ws .direct-chat .direct-starters button:nth-child(3)>svg { color: #3b7561; }
+.ws .direct-chat .direct-starters small { color: #646275; }
+.ws .direct-chat .direct-starters b { color: #343344; }
+.ws .direct-chat .direct-footnote { color: #66687b; }
+.ws .direct-chat .direct-message.user { background: #eeebf8; color: #333147; border: 1px solid #e0dced; }
+.ws .direct-chat .direct-run-list a, .ws .direct-chat .direct-plan, .ws .direct-chat .direct-followups button {
+  background: rgb(255 255 255 / 86%);
+  border-color: #e0dfed;
+  box-shadow: 0 3px 10px rgb(88 82 128 / 3%);
+}
+.ws .overview .overview-stats article,
+.ws .overview .overview-panel,
+.ws .overview .overview-table-wrap,
+.ws .overview .overview-active {
+  background: rgb(255 255 255 / 89%);
+  border-color: #e3e2ef;
+  box-shadow: 0 5px 20px rgb(79 76 120 / 3%);
+}
+.ws .overview .overview-stats article:nth-child(1) { background: linear-gradient(145deg, #f6eddf, #fff 78%); }
+.ws .overview .overview-stats article:nth-child(2) { background: linear-gradient(145deg, #eee8fc, #fff 78%); }
+.ws .overview .overview-stats article:nth-child(3) { background: linear-gradient(145deg, #e7f3ed, #fff 78%); }
+.ws .overview .overview-stats article:nth-child(4) { background: linear-gradient(145deg, #e7eefa, #fff 78%); }
+.ws .overview .overview-run-icon { background: #eeebfa; color: #685584; }
+.ws .overview .overview-badge.positive { color: #3e674c; background: #eef6ed; }
+.ws .ws-card { background-color: rgb(255 255 255 / 91%); border-color: #e4e1ed; box-shadow: 0 4px 15px rgb(75 69 108 / 3%); }
+.ws .ws-box { border-color: #e2e1ed; background-color: rgb(255 255 255 / 88%); }
+.ws .ws-run-side { background: rgb(247 247 254 / 75%); border-color: #e1e0ee; }
+
+.ws[data-theme='dark'] {
+  --bg: #202335;
+  --panel: #292d42;
+  --panel-2: #30354e;
+  --line: #43465f;
+  --text: #f1eff8;
+  --muted: #b9b9cf;
+  --accent: #f1d77a;
+  --accent-2: #4c432e;
+  --warm: #e4b096;
+  --yes: #9bd7b9;
+  --maybe: #e7cb89;
+  --no: #edabb4;
+  --data: #a3adbb;
+  background: radial-gradient(ellipse at 0% 0%, #303652, transparent 60%), radial-gradient(ellipse at 100% 100%, #29413d, transparent 56%), #212438;
+}
+.ws[data-theme='dark'] .ws-side {
+  background: linear-gradient(165deg, rgb(44 49 77 / 95%), rgb(44 41 66 / 94%) 62%, rgb(38 50 58 / 96%));
+  border-right-color: #45465e;
+  box-shadow: inset -1px 0 rgb(177 176 214 / 6%);
+}
+.ws[data-theme='dark'] .ws-brand,.ws[data-theme='dark'] .ws-brand .marketmirror-logo { color: #f1eff7; }
+.ws[data-theme='dark'] .ws-search { background: rgb(30 33 52 / 66%); border-color: #4a4d69; box-shadow: none; }
+.ws[data-theme='dark'] .ws-search input::placeholder,.ws[data-theme='dark'] .ws-search kbd { color: #b4b6d1; }
+.ws[data-theme='dark'] .ws-nav a,.ws[data-theme='dark'] .ws-nav button { color: #d1cfe5; }
+.ws[data-theme='dark'] .ws-nav a:hover,.ws[data-theme='dark'] .ws-nav button:hover { background: #373c58; color: #f2f0fa; }
+.ws[data-theme='dark'] .ws-nav a.active { background: #554a30; color: #fff0b8; box-shadow: inset 0 0 0 1px #776744; }
+.ws[data-theme='dark'] .ws-group { color: #b9bad1; }
+.ws[data-theme='dark'] .ws-history a { color: #c2bfd8; }
+.ws[data-theme='dark'] .ws-history a:hover,.ws[data-theme='dark'] .ws-history a.active { color: #eeecf6; background: #3b3c58; }
+.ws[data-theme='dark'] .ws-me { background: #30354c; border-color: #444960; box-shadow: none; }
+.ws[data-theme='dark'] .ws-me b { color: #f0eef7; }
+.ws[data-theme='dark'] .ws-me span { color: #b9bdd1; }
+.ws[data-theme='dark'] .ws-crumbs { color: #c0bfd4; }
+.ws[data-theme='dark'] .ws-top-actions a { background: #30354d; border-color: #50516c; color: #e7e4f2; box-shadow: none; }
+.ws[data-theme='dark'] .ws-canvas {
+  background: radial-gradient(ellipse at 15% 0%, rgb(61 62 95 / 65%), transparent 57%), radial-gradient(ellipse at 95% 100%, rgb(43 72 66 / 40%), transparent 55%), #272b40;
+  border-color: #42455f;
+  box-shadow: 0 15px 45px rgb(8 10 23 / 12%);
+}
+.ws[data-theme='dark'] .direct-chat .direct-welcome h1 { color: #f1eff8; }
+.ws[data-theme='dark'] .direct-chat .direct-welcome>p,.ws[data-theme='dark'] .direct-chat .direct-footnote { color: #bebed3; }
+.ws[data-theme='dark'] .direct-chat .direct-symbol { background: linear-gradient(145deg,#5c5030,#3f3d3b); color: #fff3c9; box-shadow: 0 0 0 6px rgb(83 74 45 / 23%), 0 8px 28px rgb(8 10 23 / 14%); }
+.ws[data-theme='dark'] .direct-chat .direct-composer-wrap { background: #292e45; border-color: #51536e; box-shadow: 0 12px 35px rgb(8 10 23 / 20%); }
+.ws[data-theme='dark'] .direct-chat .direct-composer-wrap:focus-within { border-color: #b6a264; }
+.ws[data-theme='dark'] .direct-chat .direct-composer-options { background: #292d43; border-color: #454861; }
+.ws[data-theme='dark'] .library-composer { --an-primary-color: #f1d77a; --an-input-focus-outline: #f1d77a; --an-send-button-bg: #f1d77a; --an-send-button-color: #2c2940; --an-border-color: #484c65; --an-background-secondary: #393e58; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button { background: linear-gradient(145deg,#4b3a3c,#353246 70%); border-color: #65505a; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button:nth-child(2) { background: linear-gradient(145deg,#453c5e,#353247 70%); border-color: #5c5177; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button:nth-child(3) { background: linear-gradient(145deg,#304d47,#303a42 70%); border-color: #47685d; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button>svg { background: #5e4547; color: #f1c6ac; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button:nth-child(2)>svg { background: #554668; color: #d6b9ee; }
+.ws[data-theme='dark'] .direct-chat .direct-starters button:nth-child(3)>svg { background: #385b50; color: #b3e3cc; }
+.ws[data-theme='dark'] .direct-chat .direct-starters b { color: #f1ebf6; }
+.ws[data-theme='dark'] .direct-chat .direct-starters small { color: #c7c2d2; }
+.ws[data-theme='dark'] .direct-chat .direct-message.user { background: #3c3b57; color: #f0ecf7; border-color: #514d6c; }
+.ws[data-theme='dark'] .direct-chat .direct-run-list a,.ws[data-theme='dark'] .direct-chat .direct-plan,.ws[data-theme='dark'] .direct-chat .direct-followups button { background: #30344b; border-color: #4a4b65; }
+.ws[data-theme='dark'] .overview .overview-stats article,.ws[data-theme='dark'] .overview .overview-panel,.ws[data-theme='dark'] .overview .overview-table-wrap,.ws[data-theme='dark'] .overview .overview-active,.ws[data-theme='dark'] .ws-card,.ws[data-theme='dark'] .ws-box { background: #2d3148; border-color: #494b64; box-shadow: 0 5px 20px rgb(8 10 23 / 7%); }
+.ws[data-theme='dark'] .overview .overview-stats article:nth-child(1) { background: linear-gradient(145deg,#423c39,#2d3148 82%); }
+.ws[data-theme='dark'] .overview .overview-stats article:nth-child(2) { background: linear-gradient(145deg,#403955,#2d3148 82%); }
+.ws[data-theme='dark'] .overview .overview-stats article:nth-child(3) { background: linear-gradient(145deg,#31453f,#2d3148 82%); }
+.ws[data-theme='dark'] .overview .overview-stats article:nth-child(4) { background: linear-gradient(145deg,#343f58,#2d3148 82%); }
+.ws[data-theme='dark'] .overview .overview-run-icon { background: #49405e; color: #d4c1ee; }
+.ws[data-theme='dark'] .overview .overview-badge.positive { background: #354b40; color: #c4e2c8; }
+.ws[data-theme='dark'] .ws-run-side { background: #272c42; border-color: #464961; }
+@media (max-width:760px) {
+  .ws .ws-side { background: linear-gradient(165deg,#e4eaff,#efe9fa 55%,#e7f1ee); }
+  .ws[data-theme='dark'] .ws-side { background: linear-gradient(165deg,#2d324e,#2d2a43 60%,#283940); }
+}
+@media (prefers-reduced-transparency:reduce) { .ws .ws-side { backdrop-filter: none; } }
+@media (prefers-reduced-motion:reduce) { .ws .direct-chat *, .ws .ws-nav a, .ws .ws-nav button { animation: none !important; transition: none !important; } }
+
+.ws:not([data-theme='dark']) .ws-new-chat { background: #faf5dc; border-color: #e7dba5; box-shadow: 0 2px 4px #7d673008; }
+.ws:not([data-theme='dark']) .ws-new-chat:hover { background: #f5eac4; }
+.ws[data-theme='dark'] .ws-new-chat { background: #51482f; border-color: #71613a; color: #fbefc2; }
+.ws[data-theme='dark'] .ws-new-chat:hover { background: #615536; }
+
+/* Consistent chat geometry at desktop, browser zoom and narrow widths. */
+.ws { width: 100%; min-width: 0; overflow-x: clip; }
+.ws .ws-main,.ws .ws-canvas { min-width: 0; }
+.ws .direct-chat { height: calc(100dvh - 90px); min-height: 0; --chat-width: 800px; }
+.ws .direct-chat:not(.started) { justify-content: center; gap: 24px; padding-block: 28px; }
+.ws .direct-chat:not(.started) .direct-scroll { padding: 0 24px; flex: none; }
+.ws .direct-chat:not(.started) .direct-welcome { margin: 0 auto; max-width: 800px; }
+.ws .direct-chat .direct-symbol { width: 44px; height: 44px; margin: 0 auto 17px; border-radius: 13px; }
+.ws .direct-chat .direct-symbol svg { width: 33px; height: 33px; }
+.ws .direct-chat .direct-welcome h1 { font-size: clamp(25px, 2.2vw, 30px); line-height: 1.25; letter-spacing: -.8px; margin-bottom: 10px; }
+.ws .direct-chat .direct-welcome>p { font-size: 13px; line-height: 1.7; }
+.ws .direct-chat .direct-bottom { width: min(calc(100% - 48px), 800px); max-width: 800px; margin-inline: auto; padding: 0 0 20px; }
+.ws .direct-chat .direct-composer-wrap { position: relative; padding-top: 0; border-radius: 17px; }
+.ws .direct-chat .library-composer textarea { min-height: 52px; max-height: 150px; font-size: 14px; line-height: 1.6; }
+.ws .direct-chat .an-composer-textarea-wrap { padding: 16px 18px 6px; }
+.ws .direct-chat .an-composer-toolbar { min-height: 48px; padding: 0 12px 10px; gap: 10px; }
+.ws .direct-chat .an-composer-left { gap: 5px; }
+.ws .direct-chat .library-composer .an-model-trigger { min-height: 34px; max-width: 230px; padding: 5px 9px; font-size: 12px; line-height: 20px; }
+.ws .direct-chat .library-composer .an-model-option { font-size: 13px; }
+.ws .direct-chat .direct-composer-options { position: absolute; right: 58px; bottom: 10px; max-width: 250px; min-height: 36px; padding: 0; border: 0; background: transparent; }
+.ws .direct-chat .direct-composer-options .run-context-trigger { min-height: 34px; max-width: 250px; gap: 6px; padding: 5px 9px; border-radius: 8px; background: transparent; font-size: 12px; line-height: 20px; }
+.ws .direct-chat .direct-composer-options .run-context-trigger:hover { background: var(--panel-2); }
+.ws .direct-chat .direct-composer-options .run-context-trigger>span { max-width: 180px; }
+.ws .direct-chat:not(.started) .direct-starters { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+.ws .direct-chat:not(.started) .direct-starters button { min-height: 96px; padding: 15px 16px; gap: 10px; }
+.ws .direct-chat:not(.started) .direct-starters b { font-size: 12px; line-height: 18px; }
+.ws .direct-chat:not(.started) .direct-starters small { font-size: 11px; line-height: 17px; margin-top: 4px; }
+@media (max-width: 1100px) and (min-width: 761px) {
+ .ws .direct-chat .direct-composer-options { max-width: 170px; }
+ .ws .direct-chat .direct-composer-options .run-context-trigger { max-width: 170px; }
+ .ws .direct-chat .direct-composer-options .run-context-trigger>span { max-width: 110px; }
+ .ws .direct-chat .library-composer .an-model-trigger { max-width: 180px; }
+}
+@media (max-width: 760px) {
+ .ws .direct-chat { height: calc(100dvh - 80px); min-height: 0; }
+ .ws .direct-chat:not(.started) { justify-content: flex-start; gap: 22px; padding-block: 28px 20px; }
+ .ws .direct-chat:not(.started) .direct-scroll { padding-inline: 16px; }
+ .ws .direct-chat .direct-bottom { width: calc(100% - 28px); padding-bottom: 0; }
+ .ws .direct-chat .direct-welcome h1 { font-size: 25px; line-height: 1.3; }
+ .ws .direct-chat .direct-welcome>p { max-width: 270px; margin-inline: auto; font-size: 12px; }
+ .ws .direct-chat .direct-symbol { margin-bottom: 18px; }
+ .ws .direct-chat .library-composer textarea { font-size: 16px; min-height: 62px; }
+ .ws .direct-chat .an-composer-textarea-wrap { padding: 14px 15px 5px; }
+ .ws .direct-chat .an-composer-toolbar { padding-inline: 10px; }
+ .ws .direct-chat .library-composer .an-model-trigger { max-width: 155px; font-size: 12px; padding-inline: 5px; }
+ .ws .direct-chat .direct-composer-options { right: 52px; bottom: 10px; width: 32px; max-width: 32px; }
+ .ws .direct-chat .direct-composer-options .run-context-trigger { width: 32px; max-width: 32px; padding: 7px; gap: 0; }
+ .ws .direct-chat .direct-composer-options .run-context-trigger>span,.ws .direct-chat .direct-composer-options .run-context-trigger>svg:last-child { display: none; }
+ .ws .direct-chat:not(.started) .direct-starters { grid-template-columns: minmax(0,1fr); gap: 8px; margin-top: 14px; }
+ .ws .direct-chat:not(.started) .direct-starters button { min-height: 64px; padding: 12px 14px; flex-direction: row; gap: 12px; align-items: center; }
+}
+@media (max-height: 650px) and (min-width: 761px) {
+ .ws .direct-chat:not(.started) { gap: 21px; padding-block: 24px; }
+ .ws .direct-chat .direct-symbol { margin-bottom: 13px; }
+ .ws .direct-chat:not(.started) .direct-starters button { min-height: 88px; padding: 13px 15px; }
+}
+
+.ws .direct-chat .direct-composer-options{max-width:360px;gap:2px;flex-wrap:nowrap}.ws .direct-chat .direct-composer-options .run-context-trigger{max-width:180px}.ws .direct-chat .direct-composer-options .run-context-trigger>span{max-width:120px}
+@media(max-width:760px){.ws .direct-chat .direct-composer-options{width:104px;max-width:104px;gap:2px}.ws .direct-chat .direct-composer-options>button{width:32px;min-width:32px;padding:7px!important;justify-content:center}.ws .direct-chat .direct-composer-options>button>span{display:none}.ws .direct-chat .library-composer .an-model-trigger{max-width:115px}}
+
+/* Sidebar labels use the same readable contrast as navigation text. */
+.ws:not([data-theme='dark']) .ws-side .ws-section-heading,.ws:not([data-theme='dark']) .ws-side .ws-side-section>summary { color: #555a70; }
+.ws[data-theme='dark'] .ws-side .ws-section-heading,.ws[data-theme='dark'] .ws-side .ws-side-section>summary { color: #c0c1d5; }
+.ws .ws-side .ws-chat-row:hover { background: color-mix(in srgb,var(--panel) 65%,transparent); }
+.ws .ws-side .ws-chat-row:hover>a { background: transparent; }
+.ws .ws-side .ws-chat-move:hover,.ws .ws-side .ws-chat-move[data-state='open'] { background: var(--panel-2); color: var(--text); }
+
+/* Shell: the app owns the viewport. The canvas scrolls, the page never does, so no white band shows under the shell
+   on mobile toolbars or overscroll; the root matches the shell colour for the same reason. */
+html:has(.ws) { background: #f3f3fc; }
+html:has(.ws[data-theme='dark']) { background: #212438; }
+.ws { height: 100dvh; min-height: 0; overflow: hidden; }
+.ws .ws-side { height: 100dvh; }
+.ws .ws-main { min-height: 0; height: 100dvh; }
+.ws .ws-canvas { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.ws .ws-canvas .direct-chat { height: 100%; min-height: 0; }
+
+/* Sidebar search stays put while the sidebar scrolls. Its backing only appears once the sidebar has scrolled, so the
+   resting sidebar gradient shows through instead of a flat rectangle. */
+.ws .ws-side .ws-search-sticky { position: sticky; top: 0; z-index: 2; padding-bottom: 8px; margin-inline: -4px; padding-inline: 4px; }
+.ws .ws-side .ws-search-sticky .ws-search { margin-bottom: 5px; }
+@supports (animation-timeline: scroll()) {
+  .ws .ws-side .ws-search-sticky { animation: ws-search-stuck linear both; animation-timeline: scroll(nearest block); animation-range: 0 8px; }
+}
+@keyframes ws-search-stuck { from { background: transparent; } to { background: var(--bg); } }
