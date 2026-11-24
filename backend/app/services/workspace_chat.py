@@ -5,9 +5,14 @@ answer; preparing an audience or executing a test remains a separate approval.
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
+import logging
+import os
 import re
+import socket
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 import urllib.request
@@ -23,11 +28,128 @@ MAX_MESSAGE = 12000
 MAX_HISTORY_CHARS = 48000
 MAX_TOOL_CHARS = 16000
 
+logger = logging.getLogger("mirofish.workspace_chat")
+
+GATEWAY_NAMES = ("claude", "codex", "chatgpt", "siwc", "gemini", "antigravity", "multi")
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+GATEWAY_LABELS = {"claude": "Claude Code login", "codex": "Codex login", "chatgpt": "Codex login", "siwc": "Codex login",
+                  "gemini": "Gemini CLI login", "antigravity": "Antigravity login", "multi": "local gateway"}
+API_LABELS = {"claude": "Anthropic", "anthropic": "Anthropic", "openai": "OpenAI", "gemini": "Google Gemini",
+              "openrouter": "OpenRouter", "ollama": "Ollama", "lmstudio": "LM Studio", "configured": "local model server",
+              "groq": "Groq", "mistral": "Mistral", "deepseek": "DeepSeek", "together": "Together AI", "xai": "xAI"}
+
+# Keys a provider answered 401/403 for, as (endpoint, key fingerprint). The key itself is never stored here;
+# a changed key has a different fingerprint, so updating it in Model settings clears the mark.
+_REJECTED: set = set()
+_REJECTED_LOCK = threading.Lock()
+_EVENTS = contextvars.ContextVar("workspace_chat_events", default=None)
+
 
 class ChatError(Exception):
     def __init__(self, message: str, status: int = 502):
         super().__init__(message)
         self.status = status
+
+
+def _local_app() -> bool:
+    """A local app may start login gateways and read local model servers; production and hosted workers never do."""
+    if Config.is_production() or os.environ.get("MM_WORKER_SECRET"):
+        return False
+    return True
+
+
+def _is_loopback(base_url) -> bool:
+    try:
+        return urlsplit(str(base_url)).hostname in LOOPBACK
+    except ValueError:
+        return False
+
+
+def _endpoint(base_url) -> str:
+    return str(base_url).rstrip("/").replace("http://localhost:", "http://127.0.0.1:")
+
+
+def _fingerprint(key) -> str:
+    return hashlib.sha256(str(key or "").encode()).hexdigest()[:20]
+
+
+def _key_rejected(base_url, key) -> bool:
+    with _REJECTED_LOCK:
+        return (_endpoint(base_url), _fingerprint(key)) in _REJECTED
+
+
+def _mark_rejected(route) -> None:
+    mark = route.get("rejection") if isinstance(route, dict) else None
+    if mark:
+        with _REJECTED_LOCK:
+            _REJECTED.add(mark)
+
+
+def clear_rejections() -> None:
+    with _REJECTED_LOCK:
+        _REJECTED.clear()
+
+
+def _provider_label(provider, gateway=False) -> str:
+    provider = str(provider or "")
+    if gateway:
+        return GATEWAY_LABELS.get(provider, provider or "local gateway")
+    return API_LABELS.get(provider, provider or "model provider")
+
+
+def _emit(event) -> None:
+    callback = _EVENTS.get()
+    if callback:
+        try:
+            callback(event)
+        except Exception:
+            pass
+
+
+def _status_code(error):
+    seen, current = 0, error
+    while current is not None and seen < 6:
+        for value in (getattr(current, "status_code", None), getattr(getattr(current, "response", None), "status_code", None),
+                      getattr(current, "status", None)):
+            if isinstance(value, int) and 100 <= value < 600:
+                return value
+        current = current.__cause__ or current.__context__
+        seen += 1
+    return None
+
+
+def _unreachable(error) -> bool:
+    seen, current = 0, error
+    while current is not None and seen < 6:
+        name = type(current).__name__
+        if isinstance(current, (ConnectionError, TimeoutError, socket.timeout)) or any(
+                part in name for part in ("Timeout", "Connection", "ConnectError")):
+            return True
+        current = current.__cause__ or current.__context__
+        seen += 1
+    return False
+
+
+def provider_error(error, route=None) -> ChatError:
+    """Turn a provider failure into a clear message. Logs the exception class and status, never its text or a key."""
+    route = route if isinstance(route, dict) else {}
+    label = route.get("label") or "model provider"
+    title = label if label[:1].isupper() else "The " + label
+    gateway = bool(route.get("gateway"))
+    status = _status_code(error)
+    logger.warning("Workspace chat model call failed: %s%s", type(error).__name__, f" (HTTP {status})" if status else "")
+    if status in (401, 403):
+        if gateway:
+            return ChatError(f"Your {label} was rejected. Reconnect it in Model settings and try again.", 502)
+        _mark_rejected(route)
+        return ChatError(f"Your {label} key was rejected. Update it in Model settings or use your Claude Code login instead.", 502)
+    if status == 429:
+        return ChatError(f"{title} is rate limiting requests right now. Wait a moment and try again.", 429)
+    if status is None and _unreachable(error):
+        return ChatError(f"{title} is not reachable. Check that it is running and connected, then try again.", 503)
+    if status and status >= 500:
+        return ChatError(f"{title} had a problem answering (HTTP {status}). Try again shortly.", 502)
+    return ChatError("Your model could not answer this message. Check the connection in Model settings and try again.")
 
 
 SYSTEM = """You are MarketMirror, a helpful conversational assistant inside the user's local decision workspace.
@@ -133,16 +255,27 @@ def _gateway_models(port, key):
 
 
 def _model_catalog():
-    """Server-owned routes, actual running gateway catalogs and honest connection choices."""
-    import os
+    """Server-owned routes, actual running gateway catalogs and honest connection choices.
+
+    Each public entry carries a status: connected, configured (a saved key, checked when used),
+    connect_on_first_use (an installed login CLI this local app starts on the first message),
+    key_rejected, or needs_connection. Production and hosted workers list only configured remote routes.
+    """
     from ..api import setup
     hosted = bool(os.environ.get("MM_WORKER_SECRET"))
+    production = Config.is_production()
+    restricted = hosted or production
+    local_app = _local_app()
     try:
         slots = list(Config.get_model_pool().slots)
     except (ValueError, AttributeError):
         slots = []
+    if production:
+        # A deployment lists only what it configures: no login gateways or model servers on this machine.
+        slots = [slot for slot in slots if not _is_loopback(getattr(slot, "base_url", ""))]
+    port_backends = {spec["port"]: name for name, spec in setup.GATEWAY_BACKENDS.items()}
     ports, local_slots = set(), {}
-    if not hosted:
+    if not restricted:
         ports = {spec["port"] for spec in setup.GATEWAY_BACKENDS.values()}
         for path in setup.LOGS.glob("gateway-*.pid"):
             part = path.stem.removeprefix("gateway-")
@@ -151,7 +284,7 @@ def _model_catalog():
         for slot in slots:
             try:
                 parsed = urlsplit(slot.base_url)
-                if parsed.hostname in ("127.0.0.1", "localhost", "::1") and parsed.port:
+                if parsed.hostname in LOOPBACK and parsed.port:
                     ports.add(parsed.port)
                     local_slots[parsed.port] = slot
             except (TypeError, ValueError, AttributeError):
@@ -184,49 +317,66 @@ def _model_catalog():
                 credentials[port], advertised[port] = key or "local-gateway", ids
                 break
     entries, routes = [], {}
-    default_id = None
 
-    def add(provider, model, base_url, key, available, description, connection_backend=None):
-        nonlocal default_id
+    def startable(backend):
+        return bool(local_app and backend in setup.GATEWAY_BACKENDS and setup._find_bin(backend))
+
+    def add(provider, model, base_url, key, available, description, connection_backend=None, status=None):
         if not isinstance(model, str) or not model.strip():
             return
         model = model.strip()
-        normalized = str(base_url).rstrip("/").replace("http://localhost:", "http://127.0.0.1:")
-        route = (normalized, model)
+        route = (_endpoint(base_url), model)
+        status = status or ("connected" if available else "needs_connection")
         if route in routes:
             existing = routes[route]
             if available and not existing["public"]["available"]:
                 existing.update(api_key=key, base_url=base_url)
-                existing["public"].update(available=True, description=description, connection_required=False)
+                existing["public"].update(available=True, description=description, status=status,
+                                          connection_required=status == "connect_on_first_use")
             return
         identity = "\0".join((str(provider), model, str(base_url).rstrip("/")))
         identifier = "m_" + hashlib.sha256(identity.encode()).hexdigest()[:24]
         name = {"sonnet": "Claude Sonnet", "haiku": "Claude Haiku", "opus": "Claude Opus"}.get(model, model)
         public = {"id": identifier, "name": name[:160], "provider": str(provider)[:60], "model": model[:160],
-                  "available": bool(available), "description": description, "connection_required": bool(connection_backend and not available)}
+                  "available": bool(available), "description": description, "status": status,
+                  "connection_required": bool(connection_backend and (not available or status == "connect_on_first_use"))}
         if connection_backend:
             public["connection_backend"] = connection_backend
         entry = {"public": public, "api_key": key, "base_url": base_url, "model": model}
         entries.append(entry)
         routes[route] = entry
-        if default_id is None:
-            default_id = identifier
 
     for slot in slots:
         try:
             parsed = urlsplit(slot.base_url)
-            state = states.get(parsed.port) if not hosted and parsed.hostname in ("127.0.0.1", "localhost", "::1") else None
+            loopback = not restricted and parsed.hostname in LOOPBACK
+            state = states.get(parsed.port) if loopback else None
         except (TypeError, ValueError):
-            parsed, state = None, None
+            parsed, loopback, state = None, False, None
         provider = state["backend"] if state else slot.provider
-        known_gateway = (not hosted and parsed is not None and parsed.hostname in ("127.0.0.1", "localhost", "::1")
-                         and provider in ("claude", "codex", "chatgpt", "siwc", "gemini", "antigravity", "multi"))
+        known_gateway = loopback and provider in GATEWAY_NAMES
+        # The setup page saves a login gateway as provider "openai" on the gateway's port. When that gateway
+        # is down, the port tells which login it was, so the local app can start it again.
+        sleeping = loopback and not state and not known_gateway and port_backends.get(parsed.port)
+        if sleeping:
+            known_gateway, provider = True, sleeping
         available = bool(slot.api_key) and (bool(state and state.get("available") and advertised.get(parsed.port)) if known_gateway else True)
         key = credentials.get(parsed.port, slot.api_key) if known_gateway else slot.api_key
+        if known_gateway and not available and not state and startable(provider):
+            add(provider, slot.model, slot.base_url, key, True,
+                f"Uses your {_provider_label(provider, True)}. Model access is checked when used.",
+                provider, "connect_on_first_use")
+            continue
+        if not known_gateway and _key_rejected(slot.base_url, slot.api_key):
+            add(provider, slot.model, slot.base_url, key, False,
+                f"{_provider_label(provider)} rejected this key. Update it in Model settings or use your Claude Code login.",
+                None, "key_rejected")
+            continue
         add(provider, slot.model, slot.base_url, key, available,
             "Connected gateway; account model access is checked when used." if known_gateway and available else
             "Connect this local provider to use its models." if known_gateway else
-            "Configured provider. Its connection is checked when you send a message.", provider if known_gateway else None)
+            "Configured provider. Its connection is checked when you send a message.", provider if known_gateway else None,
+            "connected" if known_gateway and available else "needs_connection" if known_gateway else "configured")
 
     for port, state in states.items():
         if not state:
@@ -245,7 +395,7 @@ def _model_catalog():
             for alias in ("sonnet", "haiku", "opus"):
                 add(backend, alias, base_url, key, available,
                     "Supported Claude CLI alias; availability depends on your account.", backend)
-    if not hosted:
+    if not restricted:
         from .workspace_local_models import cached_local_models, key_for_local_model
         for local in cached_local_models():
             try:
@@ -253,25 +403,87 @@ def _model_catalog():
             except ValueError:
                 continue
             add(local["provider"], local["id"], local["base_url"], key, True,
-                "Discovered on this computer. Connection is checked when used.")
+                "Discovered on this computer. Connection is checked when used.", None, "connected")
         for backend, spec in setup.GATEWAY_BACKENDS.items():
             if not setup._find_bin(backend):
                 continue
             port = spec["port"]
             if states.get(port) and advertised.get(port):
                 continue
+            running = bool(states.get(port))
             models = ("sonnet", "haiku", "opus") if backend == "claude" else (spec.get("default") or backend,)
             for model in models:
-                add(backend, model, f"http://127.0.0.1:{port}/v1", "", False,
-                    "CLI installed on this computer. Connect it with your existing login; model access is checked later.", backend)
-    if default_id and not next(entry["public"]["available"] for entry in entries if entry["public"]["id"] == default_id):
-        default_id = next((entry["public"]["id"] for entry in entries if entry["public"]["available"]), default_id)
-    return entries, default_id
+                if local_app and not running:
+                    add(backend, model, f"http://127.0.0.1:{port}/v1", "", True,
+                        f"Uses your {_provider_label(backend, True)}. Model access is checked when used.",
+                        backend, "connect_on_first_use")
+                else:
+                    add(backend, model, f"http://127.0.0.1:{port}/v1", "", False,
+                        "CLI installed on this computer. Connect it with your existing login; model access is checked later.", backend)
+    return entries, _default_id(entries)
+
+
+def _default_id(entries):
+    """The first configured route while it works; a connected Claude Code login before a rejected key."""
+    if not entries:
+        return None
+    first = entries[0]["public"]
+
+    def status(entry):
+        return entry["public"].get("status")
+
+    def claude(entry):
+        return entry["public"].get("connection_backend") == "claude"
+
+    groups = []
+    if first["available"] and first.get("status") != "connect_on_first_use":
+        groups.append([entries[0]])
+    if first.get("status") == "key_rejected":
+        groups.append([e for e in entries if status(e) == "connected" and claude(e)])
+    groups += [[e for e in entries if e["public"]["available"] and status(e) != "connect_on_first_use"],
+               [e for e in entries if status(e) == "connect_on_first_use" and claude(e)],
+               [e for e in entries if e["public"]["available"]]]
+    for group in groups:
+        if group:
+            return group[0]["public"]["id"]
+    return first["id"]
 
 
 def models():
     entries, default_id = _model_catalog()
-    return {"models": [entry["public"] for entry in entries], "default_id": default_id}
+    return {"models": [entry["public"] for entry in entries], "default_id": default_id,
+            "production": Config.is_production(), "local_app": _local_app()}
+
+
+def _connect(entry):
+    """Start an installed login gateway for the chosen model on this computer, then return its live route."""
+    from ..api import setup
+    backend = entry["public"].get("connection_backend")
+    label = _provider_label(backend, True)
+    if not _local_app() or backend not in setup.GATEWAY_BACKENDS or not setup._find_bin(backend):
+        raise ChatError("This model is unavailable. Choose a connected model or reconnect it in Model settings.", 409)
+    spec = setup.GATEWAY_BACKENDS[backend]
+    try:
+        port = urlsplit(entry["base_url"]).port or spec["port"]
+    except ValueError:
+        port = spec["port"]
+    _emit({"type": "tool", "status": "working", "tool": "connect_model", "label": f"Connecting your {label}"})
+    try:
+        setup.start_gateway(backend, int(port), entry["model"] if entry["model"] in spec["models"] else spec["default"])
+    except (ValueError, RuntimeError, OSError) as error:
+        logger.warning("Workspace chat could not start the %s gateway: %s", backend, type(error).__name__)
+        _emit({"type": "tool", "status": "failed", "tool": "connect_model", "label": f"Could not connect your {label}"})
+        raise ChatError(f"Could not connect your {label}. Open Model settings to connect it, then try again.", 409) from None
+    entries, _ = _model_catalog()
+    same = [e for e in entries if e["public"]["available"] and e["public"].get("status") != "connect_on_first_use"
+            and e["public"].get("connection_backend") == backend]
+    live = (next((e for e in same if e["public"]["id"] == entry["public"]["id"]), None)
+            or next((e for e in same if e["model"] == entry["model"]), None) or (same[0] if same else None))
+    if not live:
+        _emit({"type": "tool", "status": "failed", "tool": "connect_model", "label": f"Your {label} is not signed in"})
+        raise ChatError(f"Your {label} started but is not signed in. Sign in with its command-line tool, then try again.", 409)
+    _emit({"type": "tool", "status": "completed", "tool": "connect_model", "label": f"Connected your {label}"})
+    return live
 
 
 def _model(model_id=None):
@@ -279,11 +491,24 @@ def _model(model_id=None):
         entries, default_id = _model_catalog()
         wanted = model_id or default_id
         entry = next((e for e in entries if e["public"]["id"] == wanted), None)
+        if not entry and model_id and _local_app():
+            # A model from a local server listed earlier: read the local servers again once.
+            from .workspace_local_models import discover
+            discover(refresh=True)
+            entries, default_id = _model_catalog()
+            entry = next((e for e in entries if e["public"]["id"] == wanted), None)
         if not entry:
             if model_id:
                 raise ValueError("Choose a model from the available model list.")
             raise ChatError("Connect a model in Model settings, then send your message again.", 409)
-        if not entry["public"]["available"]:
+        public = entry["public"]
+        if public.get("status") == "key_rejected":
+            raise ChatError(f"Your {_provider_label(public['provider'])} key was rejected. Update it in Model settings "
+                            "or use your Claude Code login instead.", 409)
+        if public.get("status") == "connect_on_first_use":
+            entry = _connect(entry)
+            public = entry["public"]
+        if not public["available"]:
             raise ChatError("This model is unavailable. Choose a connected model or reconnect it in Model settings.", 409)
         try:
             client = LLMClient(api_key=entry["api_key"], base_url=entry["base_url"], model=entry["model"])
@@ -291,6 +516,12 @@ def _model(model_id=None):
             raise ChatError("This model's connection needs attention. Reconnect it in Model settings.", 409) from None
         # A slow or rejected request must not create an invisible retry loop.
         client.client = client.client.with_options(max_retries=0, timeout=90)
+        gateway = bool(public.get("connection_backend"))
+        try:
+            client._mm_route = {"label": _provider_label(public["provider"], gateway), "gateway": gateway,
+                                "rejection": None if gateway else (_endpoint(entry["base_url"]), _fingerprint(entry["api_key"]))}
+        except (AttributeError, TypeError):
+            pass
         return client
     except (IndexError, AttributeError):
         raise ChatError("Connect a model in Model settings, then send your message again.", 409) from None
@@ -448,6 +679,14 @@ def _run_review_evidence(run):
 
 
 def chat(value, on_event=None):
+    token = _EVENTS.set(on_event)
+    try:
+        return _chat(value, on_event)
+    finally:
+        _EVENTS.reset(token)
+
+
+def _chat(value, on_event=None):
     def emit(event):
         if on_event:
             try:
@@ -581,8 +820,8 @@ def chat(value, on_event=None):
             answer = _plain_conversation(error)
             if answer is None:
                 raise ChatError("Your model returned an unreadable answer. Try sending the message again.") from None
-        except Exception:
-            raise ChatError("Your model could not answer this message. Check the connection in Model settings and try again.") from None
+        except Exception as error:
+            raise provider_error(error, getattr(client, "_mm_route", None)) from None
         if not isinstance(answer, dict):
             raise ChatError("Your model returned an unreadable answer. Try sending the message again.")
         action = answer.get("action", "respond")

@@ -994,3 +994,37 @@
 .workflow-app .preview-person.person-three{color:#4d7266}
 .workflow-app .preview-mark{color:#735482}
 .workflow-app .home-evidence-note{color:#626d65}
+
+/* Lean guided setup inside the chat: typed fields, required markers and inline messages. */
+.lean-form { --error: #a3341d; }
+:global(.ws[data-theme='dark']) .lean-form { --error: #ff9b85; }
+.lean-form .lean-field { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; min-width: 0; border: 0; padding: 0; }
+.lean-form .lean-field > label,
+.lean-form .lean-field > legend { display: block; margin: 0; padding: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.lean-form .lean-field > legend { margin-bottom: 6px; }
+.lean-form .required-mark { color: var(--error); margin-left: 3px; font-weight: 600; }
+.lean-form .optional-mark { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 4px; }
+.lean-form textarea { resize: none; overflow: hidden; min-height: 44px; }
+.lean-form .lean-inline { display: flex; gap: 8px; align-items: stretch; }
+.lean-form .lean-inline input { flex: 1; }
+.lean-form .lean-inline button { flex: none; white-space: nowrap; }
+.lean-form .lean-field.invalid input:not([type='radio']),
+.lean-form .lean-field.invalid textarea,
+.lean-form .lean-field.invalid select { border-color: var(--error); }
+.lean-form .field-error { margin: 0; font-size: 12px; line-height: 1.45; color: var(--error); }
+.lean-form .field-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.lean-form .variant-editor { padding: 2px 14px 4px; }
+.lean-form .variant-editor .lean-field > label { display: flex; align-items: center; gap: 6px; }
+.lean-form .segmented { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lean-form .segmented > label { position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0; min-height: 36px;
+  padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--ink); }
+.lean-form .segmented > label input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+.lean-form .segmented > label.selected { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); color: var(--green); font-weight: 600; }
+.lean-form .segmented > label:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+.lean-form .segmented-number { width: 92px; flex: none; min-height: 36px; padding: 7px 10px; }
+.lean-form .lean-note { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.lean-form .actions { margin-top: 20px; }
+@media (max-width: 680px) {
+  .lean-form .field-pair, .lean-form .variants-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .lean-form .lean-inline { flex-direction: column; }
+}

@@ -4,6 +4,7 @@ import { IconCheck, IconChevronDown, IconPlus, IconSearch } from "@tabler/icons-
 import { Popover } from "@base-ui/react/popover";
 import type { ModelOption } from "../types";
 import { cn } from "../utils/cn";
+import { claudeLoginFallback, modelStatus, rejectedModel } from "./model-status.js";
 
 export type ModelPickerProps = {
   models: ModelOption[]; value?: string; defaultValue?: string;
@@ -22,10 +23,12 @@ export const ModelPicker = memo(function ModelPicker({models,value,defaultValue,
     const group = model.provider || 'Available models';
     groups.set(group,[...(groups.get(group)||[]),model]);
   }
+  const rejected = rejectedModel(models), fallback = rejected ? claudeLoginFallback(models) : null;
+  const rejectedName = rejected ? ({claude:'Anthropic',openai:'OpenAI',gemini:'Google Gemini',openrouter:'OpenRouter'} as Record<string,string>)[rejected.provider||''] || rejected.provider || 'provider' : '';
   function choose(id:string) { if(disabled)return; if(value===undefined)setInternalValue(id); onChange?.(id); setOpen(false); }
   function navigate(event:React.KeyboardEvent<HTMLElement>) {
     if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
-    const items=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], .library-model-add'));
+    const items=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.library-model-fallback, [role="menuitemradio"], .library-model-add'));
     const current=items.indexOf(document.activeElement as HTMLButtonElement);
     const next=event.key==='ArrowDown'?(current+1)%items.length:event.key==='ArrowUp'?(current-1+items.length)%items.length:event.key==='Home'?0:items.length-1;
     if(items.length){event.preventDefault();items[next]?.focus();}
@@ -35,8 +38,9 @@ export const ModelPicker = memo(function ModelPicker({models,value,defaultValue,
     <Popover.Portal><Popover.Positioner side="top" align="start" sideOffset={10} collisionPadding={12} className="library-context-positioner">
       <Popover.Popup className="library-context-popup library-model-popup an-model-popup" data-theme={theme} aria-label="Choose a model" onKeyDown={navigate}>
         <label className="library-model-search"><IconSearch size={16} aria-hidden="true" /><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search models…" aria-label="Search models" /></label>
+        {rejected&&<div className="library-model-alert" role="status"><p>Your {rejectedName} key was rejected.</p>{fallback&&<button type="button" className="library-model-fallback" onClick={()=>choose(fallback.id)}>Use my Claude Code login</button>}</div>}
         <div role="menu" aria-label="Available models" className="library-model-list">
-          {[...groups].map(([provider,options])=><section key={provider} role="group" aria-label={provider}><p className="library-model-group">{provider}</p>{options.map(model=><button key={model.id} type="button" role="menuitemradio" aria-checked={model.id===activeModel?.id} className="an-model-option library-model-option" onClick={()=>choose(model.id)}><span><b>{model.name}{model.version&&` ${model.version}`}</b>{model.description&&<small>{model.description}</small>}</span>{model.available===false?<span className="library-model-connect">Connect</span>:model.id===activeModel?.id&&<IconCheck size={17} aria-hidden="true" />}</button>)}</section>)}
+          {[...groups].map(([provider,options])=><section key={provider} role="group" aria-label={provider}><p className="library-model-group">{provider}</p>{options.map(model=>{const status=modelStatus(model);const active=model.id===activeModel?.id;return <button key={model.id} type="button" role="menuitemradio" aria-checked={active} className="an-model-option library-model-option" data-status={status.id} onClick={()=>choose(model.id)}><span><b>{model.name}{model.version&&` ${model.version}`}</b>{model.description&&<small>{model.description}</small>}</span><span className="library-model-side"><span className="library-model-connect library-model-status" data-tone={status.tone}>{status.label}</span>{active&&<IconCheck size={17} aria-label="Selected" />}</span></button>})}</section>)}
           {!groups.size&&<p className="library-model-empty">No matching models.</p>}
         </div>
         {onAddModel&&<button type="button" className="library-model-add" onClick={()=>{setOpen(false);onAddModel();}}><IconPlus size={17} aria-hidden="true" />Add or configure models</button>}

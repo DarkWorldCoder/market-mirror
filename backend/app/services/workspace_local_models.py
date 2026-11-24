@@ -66,8 +66,16 @@ def _get(base_url, path, key=None):
         pool.close()
 
 
+def _allowed():
+    """Production deployments list only the models they configure; they never read this machine's model servers."""
+    return not Config.is_production()
+
+
 def discover(refresh=False):
     global _CACHE
+    if not _allowed():
+        return {"models": [], "sources": [], "checked_at": time.time(), "truncated": False,
+                "disabled": "This deployment lists only the models it configures."}
     signature = (Config.LLM_BASE_URL, Config.LLM_API_KEY, os.environ.get("OLLAMA_BASE_URL"),
                  os.environ.get("LMSTUDIO_BASE_URL"), bool(os.environ.get("MM_WORKER_SECRET")), os.environ.get("MM_HOSTED_WORKER"))
     with _LOCK:
@@ -116,6 +124,8 @@ def discover(refresh=False):
 
 def cached_local_models():
     """Previously discovered model IDs only; never scan as a side effect of a chat request."""
+    if not _allowed():
+        return []
     with _LOCK:
         if not _CACHE:
             return []
