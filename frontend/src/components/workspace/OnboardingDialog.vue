@@ -1,10 +1,10 @@
 <template>
   <!-- Pattern from shadcn.io's onboarding blocks: progress, numbered steps that tick off, one action each. -->
-  <Dialog :open="open" @update:open="(v) => { if (!v) finish() }">
-    <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme">
+  <Dialog :open="open" @update:open="(v) => { if (!v) emit('update:open', false) }">
+    <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme" @escape-key-down="onEscape">
       <DialogHeader>
         <DialogTitle>Set up {{ state?.workspace.name || 'your workspace' }}</DialogTitle>
-        <DialogDescription>Four short steps. Skip any of them; Workspace and team has them all later.</DialogDescription>
+        <DialogDescription>Four short steps. Skip any of them; open Setup checklist at the bottom of the sidebar to return.</DialogDescription>
       </DialogHeader>
       <div class="grid gap-2">
         <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
@@ -110,6 +110,7 @@ async function invite() {
 }
 async function copy() { try { await navigator.clipboard.writeText(link.value); copied.value = true } catch { error.value = 'Select the link and copy it by hand.' } }
 async function openLatest() { await mark('demo'); finish(); router.push({ path: '/', query: { run: props.latestRun, show: 'reports' } }) }
+function onEscape(event) { event.preventDefault(); emit('update:open', false) }
 async function finish() { if (state.value && !steps.value.dismissed) await mark('dismissed'); emit('update:open', false) }
 
 watch(() => props.open, (value) => { if (value) load() }, { immediate: true })
