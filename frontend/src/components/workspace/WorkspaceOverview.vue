@@ -98,7 +98,7 @@ import TrustPanel from './overview/TrustPanel.vue'
 import SpendPanel from './overview/SpendPanel.vue'
 import LiveNow from './overview/LiveNow.vue'
 import { api } from '../../workspace/api.js'
-import { namesOnDay, normalizeInsights, pollable } from '../../workspace/overviewInsights.js'
+import { namesOnDay, normalizeInsights, pollable, runSignature } from '../../workspace/overviewInsights.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['refresh', 'select-run'])
@@ -135,6 +135,11 @@ function selectDay(value) {
 }
 onMounted(() => { if (showInsights.value) loadInsights() })
 watch(showInsights, (on) => { if (on && !insightsLoaded.value) loadInsights() })
+// The run list polls in the background; a run started or finished elsewhere
+// must reach Live now and the cross-run panels without pressing Refresh.
+watch(() => runSignature(props.runs), (next, previous) => {
+  if (previous !== undefined && next !== previous && showInsights.value) loadInsights()
+})
 defineExpose({ geography })
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const number = value => new Intl.NumberFormat().format(value)
