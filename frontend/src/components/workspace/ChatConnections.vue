@@ -13,28 +13,8 @@
         <p class="connection-note">Add CSV, JSON, PDF or text exports as conversation context. Choose several files to compare sources together.</p>
       </div>
       <div v-else-if="tab === 'mcp'" class="connection-list">
-        <p class="connection-note">Connect a remote MCP server, check its tools, then choose which read-only tools chat may use. Connections in other AI apps are separate.</p>
-        <div class="mcp-presets"><Button variant="outline" size="sm" @click="preset('Meta Ads')">Meta / Facebook Ads</Button><Button variant="outline" size="sm" @click="preset('Google Analytics')">Google Analytics</Button><Button variant="ghost" size="sm" @click="preset('Custom MCP')">Custom server</Button></div>
-        <form v-if="showMcpForm || !connectors.length" class="mcp-form" @submit.prevent="saveConnector">
-          <div class="mcp-form-title"><b>{{ editing ? 'Edit MCP server' : 'Add an MCP server' }}</b><button v-if="editing" type="button" @click="preset('Custom MCP')">New server</button></div>
-          <p v-if="presetNote" class="connection-note">{{ presetNote }}</p>
-          <a v-if="presetDocs" :href="presetDocs" target="_blank" rel="noopener noreferrer" class="mcp-docs">Provider setup documentation ↗</a>
-          <label>Name<input v-model="draft.name" required maxlength="100" placeholder="Analytics or ads workspace" /></label>
-          <label>HTTPS MCP endpoint<input v-model="draft.url" type="url" required placeholder="https://your-server.example/mcp" /></label>
-          <label>Bearer access token<input v-model="draft.token" type="password" autocomplete="new-password" :placeholder="editing ? 'Leave blank to retain the saved token' : 'Required if your server needs authentication'" /></label>
-          <label>Streamable HTTP protocol<select v-model="draft.protocol_version"><option value="2025-11-25">2025-11-25</option><option value="2025-06-18">2025-06-18</option></select></label>
-          <p class="connection-note">Public HTTPS servers only. Tokens stay on the server. OAuth sign-in, local stdio servers and newer protocol-only endpoints require a compatible bridge.</p>
-          <Button type="submit" :disabled="!!connecting">{{ connecting === 'save-mcp' ? 'Saving…' : 'Save server' }}</Button>
-        </form>
-        <label v-if="connectors.some(c => c.tools.length)" class="connection-search"><Search :size="16" /><input v-model="toolSearch" type="search" placeholder="Search discovered tools" aria-label="Search discovered tools" /></label>
-        <div v-for="c in connectors" :key="c.id" class="mcp-server">
-          <div class="connection-row"><span class="connection-icon"><BrandIcon v-if="connectorBrand(c)" :brand="connectorBrand(c)" :size="20" /><Plug v-else /></span><div><b>{{ c.name }}</b><p>{{ c.status === 'connected' ? `${c.tools.length} tools discovered` : ['error', 'auth_required'].includes(c.status) ? c.error : 'Saved · connection not checked' }}</p><p class="mcp-endpoint">{{ c.url }}</p></div><Button variant="outline" size="sm" :disabled="!!connecting" @click="discoverConnector(c)">{{ connecting === c.id ? 'Checking…' : 'Check connection' }}</Button></div>
-          <div class="mcp-controls"><label><input type="checkbox" :checked="c.enabled" :disabled="updatingConnector === c.id" @change="patchConnector(c, { enabled: $event.target.checked })" />Allow selected tools in chat</label><button type="button" @click="editConnector(c)">Edit</button><button type="button" @click="deleteConnector(c)">Remove</button></div>
-          <p v-if="c.checked_at" class="connection-note">Last checked {{ new Date(c.checked_at * 1000).toLocaleString() }}. A saved check does not guarantee the account remains available.</p>
-          <details v-if="c.tools.length" open class="mcp-tools"><summary>Tools for chat · {{ c.allowed_tools.length }} selected / {{ c.tools.length }} discovered</summary><p v-if="!visibleTools(c).length" class="connection-note">No tools match your search.</p><label v-for="tool in visibleTools(c)" :key="tool.name"><input type="checkbox" :checked="c.allowed_tools.includes(tool.name)" :disabled="!tool.read_only || !!connecting || updatingConnector === c.id" @change="toggleTool(c, tool.name, $event.target.checked)" /><span><b>{{ tool.name }}</b><small>{{ tool.description }}</small><small v-if="!tool.read_only">Unavailable: server does not declare this tool read-only.</small></span></label></details>
-          <p v-if="c.tools_truncated" class="connection-note">Tool discovery reached its page or size limit. Only listed tools are available.</p>
-        </div>
-        <p v-if="!connectors.length" class="connection-note">No MCP servers saved yet.</p>
+        <McpServers ref="mcpList" :theme="theme" heading="MCP servers" @changed="emit('connected')" />
+        <p class="connection-note">The full list, data imports and setup for other AI apps are on the <RouterLink to="/workspace/connectors" class="mcp-docs" @click="emit('update:open', false)">Connections page</RouterLink>.</p>
       </div>
       <div v-else class="connection-list provider-list">
         <label class="connection-search"><Search :size="16" /><input v-model="modelSearch" type="search" placeholder="Find a provider or your own model" aria-label="Search model providers" /></label>
@@ -52,7 +32,7 @@
         <p v-if="!loading && !cloudProviders.length && !selfHostedProviders.length && !connectedLogins.length && !availableLogins.length" class="connection-note">{{ modelSearch.trim() ? 'No providers match your search.' : error ? 'The provider list could not be loaded.' : 'No model providers are configured.' }}</p>
       </div>
       </div>
-      <DialogFooter class="connections-footer"><Button variant="ghost" @click="configureModel('')"><Settings2 />Model settings</Button><Button @click="$emit('update:open',false)">Done</Button></DialogFooter>
+      <DialogFooter class="connections-footer"><Button variant="ghost" @click="configureModel('')"><Settings2 />Model settings</Button><Button variant="ghost" as-child><RouterLink to="/workspace/connectors" @click="emit('update:open', false)"><Plug />All connections</RouterLink></Button><Button @click="$emit('update:open',false)">Done</Button></DialogFooter>
     </DialogContent>
   </Dialog>
 </template>
@@ -62,24 +42,15 @@ import { Bot, Database, FileText, FolderOpen, ChartNoAxesCombined, ContactRound,
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog'
 import BrandIcon from '../BrandIcon.vue'
+import McpServers from './McpServers.vue'
+import { RouterLink } from 'vue-router'
 import './modal-controls.css'
 import { api } from '../../workspace/api.js'
 const props = defineProps({open:Boolean,theme:{type:String,default:'light'},runs:{type:Array,default:()=>[]},initialTab:{type:String,default:'data'}})
 const emit = defineEmits(['update:open','attach','choose-run','connected','configure-model'])
-const toolSearch=ref(''),showMcpForm=ref(false),updatingConnector=ref('')
 function brandFor(id){return ({claude:'anthropic',anthropic:'anthropic',gemini:'googlegemini',ollama:'ollama'})[id] || ''}
-function connectorBrand(c){return c.url.startsWith('https://mcp.facebook.com/')?'meta':c.name==='Google Analytics'?'googleanalytics':''}
-function visibleTools(c){const query=toolSearch.value.trim().toLowerCase();return c.tools.filter(tool=>`${tool.name} ${tool.description}`.toLowerCase().includes(query))}
-const connectors=ref([]),editing=ref(''),presetNote=ref(''),presetDocs=ref('')
-const draft=ref({name:'',url:'',token:'',protocol_version:'2025-11-25'})
-function preset(name){showMcpForm.value=true;tab.value='mcp';editing.value='';draft.value={name:name==='Custom MCP'?'':name,url:name==='Meta Ads'?'https://mcp.facebook.com/ads':'',token:'',protocol_version:'2025-11-25'};presetNote.value=name==='Meta Ads'?'Use a Meta user or employee-role system-user access token with ads_mcp_management and ads_read permissions. This form uses bearer authentication; it does not run Facebook OAuth.':name==='Google Analytics'?'Google provides an open-source Analytics MCP server. Deploy a compatible public HTTPS bridge and enter its endpoint; no Google-hosted endpoint is preconfigured.':'';presetDocs.value=name==='Meta Ads'?'https://developers.facebook.com/documentation/ads-commerce/ads-ai-connectors/ads-mcp-server/ads-mcp-server-get-started':name==='Google Analytics'?'https://developers.google.com/analytics/devguides/MCP':''}
-function editConnector(c){showMcpForm.value=true;editing.value=c.id;draft.value={name:c.name,url:c.url,token:'',protocol_version:c.protocol_version};presetNote.value='';presetDocs.value=''}
-async function saveConnector(){connecting.value='save-mcp';error.value='';notice.value='';try{await api('/api/workspace/connectors'+(editing.value?'/'+editing.value:''),{method:editing.value?'PATCH':'POST',body:draft.value});draft.value.token='';await loadConnectors();showMcpForm.value=false;editing.value='';notice.value='Server saved. Check its connection to discover available tools.';emit('connected')}catch(e){error.value=e.message}finally{connecting.value=''}}
-async function loadConnectors(){connectors.value=await api('/api/workspace/connectors')}
-async function patchConnector(c,body){updatingConnector.value=c.id;error.value='';try{await api('/api/workspace/connectors/'+c.id,{method:'PATCH',body});await loadConnectors();emit('connected')}catch(e){error.value=e.message;await loadConnectors().catch(()=>{})}finally{updatingConnector.value=''}}
-async function discoverConnector(c){connecting.value=c.id;error.value='';notice.value='';try{const result=await api('/api/workspace/connectors/'+c.id+'/discover',{method:'POST',body:{}});await loadConnectors();if(result.status==='connected')notice.value='Tools discovered. Select the read-only tools you want chat to use.';else error.value=result.error;emit('connected')}catch(e){error.value=e.message}finally{connecting.value=''}}
-async function deleteConnector(c){error.value='';try{await api('/api/workspace/connectors/'+c.id,{method:'DELETE'});await loadConnectors();emit('connected')}catch(e){error.value=e.message}}
-function toggleTool(c,name,on){patchConnector(c,{allowed_tools:on?[...c.allowed_tools,name]:c.allowed_tools.filter(item=>item!==name)})}
+const mcpList=ref(null)
+async function preset(name){tab.value='mcp';await nextTick();mcpList.value?.openAdd(name==='Custom MCP'?'':name)}
 const modelSearch=ref('')
 function matchesModel(item){return `${item.label} ${item.id}`.toLowerCase().includes(modelSearch.value.trim().toLowerCase())}
 const cloudProviders=computed(()=>(state.value.api_providers||[]).filter(p=>!['ollama','compatible'].includes(p.id)&&matchesModel(p)))
@@ -105,8 +76,8 @@ const sources=[
  {name:'Customer feedback',icon:ContactRound,color:'#3d816a',tint:'#eaf7f0',description:'Ground your decisions in reviews, survey exports and interview notes.'}
 ]
 const filteredSources=computed(()=>sources.filter(c=>`${c.name} ${c.description}`.toLowerCase().includes(search.value.trim().toLowerCase())))
-async function load(){loading.value=true;error.value='';try{const results=await Promise.allSettled([api('/api/setup/state'),api('/api/workspace/connectors')]);if(results[0].status==='fulfilled')state.value=results[0].value;else error.value=results[0].reason.message;if(results[1].status==='fulfilled')connectors.value=results[1].value;else error.value=results[1].reason.message}catch(e){error.value=e.message}finally{loading.value=false}}
-watch(()=>props.open,open=>{if(open){search.value='';modelSearch.value='';toolSearch.value='';notice.value='';tab.value=['data','models','mcp'].includes(props.initialTab)?props.initialTab:'data';load()}},{immediate:true})
+async function load(){loading.value=true;error.value='';try{const results=await Promise.allSettled([api('/api/setup/state')]);if(results[0].status==='fulfilled')state.value=results[0].value;else error.value=results[0].reason.message}catch(e){error.value=e.message}finally{loading.value=false}}
+watch(()=>props.open,open=>{if(open){search.value='';modelSearch.value='';notice.value='';tab.value=['data','models','mcp'].includes(props.initialTab)?props.initialTab:'data';load()}},{immediate:true})
 function isConnected(id){return(state.value.gateways||[]).some(g=>g.backend===id&&g.available!==false)}
 function hasKey(p){return [p.key_env,...(p.alt_key_envs||[])].some(key=>key&&state.value.keys?.[key])}
 function attach(){emit('update:open',false);emit('attach')}

@@ -290,9 +290,13 @@ class _Client:
                 if item["name"] in seen:
                     continue
                 seen.add(item["name"])
+                annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
                 tools.append({"name": item["name"], "description": str(item.get("description") or "")[:1000],
                               "inputSchema": item.get("inputSchema") if isinstance(item.get("inputSchema"), dict) else {"type": "object"},
-                              "read_only": item.get("annotations", {}).get("readOnlyHint") is True if isinstance(item.get("annotations", {}), dict) else False})
+                              "read_only": annotations.get("readOnlyHint") is True,
+                              # Hints the server declares, shown as plain labels; absent means "not declared".
+                              "destructive": annotations.get("destructiveHint") is True,
+                              "open_world": annotations.get("openWorldHint") is True})
                 if len(tools) >= 100:
                     return tools, True
             cursor = page.get("nextCursor")
@@ -318,6 +322,36 @@ def discover(connector_id):
         rows = [current if item["id"] == connector_id else item for item in _read()]
         _write(rows)
         return _public(current)
+
+
+def test_draft(data, connector_id=None):
+    """Connect to a server that is not saved yet (or a saved one with edits) and list its tools. Saves nothing.
+
+    A blank token reuses the saved token only for the saved address, so a saved credential is never sent to a new host.
+    """
+    if not isinstance(data, dict) or set(data) - {"url", "token", "protocol_version"}:
+        raise ConnectorError("Use url, token or protocol_version")
+    row = {"url": _endpoint(data.get("url", "")), "token": "", "protocol_version": data.get("protocol_version", _VERSIONS[0])}
+    if row["protocol_version"] not in _VERSIONS:
+        raise ConnectorError("Select a supported Streamable HTTP protocol version")
+    token = _text(data.get("token", ""), "token", 8192)
+    if token:
+        row["token"] = token
+    elif connector_id:
+        with _LOCK:
+            saved = _get(connector_id)
+        if saved.get("token"):
+            if saved["url"] != row["url"]:
+                raise ConnectorError("Enter the token again to check a different address. The saved token is only sent to the saved address.")
+            row["token"] = saved["token"]
+    try:
+        client = _Client(row)
+        tools, truncated = client.tools()
+    except ConnectorError as exc:
+        status = "auth_required" if isinstance(exc, ConnectorAuthenticationError) else "error"
+        return {"status": status, "error": _redact(str(exc), row["token"]), "tools": [], "tools_truncated": False, "checked_at": time.time()}
+    return {"status": "connected", "error": None, "checked_at": time.time(), "tools_truncated": truncated,
+            "tools": _redact([{key: tool[key] for key in ("name", "description", "read_only", "destructive", "open_world")} for tool in tools], row["token"])}
 
 
 def call_tool(connector_id, name, arguments):
