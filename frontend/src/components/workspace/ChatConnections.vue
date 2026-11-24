@@ -78,7 +78,7 @@ async function saveConnector(){connecting.value='save-mcp';error.value='';notice
 async function loadConnectors(){connectors.value=await api('/api/workspace/connectors')}
 async function patchConnector(c,body){updatingConnector.value=c.id;error.value='';try{await api('/api/workspace/connectors/'+c.id,{method:'PATCH',body});await loadConnectors();emit('connected')}catch(e){error.value=e.message;await loadConnectors().catch(()=>{})}finally{updatingConnector.value=''}}
 async function discoverConnector(c){connecting.value=c.id;error.value='';notice.value='';try{const result=await api('/api/workspace/connectors/'+c.id+'/discover',{method:'POST',body:{}});await loadConnectors();if(result.status==='connected')notice.value='Tools discovered. Select the read-only tools you want chat to use.';else error.value=result.error;emit('connected')}catch(e){error.value=e.message}finally{connecting.value=''}}
-async function deleteConnector(c){error.value='';try{await api('/api/workspace/connectors/'+c.id,{method:'DELETE'});await loadConnectors();emit('connected')}catch(e){error.value=e.message}}
+async function deleteConnector(c){if(!confirm(`Remove ${c.name}? Its saved token and tool choices are deleted too.`))return;error.value='';try{await api('/api/workspace/connectors/'+c.id,{method:'DELETE'});await loadConnectors();emit('connected')}catch(e){error.value=e.message}}
 function toggleTool(c,name,on){patchConnector(c,{allowed_tools:on?[...c.allowed_tools,name]:c.allowed_tools.filter(item=>item!==name)})}
 const modelSearch=ref('')
 function matchesModel(item){return `${item.label} ${item.id}`.toLowerCase().includes(modelSearch.value.trim().toLowerCase())}
