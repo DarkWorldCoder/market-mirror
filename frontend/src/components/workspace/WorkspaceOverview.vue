@@ -39,7 +39,7 @@
       <IntentPanel :intent="insights.intent" />
       <ObjectionsPanel :objections="insights.objections" />
       <AudiencesPanel :segments="insights.segments" />
-      <TrustPanel :trust="insights.trust" :forecasts="insights.forecasts" :total-runs="insights.total_runs" />
+      <TrustPanel :trust="insights.trust" :forecasts="insights.forecasts" :total-runs="insights.total_runs" :runs="runs" />
       <SpendPanel :spend="insights.spend" />
     </div>
 
