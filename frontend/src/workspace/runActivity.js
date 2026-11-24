@@ -2,6 +2,7 @@
 // quoted whom (from the social feed, with the round), their per-person action counts, and plain-language sentences
 // for a person card.
 import { api } from './api'
+import { plural } from './plural.js'
 
 const cache = new Map()
 
@@ -55,7 +56,7 @@ export function describeActivity(stats) {
   for (const [type, n] of Object.entries(stats.action_types || {})) {
     const w = words[String(type).toUpperCase()]
     if (!w || !n) continue
-    parts.push(`${w[0]} ${n} ${n === 1 ? w[1] : w[2] || w[1] + 's'}`)
+    parts.push(`${w[0]} ${n} ${plural(n, { one: w[1], other: w[2] || w[1] + 's' })}`)
   }
   if (!parts.length) return stats.total_actions ? `Took ${stats.total_actions} actions.` : 'Read the feeds but did not post, comment or like anything.'
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]

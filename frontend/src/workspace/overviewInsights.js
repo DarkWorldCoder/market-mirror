@@ -1,3 +1,4 @@
+import { plural } from './plural.js'
 // Pure helpers for the workspace overview panels fed by GET /api/runs/insights. No DOM, no fetch: the components
 // call these and the unit tests cover them. Every number is about simulated people; the panels say so.
 
@@ -86,7 +87,7 @@ export function dayLabel(cell, locale = undefined) {
   const [y, m, d] = String(cell?.date || '').split('-').map(Number)
   const when = y ? new Date(y, m - 1, d).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : ''
   const n = Number(cell?.count) || 0
-  return `${n === 0 ? 'No runs' : n === 1 ? '1 run' : `${n} runs`} on ${when}`
+  return `${n === 0 ? 'No runs' : plural(n, { one: '1 run', other: `${n} runs` })} on ${when}`
 }
 
 /** Run names saved on `day`, from the activity list. */

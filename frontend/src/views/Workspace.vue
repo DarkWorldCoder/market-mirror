@@ -21,7 +21,7 @@
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
           <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
-        <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
+        <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ plural(searchResultCount, { one: 'result', other: 'results' }) }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
@@ -131,6 +131,7 @@ import OnboardingDialog from '../components/workspace/OnboardingDialog.vue'
 import '../assets/workspace.css'
 import '../assets/workspace-theme.css'
 import '../assets/workspace-features.css'
+import { plural } from '../workspace/plural.js'
 
 const isMobile = ref(window.innerWidth <= 760)
 function onResize() { isMobile.value = window.innerWidth <= 760 }

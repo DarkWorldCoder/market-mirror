@@ -44,7 +44,7 @@
     </div>
 
     <details v-if="activeRuns.length" class="overview-active" aria-labelledby="active-heading">
-      <summary class="overview-section-title"><h2 id="active-heading">{{ activeRuns.length }} {{ activeRuns.length === 1 ? 'run' : 'runs' }} didn’t record a finish</h2><span class="overview-live">Their last saved status still said running. Open one to see what was saved.</span></summary>
+      <summary class="overview-section-title"><h2 id="active-heading">{{ activeRuns.length }} {{ plural(activeRuns.length, { one: 'run', other: 'runs' }) }} didn’t record a finish</h2><span class="overview-live">Their last saved status still said running. Open one to see what was saved.</span></summary>
       <button v-for="run in activeRuns" :key="run.name" class="overview-active-run" @click="$emit('select-run', run.name)">
         <div><span class="overview-status-dot" aria-hidden="true"></span><strong>{{ run.title || run.name }}</strong><span>{{ state(run) }}</span></div>
         <div class="overview-active-meta"><span v-if="finite(run.current_round)">Round {{ run.current_round }}<template v-if="finite(run.total_rounds)"> of {{ run.total_rounds }}</template></span><span v-if="finite(run.progress_percent)">{{ Math.round(run.progress_percent) }}%</span></div>
@@ -99,6 +99,7 @@ import SpendPanel from './overview/SpendPanel.vue'
 import LiveNow from './overview/LiveNow.vue'
 import { api } from '../../workspace/api.js'
 import { namesOnDay, normalizeInsights, pollable } from '../../workspace/overviewInsights.js'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['refresh', 'select-run'])

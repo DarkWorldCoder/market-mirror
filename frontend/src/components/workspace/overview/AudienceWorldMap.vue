@@ -20,7 +20,7 @@
           <button type="button" @click="pl.at && mapRef?.flyTo(pl.at[0], pl.at[1], pl.city ? 7 : 4)" :disabled="!pl.at">
             <span class="awm-name">{{ pl.label }}</span>
             <span class="awm-bar" aria-hidden="true"><i :style="{ width: Math.max(4, Math.round(100 * pl.people / maxPeople)) + '%' }"></i></span>
-            <small>{{ number(pl.people) }} people · {{ pl.runs }} {{ pl.runs === 1 ? 'run' : 'runs' }}</small>
+            <small>{{ number(pl.people) }} people · {{ pl.runs }} {{ plural(pl.runs, { one: 'run', other: 'runs' }) }}</small>
           </button>
         </li>
       </ol>
@@ -37,6 +37,7 @@ import RealWorldMap from '../RealWorldMap.vue'
 import { placeOfCountry } from '../../../workspace/geoPlace'
 import { findCity, loadGazetteer } from '../../../workspace/cityPlace'
 import { availableBasemaps, loadMapConfig } from '../../../workspace/mapConfig'
+import { plural } from '../../../workspace/plural.js'
 
 const props = defineProps({ geography: { type: Object, default: () => ({}) }, theme: { type: String, default: 'light' } })
 const mapRef = ref(null), gazetteer = ref(null)
@@ -73,7 +74,7 @@ const top = computed(() => places.value.slice(0, 8))
 const maxPeople = computed(() => Math.max(1, ...places.value.map((p) => p.people)))
 const points = computed(() => places.value.filter((p) => p.at).map((p) => ({
   id: p.key, lon: p.at[0], lat: p.at[1], color: p.city ? '#25785d' : '#8a8f94', title: p.label,
-  sub: `${number(p.people)} simulated people · ${p.runs} ${p.runs === 1 ? 'run' : 'runs'}`, size: Math.min(22, 4 + Math.sqrt(p.people) * 1.1)
+  sub: `${number(p.people)} simulated people · ${p.runs} ${plural(p.runs, { one: 'run', other: 'runs' })}`, size: Math.min(22, 4 + Math.sqrt(p.people) * 1.1)
 })))
 
 onMounted(async () => { loadMapConfig().then((c) => { mapCfg.value = c }); gazetteer.value = await loadGazetteer() })

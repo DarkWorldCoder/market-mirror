@@ -5,7 +5,7 @@
     <template v-else>
       <ol class="ovi-bars" :aria-label="`Top ${rows.length} objections across runs`">
         <li v-for="(row, i) in rows" :key="row.label">
-          <div class="ovi-bar-top"><strong>{{ row.label }}</strong><span>{{ row.runs }} {{ row.runs === 1 ? 'run' : 'runs' }} · {{ number(row.people) }} {{ row.people === 1 ? 'person' : 'people' }}</span></div>
+          <div class="ovi-bar-top"><strong>{{ row.label }}</strong><span>{{ row.runs }} {{ plural(row.runs, { one: 'run', other: 'runs' }) }} · {{ number(row.people) }} {{ plural(row.people, { one: 'person', other: 'people' }) }}</span></div>
           <div class="ovi-bar" aria-hidden="true"><span :style="{ width: widths[i] + '%' }"></span></div>
         </li>
       </ol>
@@ -18,6 +18,7 @@
 import { computed } from 'vue'
 import { MessageSquareWarning } from 'lucide-vue-next'
 import { barWidths } from '../../../workspace/overviewInsights.js'
+import { plural } from '../../../workspace/plural.js'
 
 const props = defineProps({ objections: { type: Array, default: () => [] } })
 const rows = computed(() => props.objections.filter((o) => o && o.label).slice(0, 8))

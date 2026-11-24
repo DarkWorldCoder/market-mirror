@@ -100,7 +100,7 @@
         <li v-for="pl in places" :key="pl.key">
           <button type="button" @click="mapRef?.flyTo(pl.lon, pl.lat, pl.city ? 8 : 4)">
             <b>{{ pl.label }}</b>
-            <span>{{ pl.n }} {{ pl.n === 1 ? 'person' : 'people' }}</span>
+            <span>{{ pl.n }} {{ plural(pl.n, { one: 'person', other: 'people' }) }}</span>
             <span v-if="pl.asked" class="wfm-yes" :title="`${pl.yes} of ${pl.asked} said yes (simulated)`"><i :style="{ width: Math.round(100 * pl.yes / pl.asked) + '%' }"></i></span>
             <small v-if="pl.asked">{{ pl.yes }} of {{ pl.asked }} yes</small>
           </button>
@@ -122,9 +122,9 @@
               <b>{{ t.who }}</b><small>{{ t.where }}</small>
               <p>{{ t.text }}</p>
               <span class="wfm-n">
-                <span class="wfm-c" role="img" :aria-label="`${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}`"><MessageCircle :size="12" aria-hidden="true" />{{ t.replies }}</span>
-                <span class="wfm-c" role="img" :aria-label="`${t.likes} ${t.likes === 1 ? 'like' : 'likes'}`"><Heart :size="12" aria-hidden="true" />{{ t.likes }}</span>
-                <span class="wfm-c" role="img" :aria-label="`${t.quotes} ${t.quotes === 1 ? 'quote or share' : 'quotes and shares'}`"><Repeat2 :size="12" aria-hidden="true" />{{ t.quotes }}</span>
+                <span class="wfm-c" role="img" :aria-label="`${t.replies} ${plural(t.replies, { one: 'reply', other: 'replies' })}`"><MessageCircle :size="12" aria-hidden="true" />{{ t.replies }}</span>
+                <span class="wfm-c" role="img" :aria-label="`${t.likes} ${plural(t.likes, { one: 'like', other: 'likes' })}`"><Heart :size="12" aria-hidden="true" />{{ t.likes }}</span>
+                <span class="wfm-c" role="img" :aria-label="`${t.quotes} ${plural(t.quotes, { one: 'quote or share', other: 'quotes and shares' })}`"><Repeat2 :size="12" aria-hidden="true" />{{ t.quotes }}</span>
               </span>
             </div>
           </li>
@@ -151,6 +151,7 @@ import { SEGMENT_COLORS, placeOfCountry } from '../../workspace/geoPlace'
 import { findCity, jitter, loadGazetteer } from '../../workspace/cityPlace'
 import { availableBasemaps, loadMapConfig } from '../../workspace/mapConfig'
 import { feedEdges, plainDid } from '../../workspace/runActivity'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({
   index: { type: Array, default: () => [] },
@@ -287,7 +288,7 @@ const suggestions = computed(() => {
     if (out.length >= 5) break
     if (String(p.name || '').toLowerCase().includes(q)) out.push({ kind: 'person', id: String(p.agent_id), title: p.name, sub: [p.segment, located.value[String(p.agent_id)]?.city || p.country].filter(Boolean).join(' · ') })
   }
-  for (const pl of places.value) if (out.length < 8 && pl.label.toLowerCase().includes(q)) out.push({ kind: 'place', id: pl.key, title: pl.label, sub: `${pl.n} ${pl.n === 1 ? 'person' : 'people'}`, at: [pl.lon, pl.lat], city: !!pl.city })
+  for (const pl of places.value) if (out.length < 8 && pl.label.toLowerCase().includes(q)) out.push({ kind: 'place', id: pl.key, title: pl.label, sub: `${pl.n} ${plural(pl.n, { one: 'person', other: 'people' })}`, at: [pl.lon, pl.lat], city: !!pl.city })
   for (const seg of segments.value) if (out.length < 10 && seg.toLowerCase().includes(q)) out.push({ kind: 'segment', id: seg, title: seg, sub: `${people.value.filter((p) => (p.segment || 'Unspecified segment') === seg).length} people · colour by segment` })
   return out
 })

@@ -2,6 +2,7 @@
 // latest answer. No network and no model calls: everything reads values that are already loaded.
 import { decisionText, decisionTone, displayTitle, shortText } from './compareRuns.js'
 import { sampleCount } from './charts.js'
+import { plural } from './plural.js'
 
 /** The same tabs, ids and order as the run page (RunView.vue), so "Open full page" lands on the matching tab. */
 export const RUN_CARD_TABS = [
@@ -55,7 +56,7 @@ export function runCardStats(detail) {
   const answered = Number.isInteger(overall.n) ? overall.n : people
   const numbers = []
   if (people != null) numbers.push({ key: 'people', value: Number(people).toLocaleString('en-US'), label: 'people' })
-  if (segments) numbers.push({ key: 'segments', value: String(segments), label: segments === 1 ? 'segment' : 'segments' })
+  if (segments) numbers.push({ key: 'segments', value: String(segments), label: plural(segments, { one: 'segment', other: 'segments' }) })
   for (const [key, label] of [['convert_yes', 'would buy'], ['convert_maybe', 'maybe']]) {
     const v = num(overall[key])
     if (v == null) continue

@@ -54,7 +54,7 @@
         </li>
       </ol>
       <button v-if="post.comments.length > shownReplies.length" type="button" class="pp-more" @click="limit += 10">
-        Show {{ Math.min(10, post.comments.length - shownReplies.length) }} more {{ post.comments.length - shownReplies.length === 1 ? 'reply' : 'replies' }}
+        Show {{ Math.min(10, post.comments.length - shownReplies.length) }} more {{ plural(post.comments.length - shownReplies.length, { one: 'reply', other: 'replies' }) }}
       </button>
     </div>
   </article>
@@ -64,6 +64,7 @@
 import { computed, ref } from 'vue'
 import { ArrowBigDown, ArrowBigUp, Heart, MessageCircle, Repeat2, ThumbsDown } from 'lucide-vue-next'
 import { platformStyle } from '../../workspace/socialPosts'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ post: { type: Object, required: true }, sentimentMethod: { type: String, default: '' } })
 const limit = ref(2)
