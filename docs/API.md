@@ -115,6 +115,79 @@ Returns: {plan, file}
 
 ## Local guided workflows (X-Setup-Token required)
 
+### `POST /api/workspace/agent/stream`
+
+One chat-agent turn over the MCP server's own tools, called in-process (up to 12 model steps). Free tools run at once; tools that contact outside websites ask Go/Skip once per chat; tools that make model calls pause on an approval card with people, calls per step and an estimated cost. Resume a paused turn with `resume`.
+
+Request body:
+
+```json
+{
+  "session_id": "chat id",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Test these two headlines for busy parents in India"
+    }
+  ],
+  "model": "server catalog ID",
+  "fallback_models": [
+    "server catalog ID"
+  ],
+  "run": "saved run",
+  "files": [
+    {
+      "name": "ga4.csv",
+      "text": "Country,Active users\n..."
+    }
+  ],
+  "resume": {
+    "id": "ap_...",
+    "answer": {
+      "decision": "run",
+      "max_spend_usd": 5
+    }
+  }
+}
+```
+
+Returns: text/event-stream: plan, tool_start, tool_progress, approval_request {id,kind: spend|outside|form|audience|limit,...}, tool_result, artifact {kind: view|compare|results}, error {message,status,code,actions}, done {status: complete|waiting|stopped, message, suggestions, trace, artifacts, pending}
+
+### `POST /api/workspace/agent/audience/estimate`
+
+Live numbers for the chat's audience table: people, model calls by step and a rough cost from the MCP server's spend_plan, plus fit-check flags (segments under 10 people, half or more in less-covered markets). No model call.
+
+Request body:
+
+```json
+{
+  "segments": [
+    {
+      "label": "Young parents",
+      "count": 12,
+      "country": "India",
+      "platforms": [
+        "instagram"
+      ]
+    }
+  ]
+}
+```
+
+Returns: {segments, people, estimate, fit_check}
+
+### `GET /api/workspace/agent/jobs/{job_id}`
+
+Status and log tail of a background job the chat agent started.
+
+Returns: {job_id, label, status, elapsed_s, log_tail, result}
+
+### `GET /api/workspace/agent/tools`
+
+The tools the chat agent may call, with their cost class (free, outside, spend), phases and whether results are simulated.
+
+Returns: {tools: [{name, label, cost, phases, simulated, source}], max_steps}
+
 ### `POST /api/workspace/chat/stream`
 
 Stream actual public model/tool/reviewer progress then result or error; same validated chat inputs; no private reasoning or implicit execution.

@@ -24,6 +24,8 @@
           <p v-if="m.kind === 'comment' || (m.role === 'user' && m.author && m.author.id !== cloudAccount?.account.id)" class="direct-author">{{ m.author?.email || 'You' }}{{ m.kind === 'comment' ? ' · Team note' : '' }}</p>
           <UploadedContext v-if="m.attachedFiles?.length" :files="m.attachedFiles" :theme="theme" />
           <CompareRuns v-if="m.compare" embedded :runs="runs" :theme="theme" :a="m.compare.a" :b="m.compare.b" @pick="(p) => updateCompare(m, p)" />
+          <!-- [agent-chat] chat agent cards: tools, approvals, forms, audience table (components/workspace/agent) -->
+          <AgentTurn v-if="m.agent" :turn="m.agent" :theme="theme" :busy="busy" @resume="(r) => resumeAgent(m, r)" @action="agentAction" @open-run="(run) => openEvidenceInChat(run, 'reports')" />
           <ReportBrowser v-if="m.reportBrowser" :name="m.reportBrowser.run" :files="m.reportBrowser.files" :initial-view="m.reportBrowser.view" :theme="theme" :review-disabled="busy || !connected" @review="startResultsReview" />
           <details v-if="m.agent_activity?.length" class="direct-team"><summary><UsersRound :size="16" />Team review</summary><div class="direct-team-grid"><article v-for="agent in m.agent_activity" :key="agent.id"><header><b>{{ agent.role }}</b><Check v-if="agent.status === 'completed'" :size="14" /><CircleAlert v-else :size="14" /></header><p>{{ agent.summary }}</p></article></div></details>
           <details v-if="m.trace?.length" class="direct-trace"><summary><CheckCheck />{{ m.trace.length }} activity steps</summary><p v-for="(step,i) in m.trace" :key="i"><Check v-if="step.status === 'completed'" /><CircleAlert v-else />{{ step.label || step.tool }}<span>{{ step.status }}</span></p></details>
@@ -159,6 +161,8 @@ import { featureCatalog } from '../../workspace/featureCatalog'
 import LibraryComposer from './LibraryComposer.vue'
 import MarkdownText from './MarkdownText.vue'
 import ChatArtifact from './ChatArtifact.vue'
+import AgentTurn from './agent/AgentTurn.vue' // [agent-chat]
+import { agentBody, agentChatEnabled, agentReply, markAnswered, runAgentTurn } from './agent/agentTurn.js' // [agent-chat]
 import UploadedContext from './UploadedContext.vue'
 import ReportBrowser from './ReportBrowser.vue'
 import { resultsReview } from '../../workspace/teamReview'
@@ -601,6 +605,8 @@ async function send(text, options = {}) {
     return
    }
   }
+  // [agent-chat] standard chat goes to the chat agent: the MCP server's tools with the same spend approval
+  if (agentChatEnabled() && answerMode.value === 'standard' && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
   const history = []
   let remaining = 44000
   for (const m of [...messages.value].reverse()) {
@@ -633,6 +639,23 @@ async function send(text, options = {}) {
  } catch(e) { if (ownTicket === ticket) { userMessage.failed = true; userMessage.error = e.name === 'AbortError' ? 'Stopped waiting for this response.' : e.message === 'Failed to fetch' ? 'The connection was interrupted. Try again.' : e.message; error.value = '' } }
  finally { if (ownTicket === ticket) { busy.value = false; persist(); scrollBottom() } }
 }
+// [agent-chat] begin: one agent turn into a new assistant message; approvals resume the paused turn on the server
+async function sendToAgent({ ownTicket, runName, resume = null }) {
+ messages.value.push(agentReply(uid())); const live = messages.value.at(-1)
+ const files = !resume && context.value?.files?.length ? context.value.files.map(f => ({ name: f.name, text: f.text })) : []
+ const body = agentBody({ sessionId: conversationId.value, messages: messages.value, model: selectedModel.value, run: runName, project: activeProject.value?.id, files, resume })
+ const done = await runAgentTurn({ message: live, body, signal: controller.signal, onChange: () => { if (ownTicket === ticket) scrollBottom() } })
+ if (done && !resume) context.value = null
+}
+async function resumeAgent(m, { pendingId, answer, label }) {
+ if (busy.value || !conversationId.value) return
+ markAnswered(m.agent, pendingId, label)
+ const ownTicket = ++ticket; busy.value = true; error.value = ''; controller = new AbortController(); persist()
+ try { await sendToAgent({ ownTicket, runName: selectedRun.value, resume: { id: pendingId, answer } }) }
+ finally { if (ownTicket === ticket) { busy.value = false; persist(); scrollBottom() } }
+}
+function agentAction(id) { if (id === 'use_claude_code_login') { connectionsTab.value = 'models'; connectionsOpen.value = true } else settingsOpen.value = true }
+// [agent-chat] end
 function stop() { const latest = messages.value.at(-1); if (busy.value && latest?.role === 'user') { latest.failed = true; latest.error = 'Stopped waiting for this response.' } ticket++; controller?.abort(); busy.value = false; persist() }
 async function attach(event) {
  const files = [...(event.target.files || [])]; if (!files.length) return

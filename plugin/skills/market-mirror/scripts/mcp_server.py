@@ -363,6 +363,79 @@ def list_runs() -> List[Dict[str, Any]]:
     return out
 
 
+def _num(v: Any) -> Optional[float]:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def _read_json(path: str) -> Any:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _compare_side(name: str) -> Dict[str, Any]:
+    run_dir = _run_dir(name)
+    summary = _read_json(os.path.join(run_dir, "summary.json"))
+    if not isinstance(summary, dict):
+        raise ValueError(f"run {name!r} has no readable summary.json yet")
+    mk = summary.get("marketing") if isinstance(summary.get("marketing"), dict) else {}
+    overall = mk.get("overall") if isinstance(mk.get("overall"), dict) else {}
+    config = _read_json(os.path.join(run_dir, "config.json"))
+    people = [p for p in (config or {}).get("persona_index") or [] if isinstance(p, dict) and (p.get("kind") or "persona") == "persona"] \
+        if isinstance(config, dict) else []
+    rate = lambda s: _num(s.get("expected_convert_yes")) if _num(s.get("expected_convert_yes")) is not None else (_num(s.get("convert_yes")) or 0.0)
+    segs = sorted([s for s in mk.get("by_segment") or [] if isinstance(s, dict)], key=rate, reverse=True)
+    objections = [o for o in mk.get("objections") or [] if isinstance(o, dict)]
+    feed = _read_json(os.path.join(run_dir, "feed_test.json"))
+    best_ad = None
+    if isinstance(feed, dict):
+        per = (feed.get("summary") or {}).get("per_creative") or {}
+        names = {c.get("id"): c.get("name") or c.get("id") for c in feed.get("creatives") or [] if isinstance(c, dict)}
+        scored = [(k, _num((v or {}).get("expected_ctr"))) for k, v in per.items()]
+        scored = [s for s in scored if s[1] is not None]
+        if scored:
+            cid, ctr = max(scored, key=lambda s: s[1])
+            best_ad = {"id": cid, "name": names.get(cid) or cid, "expected_ctr": ctr}
+    return {"run": name, "title": summary.get("project_name") or name,
+            "decision": (summary.get("decision") or {}).get("decision") if isinstance(summary.get("decision"), dict) else None,
+            "people": len(people) or _num(mk.get("people")) or _num(summary.get("agents")),
+            "answered": _num(overall.get("n")),
+            "would_buy": _num(overall.get("convert_yes")), "maybe": _num(overall.get("convert_maybe")),
+            "strongest_audience": {"segment": segs[0].get("key"), "would_buy": rate(segs[0]), "n": segs[0].get("n")} if segs else None,
+            "top_objection": {"label": objections[0].get("label"), "share": objections[0].get("share")} if objections else None,
+            "best_ad": best_ad}
+
+
+def compare_runs(runs: List[str]) -> Dict[str, Any]:
+    """Two saved runs side by side from their saved files (no model call): decision, people, would buy, maybe,
+    strongest audience, top objection, best ad, which side is higher and whether the gap is too close to call."""
+    if not isinstance(runs, list) or len(runs) != 2 or not all(isinstance(r, str) and r for r in runs):
+        raise ValueError("runs must name exactly two saved runs")
+    if runs[0] == runs[1]:
+        raise ValueError("choose two different runs")
+    a, b = (_compare_side(r) for r in runs)
+
+    def higher(x, y):
+        return None if x is None or y is None or x == y else ("a" if x > y else "b")
+
+    ad = lambda s: (s.get("best_ad") or {}).get("expected_ctr")
+    gap = None
+    if a["would_buy"] is not None and b["would_buy"] is not None:
+        diff = abs(a["would_buy"] - b["would_buy"])
+        small = int(min(a["answered"] or 0, b["answered"] or 0))
+        close = diff < 5 or small < 30
+        gap = {"points": round(diff, 1), "smaller_n": small, "too_close_to_call": close,
+               "note": (f"The would-buy gap is {diff:.1f} points with {small or 'few'} people in the smaller run: too close "
+                        "to call. Check with real people before choosing.") if close else
+                       (f"The would-buy gap is {diff:.1f} points. Simulated gaps tend to be larger than real ones, so treat "
+                        "it as which way to lean, not by how much.")}
+    return {"a": a, "b": b, "higher": {"would_buy": higher(a["would_buy"], b["would_buy"]), "best_ad": higher(ad(a), ad(b))},
+            "gap": gap, "simulated": True,
+            "note": "Every number is simulated: read which way a difference points, not its size."}
+
+
 def start_live(run: Optional[str]) -> Dict[str, Any]:
     p = LIVE.get("proc")
     if p and p.poll() is None:
@@ -432,6 +505,9 @@ TOOLS = [
      "description": "Key results of a run: decision, verdicts, segments, objections, messages, pricing, feed-test metrics, ROI projections, files. Hosts with MCP Apps also show the run's dashboard inline (resource ui://market-mirror/dashboard).",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string", "description": "run name under mirofish_runs or absolute path"}}, "required": ["run"]}},
     {"name": "list_runs", "description": "List previous runs with their decision.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "compare_runs", "description": "Two saved runs side by side from their saved files, no model call: decision, simulated people, would buy, maybe, strongest audience, top objection, best ad, which side is higher and whether the would-buy gap is too close to call. Every number is simulated.",
+     "inputSchema": {"type": "object", "properties": {"runs": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2,
+                                                               "description": "two run names under mirofish_runs"}}, "required": ["runs"]}},
     {"name": "start_live", "description": "Serve the live dashboard at http://127.0.0.1:5050/ (newest run, or a given run).",
      "inputSchema": {"type": "object", "properties": {"run": {"type": "string"}}}},
     {"name": "ads_import", "description": "Turn a Meta/Google Ads export (CSV or JSON, absolute path) into a seed Markdown file plus benchmarks JSON.",
@@ -816,6 +892,8 @@ def call(name: str, a: Dict[str, Any], ctx: Optional["Ctx"] = None) -> Any:
         return out
     if name == "list_runs":
         return list_runs()
+    if name == "compare_runs":
+        return compare_runs(a.get("runs"))
     if name == "start_live":
         return start_live(a.get("run"))
     if name == "ads_import":
