@@ -15,15 +15,15 @@
       </div>
       <div class="ws-side-scroll">
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
-          <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
-          <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
+          <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" :aria-current="view === 'dashboard' ? 'page' : undefined" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
+          <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" :aria-current="view === 'reports' ? 'page' : undefined" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
-          <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
+          <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" :aria-current="view === 'skills' ? 'page' : undefined" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
+          <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" :aria-current="route.query.connectors === '1' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
         <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
-          <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
+          <div class="ws-section-heading"><RouterLink to="/workspace/projects" :class="{ active: view === 'projects' }" :aria-current="view === 'projects' ? 'page' : undefined" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
             <RouterLink v-for="p in filteredProjects" :key="p.id" :to="{path:'/',query:{project:p.id}}" :class="{active: route.query.project === p.id}" :title="p.name" @click="menuOpen = false"><FolderOpen :size="14" /><span>{{ p.name }}</span></RouterLink>
             <button v-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
