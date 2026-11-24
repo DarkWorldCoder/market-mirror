@@ -121,18 +121,7 @@
 
       <div :id="tab !== 'results' ? `${tabId}-panel` : undefined" class="ws-tabpanel" role="tabpanel" :aria-labelledby="`${tabId}-${tab}`" tabindex="0">
         <template v-if="tab === 'thinking'">
-          <p class="ws-note" style="margin-bottom: 6px">
-            What the simulated people said and thought, from the saved answers. Written by a model playing each person.
-          </p>
-          <WorkspacePager v-model:page="thoughtPage" :total="thoughts.length" label="thoughts and responses" />
-          <div v-for="(t, i) in pagedThoughts" :key="i" class="ws-thought">
-            <header>
-              <span class="ws-dot" :style="{ background: t.color }"></span>{{ t.who }} · {{ t.where }}
-            </header>
-            {{ t.text }}
-          </div>
-          <WorkspacePager v-if="thoughts.length > 30" v-model:page="thoughtPage" :total="thoughts.length" label="thoughts and responses" />
-          <p v-if="!thoughts.length" class="ws-empty">No saved thoughts in this run.</p>
+          <BuyerResponses :survey="survey" :feed="feed" :stream="stream" :index="index" @ask="askPerson" />
         </template>
         <template v-else-if="tab === 'market'">
           <div class="ws-audience-mode" role="group" aria-label="How to show the audience">
@@ -146,14 +135,7 @@
           <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
         <template v-else-if="tab === 'activity'">
-          <p class="ws-note">Recorded actions and analyst contributions from this run.</p>
-          <EChart v-if="timelineChart" :option="timelineChart" :height="230" label="Recorded actions by round" :theme="theme" />
-          <WorkspacePager v-model:page="analystPage" :total="analystRows.length" label="analysts" />
-          <div v-for="a in pagedAnalysts" :key="a.id || a.lens" class="ws-thought"><header>{{ a.lens || a.id }} <span class="pill">{{ a.error ? 'Failed' : 'Saved' }}</span></header><p>{{ a.error || a.result?.summary || a.result?.verdict || 'Analysis saved in the analyst panel report.' }}</p></div>
-          <WorkspacePager v-model:page="agentPage" :total="agentRows.length" label="agents" />
-          <div v-for="a in pagedAgents" :key="a.agent_id" class="ws-thought"><header>{{ a.agent_name || `Agent ${a.agent_id}` }}</header>{{ a.total_actions != null ? `${a.total_actions} recorded actions` : 'Action count not recorded' }}<p class="ws-note">{{ Object.entries(a.action_types || {}).map(([k, v]) => `${k.toLowerCase().replaceAll('_', ' ')}: ${v}`).join(' · ') }}</p></div>
-          <WorkspacePager v-if="agentRows.length > 30" v-model:page="agentPage" :total="agentRows.length" label="agents" />
-          <p v-if="!agentRows.length && !analystRows.length && !timelineChart" class="ws-empty">No agent activity was saved in this run. Saved results do not indicate that agents are currently running.</p>
+          <RunActivity :timeline="activityTimeline" :panel="extra['analyst_panel.json'] || null" :agents="agentRows" :theme="theme" />
         </template>
         <template v-else>
           <WorkspacePager v-model:page="postPage" :total="posts.length" label="social posts" />
@@ -188,6 +170,8 @@ import { neededRawPosts, socialPosts } from '../../workspace/socialPosts.js'
 import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 const PersonaScene = defineAsyncComponent(() => import('./PersonaScene.vue'))
 const WorldFlowMap = defineAsyncComponent(() => import('./WorldFlowMap.vue'))
+const BuyerResponses = defineAsyncComponent(() => import('./BuyerResponses.vue'))
+const RunActivity = defineAsyncComponent(() => import('./RunActivity.vue'))
 const AudiencePersonCard = defineAsyncComponent(() => import('./AudiencePersonCard.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
@@ -328,6 +312,16 @@ watch(() => [tab.value, props.name], async () => {
   harvestFor = props.name
   try { const h = await api(`/api/runs/${encodeURIComponent(props.name)}/thoughts`); mapHarvest.value = h && Array.isArray(h.entries) ? h : { entries: [] } } catch { mapHarvest.value = { entries: [] } }
 }, { immediate: true })
+// "Ask this person" from a response: open the Person chat with them selected; nothing is sent until the user asks
+function askPerson(id) {
+  const target = people.value.find((p) => String(p.agent_id) === String(id))
+  if (!target) return
+  mode.value = 'person'
+  personId.value = target.agent_id
+  askOpen.value = true
+  tab.value = 'results'
+  nextTick(() => { const el = document.getElementById('ws-ask'); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.focus() })
+}
 function showMapProfile() { nextTick(() => document.getElementById('map-person-profile')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
 const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)
 const personNames = computed(() => Object.fromEntries(index.value.map((p) => [String(p.agent_id), p.name])))
