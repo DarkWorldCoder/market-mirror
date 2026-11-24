@@ -151,6 +151,7 @@ html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radiu
 
 /* activity calendar */
 .ovi-cal-scroll { min-width: 0; max-width: 660px; }
+.overview-table-wrap:focus-visible, .ovi-cal-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .ovi-cal-months, .ovi-cal { display: grid; grid-template-columns: repeat(26, minmax(0, 1fr)); gap: 3px; }
 .ovi-cal-months { margin-bottom: 4px; font-size: 10px; color: var(--muted); }
 .ovi-cal-months span { white-space: nowrap; overflow: hidden; }

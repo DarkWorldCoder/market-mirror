@@ -6,7 +6,7 @@
     </div>
     <p v-if="!cal.shown" class="ovi-empty">No runs in the last six months<template v-if="cal.earlier">; {{ cal.earlier }} older {{ cal.earlier === 1 ? 'run is' : 'runs are' }} still in the table</template>.</p>
     <template v-else>
-      <div class="ovi-cal-scroll">
+      <div class="ovi-cal-scroll" tabindex="0" role="region" aria-label="Runs per day calendar, scrolls sideways">
         <div class="ovi-cal-months" aria-hidden="true"><span v-for="m in cal.months" :key="m.index" :style="{ gridColumn: `${m.index + 1} / span ${Math.max(1, Math.min(3, cal.weeks.length - m.index))}` }">{{ m.label }}</span></div>
         <div class="ovi-cal" role="group" :aria-label="`Runs per day, ${cal.shown} runs over the last six months. Days with runs are buttons.`" @mouseleave="hover = null">
           <div v-for="(week, w) in cal.weeks" :key="w" class="ovi-cal-week">
