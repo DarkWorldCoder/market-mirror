@@ -41,6 +41,8 @@
 
         <BrainResponseSection v-if="hasBrain" :brain="extra['brain_response.json'] || null" :feed="feed" :theme="theme" />
 
+        <LandingAnalysis :name="name" :files="detail.files || []" :feed="feed" :title="detail.title || name" />
+
         <ArtifactExplorer :name="name" :files="detail.files || []" :theme="theme" />
 
         <details class="ws-run-questions" :open="askOpen || undefined" @toggle="askOpen = $event.target.open"><summary>Ask about this experiment</summary>
@@ -165,6 +167,7 @@ import ChatArtifact from './ChatArtifact.vue'
 import WorkspacePager from './WorkspacePager.vue'
 import ResultTree from './ResultTree.vue'
 import BrainResponseSection from './BrainResponseSection.vue'
+import LandingAnalysis from './LandingAnalysis.vue'
 import { brainRows } from '../../workspace/brainResponse.js'
 import { neededRawPosts, socialPosts } from '../../workspace/socialPosts.js'
 import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
