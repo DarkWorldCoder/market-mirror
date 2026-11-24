@@ -81,7 +81,11 @@ def test_installed_claude_offline_is_connectable_not_entitled(isolated, monkeypa
     monkeypatch.setattr(setup, "_find_bin", lambda backend: "/installed/claude" if backend == "claude" else None)
     rows = chat.models()["models"]
     assert {row["model"] for row in rows} == {"sonnet", "haiku", "opus"}
-    assert all(not row["available"] and row["connection_required"] and row["connection_backend"] == "claude" for row in rows)
+    # The local app starts the login on the first message; it never claims the login is already connected.
+    assert all(row["available"] and row["status"] == "connect_on_first_use" and row["connection_required"]
+               and row["connection_backend"] == "claude" for row in rows)
+    monkeypatch.setenv("MM_ENV", "production")
+    assert chat.models()["models"] == []
 
 
 def test_hosted_worker_never_probes_local_cli_ports_files_or_cache(isolated, monkeypatch):

@@ -4,6 +4,7 @@ import { Megaphone, MessagesSquare, Search } from 'lucide-vue-next'
 import { api } from '../../workspace/api'
 import { feedAds, neededRawPosts, platformStyle, socialPosts } from '../../workspace/socialPosts'
 import PlatformPost from './PlatformPost.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import FeedAdCard from './FeedAdCard.vue'
 import WorkspacePager from './WorkspacePager.vue'
 
@@ -88,7 +89,7 @@ const fmt = value => new Intl.NumberFormat().format(value)
 
 <template>
   <section class="social-feed-card" aria-label="Saved social feed">
-    <p v-if="loading" role="status">Loading saved social activity…</p>
+    <LoadingSkeleton v-if="loading" :lines="5" label="Loading saved social activity" />
     <p v-else-if="error" role="alert">{{ error }} <button class="ws-btn" @click="load">Retry</button></p>
     <template v-else>
       <div class="sf-head">

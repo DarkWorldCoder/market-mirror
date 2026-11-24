@@ -181,16 +181,30 @@ def _provider_override(name, field, fallback):
     return os.environ.get(f"{name.upper()}_{field}") or fallback
 
 
+LOCAL_PROVIDERS = {"ollama", "lmstudio"}
+
+
+def _visible_providers():
+    providers = _cloud_providers()
+    if Config.is_production():
+        # A deployment does not offer model servers running next to it.
+        providers = {name: spec for name, spec in providers.items() if name not in LOCAL_PROVIDERS}
+    return providers
+
+
 def _llm_state():
+    production = Config.is_production()
     return {"provider": Config.LLM_PROVIDER, "model": Config.LLM_MODEL_NAME,
             "base_url": _public_url(Config.LLM_BASE_URL), "api_key_configured": _credential_set(Config.LLM_API_KEY),
-            "gateway": os.environ.get("LLM_GATEWAY") or None,
+            "gateway": None if production else os.environ.get("LLM_GATEWAY") or None,
+            "locked": production,
+            "locked_reason": "This deployment sets its models in its configuration." if production else None,
             "pool": _pool_safe(Config.LLM_POOL),
             "providers": [{"id": name, "label": spec.get("label") or {"claude": "Anthropic", "openai": "OpenAI", "gemini": "Google Gemini", "ollama": "Ollama"}.get(name, name),
                            "model": _provider_override(name, "MODEL_NAME", spec["model"]),
                            "base_url": _public_url(_provider_override(name, "BASE_URL", spec["base_url"])),
                            "key_configured": _credential_set(provider_api_key(name)) or (name == Config.LLM_PROVIDER and _credential_set(Config.LLM_API_KEY) and not os.environ.get("LLM_GATEWAY"))}
-                          for name, spec in _cloud_providers().items()]}
+                          for name, spec in _visible_providers().items()]}
 
 
 def _spending_state():
@@ -256,6 +270,8 @@ def _llm_values(data):
         raise ValueError("Unsupported model setting")
     if not data:
         return {}
+    if Config.is_production():
+        raise ValueError("This deployment sets its models in its configuration. Model settings cannot be changed here.")
     values = {}
     if "pool" in data:
         values["LLM_POOL"] = _pool_value(data["pool"])

@@ -20,10 +20,13 @@ const props = defineProps({
 const el = ref(null)
 let chart = null
 let observer = null
+let disposed = false
 
 async function render() {
   if (!el.value || !props.option) return
   const echarts = await import('echarts')
+  // the chart may have left the page while echarts was loading (a quick tab switch)
+  if (disposed || !el.value) return
   if (!chart) chart = echarts.init(el.value, null, { renderer: 'svg' })
   chart.setOption(props.option, true)
 }
@@ -35,6 +38,7 @@ onMounted(() => {
 })
 watch(() => [props.option, props.theme], render)
 onBeforeUnmount(() => {
+  disposed = true
   observer && observer.disconnect()
   chart && chart.dispose()
 })

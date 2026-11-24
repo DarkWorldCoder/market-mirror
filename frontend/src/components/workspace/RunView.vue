@@ -6,7 +6,7 @@
         </button>
       </div>
     <div v-show="tab === 'results'" :id="tab === 'results' ? `${tabId}-panel` : undefined" role="tabpanel" :aria-labelledby="`${tabId}-results`" tabindex="0" class="ws-run-main" ref="scroller">
-      <p v-if="loading" class="ws-empty">Loading the run…</p>
+      <LoadingSkeleton v-if="loading" class="ws-run-skeleton" variant="cards" :lines="5" label="Loading the run" />
       <template v-else-if="detail">
         <p v-if="error" class="ws-error" role="alert">{{ error }}</p>
         <div class="ws-title">
@@ -38,6 +38,8 @@
             </div>
           </details>
         </div>
+
+        <BrainResponseSection v-if="hasBrain" :brain="extra['brain_response.json'] || null" :feed="feed" :theme="theme" />
 
         <ArtifactExplorer :name="name" :files="detail.files || []" :theme="theme" />
 
@@ -133,7 +135,15 @@
           <p v-if="!thoughts.length" class="ws-empty">No saved thoughts in this run.</p>
         </template>
         <template v-else-if="tab === 'market'">
-          <PersonaScene :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
+          <div class="ws-audience-mode" role="group" aria-label="How to show the audience">
+            <button type="button" :aria-pressed="audienceMode === 'map'" @click="audienceMode = 'map'"><MapIcon :size="14" aria-hidden="true" />Real world map</button>
+            <button type="button" :aria-pressed="audienceMode === 'globe'" @click="audienceMode = 'globe'"><Globe2 :size="14" aria-hidden="true" />3D audience</button>
+          </div>
+          <template v-if="audienceMode === 'map'">
+            <WorldFlowMap big :index="index" :story="story" :harvest="mapHarvest" :responses="survey?.responses || []" :theme="theme" :live="/^(running|preparing|processing|in_progress)$/i.test(runStatus)" :height="520" :selected="mapPerson" @select="(id) => mapPerson = id" @profile="showMapProfile" />
+            <AudiencePersonCard v-if="mapPersonRow" id="map-person-profile" :person="mapPersonRow" :answer="(survey?.responses || []).find((r) => String(r.agent_id) === mapPerson)?.answer || null" :names="personNames" />
+          </template>
+          <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
         <template v-else-if="tab === 'activity'">
           <p class="ws-note">Recorded actions and analyst contributions from this run.</p>
@@ -165,14 +175,20 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { Globe2, Map as MapIcon } from 'lucide-vue-next'
 import EChart from './EChart.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import ArtifactExplorer from './ArtifactExplorer.vue'
 import ChatArtifact from './ChatArtifact.vue'
 import WorkspacePager from './WorkspacePager.vue'
 import ResultTree from './ResultTree.vue'
+import BrainResponseSection from './BrainResponseSection.vue'
+import { brainRows } from '../../workspace/brainResponse.js'
 import { neededRawPosts, socialPosts } from '../../workspace/socialPosts.js'
 import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 const PersonaScene = defineAsyncComponent(() => import('./PersonaScene.vue'))
+const WorldFlowMap = defineAsyncComponent(() => import('./WorldFlowMap.vue'))
+const AudiencePersonCard = defineAsyncComponent(() => import('./AudiencePersonCard.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
   creativesOption, decisionText, decisionTone, intentOption, localAnswer, objectionsOption, palette, peopleOption, sampleCount, segmentsOption, verdictColor
@@ -223,7 +239,7 @@ async function load(quiet = false) {
   try {
     const nextDetail = await api(`/api/runs/${encodeURIComponent(runName)}`)
     const has = new Set(nextDetail.files || [])
-    const files = ['survey.json', 'feed_test.json', 'graph.json', 'config.json', 'feed_story.json', 'thought_stream.json', 'pitch.json', 'analyst_panel.json', 'timeline.json', 'agent_stats.json']
+    const files = ['survey.json', 'feed_test.json', 'graph.json', 'config.json', 'feed_story.json', 'thought_stream.json', 'pitch.json', 'analyst_panel.json', 'timeline.json', 'agent_stats.json', 'brain_response.json']
     const nextFiles = {}, failures = []
     await Promise.all(files.map(async f => {
       if (!has.has(f)) return
@@ -245,7 +261,7 @@ async function load(quiet = false) {
       else if (!quiet || !has.has(file)) target.value = null
     }
     const extras = { ...(quiet ? extra.value : {}) }
-    for (const f of ['pitch.json', 'analyst_panel.json', 'timeline.json', 'agent_stats.json']) {
+    for (const f of ['pitch.json', 'analyst_panel.json', 'timeline.json', 'agent_stats.json', 'brain_response.json']) {
       if (Object.hasOwn(nextFiles, f)) extras[f] = nextFiles[f]
       else if (!has.has(f)) delete extras[f]
     }
@@ -304,6 +320,17 @@ watch(messages, (v) => {
 const mk = computed(() => detail.value?.summary?.marketing || null)
 const index = computed(() => config.value?.persona_index || [])
 const people = computed(() => index.value.filter((r) => (r.kind || 'persona') === 'persona'))
+const audienceMode = ref('map'), mapPerson = ref(''), mapHarvest = ref(null)
+// what people thought and wrote at each step, harvested from the saved files by the backend (no model call)
+let harvestFor = ''
+watch(() => [tab.value, props.name], async () => {
+  if (tab.value !== 'market' || harvestFor === props.name) return
+  harvestFor = props.name
+  try { const h = await api(`/api/runs/${encodeURIComponent(props.name)}/thoughts`); mapHarvest.value = h && Array.isArray(h.entries) ? h : { entries: [] } } catch { mapHarvest.value = { entries: [] } }
+}, { immediate: true })
+function showMapProfile() { nextTick(() => document.getElementById('map-person-profile')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
+const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)
+const personNames = computed(() => Object.fromEntries(index.value.map((p) => [String(p.agent_id), p.name])))
 const decision = computed(() => detail.value?.summary?.decision?.decision || detail.value?.decision || '')
 const runData = computed(() => ({ summary: detail.value?.summary, feed: feed.value, index: index.value }))
 
@@ -321,6 +348,7 @@ function pricingChart(pricing) {
   return { tooltip: { trigger: 'axis', confine: true }, legend: { textStyle: { color: p.muted } }, grid: { left: 8, right: 24, top: 40, bottom: 44, containLabel: true }, xAxis: { type: 'value', name: currency, nameLocation: 'middle', nameGap: 30, axisLabel: { color: p.muted }, splitLine: { lineStyle: { color: p.line } } }, yAxis: { type: 'category', data: rows.map(r => r.key).reverse(), axisLabel: { color: p.text, width: 145, overflow: 'truncate' } }, series: [['cheap', 'Cheap'], ['expensive', 'Expensive'], ['too_expensive', 'Too expensive']].map(([key, name], i) => ({ name, type: 'bar', data: rows.map(r => Number.isFinite(r[key]) ? Number(r[key].toFixed(2)) : null).reverse(), itemStyle: { color: p.series[i], borderRadius: [0, 3, 3, 0] }, barMaxWidth: 12 })) }
 }
 const agentRows = computed(() => { const data = extra.value['agent_stats.json']; return Array.isArray(data) ? data : Array.isArray(data?.agents) ? data.agents : [] })
+const hasBrain = computed(() => brainRows(extra.value['brain_response.json'], feed.value).length > 0)
 const analystRows = computed(() => Array.isArray(extra.value['analyst_panel.json']?.analysts) ? extra.value['analyst_panel.json'].analysts : [])
 const timelineChart = computed(() => { props.theme; return barChart(extra.value['timeline.json'] || [], 'round', 'total_actions', 'Recorded actions') })
 
@@ -551,5 +579,5 @@ async function openDashboard() {
 
 <style scoped>
 .ws-run{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}.ws-run>.ws-tabs{flex-shrink:0;flex-wrap:nowrap;justify-content:flex-start;gap:6px;padding:11px 22px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.ws-run>.ws-tabs::-webkit-scrollbar{display:none}.ws-run>.ws-tabs button{flex:0 0 auto;font-size:12px;white-space:nowrap;padding:9px 13px}.ws-run>.ws-tabs button[aria-selected=true]{border-color:transparent!important;background:transparent!important;box-shadow:none!important;color:var(--text)!important}.ws-run>.ws-run-main{display:block;flex:1;min-height:0;max-height:none;overflow-y:auto;padding:26px 30px 35px;scroll-padding-bottom:30px}.ws-run>.ws-run-side{display:flex;flex:1;min-height:0;max-height:none;border:0;overflow:hidden}.ws-run .ws-tabpanel{padding:22px 26px;min-height:0;overflow:auto}.ws-run .ws-title{display:block;margin-bottom:12px}.ws-run .ws-title h2{font-size:21px;line-height:1.5;font-weight:550;letter-spacing:-.3px;max-width:1000px}.ws-run-verdict{margin-top:10px}.ws-run-verdict .dw-decision{display:inline-block;font-size:12.5px;font-weight:550;line-height:1.6;padding:3px 11px}.ws-run-verdict b{font-weight:700}.ws-run-summary{font-size:15px;line-height:1.6;color:var(--text);margin-top:10px;max-width:760px}.ws-run-kpi-note{margin-left:6px;font-size:11px;color:var(--muted)}.ws-run .ws-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px;align-items:start}.ws-run .ws-step{margin:0;border:1px solid var(--line);border-radius:13px;background:var(--panel);min-width:0;overflow:hidden}.ws-run .ws-step>summary{font-size:13px;font-weight:550;line-height:1.6;padding:16px}.ws-run .ws-step-body{margin:0;border-left:0;padding:0 16px 16px}.ws-run .ws-step .ws-box{border:0;box-shadow:none;margin:0;padding:0;background:transparent}.ws-run .ws-step h3{font-size:11px;font-weight:500;color:var(--muted);margin-bottom:10px}.ws-run .ws-step time{display:none}.ws-run-questions{margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}.ws-run-questions>summary{font-size:14px;font-weight:550;cursor:pointer}.ws-run-questions .ws-dock{position:static;padding-bottom:0;background:none;margin-top:15px}.ws-run-questions .ws-composer{margin-top:12px}.ws-run-questions .ws-note{font-size:10px;line-height:1.7}.ws-run.wide-visual :deep(.persona-viewport){height:clamp(330px,50vh,620px)}@media(max-width:760px){.ws-run>.ws-run-main{padding:21px 16px 30px}.ws-run .ws-steps{grid-template-columns:1fr;gap:11px}.ws-run>.ws-tabs{padding:9px}.ws-run>.ws-tabs button{padding:8px 10px;font-size:11px}.ws-run .ws-tabpanel{padding:18px 15px}.ws-run .ws-title h2{font-size:18px}}
-.ws-post-quote{padding-left:10px;border-left:2px solid var(--accent);margin-bottom:10px}.ws-post-replies{margin-top:12px}.ws-post-replies summary{cursor:pointer;font-size:12px;color:var(--muted)}.ws-audience-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.ws-run.wide-visual{grid-template-columns:minmax(0,1fr)}.ws-run.wide-visual>.ws-run-main{display:none}.ws-run.wide-visual>.ws-run-side{border-left:0}.ws-run.wide-visual :deep(.persona-viewport){height:min(60vh,580px)}.ws-chat-report-links{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.ws-chat-report-select{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);max-width:100%}.ws-chat-report-select select{max-width:180px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);padding:5px;font-size:12px}
+.ws-post-quote{padding-left:10px;border-left:2px solid var(--accent);margin-bottom:10px}.ws-post-replies{margin-top:12px}.ws-post-replies summary{cursor:pointer;font-size:12px;color:var(--muted)}.ws-audience-mode{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:0 0 12px}.ws-audience-mode button{display:inline-flex;align-items:center;gap:6px;border:0;background:var(--panel);color:var(--text);font:inherit;font-size:12px;padding:6px 12px;cursor:pointer}.ws-audience-mode button+button{border-left:1px solid var(--line)}.ws-audience-mode button[aria-pressed=true]{background:var(--panel-2);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent)}.ws-audience-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.ws-run.wide-visual{grid-template-columns:minmax(0,1fr)}.ws-run.wide-visual>.ws-run-main{display:none}.ws-run.wide-visual>.ws-run-side{border-left:0}.ws-run.wide-visual :deep(.persona-viewport){height:min(60vh,580px)}.ws-chat-report-links{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.ws-chat-report-select{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);max-width:100%}.ws-chat-report-select select{max-width:180px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);padding:5px;font-size:12px}
 </style>

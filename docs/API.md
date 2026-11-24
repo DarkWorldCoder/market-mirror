@@ -115,6 +115,79 @@ Returns: {plan, file}
 
 ## Local guided workflows (X-Setup-Token required)
 
+### `POST /api/workspace/agent/stream`
+
+One chat-agent turn over the MCP server's own tools, called in-process (up to 12 model steps). Free tools run at once; tools that contact outside websites ask Go/Skip once per chat; tools that make model calls pause on an approval card with people, calls per step and an estimated cost. Resume a paused turn with `resume`.
+
+Request body:
+
+```json
+{
+  "session_id": "chat id",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Test these two headlines for busy parents in India"
+    }
+  ],
+  "model": "server catalog ID",
+  "fallback_models": [
+    "server catalog ID"
+  ],
+  "run": "saved run",
+  "files": [
+    {
+      "name": "ga4.csv",
+      "text": "Country,Active users\n..."
+    }
+  ],
+  "resume": {
+    "id": "ap_...",
+    "answer": {
+      "decision": "run",
+      "max_spend_usd": 5
+    }
+  }
+}
+```
+
+Returns: text/event-stream: plan, tool_start, tool_progress, approval_request {id,kind: spend|outside|form|audience|limit,...}, tool_result, artifact {kind: view|compare|results}, error {message,status,code,actions}, done {status: complete|waiting|stopped, message, suggestions, trace, artifacts, pending}
+
+### `POST /api/workspace/agent/audience/estimate`
+
+Live numbers for the chat's audience table: people, model calls by step and a rough cost from the MCP server's spend_plan, plus fit-check flags (segments under 10 people, half or more in less-covered markets). No model call.
+
+Request body:
+
+```json
+{
+  "segments": [
+    {
+      "label": "Young parents",
+      "count": 12,
+      "country": "India",
+      "platforms": [
+        "instagram"
+      ]
+    }
+  ]
+}
+```
+
+Returns: {segments, people, estimate, fit_check}
+
+### `GET /api/workspace/agent/jobs/{job_id}`
+
+Status and log tail of a background job the chat agent started.
+
+Returns: {job_id, label, status, elapsed_s, log_tail, result}
+
+### `GET /api/workspace/agent/tools`
+
+The tools the chat agent may call, with their cost class (free, outside, spend), phases and whether results are simulated.
+
+Returns: {tools: [{name, label, cost, phases, simulated, source}], max_steps}
+
 ### `POST /api/workspace/chat/stream`
 
 Stream actual public model/tool/reviewer progress then result or error; same validated chat inputs; no private reasoning or implicit execution.
@@ -579,6 +652,12 @@ Returns: local aggregate counts
 Saved run folders (mirofish_runs or MIROFISH_RUNS_DIR), newest first; no model calls.
 
 Returns: {root, runs: [{name, title, decision, people, simulation_id, updated_at, has_dashboard}]}
+
+### `GET /api/runs/insights`
+
+One aggregate across all saved runs for the workspace overview, from saved files only (no model calls); cached per run by file mtimes.
+
+Returns: {root, generated_at, total_runs, runs, activity: [{date, count, runs}], decisions: {go, iterate, no_go, unrecorded}, intent: [{run, rate, n, low, high, small_sample}], objections: [{label, runs, people}], segments: [{segment, runs, people, rate}], geography: {countries: [{country, people, runs, segments}], cities: [{country, city, people, runs}]}, trust: {runs, graded, calibrated, grades}, spend: {runs, total_usd, estimate}, forecasts: {locked, scored, hits, checks, entries}, running}
 
 ### `GET /api/runs/{name}`
 
@@ -1109,6 +1188,34 @@ Request body:
 ```
 
 Returns: {results:[{agent_id, response}]}
+
+### `POST /api/simulation/brain-response`
+
+Opt-in research view: the predicted brain response of an average viewer to each ad (Meta TRIBE v2, noncommercial license) from the owner's own sidecar; off unless MM_BRAIN_RESPONSE_URL is set; never given to the simulated people; background task.
+
+Request body:
+
+```json
+{
+  "simulation_id": "sim_x",
+  "creatives": [
+    {
+      "id": "v1",
+      "platform": "instagram",
+      "video": "/abs/ad.mp4",
+      "text": "..."
+    }
+  ]
+}
+```
+
+Returns: {task_id, creatives, label}
+
+### `GET /api/simulation/{simulation_id}/brain-response`
+
+Brain-response result: per ad a compact summary (visual, hearing and language areas and the whole cortex, z-scored per second, peaks) or a skip reason, plus the timing check.
+
+Returns: brain_response.json
 
 ### `POST /api/simulation/ssr`
 

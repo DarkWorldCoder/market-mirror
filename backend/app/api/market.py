@@ -8,6 +8,7 @@ MarketMirror API: marketing tests that run on a prepared simulation's personas.
     GET  /api/simulation/<simulation_id>/analyst-panel
     POST /api/simulation/ssr                   {items:[{id, scale, text}], temperature?, engine?}  (synchronous)
     POST /api/simulation/objection-check       {items:[{id, text, self_tag}]}  (synchronous, Jev)
+    POST /api/simulation/brain-response        {simulation_id, creatives?}  (TRIBE v2 sidecar; off unless MM_BRAIN_RESPONSE_URL)
 
 The feed test takes `seeds` (repeat with different seeds and report the spread)
 or `seed` (one run with that seed).
@@ -40,7 +41,7 @@ RESULT_FILES = {"feed-test": "feed_test.json", "analyst-panel": "analyst_panel.j
                 "market-report": "market_report.json", "pitch": "pitch.json", "email-test": "email_test.json",
                 "website-test": "website_test.json", "thought-stream": "thought_stream.json",
                 "focus-group": "focus_group.json", "choice-test": "choice_test.json",
-                "questionnaire": "questionnaire.json"}
+                "questionnaire": "questionnaire.json", "brain-response": "brain_response.json"}
 
 
 @simulation_bp.route('/website-test', methods=['POST'])
@@ -671,6 +672,35 @@ def creative_check():
                                                       "pre-flight check, not a measured attention or recall score."}})
 
 
+@simulation_bp.route('/brain-response', methods=['POST'])
+def start_brain_response():
+    """POST {simulation_id, creatives?} -> background task writing brain_response.json: the predicted brain response
+    of an average viewer to each ad (Meta TRIBE v2 research model, noncommercial license) from the owner's sidecar.
+    Off unless MM_BRAIN_RESPONSE_URL is set. Creatives default to the simulation's feed test; video / audio paths are
+    files on this server. Never given to the simulated people and changes no simulated number."""
+    from ..services import brain_response
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "request body must be an object"}), 400
+    sid = data.get("simulation_id") or ""
+    try:
+        root = _sim_dir(sid)
+    except LookupError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    cfg = brain_response.settings()
+    if not brain_response.enabled(cfg):
+        return jsonify({"success": False, "error": "brain response is off: set MM_BRAIN_RESPONSE_URL (see docs/brain-response.md)"}), 400
+    creatives = data.get("creatives")
+    if creatives is None:
+        creatives = brain_response.creatives_from_run(root)
+    if not isinstance(creatives, list) or not creatives or not all(isinstance(c, dict) for c in creatives):
+        return jsonify({"success": False, "error": "creatives must be a non-empty list of objects (or run a feed test first)"}), 400
+    creatives = creatives[:50]
+    task_id = _start("brain-response", sid, lambda progress: brain_response.run(creatives, root, root, progress, cfg))
+    return jsonify({"success": True, "data": {"task_id": task_id, "simulation_id": sid, "creatives": len(creatives),
+                                              "label": brain_response.LABEL}})
+
+
 @simulation_bp.route('/survey-estimate', methods=['POST'])
 def survey_estimate():
     """POST {simulation_id, offer, goal, message?} -> per segment, how its answers would spread over the five
@@ -1170,6 +1200,7 @@ def market_task_status():
 @simulation_bp.route('/<simulation_id>/choice-test', methods=['GET'], defaults={"kind": "choice-test"})
 @simulation_bp.route('/<simulation_id>/focus-group', methods=['GET'], defaults={"kind": "focus-group"})
 @simulation_bp.route('/<simulation_id>/questionnaire', methods=['GET'], defaults={"kind": "questionnaire"})
+@simulation_bp.route('/<simulation_id>/brain-response', methods=['GET'], defaults={"kind": "brain-response"})
 def market_result(simulation_id: str, kind: str):
     if kind not in RESULT_FILES:
         return jsonify({"success": False, "error": "not found"}), 404

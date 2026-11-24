@@ -23,7 +23,10 @@
           <MarkdownText v-if="m.role === 'assistant'" :text="m.content" /><div v-else class="direct-message-text">{{ m.content }}</div>
           <p v-if="m.kind === 'comment' || (m.role === 'user' && m.author && m.author.id !== cloudAccount?.account.id)" class="direct-author">{{ m.author?.email || 'You' }}{{ m.kind === 'comment' ? ' · Team note' : '' }}</p>
           <UploadedContext v-if="m.attachedFiles?.length" :files="m.attachedFiles" :theme="theme" />
+          <RunChatCard v-if="m.run_card" :name="m.run_card.run" :initial-tab="m.run_card.tab" :initial-verdict="m.run_card.verdict || ''" :runs="runs" :theme="theme" @action="runCardAction" @loaded="rememberRun" @update:tab="(t) => { m.run_card.tab = t; persist() }" />
           <CompareRuns v-if="m.compare" embedded :runs="runs" :theme="theme" :a="m.compare.a" :b="m.compare.b" @pick="(p) => updateCompare(m, p)" />
+          <!-- [agent-chat] chat agent cards: tools, approvals, forms, audience table (components/workspace/agent) -->
+          <AgentTurn v-if="m.agent" :turn="m.agent" :runs="runs" :theme="theme" :busy="busy" @run-action="runCardAction" @run-loaded="rememberRun" @resume="(r) => resumeAgent(m, r)" @action="agentAction" @open-run="(run) => openEvidenceInChat(run, 'reports')" />
           <ReportBrowser v-if="m.reportBrowser" :name="m.reportBrowser.run" :files="m.reportBrowser.files" :initial-view="m.reportBrowser.view" :theme="theme" :review-disabled="busy || !connected" @review="startResultsReview" />
           <details v-if="m.agent_activity?.length" class="direct-team"><summary><UsersRound :size="16" />Team review</summary><div class="direct-team-grid"><article v-for="agent in m.agent_activity" :key="agent.id"><header><b>{{ agent.role }}</b><Check v-if="agent.status === 'completed'" :size="14" /><CircleAlert v-else :size="14" /></header><p>{{ agent.summary }}</p></article></div></details>
           <details v-if="m.trace?.length" class="direct-trace"><summary><CheckCheck />{{ m.trace.length }} activity steps</summary><p v-for="(step,i) in m.trace" :key="i"><Check v-if="step.status === 'completed'" /><CircleAlert v-else />{{ step.label || step.tool }}<span>{{ step.status }}</span></p></details>
@@ -41,9 +44,13 @@
           <ConnectedResult v-for="(result,i) in m.tool_results || []" :key="`tool-${i}`" :result="result" :theme="theme" />
           <ChatArtifact v-for="(a,i) in m.artifacts || []" :key="`${a.run}-${a.file}-${i}`" :name="a.run" :file="a.file" :path="a.path || []" :title="a.title || reportTitle(a.file)" :files="artifactFiles[a.run] || []" :theme="theme" />
           <RouterLink v-if="m.workflow_id" class="direct-plan" :to="`/workflows/${m.workflow_id}`"><FlaskConical /><span><b>Your test draft is ready</b><small>Review the audience, ideas and model usage before running.</small></span><ChevronRight /></RouterLink>
-          <div v-if="m.suggestions?.length" class="direct-followups"><button v-for="s in m.suggestions" :key="s" @click="send(s)">{{ s }}</button></div>
-          <div v-if="m.role === 'assistant'" class="direct-message-actions"><button :aria-label="copiedMessage === m.id ? 'Response copied' : 'Copy response'" :title="copiedMessage === m.id ? 'Copied' : 'Copy response'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button><button v-if="m.id === lastAssistantId" aria-label="Download this chat as Markdown" title="Download this chat as Markdown" @click="exportChat"><Download :size="14" /></button></div>
-          <div v-else-if="m.role === 'user' && !(m.author && m.author.id !== cloudAccount?.account.id)" class="direct-message-actions mine"><button :aria-label="copiedMessage === m.id ? 'Message copied' : 'Copy message'" :title="copiedMessage === m.id ? 'Copied' : 'Copy'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button><button aria-label="Edit and send again" title="Edit and send again" @click="setDraft(String(m.content || ''))"><PencilLine :size="14" /></button></div>
+          <div v-if="m.suggestions?.length" class="direct-followups" role="group" aria-label="Suggested questions"><button v-for="s in m.suggestions" :key="s" type="button" :disabled="busy" @click="send(s)">{{ s }}</button></div>
+          <div v-if="m.id === lastMessageId && m.role === 'assistant' && nextChips.length" class="direct-followups direct-next" role="group" aria-label="Suggested next steps">
+            <span class="direct-next-label">Next steps</span>
+            <button v-for="c in nextChips" :key="c.id" type="button" :disabled="busy" :title="c.cost === 'free' ? 'Free: answered from the saved run' : 'Uses model calls. You see the cost and approve it first.'" @click="useChip(c)">{{ c.label }}<small v-if="c.cost !== 'free'">asks first</small></button>
+          </div>
+          <div v-if="m.role === 'assistant' && (m.content || m.run_card || m.agent?.status !== 'working')" class="direct-message-actions" role="group" aria-label="Message actions"><button type="button" :aria-label="copiedMessage === m.id ? 'Response copied' : 'Copy response'" :title="copiedMessage === m.id ? 'Copied' : 'Copy response'" :disabled="!m.content" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /><span>{{ copiedMessage === m.id ? 'Copied' : 'Copy' }}</span></button><button v-if="m.id === lastMessageId && previousUser(m)" type="button" aria-label="Ask again" title="Ask again: sends your last message again" :disabled="busy" @click="retryAnswer(m)"><RotateCcw :size="14" /><span>Retry</span></button><button v-if="m.id === lastAssistantId" type="button" aria-label="Download this chat as Markdown" title="Download this chat as Markdown" @click="exportChat"><Download :size="14" /><span>Download chat</span></button></div>
+          <div v-else-if="m.role === 'user' && !(m.author && m.author.id !== cloudAccount?.account.id)" class="direct-message-actions mine" role="group" aria-label="Your message actions"><button type="button" :aria-label="copiedMessage === m.id ? 'Message copied' : 'Copy message'" :title="copiedMessage === m.id ? 'Copied' : 'Copy'" @click="copyMessage(m)"><Check v-if="copiedMessage === m.id" :size="14" /><Copy v-else :size="14" /></button><button type="button" aria-label="Edit and send again" title="Edit and send again" @click="setDraft(String(m.content || ''))"><PencilLine :size="14" /></button></div>
           <div v-if="m.failed" class="direct-message-failure" role="status"><p><CircleAlert :size="14" />{{ m.error || 'This message did not receive an answer. Try again or choose another model.' }}</p><div v-if="messages.at(-1)?.id === m.id"><button class="direct-retry" :disabled="busy" @click="send(m.content, {retryId:m.id})"><RotateCcw :size="13" />Retry</button><button v-if="!m.previewUrl" class="direct-retry" :disabled="busy" @click="openModelPicker">Change model</button></div></div>
         </article>
         <section v-if="busy" class="direct-live" aria-label="Live request activity">
@@ -111,7 +118,7 @@
       <ChatConnections v-model:open="connectionsOpen" :initial-tab="connectionsTab" :theme="theme" :runs="runs" @attach="fileInput?.click()" @choose-run="runPicker?.openPicker()" @connected="loadModels" @configure-model="configureModel" />
       <ProjectKnowledge v-model:open="knowledgeOpen" :project="activeProject" :theme="theme" @updated="updateProjectContext" />
       <WorkspaceSettings v-model:open="settingsOpen" :initial-tab="settingsTab" :initial-provider="settingsProvider" :theme="theme" @connectors="connectionsTab = 'data'; connectionsOpen = true" @models="openModelPicker" @saved="loadModels" />
-      <Dialog v-model:open="projectPickerOpen"><DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme"><DialogHeader><DialogTitle>{{ conversationId ? 'Move chat to a project' : 'Choose a project' }}</DialogTitle><DialogDescription>Project instructions will be available to this conversation.</DialogDescription></DialogHeader><input v-model="projectSearch" class="direct-project-search" type="search" placeholder="Search projects…" aria-label="Search projects" /><p v-if="projectPickerLoading" role="status" class="direct-project-note">Loading projects…</p><div v-else class="direct-project-choices" role="group" aria-label="Project choices"><button v-if="activeProject" :disabled="projectMoving" @click="moveToProject(null)"><FolderOpen :size="17" /><span><b>No project</b><small>Keep this chat outside a project</small></span></button><button v-for="project in matchingProjects" :key="project.id" :disabled="projectMoving" :aria-pressed="activeProject?.id === project.id" @click="moveToProject(project)"><FolderOpen :size="17" /><span><b>{{ project.name }}</b><small>{{ project.description || 'Project instructions and related chats' }}</small></span><Check v-if="activeProject?.id === project.id" :size="16" /></button><p v-if="!matchingProjects.length" class="direct-project-note">{{ projectSearch ? 'No matching projects.' : 'Create a project to organize your work.' }}</p></div><p v-if="projectPickerError" class="direct-error" role="alert">{{ projectPickerError }}</p><Button type="button" variant="outline" :disabled="projectMoving" @click="projectPickerOpen = false; createProject()">Create a new project</Button></DialogContent></Dialog>
+      <Dialog v-model:open="projectPickerOpen"><DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme"><DialogHeader><DialogTitle>{{ conversationId ? 'Move chat to a project' : 'Choose a project' }}</DialogTitle><DialogDescription>Project instructions will be available to this conversation.</DialogDescription></DialogHeader><input v-model="projectSearch" class="direct-project-search" type="search" placeholder="Search projects…" aria-label="Search projects" /><LoadingSkeleton v-if="projectPickerLoading" :lines="3" label="Loading projects" /><div v-else class="direct-project-choices" role="group" aria-label="Project choices"><button v-if="activeProject" :disabled="projectMoving" @click="moveToProject(null)"><FolderOpen :size="17" /><span><b>No project</b><small>Keep this chat outside a project</small></span></button><button v-for="project in matchingProjects" :key="project.id" :disabled="projectMoving" :aria-pressed="activeProject?.id === project.id" @click="moveToProject(project)"><FolderOpen :size="17" /><span><b>{{ project.name }}</b><small>{{ project.description || 'Project instructions and related chats' }}</small></span><Check v-if="activeProject?.id === project.id" :size="16" /></button><p v-if="!matchingProjects.length" class="direct-project-note">{{ projectSearch ? 'No matching projects.' : 'Create a project to organize your work.' }}</p></div><p v-if="projectPickerError" class="direct-error" role="alert">{{ projectPickerError }}</p><Button type="button" variant="outline" :disabled="projectMoving" @click="projectPickerOpen = false; createProject()">Create a new project</Button></DialogContent></Dialog>
       <Dialog v-model:open="projectOpen"><DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme"><DialogHeader><DialogTitle>{{ editingProject ? 'Project details' : 'Create a project' }}</DialogTitle><DialogDescription>Keep related chats, research, and instructions together.</DialogDescription></DialogHeader><form class="direct-project-form" @submit.prevent="saveProject"><label>Project name<input v-model="projectForm.name" required maxlength="120" placeholder="For example, Summer campaign" /></label><label>Description<textarea v-model="projectForm.description" maxlength="2000" rows="2" placeholder="What is this project about?" /></label><label>Instructions<textarea v-model="projectForm.instructions" maxlength="12000" rows="4" placeholder="Audience, product context, constraints, and how MarketMirror should help…" /></label><p v-if="projectError" role="alert" class="direct-error">{{ projectError }}</p><div class="direct-project-actions"><Button type="button" variant="outline" @click="projectOpen = false">Cancel</Button><Button type="submit" :disabled="projectSaving">{{ projectSaving ? 'Saving…' : editingProject ? 'Save project' : 'Create project' }}</Button></div></form></DialogContent></Dialog>
       <Dialog v-model:open="webPreviewOpen">
         <DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme">
@@ -147,6 +154,8 @@ import RequestActivity from './RequestActivity.vue'
 import BrowserObservation from './BrowserObservation.vue'
 import BrowserActivity from './BrowserActivity.vue'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const RunChatCard = defineAsyncComponent(() => import('./RunChatCard.vue'))
+import LoadingSkeleton from './LoadingSkeleton.vue'
 const CompareRuns = defineAsyncComponent(() => import('./CompareRuns.vue'))
 const ExperimentSetup = defineAsyncComponent(() => import('../../views/Home.vue'))
 import ChatConnections from './ChatConnections.vue'
@@ -159,6 +168,8 @@ import { featureCatalog } from '../../workspace/featureCatalog'
 import LibraryComposer from './LibraryComposer.vue'
 import MarkdownText from './MarkdownText.vue'
 import ChatArtifact from './ChatArtifact.vue'
+import AgentTurn from './agent/AgentTurn.vue' // [agent-chat]
+import { agentBody, agentChatEnabled, agentReply, markAnswered, runAgentTurn } from './agent/agentTurn.js' // [agent-chat]
 import UploadedContext from './UploadedContext.vue'
 import ReportBrowser from './ReportBrowser.vue'
 import { resultsReview } from '../../workspace/teamReview'
@@ -169,6 +180,7 @@ import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
+import { evidencePrompt, localRunIntent, messageRun, nextStepChips, objectionAnswer, runCardIntro, segmentAnswer, shownChips, tabForView } from '../../workspace/runCard.js'
 import { continueEntries, decisionText, decisionTone, displayTitle, evidenceTitle, findEvidenceChat, isCompareRequest, pickCompareRuns, shortText as shortTitle } from '../../workspace/compareRuns.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
 const route = useRoute(), router = useRouter(), messages = ref([]), conversationId = ref(''), busy = ref(false), error = ref(''), selectedRun = ref(''), artifactFiles = ref({}), scrollArea = ref(null), context = ref(null), fileInput = ref(null), uploading = ref(false)
@@ -181,6 +193,60 @@ const selectedRunReview = ref(null)
 const copiedMessage = ref('')
 const retainedContext = computed(() => buildConversationContext(messages.value, context.value, undefined, selectedPage.value))
 const lastAssistantId = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant')?.id)
+const lastMessageId = computed(() => messages.value.at(-1)?.id)
+// saved run details (files and summary) for the next-step chips; the run card fills this when it loads
+const runDetails = ref({})
+function rememberRun(detail) { if (detail?.name) runDetails.value[detail.name] = detail }
+const chipRun = computed(() => {
+  const last = messages.value.at(-1)
+  if (busy.value || last?.role !== 'assistant' || last.failed) return ''
+  return messageRun(last) || (last.agent && last.agent.status !== 'working' ? selectedRun.value : '')
+})
+watch(chipRun, async (name) => {
+  if (!name || runDetails.value[name]) return
+  try { rememberRun(await api(`/api/runs/${encodeURIComponent(name)}`)) } catch { /* no chips for a run that cannot be read */ }
+}, { immediate: true })
+const nextChips = computed(() => {
+  const name = chipRun.value, detail = runDetails.value[name]
+  if (!name || !detail) return []
+  return nextStepChips({ run: name, title: detail.title || props.runs.find((r) => r.name === name)?.title || name, runs: props.runs, files: detail.files || [], summary: detail.summary, exclude: shownChips(messages.value.at(-1)) })
+})
+function useChip(chip) {
+  if (busy.value || !chip) return
+  if (chip.kind === 'compare') { compareInChat(chip.run, chip.other); return }
+  selectedRun.value = chip.run
+  send(chip.prompt, { chip })
+}
+// actions from an in-chat run card: asking people and focus groups go to the chat agent, which shows the cost
+// on the approval card before anything runs; comparing is read from saved files
+function runCardAction({ type, run, other, title } = {}) {
+  if (busy.value || !run) return
+  const label = shortTitle(displayTitle(title || runLabel(run)), 48)
+  if (type === 'compare') { compareInChat(run, other); return }
+  selectedRun.value = run
+  if (type === 'ask') setDraft(`Ask one of the simulated buyers from ${label}: `)
+  else if (type === 'focus') send(`Run a focus group with simulated buyers from ${label}. Show me the cost before anything runs.`, { chip: { kind: 'agent' } })
+}
+async function compareInChat(a, b) {
+  if (!a || !b || busy.value) return
+  if (!conversationId.value) { conversationId.value = uid(); await router.replace({ path: route.path, query: { chat: conversationId.value, ...(activeProject.value ? { project: activeProject.value.id } : {}) } }) }
+  messages.value.push({ id: uid(), role: 'user', content: `Compare ${shortTitle(runLabel(a), 48)} with ${shortTitle(runLabel(b), 48)}` })
+  messages.value.push({ id: uid(), role: 'assistant', content: compareContent(a, b), compare: { a, b } })
+  persist(); scrollBottom()
+}
+function previousUser(m) {
+  const i = messages.value.findIndex((x) => x.id === m.id)
+  for (let j = i - 1; j >= 0; j--) if (messages.value[j].role === 'user') return messages.value[j].kind === 'comment' ? null : messages.value[j]
+  return null
+}
+// "Retry" drops the last answer and sends the message before it again (the same user bubble, no duplicate)
+function retryAnswer(m) {
+  const user = previousUser(m)
+  if (busy.value || !user) return
+  messages.value.splice(messages.value.indexOf(user) + 1)
+  persist()
+  send(user.content, { retryId: user.id })
+}
 function exportChat() {
   const title = stored().find((c) => c.id === conversationId.value)?.title || messages.value.find((m) => m.role === 'user')?.content?.slice(0, 80) || 'MarketMirror chat'
   const lines = [`# ${title}`, '', '_Answers about simulated buyers are simulated. Check decisions with real people before you spend._', '']
@@ -577,30 +643,44 @@ async function send(text, options = {}) {
   if (!page && !runName && /show (my )?(saved )?(runs|reports)|show my saved runs/i.test(text)) {
    messages.value.push({ id: uid(), role: 'assistant', content: props.runs.length ? 'Choose a saved experiment to explore its reports, persona profiles and recorded activity. You can also select a run below and ask for a specific chart here.' : 'There are no saved experiments yet. Tell me about your product and the decision you want to test.', runIntent: /audience|people|persona|world|globe/i.test(text) ? 'audience' : 'reports', runs: props.runs.map(r => ({ name:r.name,title:r.title,people:r.people,decision:r.decision })) }); return
   }
-  if (!page && !inspectUrl && !reviewRun && runName) {
+  // chips and card actions that need the chat agent (they spend, after approval) skip the saved-file shortcuts
+  if (!page && !inspectUrl && !reviewRun && runName && options.chip?.kind !== 'agent') {
    const d = await api(`/api/runs/${encodeURIComponent(runName)}`, { signal: controller.signal })
    if (ownTicket !== ticket) return
    artifactFiles.value[runName] = d.files || []
+   rememberRun(d)
+   const runTitle = d.title || props.runs.find(r => r.name === runName)?.title || runName
+   // a saved view opened from the sidebar, the home page or a link: the run card, at the matching tab
+   if (evidenceRun) {
+    const tab = tabForView(userMessage.evidenceView)
+    messages.value.push({ id: uid(), role: 'assistant', content: runCardIntro(tab, runTitle), run_card: { run: runName, tab } })
+    return
+   }
+   // near-exact questions and "show ..." about the selected run are answered from its saved files
+   const intent = options.chip?.kind === 'agent' ? null : localRunIntent(text)
+   if (intent) {
+    const content = intent.kind === 'objections' ? objectionAnswer(d.summary) : intent.kind === 'segments' ? segmentAnswer(d.summary) : runCardIntro(intent.tab, runTitle)
+    messages.value.push({ id: uid(), role: 'assistant', content, run_card: { run: runName, tab: intent.tab, ...(intent.verdict ? { verdict: intent.verdict } : {}), ...(intent.kind === 'segments' ? { focus: 'segments' } : {}) } })
+    return
+   }
    if (/\b(3d|world|globe|audience|personas|map|people)\b/i.test(text) && /show|view|explore|visual|map|3d|world|globe/i.test(text)) {
-    messages.value.push({id:uid(),role:'assistant',content:'Explore your saved audience and their recorded responses.',audience_run:runName}); return
+    messages.value.push({ id: uid(), role: 'assistant', content: runCardIntro('market', runTitle), run_card: { run: runName, tab: 'market' } }); return
    }
    if (/^(show|open|explore|view) (the )?(social feed|social conversations|social activity)\b/i.test(text)) {
-    messages.value.push({ id: uid(), role: 'assistant', content: 'Explore the simulated posts, replies, and actions by round.', reportBrowser: { run: runName, files: d.files || [], view: 'social' } })
+    messages.value.push({ id: uid(), role: 'assistant', content: runCardIntro('feed', runTitle), run_card: { run: runName, tab: 'feed' } })
     return
    }
    if (/show\s+(all|every).*report|all results|every section|^(show|open|explore|view) (the )?(run |report )?highlights\b/i.test(text)) {
-    messages.value.push({ id: uid(), role: 'assistant', content: 'Explore the highlights and source reports for this experiment.', reportBrowser: { run: runName, files: d.files || [] } })
+    messages.value.push({ id: uid(), role: 'assistant', content: runCardIntro('results', runTitle), run_card: { run: runName, tab: 'results' } })
     return
    }
    const saved = savedReportFor(text, d.files, d.summary)
    if (saved && /show|chart|report|visual|pricing|funnel|analyst|action plan|\.json|\.csv|\.md/i.test(text)) {
     messages.value.push({ id: uid(), role: 'assistant', content: `Here are the saved ${saved.title.toLowerCase()} results. Explore the fields below or select a numeric column to visualize it.`, artifacts: [{run:runName,...saved}] }); return
    }
-   if (evidenceRun) {
-    messages.value.push({ id: uid(), role: 'assistant', content: 'Choose a saved report to explore.', reportBrowser: { run: runName, files: d.files || [] } })
-    return
-   }
   }
+  // [agent-chat] standard chat goes to the chat agent: the MCP server's tools with the same spend approval
+  if (agentChatEnabled() && answerMode.value === 'standard' && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
   const history = []
   let remaining = 44000
   for (const m of [...messages.value].reverse()) {
@@ -633,6 +713,23 @@ async function send(text, options = {}) {
  } catch(e) { if (ownTicket === ticket) { userMessage.failed = true; userMessage.error = e.name === 'AbortError' ? 'Stopped waiting for this response.' : e.message === 'Failed to fetch' ? 'The connection was interrupted. Try again.' : e.message; error.value = '' } }
  finally { if (ownTicket === ticket) { busy.value = false; persist(); scrollBottom() } }
 }
+// [agent-chat] begin: one agent turn into a new assistant message; approvals resume the paused turn on the server
+async function sendToAgent({ ownTicket, runName, resume = null }) {
+ messages.value.push(agentReply(uid())); const live = messages.value.at(-1)
+ const files = !resume && context.value?.files?.length ? context.value.files.map(f => ({ name: f.name, text: f.text })) : []
+ const body = agentBody({ sessionId: conversationId.value, messages: messages.value, model: selectedModel.value, run: runName, project: activeProject.value?.id, files, resume })
+ const done = await runAgentTurn({ message: live, body, signal: controller.signal, onChange: () => { if (ownTicket === ticket) scrollBottom() } })
+ if (done && !resume) context.value = null
+}
+async function resumeAgent(m, { pendingId, answer, label }) {
+ if (busy.value || !conversationId.value) return
+ markAnswered(m.agent, pendingId, label)
+ const ownTicket = ++ticket; busy.value = true; error.value = ''; controller = new AbortController(); persist()
+ try { await sendToAgent({ ownTicket, runName: selectedRun.value, resume: { id: pendingId, answer } }) }
+ finally { if (ownTicket === ticket) { busy.value = false; persist(); scrollBottom() } }
+}
+function agentAction(id) { if (id === 'use_claude_code_login') { connectionsTab.value = 'models'; connectionsOpen.value = true } else settingsOpen.value = true }
+// [agent-chat] end
 function stop() { const latest = messages.value.at(-1); if (busy.value && latest?.role === 'user') { latest.failed = true; latest.error = 'Stopped waiting for this response.' } ticket++; controller?.abort(); busy.value = false; persist() }
 async function attach(event) {
  const files = [...(event.target.files || [])]; if (!files.length) return
@@ -659,20 +756,12 @@ async function attach(event) {
  finally { uploading.value = false; event.target.value = '' }
 }
 let openingEvidence = false
-const evidenceViews = { reports: 'Reports', audience: 'Audience', market: 'Audience', feed: 'Social feed', thinking: 'Thinking', activity: 'Activity' }
+const evidenceViews = { results: 'Reports', reports: 'Reports', audience: 'Audience', market: 'Audience', world_map: 'Audience', feed: 'Social feed', social_feed: 'Social feed', thinking: 'Buyer responses', activity: 'Activity' }
 async function openEvidenceInChat(name, show = 'reports') {
  if (busy.value || openingEvidence) return
  openingEvidence = true
  try {
-  let prompt = 'Show all reports'
-  if (show === 'audience' || show === 'market') prompt = 'Show the 3D world and audience'
-  else if (show === 'feed') prompt = 'Show the social feed'
-  else if (['thinking','activity'].includes(show)) {
-   const detail = await api(`/api/runs/${encodeURIComponent(name)}`)
-   const choices = show === 'thinking' ? ['survey.json','thought_stream.json'] : ['agent_stats.json','timeline.json','analyst_panel.json']
-   const file = choices.find(file => detail.files.includes(file))
-   if (file) prompt = `Show ${file}`
-  }
+  const prompt = evidencePrompt(show)
   // from the home page, reopen the chat that already shows this evidence instead of starting another one
   if (!conversationId.value) {
    const existing = findEvidenceChat(stored(), name, prompt)
@@ -681,7 +770,7 @@ async function openEvidenceInChat(name, show = 'reports') {
     return
    }
   }
-  await send(prompt, { evidenceRun: name, evidenceView: evidenceViews[show] || 'Reports' })
+  await send(prompt, { evidenceRun: name, evidenceView: evidenceViews[show] || evidenceViews[tabForView(show)] || 'Reports' })
  } catch (err) { error.value = err.message } finally { openingEvidence = false }
 }
 watch(() => [route.query.run, route.query.show], async ([name, show]) => {

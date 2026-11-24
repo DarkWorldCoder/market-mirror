@@ -110,6 +110,8 @@ def create_app(config_class=Config):
     app.register_blueprint(runs_bp)
     from .api.workspace_chat import workspace_chat_bp
     app.register_blueprint(workspace_chat_bp)
+    from .api.chat_agent import chat_agent_bp
+    app.register_blueprint(chat_agent_bp)
     from .api.workspace_projects import workspace_projects_bp
     app.register_blueprint(workspace_projects_bp)
     from .api.workspace_skills import workspace_skills_bp

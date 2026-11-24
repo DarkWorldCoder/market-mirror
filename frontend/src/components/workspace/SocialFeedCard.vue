@@ -4,6 +4,7 @@ import { Search } from 'lucide-vue-next'
 import { api } from '../../workspace/api'
 import { neededRawPosts, socialPosts } from '../../workspace/socialPosts'
 import SocialThread from './SocialThread.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import WorkspacePager from './WorkspacePager.vue'
 
 const props = defineProps({ name: { type: String, required: true }, files: { type: Array, required: true } })
@@ -83,7 +84,7 @@ const fmt = value => new Intl.NumberFormat().format(value)
 
 <template>
   <section class="social-feed-card" aria-label="Saved social feed">
-    <p v-if="loading" role="status">Loading saved social activity…</p>
+    <LoadingSkeleton v-if="loading" :lines="5" label="Loading saved social activity" />
     <p v-else-if="error" role="alert">{{ error }} <button class="ws-btn" @click="load">Retry</button></p>
     <template v-else>
       <p>Posts and replies from the simulation.</p>

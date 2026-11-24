@@ -16,7 +16,7 @@
       <button type="button" class="compare-swap" aria-label="Swap A and B" title="Swap A and B" :disabled="!picks.a || !picks.b" @click="swap"><ArrowLeftRight :size="16" /></button>
     </div>
 
-    <p v-if="loading" class="compare-empty" role="status">Loading…</p>
+    <LoadingSkeleton v-if="loading" variant="cards" :lines="6" label="Loading both experiments" />
     <p v-else-if="loadError" class="compare-empty" role="alert">{{ loadError }}</p>
     <template v-else-if="A && B">
       <p v-if="verdict" class="compare-verdict"><Scale :size="15" aria-hidden="true" />{{ verdict }} <small>Simulated</small></p>
@@ -63,6 +63,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeftRight, ArrowUpRight, GitCompare, Scale, ShieldCheck } from 'lucide-vue-next'
 import EChart from './EChart.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import { api } from '../../workspace/api'
 import { intentOption } from '../../workspace/charts'
 import { compareGapNote, compareSections, compareVerdict, displayTitle, shortText } from '../../workspace/compareRuns'

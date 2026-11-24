@@ -1,7 +1,7 @@
 <template>
   <section class="chat-artifact" :aria-label="title || file">
     <header><div><b>{{ title || reportInfo(file).title }}</b></div><button class="ws-btn" @click="save">Download</button></header>
-    <p v-if="loading" class="ws-note">Loading saved results…</p>
+    <LoadingSkeleton v-if="loading" variant="cards" :lines="3" label="Loading saved results" />
     <p v-else-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-btn" @click="load">Retry</button></p>
     <template v-else-if="file.endsWith('.html')"><p class="ws-note">Saved interactive dashboard</p><button class="ws-btn" @click="openSaved">Open dashboard</button></template>
     <div v-else class="chat-artifact-content" role="region" tabindex="0" :aria-label="`${title || file} saved content`">
@@ -18,6 +18,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import ResultTree from './ResultTree.vue'
+import LoadingSkeleton from './LoadingSkeleton.vue'
 import ReadableReport from './ReadableReport.vue'
 import { presentReport, reportInfo } from '../../workspace/reportPresentation'
 import { api, download, openHtml } from '../../workspace/api.js'

@@ -170,6 +170,39 @@ def assets(name):
     return send_from_directory(DIST / "assets", name)
 
 
+def map_config() -> dict:
+    """Where the workspace map loads its tiles from. MM_MAP_TILES=openfreemap (default: OpenFreeMap street
+    styles, NASA Blue Marble satellite), custom (your own MM_MAP_STYLE_URL, MM_MAP_DARK_STYLE_URL,
+    MM_MAP_SATELLITE_TILES, MM_MAP_GLYPHS) or off (no outside requests: only the offline country map)."""
+    import os
+    mode = (os.environ.get("MM_MAP_TILES") or "openfreemap").strip().lower()
+    if mode in ("off", "none", "offline", "0", "false"):
+        return {"mode": "off", "streets": None, "dark": None, "satellite": None, "glyphs": None}
+    if mode == "custom":
+        env = lambda k: (os.environ.get(k) or "").strip() or None  # noqa: E731
+        return {"mode": "custom", "streets": env("MM_MAP_STYLE_URL"), "dark": env("MM_MAP_DARK_STYLE_URL") or env("MM_MAP_STYLE_URL"),
+                "satellite": env("MM_MAP_SATELLITE_TILES"), "glyphs": env("MM_MAP_GLYPHS"),
+                "satellite_attribution": env("MM_MAP_SATELLITE_ATTRIBUTION") or ""}
+    ofm = "https://tiles.openfreemap.org"
+    return {"mode": "openfreemap", "streets": f"{ofm}/styles/liberty", "dark": f"{ofm}/styles/dark",
+            "satellite": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+            "satellite_attribution": "NASA Blue Marble via GIBS", "glyphs": f"{ofm}/fonts/{{fontstack}}/{{range}}.pbf"}
+
+
+@workflows_bp.get("/geo/map-config.json")
+def geo_map_config():
+    # public, holds no secret: the tile hosts the map may contact
+    response = jsonify(map_config())
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@workflows_bp.get("/geo/<path:name>")
+def geo_data(name):
+    # the world map's offline city gazetteer (public data, no secrets), cached by the browser for a day
+    return send_from_directory(DIST / "geo", name, max_age=86400)
+
+
 @workflows_bp.get("/icon.png")
 def icon():
     return send_from_directory(DIST, "icon.png")
