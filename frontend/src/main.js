@@ -9,6 +9,7 @@ import { initializeCloud } from './workspace/cloud'
 import { loadCustomSkills } from './workspace/featureCatalog'
 import { startWorkspaceData, watchAccount } from './workspace/workspaceData'
 import { setFormatLocale } from './workspace/format'
+import { signedIn } from './workspace/account'
 
 const app = createApp(App)
 
@@ -20,5 +21,5 @@ app.use(i18n)
 
 accountReady
   .then(() => Promise.allSettled([ensureSession(), initializeCloud()]))
-  .then(() => { watchAccount(); startWorkspaceData(); return loadCustomSkills().catch(() => {}) })
+  .then(() => { watchAccount(); startWorkspaceData(); return signedIn.value ? undefined : loadCustomSkills().catch(() => {}) })
   .then(() => app.mount('#app'))

@@ -1,3 +1,4 @@
+import { plural } from './plural.js'
 // Pure helpers for the workspace overview panels fed by GET /api/runs/insights. No DOM, no fetch: the components
 // call these and the unit tests cover them. Every number is about simulated people; the panels say so.
 
@@ -86,7 +87,7 @@ export function dayLabel(cell, locale = undefined) {
   const [y, m, d] = String(cell?.date || '').split('-').map(Number)
   const when = y ? new Date(y, m - 1, d).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : ''
   const n = Number(cell?.count) || 0
-  return `${n === 0 ? 'No runs' : n === 1 ? '1 run' : `${n} runs`} on ${when}`
+  return `${n === 0 ? 'No runs' : plural(n, { one: '1 run', other: `${n} runs` })} on ${when}`
 }
 
 /** Run names saved on `day`, from the activity list. */
@@ -173,4 +174,10 @@ export function liveProgress(status, fallback = {}) {
   const v = obj(obj(status).run).progress_percent
   const p = finite(v) ? v : obj(fallback).progress_percent
   return finite(p) ? Math.min(100, Math.max(0, p)) : null
+}
+
+// A stable signature of the run list: a new run or a changed status makes the
+// cross-run insights reload once, without reacting to array identity.
+export function runSignature(runs) {
+  return (runs || []).map((run) => `${run.name}:${run.status || ''}`).join('|')
 }
