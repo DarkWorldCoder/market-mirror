@@ -27,7 +27,7 @@
           <ul class="ovi-ledger-list" aria-label="Locked forecasts, newest first">
             <li v-for="e in forecasts.entries.slice(0, 6)" :key="e.id" :class="e.outcome">
               <component :is="icon(e.outcome)" :size="15" aria-hidden="true" />
-              <span><strong>{{ e.run }}</strong><small>{{ summary(e) }}</small></span>
+              <span><RouterLink :to="`/workspace/runs/${encodeURIComponent(e.run)}`">{{ runTitle(e.run) }}</RouterLink><small>{{ summary(e) }}</small></span>
               <span class="ovi-ledger-outcome">{{ outcomeText(e.outcome) }}<template v-if="e.scored && e.total"> ({{ e.hits }}/{{ e.total }})</template></span>
             </li>
           </ul>
@@ -43,7 +43,9 @@ import { RouterLink } from 'vue-router'
 import { CircleCheck, CircleDashed, CircleX, Clock, Info, ShieldCheck } from 'lucide-vue-next'
 import { gradeCounts, gradeText, outcomeText, trustNudge } from '../../../workspace/overviewInsights.js'
 
-const props = defineProps({ trust: { type: Object, required: true }, forecasts: { type: Object, required: true }, totalRuns: { type: Number, default: 0 } })
+const props = defineProps({ trust: { type: Object, required: true }, forecasts: { type: Object, required: true }, totalRuns: { type: Number, default: 0 }, runs: { type: Array, default: () => [] } })
+const titles = computed(() => Object.fromEntries(props.runs.map((run) => [run.name, run.title || run.name])))
+const runTitle = (name) => titles.value[name] || name
 const grades = computed(() => gradeCounts(props.trust.grades))
 const nudge = computed(() => trustNudge(props.trust, props.totalRuns))
 const recent = computed(() => props.trust.runs.slice(0, 6))
