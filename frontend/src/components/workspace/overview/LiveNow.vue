@@ -39,7 +39,10 @@ async function poll() {
         const before = statuses[run.name]
         statuses[run.name] = s
         if (before && liveStage(before, run) !== liveStage(s, run)) changes.push(`${run.title || run.name} is now ${liveStage(s, run)}`)
-        if (before && stillRunning(before) && !stillRunning(s)) changes.push(`${run.title || run.name} finished`)
+        if (before && stillRunning(before) && !stillRunning(s)) {
+          changes.push(`${run.title || run.name} finished`)
+          window.dispatchEvent(new CustomEvent('mm-run-finished', { detail: { name: run.name, title: run.title || run.name } }))
+        }
         if (!stillRunning(s)) finished = true
       } catch { /* keep the last known stage; the next poll retries */ }
     }))

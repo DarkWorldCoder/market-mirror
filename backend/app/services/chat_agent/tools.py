@@ -31,15 +31,108 @@ MCP_TOOLS = (
     "cli",
 )
 
+# Everything the app shows can be shown inline in the chat with open_view. Every view is read-only and free.
+RUN_VIEWS = ("results", "reports", "audience", "world_map", "people", "buyer_responses", "activity", "social_feed",
+             "landing", "brain_response")
+WORKSPACE_VIEWS = ("dashboard_map", "insights", "projects", "skills", "connectors", "settings_summary", "spend")
+VIEWS = (*RUN_VIEWS, "compare", *WORKSPACE_VIEWS)
+INSIGHT_PANELS = ("activity_calendar", "intent", "objections", "audiences", "trust", "spend", "live_runs")
+VERDICTS = ("yes", "maybe", "no")
+OBJECTION_TYPES = ("trust", "price", "effort", "unclear", "privacy", "relevance", "timing", "other")
+RESPONSE_SOURCES = ("survey", "feed", "thought")
+VIEW_FILTERS = {"people": ("segment", "country", "verdict", "gender", "query"),
+                "buyer_responses": ("verdict", "segment", "objection", "source", "query")}
+# views whose numbers come from simulated buyers (the others show this computer's own settings and lists)
+SIMULATED_VIEWS = frozenset((*RUN_VIEWS, "compare", "dashboard_map", "insights"))
+
+
+def _run_name(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 200:
+        raise ValueError(f"{field} must be a saved run name.")
+    return value.strip()
+
+
+def normalize_view(args: Dict[str, Any]) -> Dict[str, Any]:
+    """open_view arguments checked and trimmed to what the view takes, or ValueError with a plain reason.
+    A missing run (or compare pair) is left to the slot form."""
+    args = args if isinstance(args, dict) else {}
+    view = args.get("view")
+    if view not in VIEWS:
+        raise ValueError(f"Choose a view: {', '.join(VIEWS)}.")
+    out: Dict[str, Any] = {"view": view}
+    if view in RUN_VIEWS:
+        if args.get("run") not in (None, ""):
+            out["run"] = _run_name(args["run"], "run")
+    elif view == "compare":
+        runs = args.get("runs")
+        if runs is None and args.get("run") and args.get("other"):
+            runs = [args["run"], args["other"]]
+        if runs is not None:
+            if not isinstance(runs, list) or len(runs) != 2:
+                raise ValueError("compare needs runs: two saved run names.")
+            out["runs"] = [_run_name(r, "runs") for r in runs]
+            if out["runs"][0] == out["runs"][1]:
+                raise ValueError("Choose two different runs to compare.")
+    elif args.get("run") not in (None, ""):
+        raise ValueError(f"{view} is a workspace view; it takes no run.")
+    panel = args.get("panel")
+    if panel not in (None, ""):
+        if view != "insights":
+            raise ValueError("Only the insights view takes a panel.")
+        if panel not in INSIGHT_PANELS:
+            raise ValueError(f"Choose a panel: {', '.join(INSIGHT_PANELS)}.")
+        out["panel"] = panel
+    filters = args.get("filters")
+    if filters not in (None, {}):
+        allowed = VIEW_FILTERS.get(view)
+        if not allowed:
+            raise ValueError(f"{view} takes no filters; filters work on people and buyer_responses.")
+        if not isinstance(filters, dict):
+            raise ValueError("filters must be an object.")
+        unknown = [str(k) for k in filters if k not in allowed]
+        if unknown:
+            raise ValueError(f"{view} filters are {', '.join(allowed)}, not {', '.join(unknown)}.")
+        clean = {}
+        for key, value in filters.items():
+            if value in (None, ""):
+                continue
+            if not isinstance(value, str) or len(value) > 80 or any(ord(c) < 32 for c in value):
+                raise ValueError(f"The {key} filter must be a short line of text.")
+            value = value.strip()
+            if key in ("verdict", "objection", "source"):
+                value = value.lower()
+                choices = {"verdict": VERDICTS, "objection": OBJECTION_TYPES, "source": RESPONSE_SOURCES}[key]
+                if value not in choices:
+                    raise ValueError(f"The {key} filter is one of {', '.join(choices)}.")
+            clean[key] = value
+        if clean:
+            out["filters"] = clean
+    return out
+
+
 # Tools only the app needs. They render in the browser or steer the conversation and never cost money.
 APP_TOOLS: Dict[str, Dict[str, Any]] = {
     "open_view": {
-        "description": "Show a saved run in the chat: world_map (people on a map with who talked to whom), reports "
-                       "(every report), social_feed (simulated posts and replies) or audience (the people and their "
-                       "verdicts). Free, renders in the browser.",
+        "description": "Show something inline in the chat, read from saved files (free, no model call, renders in the "
+                       "browser). Run views need `run`: results, reports, audience / world_map (people on a map with "
+                       "who talked to whom), people (every simulated person; filters segment, country, verdict, gender, "
+                       "query), buyer_responses (what each buyer said; filters verdict, segment, objection, source, "
+                       "query), activity, social_feed, landing (landing page analysis), brain_response. compare needs "
+                       "`runs` [a, b]. Workspace views take no run: dashboard_map (audience geography across runs), "
+                       "insights (with `panel`: activity_calendar, intent, objections, audiences, trust, spend, "
+                       "live_runs), projects, skills, connectors, settings_summary, spend.",
         "parameters": {"type": "object", "properties": {
-            "view": {"type": "string", "enum": ["world_map", "reports", "social_feed", "audience"]},
-            "run": {"type": "string", "description": "saved run name"}}, "required": ["view", "run"]}},
+            "view": {"type": "string", "enum": list(VIEWS)},
+            "run": {"type": "string", "description": "saved run name (run views)"},
+            "runs": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2,
+                     "description": "two saved run names (compare)"},
+            "panel": {"type": "string", "enum": list(INSIGHT_PANELS), "description": "insights panel"},
+            "filters": {"type": "object", "description": "people or buyer_responses filters", "properties": {
+                "segment": {"type": "string"}, "country": {"type": "string"}, "gender": {"type": "string"},
+                "verdict": {"type": "string", "enum": list(VERDICTS)},
+                "objection": {"type": "string", "enum": list(OBJECTION_TYPES)},
+                "source": {"type": "string", "enum": list(RESPONSE_SOURCES)}, "query": {"type": "string"}}}},
+            "required": ["view"]}},
     "read_run_file": {
         "description": "Read one saved file of a run (JSON, Markdown or CSV) in pages. Free.",
         "parameters": {"type": "object", "properties": {
@@ -77,7 +170,7 @@ APP_TOOLS: Dict[str, Dict[str, Any]] = {
                        "required": ["phase"]}},
 }
 
-ALWAYS = ("list_runs", "job_status", "ask_user", "switch_phase")
+ALWAYS = ("list_runs", "job_status", "ask_user", "switch_phase", "open_view")
 PHASE_TOOLS: Dict[str, tuple] = {
     "setup": ("doctor", "provider_setup", "understand", "quickstart", "research", "browse_page", "ads_import",
               "actuals_import", "campaign_plan"),
@@ -378,7 +471,9 @@ SLOTS: Dict[str, List[Dict[str, Any]]] = {
                                  any_of=["files", "rows", "reports"])],
     "intake": [_slot("files", "Customer material file paths, one per line", "list", any_of=["files", "rows"])],
     "results": [_slot("run", "Which run?", "run")],
-    "open_view": [_slot("run", "Which run?", "run")],
+    "open_view": [_slot("run", "Which run?", "run", when=lambda a: a.get("view") in RUN_VIEWS),
+                  _slot("runs.0", "First run", "run", any_of=["runs.0"], when=lambda a: a.get("view") == "compare"),
+                  _slot("runs.1", "Second run", "run", any_of=["runs.1"], when=lambda a: a.get("view") == "compare")],
 }
 
 

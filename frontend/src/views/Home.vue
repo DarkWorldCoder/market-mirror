@@ -836,7 +836,7 @@
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowUpRight, ChartNoAxesCombined, Check, ChevronRight, Files, FileText, LayoutDashboard, Shapes, Split, UserRound, UsersRound } from 'lucide-vue-next'
 import { AUDIENCE_SIZES, COUNTRIES, CURRENCIES, LANGUAGES, LIMITS, OTHER, PLATFORMS, briefErrors, choiceOf, ideasErrors, isWebUrl } from '../workspace/setupFields'
 // Inside the chat the setup runs as one step of the conversation: no page header, landing hero or address changes;
@@ -953,6 +953,13 @@ function shown(form, key) {
 }
 function touch(key) {
   touched.value = { ...touched.value, [key]: true }
+}
+const savedSnapshot = ref('')
+const unsavedEdits = computed(() => screen.value !== 'home' && savedSnapshot.value !== JSON.stringify(clean()))
+function beforeUnload(event) {
+  if (!unsavedEdits.value) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 function resetChecks() {
   touched.value = {}
@@ -1081,12 +1088,14 @@ function begin(kind) {
   quote.value = null
   inputs.value = empty(kind)
   resetChecks()
+  savedSnapshot.value = JSON.stringify(clean())
   screen.value = 'brief'
   error.value = ''
   message.value = ''
   focusTitle()
 }
 function home() {
+  if (unsavedEdits.value && !confirm('Leave this comparison without saving? Your unsaved edits will be lost.')) return
   screen.value = 'home'
   record.value = null
   results.value = null
@@ -1126,6 +1135,7 @@ async function persist() {
     json(record.value ? 'PUT' : 'POST', { inputs: clean() })
   )
   record.value = value
+  savedSnapshot.value = JSON.stringify(clean())
   if (props.embedded) emit('workflow', value.id)
   else await router.replace(`/workflows/${value.id}`)
   if (activeSeconds) {
@@ -1243,6 +1253,7 @@ async function load(id) {
   record.value = value
   inputs.value = structuredClone(value.inputs)
   resetChecks()
+  savedSnapshot.value = JSON.stringify(clean())
   screen.value = Object.keys(value.stages).length ? 'review' : 'brief'
   quote.value = null
   results.value = null
@@ -1350,7 +1361,15 @@ onMounted(async () => {
     poll()
   }, 1000)
 })
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload)
+})
+onBeforeRouteLeave(() => {
+  if (!unsavedEdits.value) return true
+  return confirm('Leave this comparison without saving? Your unsaved edits will be lost.')
+})
 onUnmounted(() => {
+  window.removeEventListener('beforeunload', beforeUnload)
   clearInterval(timer)
   document.removeEventListener('keydown', activity)
   document.removeEventListener('pointerdown', activity)

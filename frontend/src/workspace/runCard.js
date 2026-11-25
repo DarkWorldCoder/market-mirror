@@ -3,21 +3,39 @@
 import { decisionText, decisionTone, displayTitle, shortText } from './compareRuns.js'
 import { sampleCount } from './charts.js'
 
-/** The same tabs, ids and order as the run page (RunView.vue), so "Open full page" lands on the matching tab. */
+/**
+ * The run page's tabs (RunView.vue), same ids and order, so "Open full page" lands on the matching tab, then the two
+ * sections the run page keeps inside Results (landing page analysis and brain response) as tabs of their own, so
+ * nothing on the run page is page-only.
+ */
 export const RUN_CARD_TABS = [
   { id: 'results', label: 'Results' },
   { id: 'market', label: 'Audience & world' },
+  { id: 'people', label: 'People' },
   { id: 'thinking', label: 'Buyer responses' },
   { id: 'activity', label: 'Activity' },
-  { id: 'feed', label: 'Social feed' }
+  { id: 'feed', label: 'Social feed' },
+  { id: 'landing', label: 'Landing page' },
+  { id: 'brain', label: 'Brain response' }
 ]
+/** Run page tab for "Open full page": landing and brain live inside its Results tab. */
+export const fullPageTab = (tab) => (tab === 'landing' || tab === 'brain' ? 'results' : tab)
+
+/** The tabs a run shows: Brain response only when the run saved one (or it was asked for). */
+export function cardTabs(files, current = '') {
+  const have = new Set(Array.isArray(files) ? files : [])
+  return RUN_CARD_TABS.filter((t) => t.id !== 'brain' || have.has('brain_response.json') || current === 'brain')
+}
 
 const TAB_ALIASES = {
   results: 'results', reports: 'results', report: 'results', highlights: 'results',
   market: 'market', audience: 'market', world: 'market', world_map: 'market', map: 'market',
+  people: 'people', persons: 'people', personas: 'people', people_explorer: 'people',
   thinking: 'thinking', responses: 'thinking', buyers: 'thinking', survey: 'thinking', buyer_responses: 'thinking',
   activity: 'activity', timeline: 'activity', recorded_activity: 'activity',
-  feed: 'feed', social: 'feed', social_feed: 'feed', 'social feed': 'feed'
+  feed: 'feed', social: 'feed', social_feed: 'feed', 'social feed': 'feed',
+  landing: 'landing', landing_page: 'landing', 'landing page': 'landing', landing_analysis: 'landing', teardown: 'landing',
+  brain: 'brain', brain_response: 'brain', 'brain response': 'brain'
 }
 
 /** A view name from a link, the agent's open_view or an evidence label ("Social feed") -> a card tab id. */
@@ -189,7 +207,7 @@ export function nextStepChips({ run, title = '', runs = [], files = [], summary 
 /** Text for the assistant message that carries a run card. */
 export function runCardIntro(tab, title) {
   const name = shortText(displayTitle(title), 60)
-  const what = { results: 'the results', market: 'the audience and the world map', thinking: 'what the buyers said', activity: 'the recorded activity', feed: 'the social feed' }[tab] || 'the results'
+  const what = { results: 'the results', market: 'the audience and the world map', people: 'the simulated people', thinking: 'what the buyers said', activity: 'the recorded activity', feed: 'the social feed', landing: 'the landing page analysis', brain: 'the predicted brain response' }[tab] || 'the results'
   return `This is ${what} for **${name}**, read from the saved run with no model call. Use the tabs to look around. Every number comes from simulated buyers.`
 }
 
@@ -197,9 +215,12 @@ export function runCardIntro(tab, title) {
 export const EVIDENCE_PROMPTS = {
   results: 'Show the results',
   market: 'Show the audience and world map',
+  people: 'Show the people',
   thinking: 'Show what the buyers said',
   activity: 'Show the recorded activity',
-  feed: 'Show the social feed'
+  feed: 'Show the social feed',
+  landing: 'Show the landing page analysis',
+  brain: 'Show the brain response'
 }
 export function evidencePrompt(tab) { return EVIDENCE_PROMPTS[tabForView(tab)] }
 
@@ -211,10 +232,10 @@ export function localRunIntent(text) {
   const t = String(text || '').trim().toLowerCase().replace(/[?.!]+$/, '')
   if (/^why did (people|buyers|they) (say no|not buy|walk away)$|^(show|what were) the (top )?objections$/.test(t)) return { kind: 'objections', tab: 'thinking', verdict: 'no' }
   if (/^which (audience|segment) should (we|i) target$|^(which|what) (audience|segment) (is|was) (best|strongest)$/.test(t)) return { kind: 'segments', tab: 'market' }
-  const view = /^(show|open|view|explore) (me )?(the )?(results|world map|audience( and world map)?|3d world and audience|what the buyers said|buyer responses|(recorded )?activity|social feed|all reports)$/.exec(t)
+  const view = /^(show|open|view|explore) (me )?(the )?(results|world map|audience( and world map)?|3d world and audience|what the buyers said|buyer responses|(recorded )?activity|social feed|all reports|people|every simulated person|landing page analysis|brain response)$/.exec(t)
   if (!view) return null
   const what = view[4]
-  const tab = /world|audience/.test(what) ? 'market' : /buyer/.test(what) ? 'thinking' : /activity/.test(what) ? 'activity' : /feed/.test(what) ? 'feed' : 'results'
+  const tab = /people|person/.test(what) ? 'people' : /world|audience/.test(what) ? 'market' : /buyer/.test(what) ? 'thinking' : /activity/.test(what) ? 'activity' : /feed/.test(what) ? 'feed' : /landing/.test(what) ? 'landing' : /brain/.test(what) ? 'brain' : 'results'
   return { kind: 'view', tab }
 }
 
