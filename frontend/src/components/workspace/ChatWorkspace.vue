@@ -178,6 +178,7 @@ import TeamPresence from './TeamPresence.vue'
 import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../../workspace/cloud'
 import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
+import { chatFilename } from '../../workspace/chatFilename.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 import { evidencePrompt, localRunIntent, messageRun, nextStepChips, objectionAnswer, runCardIntro, segmentAnswer, shownChips, tabForView } from '../../workspace/runCard.js'
@@ -252,7 +253,7 @@ function exportChat() {
   const lines = [`# ${title}`, '', '_Answers about simulated buyers are simulated. Check decisions with real people before you spend._', '']
   for (const m of messages.value) if (m.content) lines.push(`**${m.role === 'user' ? 'You' : 'MarketMirror'}**`, '', String(m.content), '')
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
-  const a = Object.assign(document.createElement('a'), { href: url, download: `${String(title).replace(/[^\w-]+/g, '_').slice(0, 60) || 'chat'}.md` })
+  const a = Object.assign(document.createElement('a'), { href: url, download: chatFilename(String(title)) })
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
