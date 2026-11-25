@@ -43,7 +43,10 @@ How to work:
   then call ask_user ONCE with every field still missing. Never invent product facts, prices, audiences, quotes or results.
 - To design an audience, call design_audience with segments; the user edits and confirms the table, and you get a
   personas path to pass to market_test. market_test without approval still spends on the persona planner.
-- Show saved runs with open_view (world_map, reports, social_feed, audience). Compare two runs with compare_runs.
+- Show anything inline with open_view (free): a run's results, people (with filters), buyer_responses (with
+  filters), activity, social_feed, world_map, landing, brain_response; two runs side by side (compare); and the
+  workspace's dashboard_map, insights panels, projects, skills, connectors, settings_summary and spend. Prefer
+  open_view over describing a view in words. Compare two runs in numbers with compare_runs.
 - Simulated buyers are simulated: report numbers as directions with their margins, never as measurements.
 - A declined call is not retried in this turn. Long jobs: the app waits and shows progress; if one is still running,
   say so and offer to check it later with job_status.
@@ -532,6 +535,12 @@ class Turn:
             return {"pause": {"kind": "audience", "tool": "design_audience", "title": "Review the audience",
                               "name": str(args.get("name") or "audience")[:60], "segments": segments, "estimate": plan,
                               "fit_check": self._fit({}, T.pseudo_people(segments)), "simulated": True}, "call": call}
+        if name == "open_view":
+            try:
+                args = T.normalize_view(args)
+            except ValueError as e:
+                return self.error(call, str(e))
+            call = {**call, "arguments": args}
         if name == "market_test":
             cfg = dict(args.get("config") or {})
             cfg.pop("approve_spend", None)            # approval comes from the user's answer, never from the model
@@ -640,8 +649,12 @@ class Turn:
                                                          if result.get(k) is not None}}
         artifact = None
         if name == "open_view" and isinstance(result, dict):
-            artifact = {"kind": "view", "view": result.get("view"), "run": result.get("run"), "title": result.get("title"),
-                        "files": result.get("files") or [], "simulated": True}
+            view = result.get("view")
+            artifact = {"kind": "view", "view": view, "run": result.get("run"), "title": result.get("title"),
+                        "files": result.get("files") or [], "simulated": view in T.SIMULATED_VIEWS}
+            for key in ("runs", "panel", "filters"):
+                if result.get(key):
+                    artifact[key] = result[key]
         elif name == "compare_runs" and isinstance(result, dict):
             runs = args.get("runs") or []
             artifact = {"kind": "compare", "compare": {"a": runs[0], "b": runs[1]}, "gap": result.get("gap"), "simulated": True}

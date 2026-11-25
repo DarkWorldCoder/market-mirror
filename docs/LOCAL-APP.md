@@ -129,6 +129,7 @@ The app opens straight into a conversation at `/`. The design and its sources ar
 - **Chat.** Ask in plain words; saved runs open inside the chat as reports, charts, an audience explorer and a social
   feed. Solo, Team review and Team note modes; `/` finds a skill. Answers about buyers come from simulated people
   and say so. You can copy any message, edit and send your own again, and download the chat as Markdown.
+  Downloaded filenames preserve the title's language. Titles made entirely of symbols use a dated filename.
 - **Sidebar.** Overview, Reports, **Compare** (two runs side by side), Skills and Connectors; projects, your chats, pinned runs and
   saved runs. `⌘K` or `Ctrl K` searches; `?` lists the shortcuts.
 - **Audience explorer.** A 3D globe and a flat **world map** of every simulated person in their country, with the

@@ -26,7 +26,7 @@ ALIASES = {
     "america": "United States of America", "uk": "United Kingdom", "gb": "United Kingdom", "great britain": "United Kingdom",
     "england": "United Kingdom", "britain": "United Kingdom", "in": "India", "ph": "Philippines", "ke": "Kenya",
     "ng": "Nigeria", "za": "South Africa", "pk": "Pakistan", "bd": "Bangladesh", "np": "Nepal", "lk": "Sri Lanka",
-    "id": "Indonesia", "my": "Malaysia", "sg": "Malaysia", "singapore": "Malaysia", "th": "Thailand", "vn": "Vietnam",
+    "id": "Indonesia", "my": "Malaysia", "th": "Thailand", "vn": "Vietnam",
     "viet nam": "Vietnam", "cn": "China", "jp": "Japan", "kr": "South Korea", "korea": "South Korea",
     "republic of korea": "South Korea", "tw": "Taiwan", "au": "Australia", "nz": "New Zealand", "ca": "Canada",
     "mx": "Mexico", "br": "Brazil", "ar": "Argentina", "co": "Colombia", "cl": "Chile", "pe": "Peru", "de": "Germany",

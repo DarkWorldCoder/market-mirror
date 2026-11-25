@@ -4,6 +4,9 @@ Written 23 Nov 2026 from two literature reviews (realism of simulated people; tr
 items are arXiv preprints, not yet peer reviewed. Numbers are quoted from the papers; where only an abstract was
 available, that is said.
 
+For a consolidated list of cited academic papers, see [Research References](REFERENCES.md).
+
+
 ## What goes wrong with simulated people
 
 - **Gaps between segments are too big.** Models inflate differences between segments 2-4x and pick the wrong top

@@ -72,10 +72,17 @@ import WorkspacePager from './WorkspacePager.vue'
 import { SEGMENT_COLORS } from '../../workspace/geoPlace'
 import { buildResponses, filterResponses, plainLabel, summarizeResponses } from '../../workspace/responses'
 
-const props = defineProps({ survey: { type: Object, default: null }, feed: { type: Object, default: null }, stream: { type: [Array, Object], default: null }, index: { type: Array, default: () => [] } })
+const props = defineProps({
+  survey: { type: Object, default: null }, feed: { type: Object, default: null }, stream: { type: [Array, Object], default: null }, index: { type: Array, default: () => [] },
+  // filters asked for from the chat ({ verdict, segment, objection, source, query }); the chips stay changeable
+  initialFilters: { type: Object, default: null }
+})
 defineEmits(['ask'])
 
-const q = ref(''), verdict = ref(''), source = ref(''), segment = ref(''), objection = ref(''), page = ref(0)
+const start = props.initialFilters || {}
+const pick = (v, allowed) => (allowed.includes(String(v || '').toLowerCase()) ? String(v).toLowerCase() : '')
+const q = ref(String(start.query || '')), verdict = ref(pick(start.verdict, ['yes', 'maybe', 'no'])), source = ref(pick(start.source, ['survey', 'feed', 'thought']))
+const segment = ref(''), objection = ref(String(start.objection || '').toLowerCase()), page = ref(0)
 const size = 30
 const verdictKeys = ['yes', 'maybe', 'no']
 const verdictLabel = { yes: 'Would buy', maybe: 'Maybe', no: 'Would not' }
@@ -92,6 +99,17 @@ const shown = computed(() => filterResponses(rows.value, { verdict: verdict.valu
 const paged = computed(() => shown.value.slice(page.value * size, (page.value + 1) * size))
 const filtered = computed(() => !!(q.value || verdict.value || source.value || segment.value || objection.value))
 watch([q, verdict, source, segment, objection], () => { page.value = 0 })
+// a segment asked for from the chat is matched to the run's own segment names once the answers load; otherwise it
+// becomes a search, so nothing asked for is dropped
+let seeded = !start.segment
+watch(segments, (list) => {
+  if (seeded || !list.length) return
+  seeded = true
+  const want = String(start.segment).toLowerCase()
+  const hit = list.find((s) => String(s.key).toLowerCase() === want)
+  if (hit) segment.value = hit.key
+  else q.value = [q.value, start.segment].filter(Boolean).join(' ')
+}, { immediate: true })
 
 const pct = (n) => (summary.value.asked ? Math.round((100 * n) / summary.value.asked) : 0)
 const initials = (name) => String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
