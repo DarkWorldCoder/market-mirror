@@ -23,7 +23,8 @@
           <MarkdownText v-if="m.role === 'assistant'" :text="m.content" /><div v-else class="direct-message-text">{{ m.content }}</div>
           <p v-if="m.kind === 'comment' || (m.role === 'user' && m.author && m.author.id !== cloudAccount?.account.id)" class="direct-author">{{ m.author?.email || 'You' }}{{ m.kind === 'comment' ? ' · Team note' : '' }}</p>
           <UploadedContext v-if="m.attachedFiles?.length" :files="m.attachedFiles" :theme="theme" />
-          <RunChatCard v-if="m.run_card" :name="m.run_card.run" :initial-tab="m.run_card.tab" :initial-verdict="m.run_card.verdict || ''" :runs="runs" :theme="theme" @action="runCardAction" @loaded="rememberRun" @update:tab="(t) => { m.run_card.tab = t; persist() }" />
+          <RunChatCard v-if="m.run_card" :name="m.run_card.run" :initial-tab="m.run_card.tab" :initial-verdict="m.run_card.verdict || ''" :filters="m.run_card.filters || null" :runs="runs" :theme="theme" @action="runCardAction" @loaded="rememberRun" @update:tab="(t) => { m.run_card.tab = t; persist() }" />
+          <ChatViewCard v-if="m.view_card" :spec="m.view_card" :runs="runs" :theme="theme" @panel="openPanel" @feature="selectFeature" @open-run="(run) => openEvidenceInChat(run, 'results')" />
           <CompareRuns v-if="m.compare" embedded :runs="runs" :theme="theme" :a="m.compare.a" :b="m.compare.b" @pick="(p) => updateCompare(m, p)" />
           <!-- [agent-chat] chat agent cards: tools, approvals, forms, audience table (components/workspace/agent) -->
           <AgentTurn v-if="m.agent" :turn="m.agent" :runs="runs" :theme="theme" :busy="busy" @run-action="runCardAction" @run-loaded="rememberRun" @resume="(r) => resumeAgent(m, r)" @action="agentAction" @open-run="(run) => openEvidenceInChat(run, 'reports')" />
@@ -78,10 +79,10 @@
       <div v-if="context" class="direct-context"><FileText /><span>{{ context.name }}</span><button aria-label="Remove attached context" @click="context = null"><X /></button></div>
       <UploadedContext v-if="context?.files?.length" :files="context.files" :theme="theme" />
       <div class="direct-input-region" @keydown.capture="composerKey">
-        <SkillPalette ref="skillPalette" :theme="theme" :open="skillsOpen" :query="draft" class="direct-skills" @select="selectFeature" @close="dismissSkills" />
+        <SkillPalette ref="skillPalette" :theme="theme" :open="skillsOpen" :query="draft" class="direct-skills" @select="pickFeature" @close="dismissSkills" />
         <div class="direct-composer-wrap">
         <LibraryComposer ref="composer" v-model="draft" :key="conversationId || 'new'" :busy="busy" :disabled="(!connected && answerMode !== 'note') || uploading" :models="modelOptions" :selected-model="selectedModel" :changing="modelsLoading" placeholder="Ask MarketMirror, or type / for tools…" @send="send" @stop="stop" @attach="fileInput?.click()" @connectors="connectionsTab = 'data'; connectionsOpen = true" @choose-run="runPicker?.openPicker()" @skills="openSkills" @browser="openWebPreview" @settings="settingsOpen = true" @model-change="changeModel" />
-        <div class="direct-composer-options"><ChatModePicker v-model="answerMode" v-model:agents="teamAgents" v-model:agentModels="teamModels" :can-comment="!!cloudAccount" :models="modelOptions" :theme="theme" :disabled="busy" @use-brief="addTeamBrief" /><ChatToolPicker v-model="connectorTools" :theme="theme" :disabled="busy" @configure="connectionsOpen = true" /><RunContextPicker ref="runPicker" v-model="selectedRun" :runs="runs" :disabled="busy" :theme="theme" /></div>
+        <div class="direct-composer-options"><ChatModePicker v-model="answerMode" v-model:agents="teamAgents" v-model:agentModels="teamModels" :can-comment="!!cloudAccount" :models="modelOptions" :theme="theme" :disabled="busy" @use-brief="addTeamBrief" /><ChatToolPicker v-model="connectorTools" :theme="theme" :disabled="busy" @configure="router.push('/workspace/connectors')" /><RunContextPicker ref="runPicker" v-model="selectedRun" :runs="runs" :disabled="busy" :theme="theme" /></div>
         </div>
         <div v-if="pastedPage && connected && !busy && !uploading && answerMode !== 'note'" class="direct-web-shortcut">
           <Globe :size="15" aria-hidden="true" />
@@ -117,7 +118,7 @@
       <BrowserActivity v-model:open="browserActivityOpen" :captures="browserCaptures" :progress="browserProgress" :theme="theme" />
       <ChatConnections v-model:open="connectionsOpen" :initial-tab="connectionsTab" :theme="theme" :runs="runs" @attach="fileInput?.click()" @choose-run="runPicker?.openPicker()" @connected="loadModels" @configure-model="configureModel" />
       <ProjectKnowledge v-model:open="knowledgeOpen" :project="activeProject" :theme="theme" @updated="updateProjectContext" />
-      <WorkspaceSettings v-model:open="settingsOpen" :initial-tab="settingsTab" :initial-provider="settingsProvider" :theme="theme" @connectors="connectionsTab = 'data'; connectionsOpen = true" @models="openModelPicker" @saved="loadModels" />
+      <WorkspaceSettings v-model:open="settingsOpen" :initial-tab="settingsTab" :initial-provider="settingsProvider" :theme="theme" @models="openModelPicker" @saved="loadModels" />
       <Dialog v-model:open="projectPickerOpen"><DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme"><DialogHeader><DialogTitle>{{ conversationId ? 'Move chat to a project' : 'Choose a project' }}</DialogTitle><DialogDescription>Project instructions will be available to this conversation.</DialogDescription></DialogHeader><input v-model="projectSearch" class="direct-project-search" type="search" placeholder="Search projects…" aria-label="Search projects" /><LoadingSkeleton v-if="projectPickerLoading" :lines="3" label="Loading projects" /><div v-else class="direct-project-choices" role="group" aria-label="Project choices"><button v-if="activeProject" :disabled="projectMoving" @click="moveToProject(null)"><FolderOpen :size="17" /><span><b>No project</b><small>Keep this chat outside a project</small></span></button><button v-for="project in matchingProjects" :key="project.id" :disabled="projectMoving" :aria-pressed="activeProject?.id === project.id" @click="moveToProject(project)"><FolderOpen :size="17" /><span><b>{{ project.name }}</b><small>{{ project.description || 'Project instructions and related chats' }}</small></span><Check v-if="activeProject?.id === project.id" :size="16" /></button><p v-if="!matchingProjects.length" class="direct-project-note">{{ projectSearch ? 'No matching projects.' : 'Create a project to organize your work.' }}</p></div><p v-if="projectPickerError" class="direct-error" role="alert">{{ projectPickerError }}</p><Button type="button" variant="outline" :disabled="projectMoving" @click="projectPickerOpen = false; createProject()">Create a new project</Button></DialogContent></Dialog>
       <Dialog v-model:open="projectOpen"><DialogContent class="ws-overlay direct-project-dialog" :data-theme="theme"><DialogHeader><DialogTitle>{{ editingProject ? 'Project details' : 'Create a project' }}</DialogTitle><DialogDescription>Keep related chats, research, and instructions together.</DialogDescription></DialogHeader><form class="direct-project-form" @submit.prevent="saveProject"><label>Project name<input v-model="projectForm.name" required maxlength="120" placeholder="For example, Summer campaign" /></label><label>Description<textarea v-model="projectForm.description" maxlength="2000" rows="2" placeholder="What is this project about?" /></label><label>Instructions<textarea v-model="projectForm.instructions" maxlength="12000" rows="4" placeholder="Audience, product context, constraints, and how MarketMirror should help…" /></label><p v-if="projectError" role="alert" class="direct-error">{{ projectError }}</p><div class="direct-project-actions"><Button type="button" variant="outline" @click="projectOpen = false">Cancel</Button><Button type="submit" :disabled="projectSaving">{{ projectSaving ? 'Saving…' : editingProject ? 'Save project' : 'Create project' }}</Button></div></form></DialogContent></Dialog>
       <Dialog v-model:open="webPreviewOpen">
@@ -157,6 +158,7 @@ const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue
 const RunChatCard = defineAsyncComponent(() => import('./RunChatCard.vue'))
 import LoadingSkeleton from './LoadingSkeleton.vue'
 const CompareRuns = defineAsyncComponent(() => import('./CompareRuns.vue'))
+const ChatViewCard = defineAsyncComponent(() => import('./ChatViewCard.vue'))
 const ExperimentSetup = defineAsyncComponent(() => import('../../views/Home.vue'))
 import ChatConnections from './ChatConnections.vue'
 import SkillPalette from './SkillPalette.vue'
@@ -178,8 +180,10 @@ import TeamPresence from './TeamPresence.vue'
 import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../../workspace/cloud'
 import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
+import { chatFilename } from '../../workspace/chatFilename.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
+import { CHAT_VIEWS, localViewIntent, slashView, splitSlash, viewIntro, viewTab } from '../../workspace/chatViews.js'
 import { evidencePrompt, localRunIntent, messageRun, nextStepChips, objectionAnswer, runCardIntro, segmentAnswer, shownChips, tabForView } from '../../workspace/runCard.js'
 import { continueEntries, decisionText, decisionTone, displayTitle, evidenceTitle, findEvidenceChat, isCompareRequest, pickCompareRuns, shortText as shortTitle } from '../../workspace/compareRuns.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
@@ -219,13 +223,22 @@ function useChip(chip) {
 }
 // actions from an in-chat run card: asking people and focus groups go to the chat agent, which shows the cost
 // on the approval card before anything runs; comparing is read from saved files
-function runCardAction({ type, run, other, title } = {}) {
+function runCardAction({ type, run, other, title, person, prompt, panel, feature } = {}) {
+  // from a workspace view card shown by the agent: open a full panel, use a skill, or open a run
+  if (type === 'open-panel') { openPanel(panel); return }
+  if (type === 'feature' && feature) { selectFeature(feature); return }
+  if (type === 'open-run' && run) { openEvidenceInChat(run, 'results'); return }
   if (busy.value || !run) return
   const label = shortTitle(displayTitle(title || runLabel(run)), 48)
   if (type === 'compare') { compareInChat(run, other); return }
   selectedRun.value = run
-  if (type === 'ask') setDraft(`Ask one of the simulated buyers from ${label}: `)
+  // a person picked in the People tab: the draft names them; nothing is sent until the user presses send
+  if (type === 'ask' && person?.id != null) setDraft(`Ask ${person.name || 'the simulated person'} (simulated person ${person.id}) from ${label}: `)
+  else if (type === 'ask') setDraft(`Ask one of the simulated buyers from ${label}: `)
   else if (type === 'focus') send(`Run a focus group with simulated buyers from ${label}. Show me the cost before anything runs.`, { chip: { kind: 'agent' } })
+  // landing analysis: testing a fix goes to the agent, which asks for approval before it spends; a new test only fills the box
+  else if (type === 'agent-prompt' && prompt) send(prompt, { chip: { kind: 'agent' } })
+  else if (type === 'draft' && prompt) setDraft(prompt)
 }
 async function compareInChat(a, b) {
   if (!a || !b || busy.value) return
@@ -252,7 +265,7 @@ function exportChat() {
   const lines = [`# ${title}`, '', '_Answers about simulated buyers are simulated. Check decisions with real people before you spend._', '']
   for (const m of messages.value) if (m.content) lines.push(`**${m.role === 'user' ? 'You' : 'MarketMirror'}**`, '', String(m.content), '')
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
-  const a = Object.assign(document.createElement('a'), { href: url, download: `${String(title).replace(/[^\w-]+/g, '_').slice(0, 60) || 'chat'}.md` })
+  const a = Object.assign(document.createElement('a'), { href: url, download: chatFilename(String(title)) })
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
@@ -386,9 +399,16 @@ function openSkills() { skillsDismissed.value = false; setDraft('/') }
 function dismissSkills() { skillsDismissed.value = true }
 function composerKey(event) { if (skillPalette.value?.handleKey(event)) event.stopPropagation() }
 async function openModelPicker() { await loadModels(); await nextTick(); if (modelOptions.value.length) document.querySelector('.library-composer .an-model-trigger')?.click(); else connectionsOpen.value = true }
-function selectFeature(feature) {
+// from the / menu: "/people Kenya" keeps the words after the command as the view's filters
+function pickFeature(feature) {
+  const slash = splitSlash(draft.value)
+  const typed = slash && (feature.command === slash.command || feature.aliases?.some(alias => `/${alias}` === slash.command))
+  selectFeature(feature, typed && feature.view ? slash.rest : '')
+}
+function selectFeature(feature, rest = '') {
   setDraft(''); skillsDismissed.value = true
-  if (feature.action === 'settings') settingsOpen.value = true
+  if (feature.view) showView(slashView(feature.view, rest, { runs: props.runs, run: selectedRun.value }), rest ? `${feature.command} ${rest}` : feature.command)
+  else if (feature.action === 'settings') settingsOpen.value = true
   else if (feature.action === 'connectors') connectionsOpen.value = true
   else if (feature.action === 'models') openModelPicker()
   else if (feature.action === 'project') createProject()
@@ -397,6 +417,45 @@ function selectFeature(feature) {
   else if (feature.action === 'runs') send('Show my saved runs and reports.')
   else setDraft(feature.prompt)
 }
+// The full Settings or Connections panel, from a view card's link (their internals stay on their own pages).
+function openPanel(panel) {
+  if (panel === 'connectors') router.push('/workspace/connectors')
+  else if (panel === 'settings' || panel === 'spending') { settingsTab.value = panel === 'spending' ? 'spending' : 'models'; settingsProvider.value = ''; settingsOpen.value = true }
+}
+// Everything from the chat: a view (any page, tab or panel of the app) as an assistant message, read from saved files
+// with no model call. Run views become the run card at the matching tab with the filters; workspace views their card.
+function viewMessage(spec) {
+  const base = { id: uid(), role: 'assistant' }
+  if (!spec || spec.needsRun) return { ...base, content: 'There are no saved runs yet, so there is nothing to show. Tell me about your product and the decision you want to test.' }
+  const kind = CHAT_VIEWS[spec.view]?.kind
+  if (kind === 'run') {
+    selectedRun.value = spec.run
+    const tab = viewTab(spec.view)
+    return { ...base, content: viewIntro(spec, runLabel(spec.run)), run_card: { run: spec.run, tab, ...(spec.filters ? { filters: spec.filters } : {}), ...(spec.filters?.verdict ? { verdict: spec.filters.verdict } : {}) } }
+  }
+  if (kind === 'compare') {
+    if (props.runs.length < 2) return { ...base, content: props.runs.length ? 'There is only one saved experiment so far. Run a second one, then compare them.' : 'There are no saved experiments to compare yet.' }
+    const picks = spec.runs ? { a: spec.runs[0], b: spec.runs[1] } : pickCompareRuns('compare my last two experiments', props.runs, selectedRun.value)
+    return { ...base, content: compareContent(picks.a, picks.b), compare: picks }
+  }
+  return { ...base, content: viewIntro(spec), view_card: spec }
+}
+// a slash command or a view card link: your words, then the view, in this chat
+async function showView(spec, label) {
+  if (busy.value || !spec) return
+  if (!conversationId.value) { conversationId.value = uid(); await router.replace({ path: route.path, query: { chat: conversationId.value, ...(activeProject.value ? { project: activeProject.value.id } : {}) } }) }
+  messages.value.push({ id: uid(), role: 'user', content: label || CHAT_VIEWS[spec.view]?.label || spec.view })
+  messages.value.push(viewMessage(spec))
+  persist(); scrollBottom()
+}
+// /workspace/skills links a view as ?open=<command id>
+watch(() => route.query.open, async (id) => {
+  if (typeof id !== 'string' || !id) return
+  const feature = featureCatalog.find((item) => item.id === id)
+  const query = { ...route.query }; delete query.open
+  await router.replace({ path: route.path, query })
+  if (feature) { await nextTick(); selectFeature(feature) }
+}, { immediate: true })
 // A new experiment is set up inside the conversation, as one step of the chat, not on a separate page.
 async function startExperiment() {
   if (!conversationId.value) {
@@ -423,7 +482,7 @@ function editProject() { if (!activeProject.value) return; editingProject.value 
 async function loadProject() {
  const id = route.query.project || stored().find(chat => chat.id === route.query.chat)?.project
  if (!id) { activeProject.value = null; return }
- try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = project.preferred_model } }
+ try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = resolveModel(project.preferred_model) } }
  catch (err) { activeProject.value = null; error.value = err.message }
 }
 watch(() => [route.query.project, route.query.chat], loadProject)
@@ -444,10 +503,16 @@ async function saveProject() {
   await router.replace({ path: route.path, query: { ...(conversationId.value ? { chat: conversationId.value } : {}), project: activeProject.value.id } })
  } catch (err) { projectError.value = err.message } finally { projectSaving.value = false }
 }
+let defaultModelId = null
+function resolveModel(id) {
+ if (defaultModelId === null) return id
+ const available = modelOptions.value.filter(model => model.available !== false)
+ return (available.find(model => model.id === id) || available.find(model => model.id === defaultModelId) || available[0])?.id || ''
+}
 async function loadModels() {
  if (!connected.value) return
  modelsLoading.value = true
- try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); if (!modelOptions.value.some(m => m.id === selectedModel.value && m.available !== false)) selectedModel.value = data.default_id || modelOptions.value.find(m => m.available !== false)?.id || '' }
+ try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); defaultModelId = data.default_id || ''; selectedModel.value = resolveModel(selectedModel.value) }
  catch(e) { error.value = e.message } finally { modelsLoading.value = false }
 }
 function changeModel(id) { const model = modelOptions.value.find(m => m.id === id); if (busy.value || !model) return; if (model.available === false) { connectionsTab.value = 'models'; connectionsOpen.value = true; return } selectedModel.value = id; persist() }
@@ -456,6 +521,18 @@ function openSettings() { settingsOpen.value = true }
 function refreshSharedChat() { if (busy.value || !conversationId.value) return; const chat = stored().find(row => row.id === conversationId.value); if (chat) { messages.value = chat.messages || []; loadArtifacts() } }
 window.addEventListener('mm-chats-loaded', refreshSharedChat)
 watch(() => route.query.connectors, value => { if (value === '1') connectionsOpen.value = true })
+// The Connections page sends "add a file" here: open the file picker once, then drop the flag from the address.
+async function attachFromRoute() { if (route.query.attach !== '1') return; const query = { ...route.query }; delete query.attach; await router.replace({ path: route.path, query }); await nextTick(); fileInput.value?.click() }
+watch(() => route.query.attach, attachFromRoute)
+onMounted(attachFromRoute)
+// Drop the query when the dialog closes, so the sidebar link stops looking
+// active and can open the dialog again.
+watch(connectionsOpen, open => {
+  if (open || route.query.connectors !== '1') return
+  const query = { ...route.query }
+  delete query.connectors
+  router.replace({ query })
+})
 watch(() => route.query.skill, async id => { if (typeof id !== 'string' || !id) return; const skill = featureCatalog.find(item => item.skillId === id); if (skill) { await nextTick(); setDraft(skill.prompt) } }, { immediate: true })
 watch(() => route.query.prompt, async value => { if (typeof value === 'string') { await nextTick(); composer.value?.setValue(value); composer.value?.focus() } }, { immediate: true })
 const STORE = 'mm-conversations-v1'
@@ -556,7 +633,7 @@ function openConversation() {
  teamAgents.value = Array.isArray(chat?.teamAgents) ? chat.teamAgents : ['market-analyst','critical-reviewer']; teamModels.value = chat?.teamModels && typeof chat.teamModels === 'object' ? chat.teamModels : {}
  answerMode.value = ['team', ...(cloudAccount.value ? ['note'] : [])].includes(chat?.answerMode) ? chat.answerMode : 'standard'
  connectorTools.value = Array.isArray(chat?.connectorTools) ? chat.connectorTools : null
- conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = chat?.model || selectedModel.value
+ conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = resolveModel(chat?.model || selectedModel.value)
  loadArtifacts(); scrollBottom()
 }
 watch(() => [route.query.chat, route.query.new], openConversation, { immediate: true })
@@ -576,17 +653,27 @@ async function send(text, options = {}) {
   text = `Analyze this website: ${url.href}`
   options = { ...options, inspectUrl: url.href }
  }
- if (text.startsWith('/')) { const feature = featureCatalog.find(item => item.command === text || item.aliases?.some(alias => `/${alias}` === text)); if (feature) { selectFeature(feature); return } }
+ if (text.startsWith('/')) {
+  const slash = splitSlash(text)
+  const named = (command) => featureCatalog.find(item => item.command === command || item.aliases?.some(alias => `/${alias}` === command))
+  // "/people kenya": a view with filters; other commands only match on their own
+  const viewFeature = slash?.rest && named(slash.command)?.view ? named(slash.command) : null
+  if (viewFeature) { selectFeature(viewFeature, slash.rest); return }
+  const feature = named(text)
+  if (feature) { selectFeature(feature); return }
+ }
  const retried = options.retryId ? messages.value.at(-1) : null
  if (options.retryId && (retried?.id !== options.retryId || retried.role !== 'user')) return
  const previewUrl = retried?.previewUrl || options.previewUrl
  const inspectUrl = retried?.inspectUrl || options.inspectUrl
  const evidenceRun = retried?.evidenceRun || options.evidenceRun
- const pinnedReview = answerMode.value === 'team' && !previewUrl && !inspectUrl && !evidenceRun
+ // an explicit agent action (a card button or chip) goes to the agent flow whatever the answer mode, never a note or team answer
+ const explicitAgent = options.chip?.kind === 'agent'
+ const pinnedReview = answerMode.value === 'team' && !explicitAgent && !previewUrl && !inspectUrl && !evidenceRun
   ? selectedRunReview.value : null
  const reviewRun = retried ? retried.reviewRun : pinnedReview?.name
- const runName = evidenceRun || reviewRun || selectedRun.value
- const teamNote = !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
+ const runName = evidenceRun || reviewRun || selectedRun.value || (!options.chip && localRunIntent(text) ? props.runs[0]?.name || '' : '')
+ const teamNote = !explicitAgent && !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
  if (!connected.value && !teamNote) { error.value = signedIn.value && !canEdit.value ? 'You can read this workspace. Ask an owner to make you an editor to start conversations.' : 'Connect your local workspace before starting a conversation.'; return }
  if (text.length > 12000) { error.value = 'Keep your message under 12,000 characters. Use Add context for a document.'; return }
  if (route.query.project && activeProject.value?.id !== route.query.project) { await loadProject(); if (!activeProject.value) return }
@@ -639,6 +726,11 @@ async function send(text, options = {}) {
    messages.value.push({ id: uid(), role: 'assistant', content: compareContent(picks.a, picks.b), compare: picks })
    return
   }
+  // Common free requests ("show the people in Kenya", "what's my spend") open the view from saved files, no model call.
+  if (!page && !inspectUrl && !reviewRun && !evidenceRun && options.chip?.kind !== 'agent') {
+   const view = localViewIntent(text, { runs: props.runs, run: selectedRun.value })
+   if (view) { messages.value.push(viewMessage(view)); return }
+  }
   // Opening saved evidence is deterministic and does not need a provider call.
   if (!page && !runName && /show (my )?(saved )?(runs|reports)|show my saved runs/i.test(text)) {
    messages.value.push({ id: uid(), role: 'assistant', content: props.runs.length ? 'Choose a saved experiment to explore its reports, persona profiles and recorded activity. You can also select a run below and ask for a specific chart here.' : 'There are no saved experiments yet. Tell me about your product and the decision you want to test.', runIntent: /audience|people|persona|world|globe/i.test(text) ? 'audience' : 'reports', runs: props.runs.map(r => ({ name:r.name,title:r.title,people:r.people,decision:r.decision })) }); return
@@ -680,7 +772,7 @@ async function send(text, options = {}) {
    }
   }
   // [agent-chat] standard chat goes to the chat agent: the MCP server's tools with the same spend approval
-  if (agentChatEnabled() && answerMode.value === 'standard' && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
+  if (agentChatEnabled() && (answerMode.value === 'standard' || explicitAgent) && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
   const history = []
   let remaining = 44000
   for (const m of [...messages.value].reverse()) {
@@ -691,7 +783,7 @@ async function send(text, options = {}) {
   }
   const fileContext = buildConversationContext(messages.value, context.value, undefined, page)
   const sourceName = page ? `Selected saved page: ${page.url}`.slice(0, 200) : fileContext.name
-  const mode = reviewRun || answerMode.value === 'team' ? 'team' : 'standard'
+  const mode = reviewRun || (answerMode.value === 'team' && !explicitAgent) ? 'team' : 'standard'
   const payload = {
    messages: history,
    mode,

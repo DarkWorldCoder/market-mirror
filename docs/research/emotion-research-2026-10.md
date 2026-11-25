@@ -1,6 +1,8 @@
 # Giving simulated buyers feelings: research and what MarketMirror built, October 2026
 
 Reviewed 31 October 2026. This note covers what the research says about emotion in LLM agents and simulated consumers, what MarketMirror now does, and what is still unproven. It complements [HUMAN_BEHAVIOR_RESEARCH.md](../HUMAN_BEHAVIOR_RESEARCH.md) (the behaviour model) and [feature-research-2026-10.md](feature-research-2026-10.md) (feature ranking).
+For a consolidated list of cited academic papers, see [Research References](REFERENCES.md).
+
 
 Read with care:
 
