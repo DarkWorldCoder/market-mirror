@@ -48,6 +48,7 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
+        <p v-if="syncStatus" class="ws-side-empty ws-sync" role="status">{{ syncStatus }} <button v-if="chatSyncState === 'offline'" class="ws-retry" @click="retryChatSync">Retry</button></p>
         <p v-if="signedIn && !canEdit" class="ws-side-empty">You can view this workspace. Ask an owner for edit access.</p>
         <button v-if="spendMeter && !signedIn" class="ws-spend-meter" @click="openSettings"><Wallet class="ico" /><span>Estimated spend {{ spendMeter }}<template v-if="spend.limit"> of {{ money(spend.limit) }}</template></span></button>
         <p v-if="signedIn" class="ws-side-empty">Engine settings belong to the computer running MarketMirror. Ask whoever set it up.</p>
@@ -130,6 +131,7 @@ import CompareRuns from '../components/workspace/CompareRuns.vue'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Pin, PinOff } from 'lucide-vue-next'
 import { pins, togglePin } from '../workspace/pins'
+import { chatSyncError, chatSyncState, retryChatSync, syncStatusText } from '../workspace/chatSync.js'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
 import ConnectionsPage from '../components/workspace/ConnectionsPage.vue'
@@ -217,6 +219,7 @@ const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.na
   : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare', notfound: 'Page not found' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
+const syncStatus = computed(() => syncStatusText(chatSyncState.value, chatSyncError.value))
 const spend = ref({ spent: 0, limit: 0 })
 const money = (value) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0)
 const spendMeter = computed(() => {
