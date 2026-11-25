@@ -59,7 +59,9 @@ def test_mcp_setup_uses_real_paths_and_no_secrets(client, monkeypatch):
     vscode = json.loads(next(c for c in data["clients"] if c["id"] == "vscode")["snippet"])
     assert vscode["servers"]["market-mirror"]["type"] == "stdio"
     code = next(c for c in data["clients"] if c["id"] == "claude-code")["snippet"]
-    assert code.startswith("claude mcp add --env ") and " market-mirror -- " in code
+    # Name first, then options, then -- and the command: a name right after --env is read as another KEY=value.
+    assert code.startswith("claude mcp add market-mirror --transport stdio --env ")
+    assert code.index("--env ") < code.index(" -- ") and code.split(" -- ", 1)[1].endswith(str(server))
     # The HTTP transport is the server's own --http flag with a token file, and the token stays a placeholder.
     assert "--http --port 5061 --token-file" in data["http"]["start"]
     assert data["http"]["url"] == "http://127.0.0.1:5061/mcp"
@@ -67,6 +69,14 @@ def test_mcp_setup_uses_real_paths_and_no_secrets(client, monkeypatch):
     assert "sk-live-secret" not in text
     assert setup.SETUP_TOKEN not in text
     assert "<token from your token file>" in data["http"]["snippet"]
+
+
+def test_codex_snippet_is_valid_toml_for_any_path():
+    import tomllib
+    from app.services.workspace_mcp_setup import _toml_string
+    for path in ["/home/me/🚀 apps/mm", 'C:\\Users\\me\\"quoted"', "/tmp/tab\there", "/tmp/del\x7f", "/tmp/é"]:
+        assert tomllib.loads(f"x = {_toml_string(path)}")["x"] == path
+    assert _toml_string("/a/🚀") == '"/a/🚀"'
 
 
 # ---------------------------------------------------------------- check an MCP server before saving it
@@ -125,6 +135,30 @@ def test_saved_token_only_goes_to_its_saved_address(client, transport):
     assert moved.status_code == 400
     assert "saved token" in moved.json["error"]
     assert not transport
+
+
+def test_saving_a_new_address_does_not_keep_the_saved_token(client, transport, tmp_path):
+    saved = client.post("/api/workspace/connectors", headers=H,
+                        json={"name": "Ads", "url": "https://mcp.example.com/mcp", "token": "saved-secret-token"}).json["data"]
+    stored = (tmp_path / "workspace_connectors.json").read_text()
+    moved = client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"name": "Ads", "url": "https://other.example.com/mcp"})
+    assert moved.status_code == 400
+    assert "The saved token is only sent to the saved address." in moved.json["error"]
+    assert (tmp_path / "workspace_connectors.json").read_text() == stored
+    # A blank token in the same request is not a new token.
+    blank = client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"url": "https://other.example.com/mcp", "token": ""})
+    assert blank.status_code == 400
+    assert not transport
+    # The same address, or other fields, keep the saved token.
+    assert client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"name": "Ads 2", "url": "https://mcp.example.com/mcp"}).status_code == 200
+    # A new token, or clearing the token, allows the move.
+    retyped = client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"url": "https://other.example.com/mcp", "token": "new-token"})
+    assert retyped.status_code == 200 and retyped.json["data"]["url"] == "https://other.example.com/mcp"
+    assert json.loads((tmp_path / "workspace_connectors.json").read_text())[0]["token"] == "new-token"
+    cleared = client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"url": "https://third.example.com/mcp", "clear_token": True})
+    assert cleared.status_code == 200 and cleared.json["data"]["token_configured"] is False
+    # Without a saved token there is nothing to protect.
+    assert client.patch(f"/api/workspace/connectors/{saved['id']}", headers=H, json={"url": "https://fourth.example.com/mcp"}).status_code == 200
 
 
 def test_check_reports_auth_errors_in_plain_words(client, monkeypatch):
@@ -210,6 +244,34 @@ def test_saved_key_is_not_sent_to_a_new_address(client, provider, monkeypatch):
     answers.append((200, {"data": []}))
     assert client.post("/api/workspace/settings/test", headers=H, json={"provider": "openai"}).json["data"]["ok"] is True
     assert calls[0]["headers"]["Authorization"] == "Bearer sk-saved-secret"
+
+
+def test_saved_key_check_uses_the_configured_key_first(client, provider, monkeypatch):
+    calls, answers = provider
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-provider-variable")
+    monkeypatch.setattr(Config, "LLM_API_KEY", "sk-configured-key")
+    answers.append((200, {"data": []}))
+    client.post("/api/workspace/settings/test", headers=H, json={"provider": "openai"})
+    assert calls[0]["headers"]["Authorization"] == "Bearer sk-configured-key"
+
+
+def test_slow_key_check_response_hits_a_whole_response_deadline(monkeypatch):
+    import urllib3
+
+    class Drip:
+        status = 200
+
+        def read1(self, amount, decode_content=True):
+            return b" "
+
+        def release_conn(self):
+            pass
+
+    monkeypatch.setattr(urllib3.PoolManager, "request", lambda self, *a, **k: Drip())
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(workspace_settings.time, "monotonic", lambda: next(clock))
+    with pytest.raises(TimeoutError):
+        workspace_settings._test_request("GET", "https://api.openai.com/v1/models", {})
 
 
 def test_unreachable_server_hides_transport_text(client, monkeypatch):

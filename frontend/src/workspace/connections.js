@@ -155,3 +155,23 @@ export function inUseLine(settings = {}, cards = { logins: [], apis: [] }) {
   if (api) return `New chats use ${api.name}${settings.model ? ` (${settings.model})` : ''}.`
   return 'No default model is set yet. Pick one below.'
 }
+
+/** The address the server uses for a provider today: the active address for the provider in use, else its own saved one. */
+export function providerAddress(card = {}, llm = {}) {
+  return String((card.inUse ? llm.base_url || card.base_url : card.base_url) || '')
+}
+
+/** Whether a key check tested the saved setup (no typed key, the saved address), so its result may change the card's badge. */
+export function checkMatchesSaved(body = {}, card = {}, llm = {}) {
+  if (body.api_key) return false
+  const strip = value => String(value || '').trim().replace(/\/+$/, '')
+  return !body.base_url || strip(body.base_url) === strip(providerAddress(card, llm))
+}
+
+export const SAVED_TOKEN_MESSAGE = 'Enter the token again, or remove it, to save a different address. The saved token is only sent to the saved address.'
+
+/** Refuse saving a new address while keeping the saved token: that token is only sent to the address it was saved for. */
+export function tokenMoveError({ editing = false, savedToken = false, savedUrl = '', url = '', token = '', clearToken = false } = {}) {
+  if (!editing || !savedToken || token || clearToken) return ''
+  return String(url).trim() === String(savedUrl).trim() ? '' : SAVED_TOKEN_MESSAGE
+}

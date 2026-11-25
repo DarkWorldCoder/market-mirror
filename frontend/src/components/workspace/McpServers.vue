@@ -80,7 +80,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import BrandIcon from '../BrandIcon.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import { api } from '../../workspace/api.js'
-import { connectorStatus, relativeTime, toolHint, transportLabel, validateServerDraft } from '../../workspace/connections.js'
+import { connectorStatus, relativeTime, tokenMoveError, toolHint, transportLabel, validateServerDraft } from '../../workspace/connections.js'
 
 defineProps({ theme: { type: String, default: 'light' }, heading: { type: String, default: 'Your MCP servers' } })
 const emit = defineEmits(['changed'])
@@ -88,12 +88,15 @@ const connectors = ref([]), loading = ref(false), error = ref(''), announce = re
 const open = ref([]), toolSearch = reactive({})
 const dialogOpen = ref(false), editing = ref(''), savedToken = ref(false), clearToken = ref(false), showToken = ref(false)
 const draft = ref(blank()), touched = reactive({ name: false, url: false }), submitted = ref(false)
-const test = ref(null), dialogError = ref(''), presetNote = ref(''), presetDocs = ref('')
+const test = ref(null), dialogError = ref(''), presetNote = ref(''), presetDocs = ref(''), savedUrl = ref('')
+// Bumped whenever the tested fields change or the dialog opens or closes, so a late test answer is dropped.
+let testRun = 0
 
 function blank() { return { name: '', url: '', token: '', protocol_version: '2025-11-25' } }
 const errors = computed(() => validateServerDraft(draft.value))
 const shownErrors = computed(() => ({ name: (touched.name || submitted.value) ? errors.value.name : '', url: (touched.url || submitted.value) ? errors.value.url : '' }))
-watch(() => [draft.value.url, draft.value.token, draft.value.protocol_version], () => { test.value = null })
+watch(() => [draft.value.url, draft.value.token, draft.value.protocol_version, clearToken.value], () => { test.value = null; testRun++ })
+watch(dialogOpen, () => { testRun++ })
 
 function brandOf(c) { return c.url.startsWith('https://mcp.facebook.com/') ? 'meta' : /analytics/i.test(c.name) ? 'googleanalytics' : '' }
 function allowedCount(c) { return c.tools.filter(t => t.read_only && c.allowed_tools.includes(t.name)).length }
@@ -109,7 +112,7 @@ async function load() {
 async function patch(c, body) {
   busy.value = c.id; error.value = ''
   try { await api(`/api/workspace/connectors/${c.id}`, { method: 'PATCH', body }); await load(); announce.value = 'enabled' in body ? `${c.name} ${body.enabled ? 'is on' : 'is off'} in chat.` : 'Tool choice saved.'; emit('changed') }
-  catch (e) { error.value = e.message; await load().catch(() => {}) }
+  catch (e) { const message = e.message; await load().catch(() => {}); error.value = message }
   finally { busy.value = '' }
 }
 function toggleTool(c, name) { const on = !c.allowed_tools.includes(name); patch(c, { allowed_tools: on ? [...c.allowed_tools, name] : c.allowed_tools.filter(t => t !== name) }) }
@@ -131,8 +134,8 @@ async function remove(c) {
 }
 
 function reset() { Object.assign(touched, { name: false, url: false }); submitted.value = false; test.value = null; dialogError.value = ''; showToken.value = false; clearToken.value = false; presetNote.value = ''; presetDocs.value = '' }
-function openAdd(name = '') { reset(); editing.value = ''; savedToken.value = false; draft.value = blank(); if (name) preset(name); dialogOpen.value = true }
-function openEdit(c) { reset(); editing.value = c.id; savedToken.value = !!c.token_configured; draft.value = { name: c.name, url: c.url, token: '', protocol_version: c.protocol_version || '2025-11-25' }; dialogOpen.value = true }
+function openAdd(name = '') { reset(); editing.value = ''; savedToken.value = false; savedUrl.value = ''; draft.value = blank(); if (name) preset(name); dialogOpen.value = true }
+function openEdit(c) { reset(); editing.value = c.id; savedToken.value = !!c.token_configured; savedUrl.value = c.url; draft.value = { name: c.name, url: c.url, token: '', protocol_version: c.protocol_version || '2025-11-25' }; dialogOpen.value = true }
 function preset(name) {
   draft.value = { ...blank(), name, url: name === 'Meta Ads' ? 'https://mcp.facebook.com/ads' : '' }
   presetNote.value = name === 'Meta Ads'
@@ -144,15 +147,19 @@ async function runTest() {
   submitted.value = true; dialogError.value = ''
   if (errors.value.url) return
   busy.value = 'test'
+  const run = ++testRun
   try {
     const body = { url: draft.value.url.trim(), protocol_version: draft.value.protocol_version, ...(draft.value.token && !clearToken.value ? { token: draft.value.token } : {}) }
     const query = editing.value && !clearToken.value ? `?connector=${encodeURIComponent(editing.value)}` : ''
-    test.value = await api(`/api/workspace/connectors/test${query}`, { method: 'POST', body })
-  } catch (e) { dialogError.value = e.message }
-  finally { busy.value = '' }
+    const result = await api(`/api/workspace/connectors/test${query}`, { method: 'POST', body })
+    if (run === testRun) test.value = result
+  } catch (e) { if (run === testRun) dialogError.value = e.message }
+  finally { if (busy.value === 'test') busy.value = '' }
 }
 async function save() {
   submitted.value = true; dialogError.value = ''
+  const moved = tokenMoveError({ editing: !!editing.value, savedToken: savedToken.value, savedUrl: savedUrl.value, url: draft.value.url, token: draft.value.token, clearToken: clearToken.value })
+  if (moved) { dialogError.value = moved; return }
   if (Object.keys(errors.value).length || !test.value) return
   busy.value = 'save'
   try {

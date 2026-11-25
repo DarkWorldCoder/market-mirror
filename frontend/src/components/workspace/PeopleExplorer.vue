@@ -192,6 +192,8 @@ const props = defineProps({
   // the run page already holds these files; the chat card leaves them out and the explorer reads them itself
   preloaded: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
+  // the run the preloaded files belong to; while it differs from `name` they are another run's and are not shown
+  dataFor: { type: String, default: '' },
   config: { type: Object, default: null },
   survey: { type: Object, default: null },
   stats: { type: [Array, Object], default: null },
@@ -232,8 +234,9 @@ async function load() {
     if (mine === ticket) fetching.value = false
   }
 }
-const src = computed(() => (props.preloaded ? { config: props.config, survey: props.survey, stats: props.stats, story: props.story } : own.value))
-const busy = computed(() => (props.preloaded ? props.loading && !props.config : fetching.value))
+const stale = computed(() => props.preloaded && !!props.dataFor && props.dataFor !== props.name)
+const src = computed(() => (props.preloaded ? (stale.value ? { config: null, survey: null, stats: null, story: null } : { config: props.config, survey: props.survey, stats: props.stats, story: props.story }) : own.value))
+const busy = computed(() => (props.preloaded ? props.loading && (stale.value || !props.config) : fetching.value))
 const index = computed(() => src.value.config?.persona_index || [])
 const rows = computed(() => buildPeople({ index: index.value, survey: src.value.survey, stats: src.value.stats, thoughts: thoughts.value, colors: SEGMENT_COLORS }))
 const byId = computed(() => new Map(rows.value.map((r) => [r.id, r])))
@@ -303,6 +306,7 @@ function ask(r) {
 function onCloseFocus(event) { if (asking) { event.preventDefault(); asking = false } }
 
 function downloadCsv() {
+  if (stale.value || busy.value) return
   const blob = new Blob([peopleCsv(filtered.value)], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = Object.assign(document.createElement('a'), { href: url, download: csvFileName(props.name, filtered.value.length !== rows.value.length) })

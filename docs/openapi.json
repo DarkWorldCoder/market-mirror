@@ -2103,7 +2103,7 @@
     },
     "/api/workspace/connectors/{connector_id}": {
       "patch": {
-        "summary": "Update connector settings, enabled state and explicit read-only tool allowlist",
+        "summary": "Update connector settings, enabled state and explicit read-only tool allowlist; a new url with a saved token also needs a new token or clear_token (400 otherwise)",
         "tags": [
           "Local guided workflows (X-Setup-Token required)"
         ],
@@ -2286,6 +2286,18 @@
             "description": "stale approval, immutable history or incompatible provider"
           }
         },
+        "parameters": [
+          {
+            "name": "connector",
+            "in": "query",
+            "required": false,
+            "description": "Saved connector id (mcp_ plus 12 hex characters). With a blank token, that connector's saved token is reused, and only when url equals its saved address; a different address returns 400.",
+            "schema": {
+              "type": "string",
+              "pattern": "^mcp_[a-f0-9]{12}$"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {

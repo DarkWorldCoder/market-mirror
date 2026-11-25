@@ -201,3 +201,32 @@ test('a run without landing data has nothing to show', () => {
   assert.equal(full.hasData, true)
   assert.ok(full.funnel && full.webFunnel && full.causes && full.webCauses && full.ads && full.outline.page && full.outline.pages)
 })
+
+test('visitors started counts the session records, zero when none started', () => {
+  const stopped = { summary: { visitors: 4 }, sessions: [{ started: false }, { started: false }] }
+  assert.equal(websiteFunnel(stopped).steps[0].n, 0)
+  // without session records the summary is used
+  assert.equal(websiteFunnel({ summary: { visitors: 4 } }).steps[0].n, 4)
+})
+
+test('the leader sentence names the score that decided it', () => {
+  const tiedSignups = { sessions: [
+    session(1, 'a', { click: true }, { loaded: true, started_form: true, completed: true }),
+    session(2, 'a', { click: true }, { loaded: true, started_form: true, completed: false }),
+    session(3, 'b', { click: true }, { loaded: true, started_form: true, completed: true }),
+    session(4, 'b', { click: true }, { loaded: true, started_form: false, completed: false })
+  ] }
+  const r = adLandingRows(tiedSignups)
+  assert.equal(r.leader, 'a')
+  assert.doesNotMatch(r.leaderText, /most people who signed up/)
+  assert.match(r.leaderText, /^Signups are tied at 1; a had the most people start signup \(2 of 2 who clicked\)\.$/)
+})
+
+test('page outline uses the per-ad totals when an older run saved no sessions', () => {
+  const legacy = { landing: { shows: 'A page' }, summary: { per_creative: { a: { impressions: 50, landing: { clicks: 4, page_loaded: 3, form_started: 2, converted: 1 } } } } }
+  const o = feedPageOutline(legacy)
+  assert.equal(o.clicks, 4)
+  assert.deepEqual(o.sections.map((s) => [s.key, s.reached, s.left]), [['load', 4, 1], ['content', 3, 1], ['form', 2, 1]])
+  assert.match(o.note, /Out of 4 simulated people/)
+  assert.equal(landingAnalysis({ feed: legacy }).outline.page.clicks, 4)
+})

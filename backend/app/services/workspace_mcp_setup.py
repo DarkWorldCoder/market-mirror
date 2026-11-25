@@ -30,8 +30,23 @@ def _desktop_config_path():
 
 
 def _toml_string(value):
-    # A TOML basic string accepts the same escapes json.dumps writes for these paths.
-    return json.dumps(str(value))
+    """A TOML basic string. Quotes, backslashes and control characters are escaped; other characters stay as written.
+
+    json.dumps is not used: it writes characters outside the BMP as surrogate pairs (\\ud83d\\ude80), which TOML rejects.
+    """
+    out = []
+    for char in str(value):
+        code = ord(char)
+        if char in '"\\':
+            out.append("\\" + char)
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\u{code:04X}")
+        elif 0xD800 <= code <= 0xDFFF:
+            # A lone surrogate (an undecodable path byte) has no TOML form; write the replacement character.
+            out.append("\\uFFFD")
+        else:
+            out.append(char)
+    return '"' + "".join(out) + '"'
 
 
 def snippets():
@@ -44,8 +59,9 @@ def snippets():
     def block(key, servers):
         return json.dumps({key: servers}, indent=2)
 
-    claude_code = " ".join(["claude", "mcp", "add", "--env", shlex.quote(f"MARKET_MIRROR_HOME={root}"), NAME, "--",
-                            shlex.quote(python), shlex.quote(str(server))])
+    # Name first, then options, then -- and the command. A name right after --env is read as another KEY=value pair.
+    claude_code = " ".join(["claude", "mcp", "add", NAME, "--transport", "stdio", "--env", shlex.quote(f"MARKET_MIRROR_HOME={root}"),
+                            "--", shlex.quote(python), shlex.quote(str(server))])
     codex = "\n".join([f"[mcp_servers.{NAME}]", f"command = {_toml_string(python)}", f"args = [{_toml_string(server)}]",
                        f"env = {{ MARKET_MIRROR_HOME = {_toml_string(root)} }}"])
     clients = [

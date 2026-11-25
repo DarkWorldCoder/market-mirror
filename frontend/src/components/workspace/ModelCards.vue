@@ -82,7 +82,7 @@ import { ChevronDown, ChevronRight, Cpu, Eye, EyeOff, HardDrive, KeyRound, Loade
 import { Button } from '../ui/button'
 import BrandIcon from '../BrandIcon.vue'
 import { api } from '../../workspace/api.js'
-import { inUseLine, modelCards, modelStatus, visibleApiCards } from '../../workspace/connections.js'
+import { checkMatchesSaved, inUseLine, modelCards, modelStatus, providerAddress, visibleApiCards } from '../../workspace/connections.js'
 
 const props = defineProps({ state: { type: Object, required: true }, theme: { type: String, default: 'light' }, initialProvider: { type: String, default: '' } })
 const emit = defineEmits(['saved'])
@@ -100,20 +100,29 @@ const visibleApis = computed(() => {
 function brand(id) { return ({ claude: 'anthropic', anthropic: 'anthropic', gemini: 'googlegemini', antigravity: 'googlegemini', ollama: 'ollama' })[id] || '' }
 
 async function loadCatalog() { try { catalog.value = (await api('/api/workspace/models')).models || [] } catch { catalog.value = [] } }
+// Bumped when the open editor changes (open, switch, cancel, save), so a late key check never lands in another editor.
+let checkRun = 0
+watch(editingId, () => { checkRun++ })
 function startEdit(card) {
   editingId.value = card.id; showKey.value = false; result.value = null; formError.value = ''; notice.value = ''
-  form.value = { api_key: '', model: card.inUse ? props.state.llm.model : card.model || '', base_url: '' }
+  // Start from the address the server uses for this provider today, so Test and Save take the same route.
+  form.value = { api_key: '', model: card.inUse ? props.state.llm.model : card.model || '', base_url: providerAddress(card, props.state.llm) }
 }
 function payload(card) {
   return { provider: card.provider, ...(form.value.api_key ? { api_key: form.value.api_key } : {}), ...(form.value.base_url.trim() ? { base_url: form.value.base_url.trim() } : {}), ...(form.value.model.trim() ? { model: form.value.model.trim() } : {}) }
 }
 async function check(card, allowCall) {
   busy.value = 'test'; formError.value = ''
+  const run = checkRun, editor = editingId.value
+  const body = { ...payload(card), ...(allowCall ? { allow_call: true } : {}) }
   try {
-    result.value = await api('/api/workspace/settings/test', { method: 'POST', body: { ...payload(card), ...(allowCall ? { allow_call: true } : {}) } })
-    if (['connected', 'key_rejected'].includes(result.value.status)) tested.value = { ...tested.value, [card.provider]: { status: result.value.status } }
-    if (result.value.ok && !form.value.model && result.value.models?.length) form.value.model = result.value.models[0]
-  } catch (e) { formError.value = e.message; result.value = null }
+    const answer = await api('/api/workspace/settings/test', { method: 'POST', body })
+    // Only a check of the saved setup changes the card's badge; a typed key or another address stays in the editor.
+    if (['connected', 'key_rejected'].includes(answer.status) && checkMatchesSaved(body, card, props.state.llm)) tested.value = { ...tested.value, [card.provider]: { status: answer.status } }
+    if (run !== checkRun || editingId.value !== editor) return
+    result.value = answer
+    if (answer.ok && !form.value.model && answer.models?.length) form.value.model = answer.models[0]
+  } catch (e) { if (run === checkRun && editingId.value === editor) { formError.value = e.message; result.value = null } }
   finally { busy.value = '' }
 }
 async function save(card) {

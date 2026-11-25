@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  connectionsSummary, connectorStatus, inUseLine, modelCards, modelStatus, relativeTime, toolHint, validateServerDraft, visibleApiCards
+  checkMatchesSaved, connectionsSummary, connectorStatus, inUseLine, modelCards, modelStatus, providerAddress, relativeTime, tokenMoveError, toolHint,
+  validateServerDraft, visibleApiCards
 } from '../connections.js'
 
 test('connector status words', () => {
@@ -114,4 +115,31 @@ test('short provider list keeps set-up and common providers', () => {
   assert.ok(short.includes('claude'))
   assert.ok(!short.includes('groq'))
   assert.equal(visibleApiCards(cards, true).length, cards.length)
+})
+
+test('a provider editor starts from the address the server uses for it today', () => {
+  const llm = { provider: 'claude', base_url: 'https://api.anthropic.com/v1' }
+  // OpenAI is not in use but has a saved proxy: keep the proxy, never fall back to blank (the default address)
+  assert.equal(providerAddress({ provider: 'openai', inUse: false, base_url: 'https://proxy.example.com/v1' }, llm), 'https://proxy.example.com/v1')
+  // the provider in use takes the active address
+  assert.equal(providerAddress({ provider: 'claude', inUse: true, base_url: 'https://api.anthropic.com/v1' }, { ...llm, base_url: 'https://gw.example.com/v1' }), 'https://gw.example.com/v1')
+  assert.equal(providerAddress({ provider: 'custom', inUse: false }, llm), '')
+})
+
+test('only a check of the saved setup changes the card badge', () => {
+  const card = { provider: 'openai', inUse: false, base_url: 'https://proxy.example.com/v1' }
+  assert.equal(checkMatchesSaved({ provider: 'openai', base_url: 'https://proxy.example.com/v1/' }, card, {}), true)
+  assert.equal(checkMatchesSaved({ provider: 'openai' }, card, {}), true)
+  assert.equal(checkMatchesSaved({ provider: 'openai', api_key: 'sk-draft' }, card, {}), false)
+  assert.equal(checkMatchesSaved({ provider: 'openai', base_url: 'https://other.example.com/v1' }, card, {}), false)
+})
+
+test('a new MCP address cannot keep the saved token', () => {
+  const base = { editing: true, savedToken: true, savedUrl: 'https://mcp.example.com/mcp', url: 'https://other.example.com/mcp' }
+  assert.match(tokenMoveError(base), /The saved token is only sent to the saved address\./)
+  assert.equal(tokenMoveError({ ...base, token: 'new' }), '')
+  assert.equal(tokenMoveError({ ...base, clearToken: true }), '')
+  assert.equal(tokenMoveError({ ...base, url: ' https://mcp.example.com/mcp ' }), '')
+  assert.equal(tokenMoveError({ ...base, savedToken: false }), '')
+  assert.equal(tokenMoveError({ ...base, editing: false }), '')
 })

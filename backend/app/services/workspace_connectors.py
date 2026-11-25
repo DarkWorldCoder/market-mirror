@@ -131,6 +131,7 @@ def save(data, connector_id=None):
             raise ConnectorError("Use at most 30 remote connectors")
         row = dict(old) if old else {"id": "mcp_" + uuid.uuid4().hex[:12], "name": "", "url": "", "token": "", "enabled": False,
                                      "allowed_tools": [], "protocol_version": _VERSIONS[0], "status": "not_tested", "tools": [], "checked_at": None, "error": None}
+        new_token = False
         for key, value in data.items():
             if key == "name":
                 row[key] = _text(value, key, 100)
@@ -140,11 +141,13 @@ def save(data, connector_id=None):
                 value = _text(value, key, 8192)
                 if value:
                     row[key] = value
+                    new_token = True
             elif key == "clear_token":
                 if type(value) is not bool:
                     raise ConnectorError("clear_token must be true or false")
                 if value:
                     row["token"] = ""
+                    new_token = True
             elif key == "enabled":
                 if type(value) is not bool:
                     raise ConnectorError("enabled must be true or false")
@@ -159,6 +162,9 @@ def save(data, connector_id=None):
                 row[key] = list(dict.fromkeys(value))
         if not row["name"] or not row["url"]:
             raise ConnectorError("Give the connector a name and HTTPS MCP endpoint")
+        if old and old.get("token") and row["url"] != old["url"] and not new_token:
+            # Same rule as test_draft: a new address needs a new token (or clear_token), never the saved one.
+            raise ConnectorError("Enter the token again, or remove it, to save a different address. The saved token is only sent to the saved address.")
         if old and any(row.get(key) != old.get(key) for key in ("url", "token", "protocol_version")):
             row.update(status="not_tested", tools=[], checked_at=None, error=None, allowed_tools=[])
         if old:

@@ -7,6 +7,8 @@
 
     <LoadingSkeleton v-if="loading" :lines="4" label="Loading the landing page results" />
 
+    <p v-else-if="!a.hasData && error" class="la-note" role="alert">{{ error }}</p>
+
     <div v-else-if="!a.hasData" class="la-empty">
       <p>This run has no landing page results yet. A landing or website test sends the simulated buyers from the ad to your page and records where they leave and why.</p>
       <button type="button" class="la-chip" @click="prompt(landingTestPrompt(run), false)"><Globe :size="14" aria-hidden="true" />Test a landing page</button>
@@ -175,7 +177,8 @@ let ticket = 0
 async function load() {
   const mine = ++ticket, files = want.value
   const missing = files.filter((f) => !(f in loaded.value))
-  if (!missing.length) return
+  // Nothing to read for this run: end any skeleton an earlier run's read left on (its ticket is now stale).
+  if (!missing.length) { loading.value = false; return }
   loading.value = !Object.keys(loaded.value).length
   const next = { ...loaded.value }, failed = []
   await Promise.all(missing.map(async (f) => {
@@ -183,7 +186,8 @@ async function load() {
   }))
   if (mine !== ticket) return
   loaded.value = next
-  error.value = failed.length ? `Could not read ${failed.join(', ')}; the rest is shown.` : ''
+  const anyRead = Object.values(next).some((value) => value != null)
+  error.value = !failed.length ? '' : anyRead ? `Could not read ${failed.join(', ')}; the rest is shown.` : `Could not read ${failed.join(', ')}. Try again in a moment.`
   loading.value = false
 }
 watch(() => props.name, () => { loaded.value = {}; allFixes.value = false; load() })

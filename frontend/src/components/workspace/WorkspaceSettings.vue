@@ -54,7 +54,12 @@ function hydrate(value) {
 }
 async function load() {
   loading.value = true; error.value = ''; saved.value = false
-  try { hydrate(await api('/api/workspace/settings')); await loadCloudAccount() } catch (err) { error.value = err.message }
+  try {
+    hydrate(await api('/api/workspace/settings')); await loadCloudAccount()
+    // A request to set up one provider opens your own keys, so ModelCards mounts and opens that provider's editor.
+    const wanted = ({ anthropic: 'claude', compatible: 'custom' })[props.initialProvider] || props.initialProvider
+    if (wanted && state.value?.llm?.providers?.some(item => item.id === wanted)) modelSource.value = 'byok'
+  } catch (err) { error.value = err.message }
   finally { loading.value = false }
 }
 function choose(id) { tab.value = id; saved.value = false; error.value = ''; if (id === 'connections') loadConnections() }

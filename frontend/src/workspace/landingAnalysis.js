@@ -76,7 +76,9 @@ export function feedFunnel(feed) {
 export function websiteFunnel(web) {
   if (!isObj(web) || !isObj(web.summary)) return null
   const s = web.summary
-  const started = arr(web.sessions).filter((x) => isObj(x) && x.started !== false).length || num(s.visitors) || 0
+  // with session records, count them (zero when none started, e.g. all stopped by the budget); the summary is a fallback
+  const sessions = arr(web.sessions).filter(isObj)
+  const started = sessions.length ? sessions.filter((x) => x.started !== false).length : num(s.visitors) || 0
   const milestones = isObj(web.milestones) ? web.milestones : {}
   const order = arr(web.checks).map((c) => c?.name).filter((n) => n in milestones)
   for (const k of Object.keys(milestones)) if (!order.includes(k)) order.push(k)
@@ -263,11 +265,20 @@ export function adLandingRows(feed) {
   const cmp = (a, b) => { const x = score(a), y = score(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return y[i] - x[i]; return b.clicks - a.clicks }
   rows.sort(cmp)
   const top = rows[0], second = rows[1]
-  const lead = score(top).some((v, i) => v !== score(second)[i]) && (top.converted || top.started)
+  // the first score that differs decides the lead, and the sentence says which one it was
+  const by = score(top).findIndex((v, i) => v !== score(second)[i])
+  const lead = by >= 0 && (top.converted || top.started)
+  const tiedSignups = top.converted ? `Signups are tied at ${top.converted}; ` : ''
+  const because = [
+    () => `${top.name} sent the most people who signed up (${top.converted} of ${top.clicks} who clicked).`,
+    () => `${tiedSignups}${top.name} had the most people start signup (${top.started} of ${top.clicks} who clicked).`,
+    () => `${tiedSignups || 'Signup starts are tied; '}${top.name} had the most people read the page (${top.read} of ${top.clicks} who clicked).`,
+    () => `${tiedSignups || 'Signup starts are tied; '}${top.name} had the most pages load (${top.loaded} of ${top.clicks} who clicked).`
+  ]
   const fewClicks = rows.every((r) => r.clicks < 10)
   return {
     rows, leader: lead ? top.id : null,
-    leaderText: lead ? (top.converted ? `${top.name} sent the most people who signed up (${top.converted} of ${top.clicks} who clicked).` : `${top.name} sent the people who got furthest: ${top.started} of ${top.clicks} started signup.`) : 'No ad is clearly ahead on the page.',
+    leaderText: lead ? because[by]() : 'No ad is clearly ahead on the page.',
     note: fewClicks ? 'Every ad had fewer than 10 clicks, so one or two people can change this order. Simulated.' : 'Simulated people, counted per click.'
   }
 }
@@ -279,13 +290,21 @@ export function adLandingRows(feed) {
 /** The page as the feed test describes it, with how many clickers reached and left each part. */
 export function feedPageOutline(feed) {
   const page = isObj(feed?.landing) ? feed.landing : null
-  const ss = sessionsOf(feed).filter((s) => s.ad.click === true && isObj(s.landing))
-  if (!page && !ss.length) return null
-  const clicks = ss.length
-  const loaded = ss.filter((s) => s.landing.loaded).length
+  const all = sessionsOf(feed)
+  const ss = all.filter((s) => s.ad.click === true && isObj(s.landing))
+  // older runs saved only per-ad totals: count from those instead of reporting zero clicks
+  const totals = all.length ? [] : Object.values(isObj(feed?.summary?.per_creative) ? feed.summary.per_creative : {}).filter(isObj).map((m) => m.landing).filter(isObj)
+  if (!page && !ss.length && !totals.length) return null
+  if (!all.length && !totals.length) {
+    return { sections: [{ key: 'load', title: 'Page load', detail: num(page?.load_seconds) != null ? `About ${page.load_seconds} s to load on a good connection` : '', reached: null, left: null, reachedPct: null }], clicks: null,
+      note: 'This run saved the page but no visits, so there are no counts for it.' }
+  }
+  const sum = (k) => totals.reduce((t, r) => t + (num(r[k]) || 0), 0)
+  const clicks = all.length ? ss.length : sum('clicks')
+  const loaded = all.length ? ss.filter((s) => s.landing.loaded).length : sum('page_loaded')
   const read = ss.some((s) => 'read' in s.landing) ? ss.filter((s) => s.landing.read).length : null
-  const started = ss.filter((s) => s.landing.started_form).length
-  const done = ss.filter((s) => s.landing.completed).length
+  const started = all.length ? ss.filter((s) => s.landing.started_form).length : sum('form_started')
+  const done = all.length ? ss.filter((s) => s.landing.completed).length : sum('converted')
   const out = [
     { key: 'load', title: 'Page load', detail: num(page?.load_seconds) != null ? `About ${page.load_seconds} s to load on a good connection` : '', reached: clicks, left: clicks ? clicks - loaded : null },
     { key: 'content', title: 'Page content', detail: [str(page?.shows), str(page?.price) && `Price shown: ${str(page.price)}`].filter(Boolean).join(' · '), reached: loaded, read, left: clicks ? loaded - started : null },

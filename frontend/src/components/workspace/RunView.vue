@@ -136,7 +136,7 @@
           </template>
           <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
-        <PeopleExplorer v-else-if="tab === 'people'" :name="name" :theme="theme" preloaded :loading="loading" :config="config" :survey="survey" :stats="extra['agent_stats.json'] || null" :story="story" @ask="askPerson" />
+        <PeopleExplorer v-else-if="tab === 'people'" :name="name" :theme="theme" preloaded :loading="loading" :data-for="loadedName" :config="config" :survey="survey" :stats="extra['agent_stats.json'] || null" :story="story" @ask="askPerson" />
         <template v-else-if="tab === 'activity'">
           <RunActivity :timeline="activityTimeline" :panel="extra['analyst_panel.json'] || null" :agents="agentRows" :theme="theme" />
         </template>
@@ -186,6 +186,8 @@ import {
 const props = defineProps({ name: { type: String, required: true }, theme: { type: String, default: 'light' } })
 
 const detail = ref(null), loading = ref(true), error = ref('')
+// the run the loaded files below belong to; it lags `name` while a new run loads
+const loadedName = ref('')
 const survey = ref(null), feed = ref(null), graph = ref(null), config = ref(null), story = ref(null), stream = ref(null)
 const extra = ref({}), rawPosts = ref({})
 const thoughtPage = ref(0), postPage = ref(0), analystPage = ref(0), agentPage = ref(0)
@@ -255,6 +257,7 @@ async function load(quiet = false) {
       else if (!has.has(f)) delete extras[f]
     }
     extra.value = extras
+    loadedName.value = runName
     error.value = failures.length ? `Some saved results could not refresh: ${failures.join('; ')}` : ''
     lastChecked.value = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     if (!quiet) {

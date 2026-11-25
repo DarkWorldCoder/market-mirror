@@ -3,6 +3,7 @@ import os
 import json
 import math
 import threading
+import time
 from urllib.parse import urlsplit
 
 from ..config import Config
@@ -331,6 +332,7 @@ def _spending_values(data):
 # Key check: a free models-list request when the provider has one; a one-token call only after the person agrees.
 _TEST_FIELDS = {"provider", "model", "base_url", "api_key", "allow_call"}
 _TEST_MAX_BYTES = 1024 * 1024
+_TEST_SECONDS = 30
 
 
 def _test_request(method, url, headers, body=None):
@@ -339,9 +341,19 @@ def _test_request(method, url, headers, body=None):
     pool = urllib3.PoolManager(timeout=urllib3.Timeout(connect=5, read=15), retries=False)
     response = None
     try:
+        deadline = time.monotonic() + _TEST_SECONDS
         response = pool.request(method, url, headers=headers, body=json.dumps(body).encode() if body is not None else None,
                                 redirect=False, preload_content=False)
-        raw = response.read(_TEST_MAX_BYTES + 1, decode_content=True)
+        # read=15 only limits the gap between reads, so a slow drip is cut off by a whole-response deadline.
+        raw = bytearray()
+        while len(raw) <= _TEST_MAX_BYTES:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("The provider took too long to answer")
+            chunk = response.read1(65536, decode_content=True)
+            if not chunk:
+                break
+            raw.extend(chunk)
+        raw = bytes(raw)
         try:
             data = json.loads(raw) if raw and len(raw) <= _TEST_MAX_BYTES else None
         except ValueError:
@@ -368,9 +380,9 @@ def _saved_route(name):
     spec = _cloud_providers()[name]
     same = name == Config.LLM_PROVIDER and not os.environ.get("LLM_GATEWAY")
     base_url = (Config.LLM_BASE_URL if same else os.environ.get(f"{name.upper()}_BASE_URL") or spec.get("base_url") or "").rstrip("/")
-    key = provider_api_key(name) or (Config.LLM_API_KEY if same else "") or ""
-    if key == os.environ.get("MM_WORKER_SECRET"):
-        key = ""
+    # Same order as normal model calls: the configured key first, then the provider's own variable.
+    worker = os.environ.get("MM_WORKER_SECRET")
+    key = next((k for k in ((Config.LLM_API_KEY if same else ""), provider_api_key(name)) if k and k != worker), "")
     return base_url, key
 
 

@@ -344,7 +344,7 @@ Returns: safe connector
 
 ### `PATCH /api/workspace/connectors/{connector_id}`
 
-Update connector settings, enabled state and explicit read-only tool allowlist.
+Update connector settings, enabled state and explicit read-only tool allowlist; a new url with a saved token also needs a new token or clear_token (400 otherwise).
 
 Request body:
 
@@ -374,6 +374,10 @@ Returns: safe connector with status, tools, checked_at, error
 ### `POST /api/workspace/connectors/test`
 
 Check an MCP server before saving it: initialize and list tools, save nothing; ?connector=<id> reuses that connector's saved token only for its saved address.
+
+Query parameters:
+
+- `connector`: Saved connector id (mcp_ plus 12 hex characters). With a blank token, that connector's saved token is reused, and only when url equals its saved address; a different address returns 400.
 
 Request body:
 

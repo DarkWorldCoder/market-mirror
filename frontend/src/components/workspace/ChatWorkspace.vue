@@ -652,11 +652,13 @@ async function send(text, options = {}) {
  const previewUrl = retried?.previewUrl || options.previewUrl
  const inspectUrl = retried?.inspectUrl || options.inspectUrl
  const evidenceRun = retried?.evidenceRun || options.evidenceRun
- const pinnedReview = answerMode.value === 'team' && !previewUrl && !inspectUrl && !evidenceRun
+ // an explicit agent action (a card button or chip) goes to the agent flow whatever the answer mode, never a note or team answer
+ const explicitAgent = options.chip?.kind === 'agent'
+ const pinnedReview = answerMode.value === 'team' && !explicitAgent && !previewUrl && !inspectUrl && !evidenceRun
   ? selectedRunReview.value : null
  const reviewRun = retried ? retried.reviewRun : pinnedReview?.name
  const runName = evidenceRun || reviewRun || selectedRun.value || (!options.chip && localRunIntent(text) ? props.runs[0]?.name || '' : '')
- const teamNote = !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
+ const teamNote = !explicitAgent && !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
  if (!connected.value && !teamNote) { error.value = signedIn.value && !canEdit.value ? 'You can read this workspace. Ask an owner to make you an editor to start conversations.' : 'Connect your local workspace before starting a conversation.'; return }
  if (text.length > 12000) { error.value = 'Keep your message under 12,000 characters. Use Add context for a document.'; return }
  if (route.query.project && activeProject.value?.id !== route.query.project) { await loadProject(); if (!activeProject.value) return }
@@ -755,7 +757,7 @@ async function send(text, options = {}) {
    }
   }
   // [agent-chat] standard chat goes to the chat agent: the MCP server's tools with the same spend approval
-  if (agentChatEnabled() && answerMode.value === 'standard' && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
+  if (agentChatEnabled() && (answerMode.value === 'standard' || explicitAgent) && !reviewRun && !inspectUrl && !page) { await sendToAgent({ ownTicket, runName }); return }
   const history = []
   let remaining = 44000
   for (const m of [...messages.value].reverse()) {
@@ -766,7 +768,7 @@ async function send(text, options = {}) {
   }
   const fileContext = buildConversationContext(messages.value, context.value, undefined, page)
   const sourceName = page ? `Selected saved page: ${page.url}`.slice(0, 200) : fileContext.name
-  const mode = reviewRun || answerMode.value === 'team' ? 'team' : 'standard'
+  const mode = reviewRun || (answerMode.value === 'team' && !explicitAgent) ? 'team' : 'standard'
   const payload = {
    messages: history,
    mode,
