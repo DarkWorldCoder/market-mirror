@@ -611,6 +611,26 @@ def test_workflow_jobs_keep_the_setup_token_boundary(app_env):
     jobs.store().cancel("mk1")
 
 
+def test_hidden_workflow_jobs_do_not_shorten_the_page(app_env):
+    from app import jobs
+    market = ["mk_p1", "mk_p2"]
+    workflow = ["wf_p1", "wf_p2", "wf_p3"]
+    for jid in market:
+        jobs.store().enqueue(jid, "market_survey", spends=False)
+        time.sleep(0.01)
+    for jid in workflow:   # newer, so they fill the first page without the token
+        jobs.store().enqueue(jid, "workflow_people", spends=False)
+        time.sleep(0.01)
+    c = app_env.test_client()
+    rows = c.get("/api/jobs?limit=2").get_json()["data"]
+    assert [j["job_id"] for j in rows] == ["mk_p2", "mk_p1"], rows
+    non_ascii = c.get("/api/jobs?limit=2", headers={"X-Setup-Token": "é"})
+    assert non_ascii.status_code == 200
+    assert [j["job_id"] for j in non_ascii.get_json()["data"]] == ["mk_p2", "mk_p1"]
+    for jid in market + workflow:
+        jobs.store().cancel(jid)
+
+
 def test_a_replaced_queued_start_does_not_run(app_env):
     from app import jobs
     from app.api import simulation as simulation_api

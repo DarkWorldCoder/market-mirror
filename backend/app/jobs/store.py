@@ -473,12 +473,16 @@ class JobStore:
             return self._row(conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone())
 
     def list(self, status: Optional[str] = None, kind: Optional[str] = None, workspace: Optional[str] = None,
-             subject: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+             subject: Optional[str] = None, limit: int = 100,
+             exclude_kind_prefix: Optional[str] = None) -> List[Dict[str, Any]]:
         where, args = [], []
         for col, val in (("status", status), ("kind", kind), ("workspace", workspace), ("subject", subject)):
             if val:
                 where.append(f"{col} = ?")
                 args.append(val)
+        if exclude_kind_prefix:
+            where.append("substr(kind, 1, ?) != ?")
+            args.extend((len(exclude_kind_prefix), exclude_kind_prefix))
         sql = "SELECT * FROM jobs" + (" WHERE " + " AND ".join(where) if where else "") + \
               " ORDER BY created_at DESC LIMIT ?"
         with self._db() as conn:
