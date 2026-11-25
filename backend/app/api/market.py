@@ -737,6 +737,23 @@ def survey_estimate():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+SSR_TEMPERATURE_RANGE = (0.05, 10.0)
+
+
+def _ssr_temperature(raw: Any) -> float:
+    """The SSR softmax temperature: 1.0 when absent, otherwise a finite number inside SSR_TEMPERATURE_RANGE."""
+    if raw is None or raw == "":
+        return 1.0
+    low, high = SSR_TEMPERATURE_RANGE
+    try:
+        value = float(raw) if not isinstance(raw, bool) else float("nan")
+    except (TypeError, ValueError, OverflowError):   # OverflowError: an integer too large for a float
+        value = float("nan")
+    if not low <= value <= high:   # also false for NaN
+        raise ValueError(f"temperature must be a number between {low} and {high}")
+    return value
+
+
 @simulation_bp.route('/ssr', methods=['POST'])
 def semantic_similarity_rating():
     """Map free-text survey answers to 5-point rating distributions (arXiv 2510.08338)."""
@@ -747,7 +764,7 @@ def semantic_similarity_rating():
         return jsonify({"success": False, "error": "items must be a list of {id, scale, text} (max 5000)"}), 400
     rows = [it if isinstance(it, dict) else {} for it in items]
     try:
-        temperature = float(data.get("temperature") or 1.0)
+        temperature = _ssr_temperature(data.get("temperature"))
         # engine: embeddings (default, or SSR_ENGINE), jev, or auto (Jev, embeddings for what it did not rate)
         rated, engines, info = ssr.rate_engine([(str(r.get("scale") or ""), r.get("text")) for r in rows],
                                                engine=data.get("engine"), temperature=temperature)

@@ -144,3 +144,29 @@ def test_ssr_api_route(monkeypatch):
     monkeypatch.setattr(ssr, "get_embedder", lambda: FakeEmbedder(available=False))
     r = c.post("/api/simulation/ssr", json={"items": [{"id": "x", "scale": "purchase", "text": "yes"}]})
     assert r.status_code == 503 and "unavailable" in r.get_json()["error"]
+
+
+@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity", "-1", "0", "0.01", "11", '"warm"', "true", "1" + "0" * 400])
+def test_ssr_route_rejects_bad_temperature(monkeypatch, bad):
+    from app import create_app
+    app = create_app()
+    app.config.update(TESTING=True)
+    monkeypatch.setattr(ssr, "get_embedder", lambda: FakeEmbedder())
+    body = '{"items": [{"id": "a", "scale": "purchase", "text": "I would buy it."}], "temperature": %s}' % bad
+    r = app.test_client().post("/api/simulation/ssr", data=body, content_type="application/json")
+    assert r.status_code == 400
+    assert "temperature" in r.get_json()["error"]
+
+
+@pytest.mark.parametrize("good", [None, 0.05, 1, "2.5", 10])
+def test_ssr_route_accepts_temperature_in_range(monkeypatch, good):
+    from app import create_app
+    app = create_app()
+    app.config.update(TESTING=True)
+    monkeypatch.setattr(ssr, "get_embedder", lambda: FakeEmbedder())
+    payload = {"items": [{"id": "a", "scale": "purchase", "text": "I would buy it."}]}
+    if good is not None:
+        payload["temperature"] = good
+    r = app.test_client().post("/api/simulation/ssr", json=payload)
+    assert r.status_code == 200
+    assert r.get_json()["data"]["temperature"] == (1.0 if good is None else float(good))
