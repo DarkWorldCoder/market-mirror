@@ -57,6 +57,10 @@
             <template v-else-if="signUpAllowed">New here? <button type="button" class="underline underline-offset-4" @click="screen = 'signup'">Create an account</button></template>
             <template v-else>Sign-ups are unavailable without an invitation.</template>
           </p>
+          <p v-if="!signedIn && screen === 'login'" class="text-center text-sm">
+            <button type="button" class="underline underline-offset-4" :aria-expanded="showResetHelp" @click="showResetHelp = !showResetHelp">Forgot password?</button>
+          </p>
+          <p v-if="showResetHelp" class="text-muted-foreground text-center text-xs text-balance" role="status">Password reset by email is not available yet. Ask a workspace owner or whoever runs this server to reset your password.</p>
         </CardContent>
       </Card>
 
@@ -89,6 +93,7 @@ const screen = ref(props.mode === 'join' ? 'signup' : props.mode)
 const name = ref(''), email = ref(''), password = ref(''), workspaceName = ref('')
 const busy = ref(false), error = ref(''), inviteError = ref('')
 const token = ref(''), invite = ref(null)
+const showResetHelp = ref(false)
 const theme = chooseTheme(storedTheme(), window.matchMedia?.('(prefers-color-scheme: dark)').matches)
 const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 const heading = computed(() => invite.value ? `Join ${invite.value.workspace}` : screen.value === 'signup' ? 'Create your account' : 'Welcome back')
@@ -100,6 +105,7 @@ const subheading = computed(() => {
   return signupSubheading(account.value.signups)
 })
 
+watch(screen, () => { showResetHelp.value = false })
 onMounted(() => { readInvite(); window.addEventListener('hashchange', readInvite) })
 watch(signUpAllowed, (allowed) => { if (!allowed && screen.value === 'signup' && !invite.value) screen.value = 'login' })
 onUnmounted(() => window.removeEventListener('hashchange', readInvite))
