@@ -35,10 +35,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { Globe2 } from 'lucide-vue-next'
 import RealWorldMap from '../RealWorldMap.vue'
 import { placeOfCountry } from '../../../workspace/geoPlace'
+import { plural } from '../../../workspace/plural.js'
 import { findCity, loadGazetteer } from '../../../workspace/cityPlace'
 import { availableBasemaps, loadMapConfig } from '../../../workspace/mapConfig'
-import { plural } from '../../../workspace/plural.js'
 
+import { palette } from '../../../workspace/charts.js'
 const props = defineProps({ geography: { type: Object, default: () => ({}) }, theme: { type: String, default: 'light' } })
 const mapRef = ref(null), gazetteer = ref(null)
 const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
@@ -70,10 +71,11 @@ const places = computed(() => {
   }
   return out.sort((a, b) => b.people - a.people)
 })
+const pointColors = computed(() => { void props.theme; const colors = palette(); return { city: colors.accent, country: colors.muted } })
 const top = computed(() => places.value.slice(0, 8))
 const maxPeople = computed(() => Math.max(1, ...places.value.map((p) => p.people)))
 const points = computed(() => places.value.filter((p) => p.at).map((p) => ({
-  id: p.key, lon: p.at[0], lat: p.at[1], color: p.city ? '#25785d' : '#8a8f94', title: p.label,
+  id: p.key, lon: p.at[0], lat: p.at[1], color: p.city ? pointColors.value.city : pointColors.value.country, title: p.label,
   sub: `${number(p.people)} simulated people · ${p.runs} ${plural(p.runs, { one: 'run', other: 'runs' })}`, size: Math.min(22, 4 + Math.sqrt(p.people) * 1.1)
 })))
 
@@ -89,15 +91,15 @@ onMounted(async () => { loadMapConfig().then((c) => { mapCfg.value = c }); gazet
 .awm-list { list-style: none; margin: 0; padding: 0 2px 0 0; display: grid; gap: 6px; align-content: start; max-height: 340px; overflow-y: auto; }
 .awm-list button { width: 100%; display: grid; gap: 3px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; padding: 8px 10px; cursor: pointer; }
 .awm-list button:hover:not(:disabled) { background: var(--panel-2); }
-.awm-list button:focus-visible { outline: 2px solid var(--accent, #25785d); outline-offset: 1px; }
+.awm-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .awm-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .awm-bar { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.awm-bar i { display: block; height: 100%; background: var(--data, #5b6470); }
+.awm-bar i { display: block; height: 100%; background: var(--data); }
 .awm-list small { color: var(--muted); font-size: 11px; }
 .awm-note { margin: 10px 0 0; font-size: 11.5px; color: var(--muted); }
 .wfm-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel); }
 .wfm-seg button, .wfm-chip { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: var(--text); font: inherit; font-size: 11.5px; padding: 5px 9px; cursor: pointer; }
 .wfm-seg button + button { border-left: 1px solid var(--line); }
-.wfm-seg button[aria-pressed='true'], .wfm-chip[aria-pressed='true'] { background: var(--panel-2); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent, #25785d); }
+.wfm-seg button[aria-pressed='true'], .wfm-chip[aria-pressed='true'] { background: var(--panel-2); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .wfm-chip { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 </style>

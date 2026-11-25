@@ -2103,7 +2103,7 @@
     },
     "/api/workspace/connectors/{connector_id}": {
       "patch": {
-        "summary": "Update connector settings, enabled state and explicit read-only tool allowlist",
+        "summary": "Update connector settings, enabled state and explicit read-only tool allowlist; a new url with a saved token also needs a new token or clear_token (400 otherwise)",
         "tags": [
           "Local guided workflows (X-Setup-Token required)"
         ],
@@ -2249,6 +2249,158 @@
             }
           }
         ],
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/connectors/test": {
+      "post": {
+        "summary": "Check an MCP server before saving it: initialize and list tools, save nothing; ?connector=<id> reuses that connector's saved token only for its saved address",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{status,error,tools,tools_truncated,checked_at}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "parameters": [
+          {
+            "name": "connector",
+            "in": "query",
+            "required": false,
+            "description": "Saved connector id (mcp_ plus 12 hex characters). With a blank token, that connector's saved token is reused, and only when url equals its saved address; a different address returns 400.",
+            "schema": {
+              "type": "string",
+              "pattern": "^mcp_[a-f0-9]{12}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://mcp.example.com/mcp",
+                "token": "write-only",
+                "protocol_version": "2025-11-25"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/mcp-setup": {
+      "get": {
+        "summary": "Copy-ready settings for adding MarketMirror's own MCP server to Claude Desktop, Claude Code, Cursor, VS Code, Codex and other apps; real paths, no secrets",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{server_path,server_found,home,python,clients:[{id,label,format,where,steps,snippet}],http}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "security": [
+          {
+            "LocalSetupToken": []
+          }
+        ]
+      }
+    },
+    "/api/workspace/settings/test": {
+      "post": {
+        "summary": "Check a provider key with its free models list; a one-token call only with allow_call=true; a saved key goes only to its own provider",
+        "tags": [
+          "Local guided workflows (X-Setup-Token required)"
+        ],
+        "responses": {
+          "200": {
+            "description": "{ok,status,method,models,message}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request"
+          },
+          "404": {
+            "description": "not found"
+          },
+          "403": {
+            "description": "loopback or local setup token required"
+          },
+          "409": {
+            "description": "stale approval, immutable history or incompatible provider"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "provider": "openai",
+                "api_key": "write-only"
+              }
+            }
+          }
+        },
         "security": [
           {
             "LocalSetupToken": []

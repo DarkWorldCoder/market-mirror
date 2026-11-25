@@ -33,3 +33,14 @@ def settings():
 def local_models():
     from ..services.workspace_local_models import discover
     return jsonify(success=True, data=discover(refresh=request.args.get("refresh") == "1"))
+
+
+@workspace_settings_bp.post("/api/workspace/settings/test")
+def test_connection():
+    """Check a provider key. A free models-list request first; a one-token call only with allow_call=true."""
+    if request.content_length and request.content_length > 20000:
+        return jsonify(success=False, error="Request is too large"), 413
+    try:
+        return jsonify(success=True, data=service.test_connection(request.get_json(silent=True)))
+    except (ValueError, TypeError) as error:
+        return jsonify(success=False, error=str(error)), 400

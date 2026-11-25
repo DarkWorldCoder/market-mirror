@@ -1,7 +1,7 @@
 {
-  "name": "mirofish",
+  "name": "marketmirror",
   "version": "0.1.0",
-  "description": "MiroFish - \u7b80\u6d01\u901a\u7528\u7684\u7fa4\u4f53\u667a\u80fd\u5f15\u64ce\uff0c\u9884\u6d4b\u4e07\u7269",
+  "description": "MarketMirror: AI market research and marketing simulation with simulated buyers",
   "scripts": {
     "setup": "npm install && cd frontend && npm install",
     "setup:backend": "cd backend && uv sync",
