@@ -233,6 +233,8 @@ def test_preferences_and_onboarding_respect_roles(team):
     state = owner.put("/api/workspace/onboarding", headers=oh, json={"steps": {"workspace": True}}).json["data"]
     assert state["steps"] == {"workspace": True} and state["can_invite"] and not state["can_connect_model"]
     assert viewer.put("/api/workspace/onboarding", headers=vh, json={"steps": {"demo": True}}).status_code == 403
+    assert viewer.put("/api/workspace/onboarding", headers=vh, json={"steps": {"dismissed": True}}).status_code == 200
+    assert viewer.put("/api/workspace/onboarding", headers=vh, json={"steps": {"dismissed": True, "demo": True}}).status_code == 403
 
 
 def test_one_time_chat_import(team):
