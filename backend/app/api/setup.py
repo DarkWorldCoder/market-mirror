@@ -81,7 +81,7 @@ def _guard(write: bool = True):
     if not _loopback():
         return jsonify({"success": False, "error": "settings are only available on this computer"}), 403
     given = request.headers.get("X-Setup-Token", "")
-    if not hmac.compare_digest(given, SETUP_TOKEN):
+    if not given.isascii() or not hmac.compare_digest(given, SETUP_TOKEN):
         return jsonify({"success": False, "error": "open the settings page with ./mm setup"}), 403
     if write:
         origin = request.headers.get("Origin")

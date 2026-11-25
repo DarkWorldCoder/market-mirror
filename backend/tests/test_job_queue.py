@@ -624,6 +624,9 @@ def test_hidden_workflow_jobs_do_not_shorten_the_page(app_env):
     c = app_env.test_client()
     rows = c.get("/api/jobs?limit=2").get_json()["data"]
     assert [j["job_id"] for j in rows] == ["mk_p2", "mk_p1"], rows
+    non_ascii = c.get("/api/jobs?limit=2", headers={"X-Setup-Token": "é"})
+    assert non_ascii.status_code == 200
+    assert [j["job_id"] for j in non_ascii.get_json()["data"]] == ["mk_p2", "mk_p1"]
     for jid in market + workflow:
         jobs.store().cancel(jid)
 
