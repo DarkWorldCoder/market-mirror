@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Home from '../views/Home.vue'
+const Home = () => import('../views/Home.vue')
 const LegacyHome = () => import('../views/LegacyHome.vue')
 const Process = () => import('../views/MainView.vue')
 const SimulationView = () => import('../views/SimulationView.vue')
@@ -60,7 +60,10 @@ const routes = [
     name: 'Interaction',
     component: InteractionView,
     props: true
-  }
+  },
+  // An old bookmark or a mistyped address should land in the workspace shell
+  // with a way back, not on an empty page.
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: Workspace }
 ]
 
 const router = createRouter({
