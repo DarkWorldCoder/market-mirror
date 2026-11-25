@@ -156,9 +156,9 @@ html::-webkit-scrollbar-thumb { background: rgb(127 127 127 / 35%); border-radiu
 .ovi-cal-months span { white-space: nowrap; overflow: hidden; }
 .ovi-cal-week { display: grid; grid-template-rows: repeat(7, auto); gap: 3px; min-width: 0; }
 .ovi-cal-cell { display: block; width: 100%; max-width: 22px; aspect-ratio: 1; padding: 0; border: 1px solid transparent; border-radius: 3px; background: var(--panel-2); box-sizing: border-box; }
-.ovi-cal-cell.l1 { background: color-mix(in srgb, var(--data) 28%, var(--panel-2)); }
-.ovi-cal-cell.l2 { background: color-mix(in srgb, var(--data) 50%, var(--panel-2)); }
-.ovi-cal-cell.l3 { background: color-mix(in srgb, var(--data) 72%, var(--panel-2)); }
+.ovi-cal-cell.l1 { background: color-mix(in srgb, var(--data) 45%, var(--panel-2)); }
+.ovi-cal-cell.l2 { background: color-mix(in srgb, var(--data) 62%, var(--panel-2)); }
+.ovi-cal-cell.l3 { background: color-mix(in srgb, var(--data) 80%, var(--panel-2)); }
 .ovi-cal-cell.l4 { background: var(--data); }
 .ovi-cal-cell.future { opacity: .35; }
 button.ovi-cal-cell { cursor: pointer; }
