@@ -41,6 +41,8 @@
 
         <BrainResponseSection v-if="hasBrain" :brain="extra['brain_response.json'] || null" :feed="feed" :theme="theme" />
 
+        <LandingAnalysis :name="name" :files="detail.files || []" :feed="feed" :title="detail.title || name" />
+
         <ArtifactExplorer :name="name" :files="detail.files || []" :theme="theme" />
 
         <details class="ws-run-questions" :open="askOpen || undefined" @toggle="askOpen = $event.target.open"><summary>Ask about this experiment</summary>
@@ -134,6 +136,7 @@
           </template>
           <PersonaScene v-else :people="people" :activity="agentRows" :timeline="activityTimeline" :responses="survey?.responses || []" :theme="theme" :status="runStatus" :checked-at="lastChecked" />
         </template>
+        <PeopleExplorer v-else-if="tab === 'people'" :name="name" :theme="theme" preloaded :loading="loading" :data-for="loadedName" :config="config" :survey="survey" :stats="extra['agent_stats.json'] || null" :story="story" @ask="askPerson" />
         <template v-else-if="tab === 'activity'">
           <RunActivity :timeline="activityTimeline" :panel="extra['analyst_panel.json'] || null" :agents="agentRows" :theme="theme" />
         </template>
@@ -165,6 +168,7 @@ import ChatArtifact from './ChatArtifact.vue'
 import WorkspacePager from './WorkspacePager.vue'
 import ResultTree from './ResultTree.vue'
 import BrainResponseSection from './BrainResponseSection.vue'
+import LandingAnalysis from './LandingAnalysis.vue'
 import { brainRows } from '../../workspace/brainResponse.js'
 import { neededRawPosts, socialPosts } from '../../workspace/socialPosts.js'
 import { funnelRows, pricingText, reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
@@ -173,6 +177,7 @@ const WorldFlowMap = defineAsyncComponent(() => import('./WorldFlowMap.vue'))
 const BuyerResponses = defineAsyncComponent(() => import('./BuyerResponses.vue'))
 const RunActivity = defineAsyncComponent(() => import('./RunActivity.vue'))
 const AudiencePersonCard = defineAsyncComponent(() => import('./AudiencePersonCard.vue'))
+const PeopleExplorer = defineAsyncComponent(() => import('./PeopleExplorer.vue'))
 import { api, download, openHtml } from '../../workspace/api.js'
 import {
   creativesOption, decisionText, decisionTone, intentOption, localAnswer, objectionsOption, palette, peopleOption, sampleCount, segmentsOption, verdictColor
@@ -181,12 +186,14 @@ import {
 const props = defineProps({ name: { type: String, required: true }, theme: { type: String, default: 'light' } })
 
 const detail = ref(null), loading = ref(true), error = ref('')
+// the run the loaded files below belong to; it lags `name` while a new run loads
+const loadedName = ref('')
 const survey = ref(null), feed = ref(null), graph = ref(null), config = ref(null), story = ref(null), stream = ref(null)
 const extra = ref({}), rawPosts = ref({})
 const thoughtPage = ref(0), postPage = ref(0), analystPage = ref(0), agentPage = ref(0)
 const tab = ref('results'), tabId = useId(), expandedAudience = ref(false)
 watch(tab, value => { if (value !== 'market') expandedAudience.value = false })
-const tabs = [{ id: 'results', label: 'Results' }, { id: 'market', label: 'Audience & world' }, { id: 'thinking', label: 'Buyer responses' }, { id: 'activity', label: 'Activity' }, { id: 'feed', label: 'Social feed' }]
+const tabs = [{ id: 'results', label: 'Results' }, { id: 'market', label: 'Audience & world' }, { id: 'people', label: 'People' }, { id: 'thinking', label: 'Buyer responses' }, { id: 'activity', label: 'Activity' }, { id: 'feed', label: 'Social feed' }]
 const route = useRoute()
 watch(() => route.query.view, value => {
   if (tabs.some(item => item.id === value)) {
@@ -250,6 +257,7 @@ async function load(quiet = false) {
       else if (!has.has(f)) delete extras[f]
     }
     extra.value = extras
+    loadedName.value = runName
     error.value = failures.length ? `Some saved results could not refresh: ${failures.join('; ')}` : ''
     lastChecked.value = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     if (!quiet) {
@@ -312,15 +320,22 @@ watch(() => [tab.value, props.name], async () => {
   harvestFor = props.name
   try { const h = await api(`/api/runs/${encodeURIComponent(props.name)}/thoughts`); mapHarvest.value = h && Array.isArray(h.entries) ? h : { entries: [] } } catch { mapHarvest.value = { entries: [] } }
 }, { immediate: true })
-// "Ask this person" from a response: open the Person chat with them selected; nothing is sent until the user asks
-function askPerson(id) {
+// "Ask this person" from Buyer responses (an id) or the People tab ({ id }): the Person chat opens with them
+// selected, as the ?ask= link does. Nothing is sent; the composer says it costs one model call and waits for send.
+function askPerson(arg) {
+  const id = arg && typeof arg === 'object' ? arg.id : arg
   const target = people.value.find((p) => String(p.agent_id) === String(id))
   if (!target) return
   mode.value = 'person'
   personId.value = target.agent_id
   askOpen.value = true
   tab.value = 'results'
-  nextTick(() => { const el = document.getElementById('ws-ask'); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.focus() })
+  // scroll only the results panel (scrollIntoView would also move the page), then focus the composer
+  nextTick(() => {
+    const box = document.getElementById('ws-ask'), panel = scroller.value
+    if (box && panel) panel.scrollTop += box.getBoundingClientRect().top - panel.getBoundingClientRect().top - panel.clientHeight / 2
+    box?.focus({ preventScroll: true })
+  })
 }
 function showMapProfile() { nextTick(() => document.getElementById('map-person-profile')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
 const mapPersonRow = computed(() => people.value.find((p) => String(p.agent_id) === mapPerson.value) || null)

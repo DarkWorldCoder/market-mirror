@@ -37,7 +37,7 @@
 
       <footer class="pp-actions">
         <span :aria-label="`${post.comments.length} replies`"><MessageCircle :size="15" aria-hidden="true" />{{ fmt(post.comments.length) }}</span>
-        <span v-if="layout === 'feed'" :aria-label="`${post.reposts ?? 0} shares`"><Repeat2 :size="15" aria-hidden="true" />{{ fmt((post.reposts || 0) + (post.quoteCount || 0)) }}</span>
+        <span v-if="layout === 'feed'" role="img" :aria-label="`${fmt(shares)} ${shares === 1 ? 'share' : 'shares'}`"><Repeat2 :size="15" aria-hidden="true" />{{ fmt(shares) }}</span>
         <span v-if="layout === 'feed'" :aria-label="`${post.likes ?? 0} likes`"><Heart :size="15" aria-hidden="true" />{{ fmt(post.likes || 0) }}</span>
         <span v-if="Number.isFinite(post.dislikes) && post.dislikes > 0" :aria-label="`${post.dislikes} dislikes`"><ThumbsDown :size="15" aria-hidden="true" />{{ fmt(post.dislikes) }}</span>
         <span v-if="sentimentText" class="pp-sentiment">{{ sentimentText }}</span>
@@ -54,7 +54,7 @@
         </li>
       </ol>
       <button v-if="post.comments.length > shownReplies.length" type="button" class="pp-more" @click="limit += 10">
-        Show {{ Math.min(10, post.comments.length - shownReplies.length) }} more {{ post.comments.length - shownReplies.length === 1 ? 'reply' : 'replies' }}
+        Show {{ Math.min(10, post.comments.length - shownReplies.length) }} more {{ plural(post.comments.length - shownReplies.length, { one: 'reply', other: 'replies' }) }}
       </button>
     </div>
   </article>
@@ -64,6 +64,7 @@
 import { computed, ref } from 'vue'
 import { ArrowBigDown, ArrowBigUp, Heart, MessageCircle, Repeat2, ThumbsDown } from 'lucide-vue-next'
 import { platformStyle } from '../../workspace/socialPosts'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ post: { type: Object, required: true }, sentimentMethod: { type: String, default: '' } })
 const limit = ref(2)
@@ -81,6 +82,7 @@ const handle = computed(() => (props.post.isBrand ? 'Brand account' : [props.pos
 const community = computed(() => (props.post.segment ? `Community · ${props.post.segment}` : props.post.isBrand ? 'Brand post' : 'Community'))
 const meta = computed(() => [props.post.round != null ? `Round ${props.post.round}` : '', props.post.hour || ''].filter(Boolean).join(' · '))
 const score = computed(() => props.post.score ?? ((props.post.likes || 0) - (props.post.dislikes || 0)))
+const shares = computed(() => (props.post.reposts ?? 0) + (props.post.quoteCount ?? 0))
 // forum posts read like a title and a body: first sentence as the title
 const split = computed(() => {
   const t = String(props.post.text || '').trim()

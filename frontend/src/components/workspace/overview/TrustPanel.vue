@@ -4,15 +4,19 @@
     <p v-if="!trust.graded && !trust.calibrated && !forecasts.locked" class="ovi-empty">No run has results to grade yet.</p>
     <template v-else>
       <ul v-if="trust.graded" class="ovi-grades" aria-label="Runs per evidence grade">
-        <li v-for="g in grades" :key="g.grade" :class="{ none: !g.count }"><strong>{{ g.grade }}</strong><span>{{ g.count }} {{ g.count === 1 ? 'run' : 'runs' }}</span><small>{{ gradeText(g.grade) }}</small></li>
+        <li v-for="g in grades" :key="g.grade" :class="{ none: !g.count }"><strong>{{ g.grade }}</strong><span>{{ g.count }} {{ plural(g.count, { one: 'run', other: 'runs' }) }}</span><small>{{ gradeText(g.grade) }}</small></li>
       </ul>
-      <p class="ovi-real"><b>{{ trust.calibrated }} of {{ totalRuns }}</b> {{ totalRuns === 1 ? 'run was' : 'runs were' }} checked with real people.</p>
+      <p class="ovi-real"><b>{{ trust.calibrated }} of {{ totalRuns }}</b> {{ plural(totalRuns, { one: 'run was', other: 'runs were' }) }} checked with real people.</p>
       <p v-if="nudge" class="ovi-nudge"><Info :size="15" aria-hidden="true" />{{ nudge }}</p>
       <ul v-if="recent.length" class="ovi-trust-runs" aria-label="Evidence grade per run">
         <li v-for="row in recent" :key="row.run">
           <span class="ovi-grade" :class="`g${row.grade || 'none'}`" :aria-label="row.grade ? `Grade ${row.grade}` : 'Not graded'">{{ row.grade || '–' }}</span>
-          <RouterLink :to="`/workspace/runs/${encodeURIComponent(row.run)}`" :title="(row.reasons || []).join('\n')">{{ row.title || row.run }}</RouterLink>
+          <RouterLink :to="`/workspace/runs/${encodeURIComponent(row.run)}`">{{ row.title || row.run }}</RouterLink>
           <span v-if="row.calibrated" class="ovi-tag ok">Checked with {{ row.n_real ? `${row.n_real} real answers` : 'real answers' }}</span>
+          <details v-if="row.reasons?.length" class="ovi-trust-why">
+            <summary>Why grade {{ row.grade || '–' }}</summary>
+            <ul><li v-for="reason in row.reasons" :key="reason">{{ reason }}</li></ul>
+          </details>
         </li>
       </ul>
       <div class="ovi-ledger">
@@ -38,6 +42,7 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { CircleCheck, CircleDashed, CircleX, Clock, Info, ShieldCheck } from 'lucide-vue-next'
 import { gradeCounts, gradeText, outcomeText, trustNudge } from '../../../workspace/overviewInsights.js'
+import { plural } from '../../../workspace/plural.js'
 
 const props = defineProps({ trust: { type: Object, required: true }, forecasts: { type: Object, required: true }, totalRuns: { type: Number, default: 0 } })
 const grades = computed(() => gradeCounts(props.trust.grades))

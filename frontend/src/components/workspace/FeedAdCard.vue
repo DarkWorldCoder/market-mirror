@@ -39,7 +39,7 @@
         <span class="ad-sim">Simulated</span>
       </p>
       <template v-if="ad.shown">
-        <p class="ad-result-line">Shown to {{ ad.shown }} simulated {{ ad.shown === 1 ? 'person' : 'people' }}<template v-if="ad.expectedCtr != null"> · expected click-through {{ ad.expectedCtr }}%</template></p>
+        <p class="ad-result-line">Shown to {{ ad.shown }} simulated {{ plural(ad.shown, { one: 'person', other: 'people' }) }}<template v-if="ad.expectedCtr != null"> · expected click-through {{ ad.expectedCtr }}%</template></p>
         <div class="ad-bar" aria-hidden="true">
           <span class="clicked" :style="{ flexGrow: ad.clicked }"></span><span class="stopped" :style="{ flexGrow: ad.stopped }"></span><span class="scrolled" :style="{ flexGrow: ad.scrolled }"></span><span class="hid" :style="{ flexGrow: ad.hid }"></span>
         </div>
@@ -61,6 +61,7 @@
 <script setup>
 import { computed } from 'vue'
 import { platformStyle } from '../../workspace/socialPosts'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ ad: { type: Object, required: true } })
 // layout families only; no platform branding

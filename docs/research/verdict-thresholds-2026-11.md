@@ -3,6 +3,8 @@
 Written 23 Nov 2026 from saved MarketMirror runs. No new model calls. Every number is from simulated people, not
 real buyers, and from one invented brand (Fitloop, a home-workout app).
 
+For a consolidated list of cited academic papers, see [Research References](REFERENCES.md).
+
 ## The data
 
 - 13 saved runs with a buyer survey: 4,501 answers to "would you start the free trial?" (yes / maybe / no), each with
