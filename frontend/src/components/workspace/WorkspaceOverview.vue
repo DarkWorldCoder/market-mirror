@@ -39,12 +39,14 @@
       <IntentPanel :intent="insights.intent" />
       <ObjectionsPanel :objections="insights.objections" />
       <AudiencesPanel :segments="insights.segments" />
-      <TrustPanel :trust="insights.trust" :forecasts="insights.forecasts" :total-runs="insights.total_runs" />
+      <TrustPanel :trust="insights.trust" :forecasts="insights.forecasts" :total-runs="insights.total_runs" :runs="runs" />
       <SpendPanel :spend="insights.spend" />
     </div>
 
-    <details v-if="activeRuns.length" class="overview-active" aria-labelledby="active-heading">
-      <summary class="overview-section-title"><h2 id="active-heading">{{ activeRuns.length }} {{ activeRuns.length === 1 ? 'run' : 'runs' }} didn’t record a finish</h2><span class="overview-live">Their last saved status still said running. Open one to see what was saved.</span></summary>
+    <h2 v-if="activeRuns.length" id="active-heading" class="overview-section-title">{{ activeRuns.length }} {{ activeRuns.length === 1 ? 'run' : 'runs' }} didn’t record a finish</h2>
+    <details v-if="activeRuns.length" class="overview-active">
+      <summary>Show runs</summary>
+      <p class="overview-live">Their last saved status still said running. Open one to see what was saved.</p>
       <button v-for="run in activeRuns" :key="run.name" class="overview-active-run" @click="$emit('select-run', run.name)">
         <div><span class="overview-status-dot" aria-hidden="true"></span><strong>{{ run.title || run.name }}</strong><span>{{ state(run) }}</span></div>
         <div class="overview-active-meta"><span v-if="finite(run.current_round)">Round {{ run.current_round }}<template v-if="finite(run.total_rounds)"> of {{ run.total_rounds }}</template></span><span v-if="finite(run.progress_percent)">{{ Math.round(run.progress_percent) }}%</span></div>
@@ -85,7 +87,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Activity, ArrowUpRight, CalendarDays, CircleCheck, Download, Files, FlaskConical, FolderOpen, FolderPlus, Globe2, MessageSquare, ChevronRight, Plus, RefreshCw, Search, UsersRound, X } from 'lucide-vue-next'
+import { ArrowUpRight, CalendarDays, CircleCheck, Download, FlaskConical, FolderOpen, FolderPlus, Globe2, MessageSquare, ChevronRight, Plus, RefreshCw, Search, UsersRound, X } from 'lucide-vue-next'
 import EChart from './EChart.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import ActivityCalendar from './overview/ActivityCalendar.vue'
@@ -150,9 +152,7 @@ const state = run => String(run.status || 'Saved').replaceAll('_', ' ').replace(
 const isActive = run => /^(running|preparing|processing|pending|queued|in_progress)$/i.test(String(run.status || ''))
 const activeRuns = computed(() => props.runs.filter(isActive))
 const knownPeople = computed(() => props.runs.filter(r => finite(r.people)))
-const knownFiles = computed(() => props.runs.filter(r => finite(r.file_count)))
 const totalPeople = computed(() => knownPeople.value.reduce((sum, r) => sum + r.people, 0))
-const totalFiles = computed(() => knownFiles.value.reduce((sum, r) => sum + r.file_count, 0))
 const timestamp = run => { const iso = run.updated_at ? new Date(run.updated_at).getTime() : NaN; return Number.isFinite(iso) ? iso : finite(run.mtime) ? run.mtime * 1000 : 0 }
 const date = run => { const t = timestamp(run); return t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not recorded' }
 const ordered = computed(() => [...props.runs].sort((a, b) => timestamp(b) - timestamp(a)))
