@@ -2,6 +2,8 @@
 
 Reviewed 19 October 2026. This is an engineering reading guide and implementation proposal. The mechanisms proposed below have not been validated in MarketMirror against human behavior. Paper results describe their own populations, tasks and model versions.
 
+For a consolidated list of cited academic papers, see [Research References](research/REFERENCES.md).
+
 ## Main finding
 
 Build agents with grounded preferences, limited observations, persistent state, selective memory and observable consequences. Evaluate their choices against real behavior. More detailed biographies, more reasoning tokens and more simulated people do not by themselves establish validity.

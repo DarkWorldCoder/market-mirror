@@ -37,6 +37,8 @@ def md() -> str:
         out.append(f"## {title}\n")
         for e in rows:
             out.append(f"### `{e['method']} {e['path']}`\n\n{e['summary']}.\n")
+            if e.get("query"):
+                out.append("Query parameters:\n\n" + "\n".join(f"- `{q['name']}`{' (required)' if q.get('required') else ''}: {q['description']}" for q in e["query"]) + "\n")
             if e.get("body"):
                 out.append("Request body:\n\n```json\n" + json.dumps(e["body"], ensure_ascii=False, indent=2) + "\n```\n")
             out.append(f"Returns: {e.get('returns', 'data')}\n")
@@ -51,6 +53,9 @@ def openapi() -> dict:
               "responses": {"200": {"description": e.get("returns", "data"), "content": {"application/json": {"schema": {"type": "object"}}}},
                             "400": {"description": "bad request"}, "404": {"description": "not found"}}}
         params = [{"name": seg.strip("{}"), "in": "path", "required": True, "schema": {"type": "string"}} for seg in e["path"].split("/") if seg.startswith("{")]
+        for q in e.get("query", []):
+            schema = {"type": "string", **({"pattern": q["pattern"]} if q.get("pattern") else {})}
+            params.append({"name": q["name"], "in": "query", "required": bool(q.get("required")), "description": q["description"], "schema": schema})
         if params:
             op["parameters"] = params
         if e.get("body"):

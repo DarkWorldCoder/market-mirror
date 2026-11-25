@@ -104,10 +104,7 @@ class Executor:
         """Run one tool. `approval` is the user's recorded decision for a spend tool (the loop only calls spend tools
         once it is set); market_test's own approval travels in `answers` to the MCP server's elicitation."""
         if name == "open_view":
-            from ...api import runs
-            path = runs._run_dir(args.get("run"))
-            card = runs._card(path)
-            return {"view": args.get("view"), "run": path.name, "title": card.get("title"), "files": runs._files(path)}
+            return self.open_view(args)
         if name == "read_run_file":
             from .. import workspace_chat
             data, _ = workspace_chat._tool("read_run_file", {k: args[k] for k in ("run", "file", "offset", "limit") if k in args})
@@ -124,6 +121,36 @@ class Executor:
         except self.m.NeedInput as need:
             key, request = next(iter(need.requests.items()))
             raise ApprovalNeeded(key, (request or {}).get("params") or {}) from None
+
+    def open_view(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """A read-only view shown inline. Run views check that the run exists (and is visible to this caller); the
+        browser then reads the files with the user's own session, so a view never widens what the user can see.
+        Workspace views (settings, connectors, spend, projects, skills, dashboard) carry no data here at all."""
+        spec = T.normalize_view(args)
+        view = spec["view"]
+        if view in T.RUN_VIEWS:
+            from ...api import runs
+            try:
+                path = runs._run_dir(spec.get("run"))
+            except LookupError:
+                raise ValueError(f"There is no saved run named {str(spec.get('run'))[:80]!r}.") from None
+            card = runs._card(path)
+            return {**spec, "run": path.name, "title": card.get("title"), "files": runs._files(path),
+                    "shown": "inline in the chat", "simulated": True}
+        if view == "compare":
+            from ...api import runs
+            names, titles = [], []
+            for name in spec.get("runs") or []:
+                try:
+                    path = runs._run_dir(name)
+                except LookupError:
+                    raise ValueError(f"There is no saved run named {name[:80]!r}.") from None
+                names.append(path.name)
+                titles.append(runs._card(path).get("title") or path.name)
+            return {**spec, "runs": names, "titles": titles, "shown": "inline in the chat", "simulated": True}
+        return {**spec, "shown": "inline in the chat", "simulated": view in T.SIMULATED_VIEWS,
+                "note": "The card reads this workspace's saved data in the browser. Describe it only from what the "
+                        "user can see; no numbers were sent to you."}
 
     def tool_schemas(self) -> Dict[str, Dict[str, Any]]:
         """The MCP server's own descriptions and input schemas for the tools the chat may call."""
