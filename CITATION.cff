@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use MarketMirror in your research, please cite it as below."
+type: software
+title: "MarketMirror: AI Market Research & Marketing Simulation"
+abstract: "Test ads, prices and sales pitches on simulated buyers and get a go / iterate / no-go report."
+authors:
+  - given-names: Ayush
+    family-names: Niroula
+    alias: DarkWorldCoder
+version: "0.4.2"
+license: AGPL-3.0
+repository-code: "https://github.com/DarkWorldCoder/market-mirror"
+url: "https://darkworldcoder.github.io/market-mirror/demo/"
+keywords:
+  - market research
+  - marketing simulation
+  - synthetic personas
+  - mcp
