@@ -143,7 +143,7 @@ function fromFeedTest(d) {
   const rows = Object.entries(per).filter(([, v]) => num(v?.expected_ctr) !== null).map(([id, v]) => ({ label: names[id] || id, value: v.expected_ctr, note: v.impressions ? `${v.impressions} views` : '' }))
   return {
     intro: 'Each ad was shown inside realistic simulated feeds. This compares how often people would click.',
-    cards: compact([card('Ads tested', (d.creatives || []).length), card('People', d.personas_tested), card('Views', d.exposures)]),
+    cards: compact([card('Ads tested', (d.creatives || []).length), card('People', d.personas_tested), card('Exposures per person', d.exposures, 'Simulated: how many times each person scrolled past an ad.')]),
     sections: compact([
       rows.length && { type: 'bars', title: 'Expected click-through per ad', unit: '%', rows: rows.sort((a, b) => b.value - a.value) },
       (d.creatives || []).length && { type: 'cards', title: 'The ads', items: d.creatives.map((c) => ({ title: c.name || c.id, subtitle: plain(c.platform), body: c.headline || c.text, bullets: compact([c.cta && `Button: ${c.cta}`, (c.segments || []).length && `Aimed at: ${c.segments.join(', ')}`]) })) }
