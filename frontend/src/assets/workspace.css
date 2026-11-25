@@ -880,6 +880,8 @@
 .ws-search-caption { padding: 4px 10px; margin: 0; font-size: 11px; color: var(--muted); }
 .ws .ws-foot { flex-shrink: 0; margin-top: 0; padding-top: 9px; gap: 1px; border-top: 1px solid var(--line); }
 .ws .ws-foot button { min-height: 37px; }
+.ws-toast { margin: 12px 24px 0; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ws-toast a { color: var(--accent); font-weight: 550; }
 .ws .ws-top { min-height: 67px; padding: 14px 28px; gap: 20px; }
 .ws-page-title { max-width: min(50vw, 600px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
 .ws .ws-top-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }

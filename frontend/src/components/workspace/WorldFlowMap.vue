@@ -19,16 +19,17 @@
           :cluster="people.length > 300" :mix-keys="legend.map((l) => ({ key: l.key, color: l.color }))" :theme="theme" :height="height" :label="summary" @select="(id) => $emit('select', id)">
           <template #overlay>
             <div class="gm-top">
-              <div class="gm-search" role="combobox" :aria-expanded="!!suggestions.length" aria-haspopup="listbox" aria-owns="gm-suggest">
+              <div class="gm-search">
                 <Search :size="15" aria-hidden="true" />
-                <input v-model="query" type="search" placeholder="Search a person, city or segment" aria-label="Search the map" aria-autocomplete="list"
+                <input v-model="query" type="search" role="combobox" placeholder="Search a person, city or segment" aria-label="Search the map" aria-autocomplete="list"
+                  :aria-expanded="!!suggestions.length" aria-haspopup="listbox" aria-controls="gm-suggest" :aria-activedescendant="suggestions[hit] ? `gm-opt-${hit}` : null"
                   @keydown.down.prevent="moveHit(1)" @keydown.up.prevent="moveHit(-1)" @keydown.enter.prevent="pick(suggestions[hit] || suggestions[0])" @keydown.esc="query = ''" />
                 <button v-if="query" type="button" class="gm-x" aria-label="Clear search" @click="query = ''"><X :size="14" /></button>
               </div>
               <button type="button" class="gm-chip" :aria-expanded="panelOpen" aria-controls="wfm-layers-panel" @click="panelOpen = !panelOpen"><SlidersHorizontal :size="14" aria-hidden="true" />{{ colorBy === 'verdict' ? 'By answer' : 'By segment' }}{{ heat ? ' · glow' : '' }}</button>
             </div>
             <ul v-if="suggestions.length" id="gm-suggest" class="gm-suggest" role="listbox" aria-label="Matches">
-              <li v-for="(sg, i) in suggestions" :key="sg.kind + sg.id" role="option" :aria-selected="i === hit" :class="{ on: i === hit }" @mousedown.prevent="pick(sg)" @mouseenter="hit = i">
+              <li v-for="(sg, i) in suggestions" :id="`gm-opt-${i}`" :key="sg.kind + sg.id" role="option" :aria-selected="i === hit" :class="{ on: i === hit }" @mousedown.prevent="pick(sg)" @mouseenter="hit = i">
                 <component :is="sg.kind === 'person' ? UserRound : sg.kind === 'place' ? MapPin : UsersRound" :size="15" aria-hidden="true" />
                 <span><b>{{ sg.title }}</b><small>{{ sg.sub }}</small></span>
               </li>

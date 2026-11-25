@@ -8,7 +8,7 @@
       </DialogHeader>
       <div class="grid gap-2">
         <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
-        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" :aria-valuenow="doneCount" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all" :style="{ width: `${doneCount * 25}%` }"></div></div>
+        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" aria-label="Setup progress" :aria-valuenow="doneCount" :aria-valuetext="`${doneCount} of 4 steps done`" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all motion-reduce:transition-none" :style="{ width: `${doneCount * 25}%` }"></div></div>
       </div>
 
       <ol class="grid gap-3">
@@ -42,7 +42,7 @@
                 <div v-if="link" class="flex gap-2"><Input :model-value="link" readonly aria-label="Invitation link" class="h-8" @focus="$event.target.select()" /><Button variant="secondary" size="sm" @click="copy"><component :is="copied ? Check : Copy" aria-hidden="true" />{{ copied ? 'Copied' : 'Copy' }}</Button></div>
                 <p class="text-muted-foreground text-xs">No email is sent; share the link yourself. It works once.</p>
               </template>
-              <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. To work with teammates, run MarketMirror on a server with team accounts on (<code>MM_ACCOUNTS=on</code>, see docs/ACCOUNTS.md).</p>
+              <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. Teams need MarketMirror running on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
               <p v-else class="text-muted-foreground text-sm">Ask an owner of this workspace to invite people.</p>
               <div><Button variant="ghost" size="sm" @click="mark('invite')">{{ link ? 'Done' : 'Skip' }}</Button></div>
             </template>
