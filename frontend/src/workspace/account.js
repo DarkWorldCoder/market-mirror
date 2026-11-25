@@ -6,6 +6,8 @@ const empty = { mode: 'unknown', account: null, workspace: null, workspaces: [],
 export const account = ref({ ...empty })
 // Set only when the server ends a session; a normal sign-out leaves it false.
 export const sessionEnded = ref(false)
+// A session check that fails for any reason other than "no accounts here".
+export const accountError = ref('')
 export const teamMode = computed(() => account.value.mode === 'accounts')
 export const signedIn = computed(() => teamMode.value && !!account.value.account)
 export const role = computed(() => (signedIn.value ? account.value.workspace?.role || 'viewer' : 'owner'))
@@ -42,8 +44,14 @@ function apply(data) { if (data.account) sessionEnded.value = false; account.val
 export function endSession() { sessionEnded.value = true; return apply({ mode: 'accounts', account: null }) }
 
 export async function loadAccount() {
+  accountError.value = ''
   try { return apply(await call('/api/auth/session')) }
-  catch { return apply({ mode: 'local' }) } // an older backend without accounts: behave as before
+  catch (error) {
+    // Only a missing auth route means an older backend without accounts.
+    if (error instanceof AccountError && error.status === 404) return apply({ mode: 'local' })
+    accountError.value = 'Cannot reach the server. Check that MarketMirror is running, then retry.'
+    return account.value
+  }
 }
 
 export const signUp = (values) => call('/api/auth/signup', { method: 'POST', body: values }).then(apply)

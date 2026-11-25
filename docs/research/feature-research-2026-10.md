@@ -1,6 +1,8 @@
 # What would make MarketMirror much more powerful: feature research, October 2026
 
 Reviewed 30 October 2026. This document compares MarketMirror with commercial synthetic-research and ad pre-testing tools, open-source social simulators and the survey-simulation literature, then ranks the features worth building. It complements [HUMAN_BEHAVIOR_RESEARCH.md](../HUMAN_BEHAVIOR_RESEARCH.md), which covers the behavior model, and does not repeat it.
+For a consolidated list of cited academic papers, see [Research References](REFERENCES.md).
+
 
 Read the numbers with care:
 

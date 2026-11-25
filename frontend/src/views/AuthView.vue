@@ -76,6 +76,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { account as accountState, acceptInvitation, invitationFromHash, previewInvitation, signedIn, signIn, signUp } from '../workspace/account.js'
+import { chooseTheme, storedTheme } from '../workspace/theme.js'
 
 const props = defineProps({ mode: { type: String, default: 'login' } })
 const route = useRoute()
@@ -86,7 +87,7 @@ const screen = ref(props.mode === 'join' ? 'signup' : props.mode)
 const name = ref(''), email = ref(''), password = ref(''), workspaceName = ref('')
 const busy = ref(false), error = ref(''), inviteError = ref('')
 const token = ref(''), invite = ref(null)
-const theme = (() => { try { return localStorage.getItem('mm-theme') || 'light' } catch { return 'light' } })()
+const theme = chooseTheme(storedTheme(), window.matchMedia?.('(prefers-color-scheme: dark)').matches)
 const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 const heading = computed(() => invite.value ? `Join ${invite.value.workspace}` : screen.value === 'signup' ? 'Create your account' : 'Welcome back')
 const subheading = computed(() => {
