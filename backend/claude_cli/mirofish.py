@@ -2243,6 +2243,8 @@ def cmd_bench(c: Optional[Client], a) -> Any:
             if a.run_dir:
                 people = [p for p in marketing._profiles(exporter.load_run_dir(a.run_dir)) if p.get("persona") or p.get("bio")]
             methods = a.methods or ["generic_reader", "persona_panel"]
+            if not people and any(m.startswith("persona_panel") for m in methods):
+                log("warning: bench upworthy: panel method requested without people; pass --run-dir of a prepared run")
             res = bench.run_upworthy(a.data, a.n, complete, methods, people, a.panel_size, a.approve_spend)
         else:
             files = [os.path.join(cache, f) for f in sorted(os.listdir(cache))] if os.path.isdir(cache) else []
