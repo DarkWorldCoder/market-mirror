@@ -915,6 +915,7 @@
 .ws-notfound-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .ws-notfound-actions a { text-decoration: none; }
 .ws-project-card { gap: 14px; }
+.ws-filter-note { margin: 0 0 14px; }
 .ws-retry { margin-left: 8px; padding: 2px 7px; border: 1px solid currentColor; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
 @media (max-width: 760px) {
  .ws .ws-side { width: 272px; padding-top: 20px; }
