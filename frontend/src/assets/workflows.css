@@ -1,15 +1,14 @@
 .workflow-app {
-  --ink: #202623;
-  --muted: #626e66;
-  --line: #e2e7e3;
-  --green: #216448;
-  --light: #f6f8f6;
-  font:
-    15px/1.55 Arial,
-    Helvetica,
-    sans-serif;
+  --ink: var(--text, #202623);
+  --muted: var(--muted, #626e66);
+  --line: var(--line, #e2e7e3);
+  --green: var(--accent, #216448);
+  --light: var(--panel-2, #f6f8f6);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.55;
   color: var(--ink);
-  background: #fff;
+  background: var(--panel, #fff);
   min-height: 100vh;
 }
 .workflow-app a {
@@ -30,8 +29,8 @@
   cursor: not-allowed;
 }
 .workflow-app :focus-visible {
-  outline: 3px solid #267b58;
-  outline-offset: 4px;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .skip-link {
   position: absolute;
@@ -255,7 +254,7 @@
 }
 .recipe {
   position: relative;
-  background: #fff;
+  background: var(--panel, #fff);
   text-align: left;
   display: flex;
   flex-direction: column;
