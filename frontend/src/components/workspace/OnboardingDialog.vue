@@ -42,7 +42,7 @@
                 <div v-if="link" class="flex gap-2"><Input :model-value="link" readonly aria-label="Invitation link" class="h-8" @focus="$event.target.select()" /><Button variant="secondary" size="sm" @click="copy"><component :is="copied ? Check : Copy" aria-hidden="true" />{{ copied ? 'Copied' : 'Copy' }}</Button></div>
                 <p class="text-muted-foreground text-xs">No email is sent; share the link yourself. It works once.</p>
               </template>
-              <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. To work with teammates, run MarketMirror on a server with team accounts on (<code>MM_ACCOUNTS=on</code>, see docs/ACCOUNTS.md).</p>
+              <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. Teams need MarketMirror running on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
               <p v-else class="text-muted-foreground text-sm">Ask an owner of this workspace to invite people.</p>
               <div><Button variant="ghost" size="sm" @click="mark('invite')">{{ link ? 'Done' : 'Skip' }}</Button></div>
             </template>
