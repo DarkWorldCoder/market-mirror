@@ -34,7 +34,7 @@ export const ModelPicker = memo(function ModelPicker({models,value,defaultValue,
     if(items.length){event.preventDefault();items[next]?.focus();}
   }
   return <Popover.Root open={open} onOpenChange={next=>{setTheme(trigger.current?.closest('[data-theme]')?.getAttribute('data-theme')||'light');setOpen(next);if(next)setQuery('');}}>
-    <Popover.Trigger ref={trigger} type="button" disabled={disabled} aria-label="Select model" className={cn('an-model-trigger library-model-trigger',className)}><span>{activeModel?.name||placeholder}</span><IconChevronDown size={12} aria-hidden="true" /></Popover.Trigger>
+    <Popover.Trigger ref={trigger} type="button" disabled={disabled} className={cn('an-model-trigger library-model-trigger',className)}><span>{activeModel?.name||placeholder}</span><IconChevronDown size={12} aria-hidden="true" /></Popover.Trigger>
     <Popover.Portal><Popover.Positioner side="top" align="start" sideOffset={10} collisionPadding={12} className="library-context-positioner">
       <Popover.Popup className="library-context-popup library-model-popup an-model-popup" data-theme={theme} aria-label="Choose a model" onKeyDown={navigate}>
         <label className="library-model-search"><IconSearch size={16} aria-hidden="true" /><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search models…" aria-label="Search models" /></label>
