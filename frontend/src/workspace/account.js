@@ -4,6 +4,8 @@ import { computed, ref } from 'vue'
 
 const empty = { mode: 'unknown', account: null, workspace: null, workspaces: [], csrf: '', signups: 'closed', first_account: false }
 export const account = ref({ ...empty })
+// Set only when the server ends a session; a normal sign-out leaves it false.
+export const sessionEnded = ref(false)
 // A session check that fails for any reason other than "no accounts here".
 export const accountError = ref('')
 export const teamMode = computed(() => account.value.mode === 'accounts')
@@ -35,7 +37,11 @@ async function call(path, { method = 'GET', body } = {}) {
   return data.data
 }
 
-function apply(data) { account.value = { ...empty, ...data }; window.dispatchEvent(new Event('mm-account-changed')); return account.value }
+function apply(data) { if (data.account) sessionEnded.value = false; account.value = { ...empty, ...data }; window.dispatchEvent(new Event('mm-account-changed')); return account.value }
+
+// A 401 in team mode: keep team mode but drop the person, so the router can
+// send them to sign-in instead of silently falling back to local mode.
+export function endSession() { sessionEnded.value = true; return apply({ mode: 'accounts', account: null }) }
 
 export async function loadAccount() {
   accountError.value = ''

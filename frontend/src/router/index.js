@@ -1,3 +1,4 @@
+import { watch } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 const Home = () => import('../views/Home.vue')
 const LegacyHome = () => import('../views/LegacyHome.vue')
@@ -8,7 +9,7 @@ const ReportView = () => import('../views/ReportView.vue')
 const InteractionView = () => import('../views/InteractionView.vue')
 const Workspace = () => import('../views/Workspace.vue')
 const AuthView = () => import('../views/AuthView.vue')
-import { account, loadAccount } from '../workspace/account.js'
+import { account, loadAccount, sessionEnded } from '../workspace/account.js'
 
 // Known before the first page renders: local mode, or team mode with or without someone signed in.
 export const accountReady = loadAccount()
@@ -78,6 +79,15 @@ router.beforeEach(async (to) => {
   if (!state.account && !AUTH_PAGES.has(to.name)) return { name: 'Login', query: to.fullPath !== '/' ? { next: to.fullPath } : {} }
   if (state.account && (to.name === 'Login' || to.name === 'Signup')) return { path: '/' }
   return true
+})
+
+// A session can end without a navigation (14 days, password change, removal).
+// The API drops the person, and this sends them to sign-in with a way back.
+watch(account, (state) => {
+  if (state.mode !== 'accounts' || state.account) return
+  const current = router.currentRoute.value
+  if (AUTH_PAGES.has(current.name)) return
+  router.replace({ name: 'Login', query: { next: current.fullPath, ...(sessionEnded.value ? { expired: '1' } : {}) } })
 })
 
 export default router

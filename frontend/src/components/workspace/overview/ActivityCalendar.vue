@@ -18,7 +18,7 @@
         </div>
       </div>
       <div class="ovi-cal-foot">
-        <p class="ovi-note" aria-live="polite">{{ hover ? dayLabel(hover) + (hover.runs?.length ? ': ' + hover.runs.slice(0, 3).join(', ') + (hover.runs.length > 3 ? ` and ${hover.runs.length - 3} more` : '') : '') : `${cal.shown} ${plural(cal.shown, { one: 'run', other: 'runs' })} in this period` + (cal.earlier ? `, ${cal.earlier} earlier` : '') }}</p>
+        <p class="ovi-note">{{ hover ? dayLabel(hover) + (hover.runs?.length ? ': ' + hover.runs.slice(0, 3).join(', ') + (hover.runs.length > 3 ? ` and ${hover.runs.length - 3} more` : '') : '') : `${cal.shown} ${plural(cal.shown, { one: 'run', other: 'runs' })} in this period` + (cal.earlier ? `, ${cal.earlier} earlier` : '') }}</p>
         <span class="ovi-cal-legend" aria-hidden="true">Fewer<i class="ovi-cal-cell l0"></i><i class="ovi-cal-cell l1"></i><i class="ovi-cal-cell l2"></i><i class="ovi-cal-cell l3"></i><i class="ovi-cal-cell l4"></i>More</span>
       </div>
     </template>

@@ -2,10 +2,10 @@
   <div class="home-container">
     <!-- 顶部导航栏 -->
     <nav class="navbar">
-      <div class="nav-brand">MIROFISH</div>
+      <div class="nav-brand">MarketMirror</div>
       <div class="nav-links">
         <LanguageSwitcher />
-        <a href="https://github.com/666ghj/MiroFish" target="_blank" class="github-link">
+        <a href="https://github.com/DarkWorldCoder/market-mirror" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
       </div>
