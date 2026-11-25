@@ -1,8 +1,8 @@
 <template>
   <div class="ws" :data-theme="theme">
     <a class="ws-skip" href="#ws-content">Skip to content</a>
-    <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="menuOpen = false"></button>
-    <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace">
+    <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="closeDrawer"></button>
+    <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace" @keydown="trapDrawerFocus">
       <RouterLink to="/" class="ws-brand" @click="menuOpen = false"><MarketMirrorLogo :size="30" /><span>MarketMirror</span></RouterLink>
       <button class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat</button>
       <div class="ws-search-sticky">
@@ -53,10 +53,10 @@
       </div>
     </nav>
 
-    <main id="ws-content" class="ws-main">
+    <main id="ws-content" class="ws-main" :inert="isMobile && menuOpen">
       <header class="ws-top">
         <div class="ws-crumbs">
-          <button class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
+          <button ref="menuButton" class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
           <div v-if="currentChat" class="ws-inline-title"><input :value="currentChat.title" class="ws-page-title ws-chat-title-input" aria-label="Chat name" maxlength="120" @change="renameInPlace(currentChat,$event)" @keydown.enter="$event.target.blur()" @keydown.esc="$event.target.value=currentChat.title; $event.target.blur()" /><span v-if="inlineRenameError" role="alert">{{ inlineRenameError }}</span></div><b v-else class="ws-page-title">{{ contextualTitle }}</b>
         </div>
         <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button v-if="!signedIn" class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
@@ -111,7 +111,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, Globe, Mail, FlaskConical, Lightbulb, Target, Image, Camera, ClipboardList, ShieldCheck, Scale, Wallet, Network, Mic, Tag, Route, Workflow, GitCompare, Layers, Clock, BookOpen, ArrowUpRight, UsersRound, Megaphone, Compass, Sparkles, LayoutDashboard, MessageSquare, ChartNoAxesCombined, FolderOpen, Shapes, Plug, Split, Plus, Search, X, ChevronDown, Settings2, Sun, Moon, Menu } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
@@ -175,6 +175,24 @@ const filteredSkills = computed(() => searchFeatures(skillSearch.value).filter(s
 function openRun(name) { router.push({path:'/',query:{run:name,show:'reports'}}) }
 const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), search = ref(''), idea = ref(''), copied = ref('')
 const provider = ref({ configured: false, models: [] }), menuOpen = ref(false), searchBox = ref(null)
+const menuButton = ref(null)
+function closeDrawer() { menuOpen.value = false }
+function drawerItems() {
+  return [...document.querySelectorAll('#ws-navigation a[href], #ws-navigation button:not([disabled])')]
+}
+function trapDrawerFocus(event) {
+  if (!isMobile.value || !menuOpen.value || event.key !== 'Tab') return
+  const items = drawerItems()
+  if (!items.length) return
+  const index = items.indexOf(document.activeElement)
+  if (event.shiftKey && index <= 0) { event.preventDefault(); items[items.length - 1].focus() }
+  else if (!event.shiftKey && index === items.length - 1) { event.preventDefault(); items[0].focus() }
+}
+watch(menuOpen, (open) => {
+  if (!isMobile.value) return
+  if (open) nextTick(() => drawerItems()[0]?.focus())
+  else nextTick(() => menuButton.value?.focus())
+})
 const hasToken = ref(true), loaded = ref(false)
 const theme = ref((() => {
   try {
