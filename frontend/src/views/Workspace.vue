@@ -26,7 +26,8 @@
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
             <RouterLink v-for="p in filteredProjects" :key="p.id" :to="{path:'/',query:{project:p.id}}" :class="{active: route.query.project === p.id}" :title="p.name" @click="menuOpen = false"><FolderOpen :size="14" /><span>{{ p.name }}</span></RouterLink>
-            <button v-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
+            <p v-if="projectsError && !search.trim()" class="ws-side-empty" role="alert">{{ projectsError }} <button class="ws-retry" @click="loadProjects">Retry</button></p>
+            <button v-else-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
           </div>
         </section>
         <section v-if="!search.trim() && pinnedRuns.length" class="ws-side-section" aria-label="Pinned runs">
@@ -79,8 +80,9 @@
 
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
-          <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
-          <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
+          <div class="ws-project-empty" v-if="projectsError" role="alert"><FolderOpen :size="30" /><h2>Projects could not load</h2><p>Check the connection and try again. Nothing was deleted.</p><button class="ws-project-create" @click="loadProjects">Retry</button></div>
+          <div v-else class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
+          <div v-if="!projects.length && !projectsError" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
         </div>
 
         <div v-else-if="view === 'skills'" class="ws-section ws-skills-page" style="padding-top: 24px">
@@ -179,7 +181,7 @@ const router = useRouter()
 const skillSearch = ref(''), skillCategory = ref('all')
 const filteredSkills = computed(() => searchFeatures(skillSearch.value).filter(skill => skillCategory.value === 'all' || skill.group === skillCategory.value))
 function openRun(name) { router.push({path:'/',query:{run:name,show:'reports'}}) }
-const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), search = ref(''), idea = ref(''), copied = ref('')
+const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), projectsError = ref(''), search = ref(''), idea = ref(''), copied = ref('')
 const provider = ref({ configured: false, models: [] }), menuOpen = ref(false), searchBox = ref(null)
 const menuButton = ref(null)
 function closeDrawer() { menuOpen.value = false }
@@ -339,7 +341,7 @@ async function loadUserTheme() {
 function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUserTheme() }
 async function loadProjects() {
   if (!token() && !signedIn.value) return
-  try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
+  try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : []; projectsError.value = '' } catch { projectsError.value = 'Projects could not load.' }
 }
 function openChatMenu(chat) {
   activeChatMenu.value = chat.id
