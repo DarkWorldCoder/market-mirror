@@ -8,20 +8,20 @@
       <div class="ws-search-sticky">
         <div class="ws-search">
           <Search :size="16" aria-hidden="true" />
-          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
+          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" aria-describedby="ws-search-count" @keydown="onSearchKeydown" />
           <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
           <kbd v-else>⌘ K</kbd>
         </div>
       </div>
-      <div class="ws-side-scroll">
+      <div class="ws-side-scroll" @keydown="onResultsKeydown">
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
           <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
+          <RouterLink v-if="!signedIn" :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
-        <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
+        <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
@@ -47,7 +47,8 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
-        <button @click="openSettings"><Settings2 class="ico" />Settings</button>
+        <p v-if="signedIn" class="ws-side-empty">Engine settings belong to the computer running MarketMirror. Ask whoever set it up.</p>
+        <button v-if="!signedIn" @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
     </nav>
@@ -58,9 +59,10 @@
           <button class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
           <div v-if="currentChat" class="ws-inline-title"><input :value="currentChat.title" class="ws-page-title ws-chat-title-input" aria-label="Chat name" maxlength="120" @change="renameInPlace(currentChat,$event)" @keydown.enter="$event.target.blur()" @keydown.esc="$event.target.value=currentChat.title; $event.target.blur()" /><span v-if="inlineRenameError" role="alert">{{ inlineRenameError }}</span></div><b v-else class="ws-page-title">{{ contextualTitle }}</b>
         </div>
-        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
+        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button v-if="!signedIn" class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
       </header>
       <p v-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-retry" @click="refresh">Retry</button></p>
+      <p v-if="finishedToast" class="ws-toast" role="status"><b>{{ finishedToast.title }}</b> finished. <RouterLink :to="{path:'/',query:{run:finishedToast.name,show:'reports'}}" @click="finishedToast = null">Open</RouterLink><button v-if="canEnableNotifications" class="ws-retry" @click="enableRunNotifications">Enable browser notifications</button><button class="ws-retry" @click="finishedToast = null">Dismiss</button></p>
 
       <section class="ws-canvas">
         <WorkspaceOverview v-if="view === 'dashboard' || view === 'reports'" :runs="runs" :projects="projects" :mode="view" :provider="provider" :loading="!loaded" :theme="theme" @refresh="refresh" @select-run="openRun" />
@@ -80,7 +82,7 @@
           <div class="ws-catalog-head"><div><h1>Tools for every decision</h1><p class="ws-note">{{ skills.length }} skills, from product research to a real-world check. Type / in chat to find them anytime.</p></div><button v-if="canManageSkills" class="ws-project-create" @click="openCustomSkill()"><Plus :size="15" />Add skill</button></div>
           <p v-if="customSkillError" class="ws-error" role="alert">Custom skills could not load. <button @click="reloadCustomSkills">Retry</button></p>
           <label class="ws-catalog-search"><Search aria-hidden="true" /><input v-model="skillSearch" type="search" placeholder="Find a skill: pricing, website, forecast…" aria-label="Find a skill" /></label>
-          <nav class="ws-skill-navigation workspace-modal-tabs" aria-label="Skill categories"><button :aria-pressed="skillCategory === 'all'" @click="skillCategory = 'all'">All skills <span>{{ skills.length }}</span></button><button v-for="group in featureGroups" :key="group" :aria-pressed="skillCategory === group" @click="skillCategory = group"><component :is="categoryIcons[group] || Shapes" :size="14" />{{ group }}<span>{{ skills.filter(skill => skill.group === group).length }}</span></button></nav>
+          <div class="ws-skill-navigation" role="group" aria-label="Skill categories"><button :aria-pressed="skillCategory === 'all'" @click="skillCategory = 'all'">All skills <span>{{ skills.length }}</span></button><button v-for="group in featureGroups" :key="group" :aria-pressed="skillCategory === group" @click="skillCategory = group"><component :is="categoryIcons[group] || Shapes" :size="14" />{{ group }}<span>{{ skills.filter(skill => skill.group === group).length }}</span></button></div>
           <p class="ws-note" style="margin-bottom: 20px">Open saved evidence, configure your workspace, or prepare a request in chat. Model-backed experiments use your configured provider.</p>
           <template v-for="(group, groupIndex) in matchingSkillGroups" :key="group"><div class="ws-skill-group-heading"><h2 class="ws-skill-group">{{ group }}</h2><p>{{ categoryDescriptions[group] }}</p></div><div class="ws-cards">
             <div v-for="s in filteredSkills.filter(skill => skill.group === group)" :key="s.id" class="ws-skill-card-wrap"><RouterLink class="ws-card ws-skill-card" :to="skillLink(s)" :style="{ '--tint': skillTints[featureGroups.indexOf(group) % skillTints.length] }">
@@ -137,7 +139,7 @@ function onResize() { isMobile.value = window.innerWidth <= 760 }
 const projects = ref([])
 const chats = ref([])
 const customSkillOpen = ref(false), customSkillEditing = ref(null)
-const canManageSkills = computed(() => !cloudAccount.value || cloudAccount.value.workspace?.role === 'owner')
+const canManageSkills = computed(() => !signedIn.value && (!cloudAccount.value || cloudAccount.value.workspace?.role === 'owner'))
 function openCustomSkill(skill = null) { customSkillEditing.value = skill; customSkillOpen.value = true }
 function reloadCustomSkills() { loadCustomSkills().catch(() => {}) }
 const workingChats = ref(new Set())
@@ -187,6 +189,24 @@ const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.na
   : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
+const finishedToast = ref(null)
+const notificationsAvailable = ref(typeof Notification !== 'undefined' && Notification.permission === 'default')
+const canEnableNotifications = computed(() => notificationsAvailable.value && !runNotificationsOn())
+function runNotificationsOn() { try { return localStorage.getItem('mm-run-notify') === '1' } catch { return false } }
+function onRunFinished(event) {
+  const detail = event.detail || {}
+  finishedToast.value = detail
+  if (document.hidden) document.title = `● ${document.title.replace(/^● /, '')}`
+  if (runNotificationsOn() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(`${detail.title || 'A run'} finished`, { body: 'Open MarketMirror to see the result.' })
+  }
+}
+async function enableRunNotifications() {
+  if (typeof Notification === 'undefined') return
+  const permission = await Notification.requestPermission()
+  notificationsAvailable.value = permission === 'default'
+  if (permission === 'granted') { try { localStorage.setItem('mm-run-notify', '1') } catch { /* this tab only */ } }
+}
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
 const shortcuts = [
   { keys: [isMac ? '⌘' : 'Ctrl', 'K'], what: 'Search projects, chats, runs and skills' },
@@ -295,6 +315,31 @@ function onChatMenuKeydown(event) {
     event.currentTarget.closest('.ws-chat-row')?.querySelector('[data-chat-menu]')?.focus()
   }
 }
+function searchResults() {
+  return [...document.querySelectorAll('.ws-side-scroll a[href], .ws-side-scroll .ws-history button, .ws-side-scroll .ws-skill-card')]
+}
+function onSearchKeydown(event) {
+  if (event.key !== 'ArrowDown') return
+  const items = searchResults()
+  if (!items.length) return
+  event.preventDefault()
+  items[0].focus()
+}
+function onResultsKeydown(event) {
+  if (!search.value.trim() || !['ArrowDown', 'ArrowUp', 'Escape'].includes(event.key)) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    searchBox.value?.focus()
+    return
+  }
+  const items = searchResults()
+  const index = items.indexOf(document.activeElement)
+  if (!items.length) return
+  event.preventDefault()
+  const step = event.key === 'ArrowDown' ? 1 : -1
+  const next = index < 0 ? items[0] : items[Math.min(items.length - 1, Math.max(0, index + step))]
+  next?.focus()
+}
 function onSlash(e) {
   if (e.key === 'Escape') menuOpen.value = false
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
@@ -331,7 +376,7 @@ async function refresh() {
     refreshing.value = false
   }
 }
-function refreshVisible() { if (!document.hidden) refresh() }
+function refreshVisible() { if (!document.hidden) { document.title = document.title.replace(/^● /, ''); refresh() } }
 onMounted(() => {
   loadChats()
   if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
@@ -345,6 +390,7 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refreshVisible)
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
+  window.addEventListener('mm-run-finished', onRunFinished)
   refresh()
   loadOnboarding()
   loadUserTheme()
@@ -353,6 +399,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('mm-run-finished', onRunFinished)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
