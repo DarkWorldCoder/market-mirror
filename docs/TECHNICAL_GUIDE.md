@@ -650,15 +650,18 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 ## Documentation
 
 - [Local installation, providers, and agent setup](LOCAL_AGENTS.md)
+- [Local decision workspace (no API key)](LOCAL-APP.md)
+- [Workspace configuration: projects and settings](workspace-configuration.md) · [Browser observations](workspace-browser.md) · [Remote MCP connections](workspace-connectors.md) · [Workspace design](WORKSPACE_DESIGN.md)
 - [Providers, mixed markets and large runs: gateways, usage limits, lanes, depth, API costs, Jev](PROVIDERS_AND_SCALE.md)
-- [Persona, creative, and experiment input formats](INPUT_FORMATS.md)
-- [Real product URL testing: carts, signup, and browser evidence](WEBSITE_TESTING.md)
-- [Agent plugin](../plugin/README.md) · [Codex setup](../codex/README.md)
+- [Persona, creative, and experiment input formats](INPUT_FORMATS.md) · [Ad patterns](ad-patterns.md)
+- [Real product URL testing: carts, signup, and browser evidence](WEBSITE_TESTING.md) · [First real test template](guides/first-real-test/experiment-template.md) · [Launch patterns](launch-patterns.md)
+- [Accounts](ACCOUNTS.md) · [Jobs](JOBS.md)
+- [Agent plugin](../plugin/README.md) · [Codex setup](../codex/README.md) · [Publishing](PUBLISHING.md)
 - [REST API](API.md) · [OpenAPI schema](openapi.json) · [Python SDK](../sdk/README.md)
-- [Human-behavior research and proposed improvements](HUMAN_BEHAVIOR_RESEARCH.md)
-- [Speed research: what large simulators do and what we borrowed](SPEED_RESEARCH.md)
-- [Publishing](PUBLISHING.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Changelog](../CHANGELOG.md)
-
+- [Human-behavior research and proposed improvements](HUMAN_BEHAVIOR_RESEARCH.md) · [Emotion research](research/emotion-research-2026-10.md) · [Feature research](research/feature-research-2026-10.md) · [Realism and trust](research/realism-and-trust-2026-11.md) · [Verdict thresholds](research/verdict-thresholds-2026-11.md)
+- [Speed research: what large simulators do and what we borrowed](SPEED_RESEARCH.md) · [ESOMAR-20](ESOMAR-20.md) · [Predicted brain response](brain-response.md)
+- [Original MiroFish README](MIROFISH-UPSTREAM.md)
+- [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Changelog](../CHANGELOG.md)
 ## Credits and license
 
 MarketMirror is released under [AGPL-3.0](../LICENSE). It builds on [MiroFish](https://github.com/666ghj/MiroFish) and [OASIS](https://github.com/camel-ai/oasis). The dashboard embeds [Apache ECharts](https://echarts.apache.org); third-party notices are in [the vendor directory](../backend/claude_cli/vendor/README.md). The [original MiroFish README](MIROFISH-UPSTREAM.md) is preserved.
