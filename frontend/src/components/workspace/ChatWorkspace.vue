@@ -180,6 +180,7 @@ import TeamPresence from './TeamPresence.vue'
 import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../../workspace/cloud'
 import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
+import { chatFilename } from '../../workspace/chatFilename.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 import { CHAT_VIEWS, localViewIntent, slashView, splitSlash, viewIntro, viewTab } from '../../workspace/chatViews.js'
@@ -264,7 +265,7 @@ function exportChat() {
   const lines = [`# ${title}`, '', '_Answers about simulated buyers are simulated. Check decisions with real people before you spend._', '']
   for (const m of messages.value) if (m.content) lines.push(`**${m.role === 'user' ? 'You' : 'MarketMirror'}**`, '', String(m.content), '')
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
-  const a = Object.assign(document.createElement('a'), { href: url, download: `${String(title).replace(/[^\w-]+/g, '_').slice(0, 60) || 'chat'}.md` })
+  const a = Object.assign(document.createElement('a'), { href: url, download: chatFilename(String(title)) })
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
@@ -481,7 +482,7 @@ function editProject() { if (!activeProject.value) return; editingProject.value 
 async function loadProject() {
  const id = route.query.project || stored().find(chat => chat.id === route.query.chat)?.project
  if (!id) { activeProject.value = null; return }
- try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = project.preferred_model } }
+ try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = resolveModel(project.preferred_model) } }
  catch (err) { activeProject.value = null; error.value = err.message }
 }
 watch(() => [route.query.project, route.query.chat], loadProject)
@@ -502,10 +503,16 @@ async function saveProject() {
   await router.replace({ path: route.path, query: { ...(conversationId.value ? { chat: conversationId.value } : {}), project: activeProject.value.id } })
  } catch (err) { projectError.value = err.message } finally { projectSaving.value = false }
 }
+let defaultModelId = null
+function resolveModel(id) {
+ if (defaultModelId === null) return id
+ const available = modelOptions.value.filter(model => model.available !== false)
+ return (available.find(model => model.id === id) || available.find(model => model.id === defaultModelId) || available[0])?.id || ''
+}
 async function loadModels() {
  if (!connected.value) return
  modelsLoading.value = true
- try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); if (!modelOptions.value.some(m => m.id === selectedModel.value && m.available !== false)) selectedModel.value = data.default_id || modelOptions.value.find(m => m.available !== false)?.id || '' }
+ try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); defaultModelId = data.default_id || ''; selectedModel.value = resolveModel(selectedModel.value) }
  catch(e) { error.value = e.message } finally { modelsLoading.value = false }
 }
 function changeModel(id) { const model = modelOptions.value.find(m => m.id === id); if (busy.value || !model) return; if (model.available === false) { connectionsTab.value = 'models'; connectionsOpen.value = true; return } selectedModel.value = id; persist() }
@@ -518,6 +525,14 @@ watch(() => route.query.connectors, value => { if (value === '1') connectionsOpe
 async function attachFromRoute() { if (route.query.attach !== '1') return; const query = { ...route.query }; delete query.attach; await router.replace({ path: route.path, query }); await nextTick(); fileInput.value?.click() }
 watch(() => route.query.attach, attachFromRoute)
 onMounted(attachFromRoute)
+// Drop the query when the dialog closes, so the sidebar link stops looking
+// active and can open the dialog again.
+watch(connectionsOpen, open => {
+  if (open || route.query.connectors !== '1') return
+  const query = { ...route.query }
+  delete query.connectors
+  router.replace({ query })
+})
 watch(() => route.query.skill, async id => { if (typeof id !== 'string' || !id) return; const skill = featureCatalog.find(item => item.skillId === id); if (skill) { await nextTick(); setDraft(skill.prompt) } }, { immediate: true })
 watch(() => route.query.prompt, async value => { if (typeof value === 'string') { await nextTick(); composer.value?.setValue(value); composer.value?.focus() } }, { immediate: true })
 const STORE = 'mm-conversations-v1'
@@ -618,7 +633,7 @@ function openConversation() {
  teamAgents.value = Array.isArray(chat?.teamAgents) ? chat.teamAgents : ['market-analyst','critical-reviewer']; teamModels.value = chat?.teamModels && typeof chat.teamModels === 'object' ? chat.teamModels : {}
  answerMode.value = ['team', ...(cloudAccount.value ? ['note'] : [])].includes(chat?.answerMode) ? chat.answerMode : 'standard'
  connectorTools.value = Array.isArray(chat?.connectorTools) ? chat.connectorTools : null
- conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = chat?.model || selectedModel.value
+ conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = resolveModel(chat?.model || selectedModel.value)
  loadArtifacts(); scrollBottom()
 }
 watch(() => [route.query.chat, route.query.new], openConversation, { immediate: true })

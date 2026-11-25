@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Brain, SlidersHorizontal, LoaderCircle, Check, ChevronRight, Cpu, Wallet, Plug, Wrench, Database, ShieldCheck } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog'
@@ -34,6 +34,16 @@ const tabs = [
   { id: 'connections', label: 'Connections', icon: Plug, help: 'MCP servers, data imports and MarketMirror in your other AI apps.' }
 ]
 const current = computed(() => tabs.find(item => item.id === tab.value) || tabs[0])
+function onTabKeydown(event) {
+  const keys = ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End']
+  if (!keys.includes(event.key)) return
+  event.preventDefault()
+  const index = tabs.findIndex(item => item.id === tab.value)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  choose(tabs[next].id)
+  nextTick(() => document.querySelector(`[data-settings-tab="${tabs[next].id}"]`)?.focus())
+}
 const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(value || 0)
 const memory = ref({ backend: 'local', embeddings: false, extract_activity: false, cognee_url: '', zep_api_key: '' })
 const jev = ref({ route: 'typesafe', model: '', parallel: 4, timeout: 60, retries: 3, labels: 'auto', ssr_engine: 'embeddings', api_key: '' })
@@ -89,11 +99,11 @@ async function save() {
         <DialogDescription>Models, spending, memory and connections for this computer.</DialogDescription>
       </DialogHeader>
       <div class="settings-body">
-      <nav class="settings-tabs workspace-modal-tabs" aria-label="Settings sections">
-        <button v-for="item in tabs" :key="item.id" type="button" :class="{ active: tab === item.id }" :aria-pressed="tab === item.id" @click="choose(item.id)"><component :is="item.icon" :size="16" aria-hidden="true" />{{ item.label }}</button>
-      </nav>
+      <div class="settings-tabs workspace-modal-tabs" role="tablist" aria-label="Settings sections" @keydown="onTabKeydown">
+        <button v-for="item in tabs" :key="item.id" :id="`settings-tab-${item.id}`" :data-settings-tab="item.id" type="button" role="tab" :class="{ active: tab === item.id }" :aria-selected="tab === item.id" :tabindex="tab === item.id ? 0 : -1" @click="choose(item.id)"><component :is="item.icon" :size="16" aria-hidden="true" />{{ item.label }}</button>
+      </div>
       <label class="settings-tab-select"><span class="ws-sr-only">Settings section</span><select :value="tab" @change="choose($event.target.value)"><option v-for="item in tabs" :key="item.id" :value="item.id">{{ item.label }}</option></select><ChevronRight :size="15" aria-hidden="true" /></label>
-      <div class="settings-main">
+      <div class="settings-main" role="tabpanel" :aria-labelledby="`settings-tab-${tab}`">
       <div class="settings-intro"><h3>{{ current.label }}</h3><p>{{ current.help }}</p></div>
       <LoadingSkeleton v-if="loading" class="ws-dialog-skeleton" :lines="4" label="Loading your configuration" />
       <div v-else-if="!state" class="settings-error" role="alert">{{ error }}<Button variant="outline" @click="load">Retry</Button></div>

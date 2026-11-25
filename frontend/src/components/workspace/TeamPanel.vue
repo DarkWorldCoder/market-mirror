@@ -46,7 +46,7 @@
             <p class="truncate text-sm leading-none font-medium">{{ m.name || m.email || 'This computer' }}<span v-if="m.id === data.you" class="text-muted-foreground font-normal"> (you)</span></p>
             <p v-if="m.email" class="text-muted-foreground truncate text-xs">{{ m.email }}</p>
           </div>
-          <NativeSelect v-if="isOwner && signedIn" :model-value="m.role" class="h-8 w-28" :aria-label="`Role for ${m.name || m.email}`" @update:model-value="(r) => setRole(m, r)"><option v-for="r in roles" :key="r" :value="r">{{ r }}</option></NativeSelect>
+          <NativeSelect v-if="isOwner && signedIn" :model-value="m.role" class="h-8 w-28" :aria-label="`Role for ${m.name || m.email}`" @update:model-value="(r) => setRole(m, r)"><option v-for="r in roles" :key="r" :value="r">{{ roleLabel(r) }}</option></NativeSelect>
           <Badge v-else variant="outline">{{ m.role }}</Badge>
           <Button v-if="signedIn && (m.id === data.you || isOwner)" variant="ghost" size="icon-sm" :aria-label="m.id === data.you ? 'Leave workspace' : `Remove ${m.name || m.email}`" :title="m.id === data.you ? 'Leave' : 'Remove'" @click="remove(m, m.id === data.you)"><component :is="m.id === data.you ? LogOut : UserMinus" aria-hidden="true" /></Button>
         </div>
@@ -61,7 +61,7 @@
       <CardContent class="grid gap-5">
         <form class="flex flex-wrap items-end gap-3" @submit.prevent="invite">
           <div class="grid min-w-56 flex-1 gap-2"><Label for="mm-invite-email">Email (optional)</Label><Input id="mm-invite-email" v-model.trim="inviteEmail" type="email" placeholder="Leave empty for anyone with the link" maxlength="320" /></div>
-          <div class="grid gap-2"><Label for="mm-invite-role">Role</Label><NativeSelect id="mm-invite-role" v-model="inviteRole" class="w-28"><option value="editor">editor</option><option value="viewer">viewer</option><option value="owner">owner</option></NativeSelect></div>
+          <div class="grid gap-2"><Label for="mm-invite-role">Role</Label><NativeSelect id="mm-invite-role" v-model="inviteRole" class="w-28"><option value="editor">{{ roleLabel('editor') }}</option><option value="viewer">{{ roleLabel('viewer') }}</option><option value="owner">{{ roleLabel('owner') }}</option></NativeSelect><p class="text-muted-foreground text-xs">{{ roleHint(inviteRole) }}</p></div>
           <div class="grid gap-2"><Label for="mm-invite-days">Expires</Label><NativeSelect id="mm-invite-days" v-model.number="inviteDays" class="w-28"><option :value="1">1 day</option><option :value="7">7 days</option><option :value="30">30 days</option></NativeSelect></div>
           <Button :disabled="busy"><Link2 aria-hidden="true" />Create link</Button>
         </form>
@@ -106,7 +106,7 @@
         <CardDescription>This app runs for you alone on this computer.</CardDescription>
       </CardHeader>
       <CardContent class="text-muted-foreground grid gap-2 text-sm">
-        <p>To share chats, projects and runs, run MarketMirror on a server with team accounts turned on (<code class="bg-muted rounded px-1 py-0.5 text-xs">MM_ACCOUNTS=on</code>). The steps are in <code class="bg-muted rounded px-1 py-0.5 text-xs">docs/ACCOUNTS.md</code>.</p>
+        <p>To share chats, projects and runs, MarketMirror needs to run on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
         <p>Your chats and projects here are already kept in this computer's database.</p>
       </CardContent>
     </Card>
@@ -125,11 +125,12 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { NativeSelect } from '../ui/native-select'
 import { account as accountState, changePassword, createWorkspace, isOwner, role, selectWorkspace, signedIn, signOut, team } from '../../workspace/account.js'
+import { ROLES, roleHint, roleLabel } from '../../workspace/roles.js'
 import { api } from '../../workspace/api.js'
 
 const router = useRouter()
 const account = computed(() => accountState.value)
-const roles = ['owner', 'editor', 'viewer']
+const roles = ROLES
 const data = ref(null), error = ref(''), busy = ref(false)
 const workspaceName = ref(''), newName = ref('')
 const inviteEmail = ref(''), inviteRole = ref('editor'), inviteDays = ref(7), link = ref(''), copied = ref(false)

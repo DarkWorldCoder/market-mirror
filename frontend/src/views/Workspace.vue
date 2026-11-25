@@ -1,27 +1,27 @@
 <template>
   <div class="ws" :data-theme="theme">
     <a class="ws-skip" href="#ws-content">Skip to content</a>
-    <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="menuOpen = false"></button>
-    <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace">
+    <button v-if="menuOpen" class="ws-scrim" aria-label="Close navigation" @click="closeDrawer"></button>
+    <nav id="ws-navigation" class="ws-side" :class="{ open: menuOpen }" :inert="isMobile && !menuOpen" aria-label="Workspace" @keydown="trapDrawerFocus">
       <RouterLink to="/" class="ws-brand" @click="menuOpen = false"><MarketMirrorLogo :size="30" /><span>MarketMirror</span></RouterLink>
       <button class="ws-new-chat" @click="newChat"><Plus :size="17" />New chat</button>
       <div class="ws-search-sticky">
         <div class="ws-search">
           <Search :size="16" aria-hidden="true" />
-          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" />
+          <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" aria-describedby="ws-search-count" @keydown="onSearchKeydown" />
           <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
           <kbd v-else>⌘ K</kbd>
         </div>
       </div>
-      <div class="ws-side-scroll">
+      <div class="ws-side-scroll" @keydown="onResultsKeydown">
         <div v-if="!search.trim()" class="ws-nav ws-primary-nav">
           <RouterLink to="/workspace" :class="{ active: view === 'dashboard' }" @click="menuOpen = false"><LayoutDashboard class="ico" />Overview</RouterLink>
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink to="/workspace/connectors" :class="{ active: view === 'connectors' }" :aria-current="view === 'connectors' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connections</RouterLink>
+          <RouterLink v-if="!signedIn" to="/workspace/connectors" :class="{ active: view === 'connectors' }" :aria-current="view === 'connectors' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connections</RouterLink>
         </div>
-        <p v-else-if="searchResultCount" class="ws-search-caption">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
+        <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
@@ -35,7 +35,7 @@
         </section>
         <details v-if="!search.trim() || filteredChats.length" class="ws-side-section" open>
           <summary>Your chats<ChevronDown :size="13" /></summary>
-          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :aria-label="`Actions for ${c.title}`" title="Chat actions"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end"><button @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
+          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :data-chat-menu="c.id" aria-haspopup="menu" :aria-expanded="activeChatMenu === c.id" :aria-label="`Actions for ${c.title}`" title="Chat actions" @keydown.down.prevent="openChatMenu(c)"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end" role="menu" aria-label="Chat actions" @keydown="onChatMenuKeydown"><button role="menuitem" @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button role="menuitem" @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
         </details>
         <details v-if="!search.trim() || filteredRuns.length" class="ws-side-section" :open="!!search.trim()">
           <summary>Saved runs<ChevronDown :size="13" /></summary>
@@ -47,20 +47,23 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
-        <button @click="openSettings"><Settings2 class="ico" />Settings</button>
+        <button v-if="spendMeter && !signedIn" class="ws-spend-meter" @click="openSettings"><Wallet class="ico" /><span>Estimated spend {{ spendMeter }}<template v-if="spend.limit"> of {{ money(spend.limit) }}</template></span></button>
+        <p v-if="signedIn" class="ws-side-empty">Engine settings belong to the computer running MarketMirror. Ask whoever set it up.</p>
+        <button v-if="!signedIn" @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
     </nav>
 
-    <main id="ws-content" class="ws-main">
+    <main id="ws-content" class="ws-main" :inert="isMobile && menuOpen">
       <header class="ws-top">
         <div class="ws-crumbs">
-          <button class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
+          <button ref="menuButton" class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
           <div v-if="currentChat" class="ws-inline-title"><input :value="currentChat.title" class="ws-page-title ws-chat-title-input" aria-label="Chat name" maxlength="120" @change="renameInPlace(currentChat,$event)" @keydown.enter="$event.target.blur()" @keydown.esc="$event.target.value=currentChat.title; $event.target.blur()" /><span v-if="inlineRenameError" role="alert">{{ inlineRenameError }}</span></div><b v-else class="ws-page-title">{{ contextualTitle }}</b>
         </div>
-        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
+        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button v-if="!signedIn" class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
       </header>
       <p v-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-retry" @click="refresh">Retry</button></p>
+      <p v-if="finishedToast" class="ws-toast" role="status"><b>{{ finishedToast.title }}</b> finished. <RouterLink :to="{path:'/',query:{run:finishedToast.name,show:'reports'}}" @click="finishedToast = null">Open</RouterLink><button v-if="canEnableNotifications" class="ws-retry" @click="enableRunNotifications">Enable browser notifications</button><button class="ws-retry" @click="finishedToast = null">Dismiss</button></p>
 
       <section class="ws-canvas">
         <WorkspaceOverview v-if="view === 'dashboard' || view === 'reports'" :runs="runs" :projects="projects" :mode="view" :provider="provider" :loading="!loaded" :theme="theme" @refresh="refresh" @select-run="openRun" />
@@ -81,7 +84,7 @@
           <div class="ws-catalog-head"><div><h1>Tools for every decision</h1><p class="ws-note">{{ skills.length }} skills, from product research to a real-world check. Type / in chat to find them anytime.</p></div><button v-if="canManageSkills" class="ws-project-create" @click="openCustomSkill()"><Plus :size="15" />Add skill</button></div>
           <p v-if="customSkillError" class="ws-error" role="alert">Custom skills could not load. <button @click="reloadCustomSkills">Retry</button></p>
           <label class="ws-catalog-search"><Search aria-hidden="true" /><input v-model="skillSearch" type="search" placeholder="Find a skill: pricing, website, forecast…" aria-label="Find a skill" /></label>
-          <nav class="ws-skill-navigation workspace-modal-tabs" aria-label="Skill categories"><button :aria-pressed="skillCategory === 'all'" @click="skillCategory = 'all'">All skills <span>{{ skills.length }}</span></button><button v-for="group in featureGroups" :key="group" :aria-pressed="skillCategory === group" @click="skillCategory = group"><component :is="categoryIcons[group] || Shapes" :size="14" />{{ group }}<span>{{ skills.filter(skill => skill.group === group).length }}</span></button></nav>
+          <div class="ws-skill-navigation" role="group" aria-label="Skill categories"><button :aria-pressed="skillCategory === 'all'" @click="skillCategory = 'all'">All skills <span>{{ skills.length }}</span></button><button v-for="group in featureGroups" :key="group" :aria-pressed="skillCategory === group" @click="skillCategory = group"><component :is="categoryIcons[group] || Shapes" :size="14" />{{ group }}<span>{{ skills.filter(skill => skill.group === group).length }}</span></button></div>
           <p class="ws-note" style="margin-bottom: 20px">Open saved evidence, configure your workspace, or prepare a request in chat. Model-backed experiments use your configured provider.</p>
           <template v-for="(group, groupIndex) in matchingSkillGroups" :key="group"><div class="ws-skill-group-heading"><h2 class="ws-skill-group">{{ group }}</h2><p>{{ categoryDescriptions[group] }}</p></div><div class="ws-cards">
             <div v-for="s in filteredSkills.filter(skill => skill.group === group)" :key="s.id" class="ws-skill-card-wrap"><RouterLink class="ws-card ws-skill-card" :to="skillLink(s)" :style="{ '--tint': skillTints[featureGroups.indexOf(group) % skillTints.length] }">
@@ -110,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { LoaderCircle, MoreHorizontal, Pencil, Brain, Cpu, Database, FileText, Globe, Mail, FlaskConical, Lightbulb, Target, Image, Camera, ClipboardList, ShieldCheck, Scale, Wallet, Network, Mic, Tag, Route, Workflow, GitCompare, Layers, Clock, BookOpen, ArrowUpRight, UsersRound, Megaphone, Compass, Sparkles, LayoutDashboard, MessageSquare, ChartNoAxesCombined, FolderOpen, Shapes, Plug, Split, Plus, Search, X, ChevronDown, Settings2, Sun, Moon, Menu } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
@@ -126,6 +129,7 @@ import ConnectionsPage from '../components/workspace/ConnectionsPage.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
+import { chooseTheme, storedTheme } from '../workspace/theme.js'
 import { cloudAccount } from '../workspace/cloud.js'
 import { account as accountRef, role, signedIn, teamMode } from '../workspace/account.js'
 import TeamPanel from '../components/workspace/TeamPanel.vue'
@@ -139,7 +143,7 @@ function onResize() { isMobile.value = window.innerWidth <= 760 }
 const projects = ref([])
 const chats = ref([])
 const customSkillOpen = ref(false), customSkillEditing = ref(null)
-const canManageSkills = computed(() => !cloudAccount.value || cloudAccount.value.workspace?.role === 'owner')
+const canManageSkills = computed(() => !signedIn.value && (!cloudAccount.value || cloudAccount.value.workspace?.role === 'owner'))
 function openCustomSkill(skill = null) { customSkillEditing.value = skill; customSkillOpen.value = true }
 function reloadCustomSkills() { loadCustomSkills().catch(() => {}) }
 const workingChats = ref(new Set())
@@ -175,20 +179,72 @@ const filteredSkills = computed(() => searchFeatures(skillSearch.value).filter(s
 function openRun(name) { router.push({path:'/',query:{run:name,show:'reports'}}) }
 const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), search = ref(''), idea = ref(''), copied = ref('')
 const provider = ref({ configured: false, models: [] }), menuOpen = ref(false), searchBox = ref(null)
+const menuButton = ref(null)
+function closeDrawer() { menuOpen.value = false }
+function drawerItems() {
+  return [...document.querySelectorAll('#ws-navigation a[href], #ws-navigation button:not([disabled])')]
+}
+function trapDrawerFocus(event) {
+  if (!isMobile.value || !menuOpen.value || event.key !== 'Tab') return
+  const items = drawerItems()
+  if (!items.length) return
+  const index = items.indexOf(document.activeElement)
+  if (event.shiftKey && index <= 0) { event.preventDefault(); items[items.length - 1].focus() }
+  else if (!event.shiftKey && index === items.length - 1) { event.preventDefault(); items[0].focus() }
+}
+watch(menuOpen, (open) => {
+  if (!isMobile.value) return
+  if (open) nextTick(() => drawerItems()[0]?.focus())
+  else nextTick(() => menuButton.value?.focus())
+})
 const hasToken = ref(true), loaded = ref(false)
-const theme = ref((() => {
-  try {
-    return localStorage.getItem('mm-theme') || 'light'
-  } catch {
-    return 'light'
-  }
-})())
+const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)')
+const theme = ref(chooseTheme(storedTheme(), systemTheme?.matches))
+function onSystemTheme(event) {
+  if (storedTheme()) return
+  theme.value = chooseTheme(null, event.matches)
+}
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
   : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
+const spend = ref({ spent: 0, limit: 0 })
+const money = (value) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0)
+const spendMeter = computed(() => {
+  const spent = Number(spend.value.spent) || 0
+  const limit = Number(spend.value.limit) || 0
+  if (!spent && !limit) return ''
+  return money(spent)
+})
+async function loadSpend() {
+  try {
+    const settings = await api('/api/workspace/settings')
+    spend.value = {
+      spent: Number(settings.spending?.process_spent_usd) || 0,
+      limit: Number(settings.spending?.process_limit_usd) || 0,
+    }
+  } catch { /* the meter is optional */ }
+}
+const finishedToast = ref(null)
+const notificationsAvailable = ref(typeof Notification !== 'undefined' && Notification.permission === 'default')
+const canEnableNotifications = computed(() => notificationsAvailable.value && !runNotificationsOn())
+function runNotificationsOn() { try { return localStorage.getItem('mm-run-notify') === '1' } catch { return false } }
+function onRunFinished(event) {
+  const detail = event.detail || {}
+  finishedToast.value = detail
+  if (document.hidden) document.title = `● ${document.title.replace(/^● /, '')}`
+  if (runNotificationsOn() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(`${detail.title || 'A run'} finished`, { body: 'Open MarketMirror to see the result.' })
+  }
+}
+async function enableRunNotifications() {
+  if (typeof Notification === 'undefined') return
+  const permission = await Notification.requestPermission()
+  notificationsAvailable.value = permission === 'default'
+  if (permission === 'granted') { try { localStorage.setItem('mm-run-notify', '1') } catch { /* this tab only */ } }
+}
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
 const shortcuts = [
   { keys: [isMac ? '⌘' : 'Ctrl', 'K'], what: 'Search projects, chats, runs and skills' },
@@ -237,6 +293,7 @@ async function moveChat(chatId) {
   window.dispatchEvent(new CustomEvent('mm-move-chat', { detail: { chatId } }))
 }
 
+watch(theme, (value) => { document.documentElement.dataset.theme = value }, { immediate: true })
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
   if (signedIn.value) api('/api/workspace/preferences', { method: 'PUT', body: { user: { theme: theme.value } } }).catch(() => {})
@@ -277,6 +334,51 @@ async function loadProjects() {
   if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
 }
+function openChatMenu(chat) {
+  activeChatMenu.value = chat.id
+  nextTick(() => document.querySelector(`[data-chat-menu="${chat.id}"]`)?.closest('.ws-chat-row')?.querySelector('[role="menuitem"]')?.focus())
+}
+function onChatMenuKeydown(event) {
+  const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')]
+  const index = items.indexOf(document.activeElement)
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    items[(index + step + items.length) % items.length]?.focus()
+  } else if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault()
+    items[event.key === 'Home' ? 0 : items.length - 1]?.focus()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    activeChatMenu.value = ''
+    event.currentTarget.closest('.ws-chat-row')?.querySelector('[data-chat-menu]')?.focus()
+  }
+}
+function searchResults() {
+  return [...document.querySelectorAll('.ws-side-scroll a[href], .ws-side-scroll .ws-history button, .ws-side-scroll .ws-skill-card')]
+}
+function onSearchKeydown(event) {
+  if (event.key !== 'ArrowDown') return
+  const items = searchResults()
+  if (!items.length) return
+  event.preventDefault()
+  items[0].focus()
+}
+function onResultsKeydown(event) {
+  if (!search.value.trim() || !['ArrowDown', 'ArrowUp', 'Escape'].includes(event.key)) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    searchBox.value?.focus()
+    return
+  }
+  const items = searchResults()
+  const index = items.indexOf(document.activeElement)
+  if (!items.length) return
+  event.preventDefault()
+  const step = event.key === 'ArrowDown' ? 1 : -1
+  const next = index < 0 ? items[0] : items[Math.min(items.length - 1, Math.max(0, index + step))]
+  next?.focus()
+}
 function onSlash(e) {
   if (e.key === 'Escape') menuOpen.value = false
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
@@ -313,8 +415,9 @@ async function refresh() {
     refreshing.value = false
   }
 }
-function refreshVisible() { if (!document.hidden) refresh() }
+function refreshVisible() { if (!document.hidden) { document.title = document.title.replace(/^● /, ''); refresh() } }
 onMounted(() => {
+  systemTheme?.addEventListener?.('change', onSystemTheme)
   loadChats()
   window.addEventListener('mm-chats-updated', loadChats)
   window.addEventListener('mm-chats-loaded', loadChats)
@@ -326,14 +429,18 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refreshVisible)
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
+  window.addEventListener('mm-run-finished', onRunFinished)
   refresh()
+  loadSpend()
   loadOnboarding()
   loadUserTheme()
   refreshTimer = setInterval(refreshVisible, 15000)
 })
 onUnmounted(() => {
+  systemTheme?.removeEventListener?.('change', onSystemTheme)
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('mm-run-finished', onRunFinished)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
