@@ -11,8 +11,12 @@
       <ul v-if="recent.length" class="ovi-trust-runs" aria-label="Evidence grade per run">
         <li v-for="row in recent" :key="row.run">
           <span class="ovi-grade" :class="`g${row.grade || 'none'}`" :aria-label="row.grade ? `Grade ${row.grade}` : 'Not graded'">{{ row.grade || '–' }}</span>
-          <RouterLink :to="`/workspace/runs/${encodeURIComponent(row.run)}`" :title="(row.reasons || []).join('\n')">{{ row.title || row.run }}</RouterLink>
+          <RouterLink :to="`/workspace/runs/${encodeURIComponent(row.run)}`">{{ row.title || row.run }}</RouterLink>
           <span v-if="row.calibrated" class="ovi-tag ok">Checked with {{ row.n_real ? `${row.n_real} real answers` : 'real answers' }}</span>
+          <details v-if="row.reasons?.length" class="ovi-trust-why">
+            <summary>Why grade {{ row.grade || '–' }}</summary>
+            <ul><li v-for="reason in row.reasons" :key="reason">{{ reason }}</li></ul>
+          </details>
         </li>
       </ul>
       <div class="ovi-ledger">
