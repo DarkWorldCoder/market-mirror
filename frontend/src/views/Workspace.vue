@@ -138,6 +138,7 @@ import ConnectionsPage from '../components/workspace/ConnectionsPage.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
+import { OFFLINE_MESSAGE, requestErrorText } from '../workspace/network.js'
 import { chooseTheme, storedTheme } from '../workspace/theme.js'
 import { cloudAccount } from '../workspace/cloud.js'
 import { account as accountRef, canEdit, role, signedIn, teamMode } from '../workspace/account.js'
@@ -460,12 +461,14 @@ async function refresh() {
     error.value = ''
     loadProjects()
   } catch (e) {
-    error.value = e.message
+    error.value = requestErrorText(e)
   } finally {
     loaded.value = true
     refreshing.value = false
   }
 }
+function onOffline() { error.value = OFFLINE_MESSAGE }
+function onOnline() { refresh() }
 function refreshVisible() { if (!document.hidden) { document.title = document.title.replace(/^● /, ''); refresh() } }
 onMounted(() => {
   systemTheme?.addEventListener?.('change', onSystemTheme)
@@ -481,6 +484,8 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refreshVisible)
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
+  window.addEventListener('offline', onOffline)
+  window.addEventListener('online', onOnline)
   window.addEventListener('mm-run-finished', onRunFinished)
   refresh()
   loadSpend()
@@ -492,6 +497,8 @@ onUnmounted(() => {
   systemTheme?.removeEventListener?.('change', onSystemTheme)
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('offline', onOffline)
+  window.removeEventListener('online', onOnline)
   window.removeEventListener('mm-runs-updated', refresh)
   window.removeEventListener('mm-run-finished', onRunFinished)
   window.removeEventListener('mm-chats-updated', loadChats)
