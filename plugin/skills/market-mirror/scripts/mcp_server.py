@@ -737,7 +737,19 @@ TOOLS = [
 # spend approval: what a market test is about to cost, asked through elicitation
 # --------------------------------------------------------------------------
 
-USD_PER_CALL = float(os.environ.get("MARKET_MIRROR_USD_PER_CALL") or 0.005)   # ~ one claude-haiku-4-5 call
+def _env_float(name: str, default: float) -> float:
+    """Read a float from the environment; a bad value warns on stderr and uses the default (never stops the server)."""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"market-mirror: ignoring {name}={raw!r} (not a number); using {default}", file=sys.stderr, flush=True)
+        return default
+
+
+USD_PER_CALL = _env_float("MARKET_MIRROR_USD_PER_CALL", 0.005)   # ~ one claude-haiku-4-5 call
 
 
 def _planned_people(cfg: Dict[str, Any]) -> Optional[int]:
@@ -1279,7 +1291,7 @@ RELATED_TASK = "io.modelcontextprotocol/related-task"
 LONG_TOOLS = {"market_test", "study", "run_test", "pitch", "email_test", "website_test", "ad_patterns", "quickstart",
               "setup", "cli"}
 TASK_TTL_MS, TASK_MAX_TTL_MS, POLL_MS = 24 * 3600 * 1000, 7 * 24 * 3600 * 1000, 5000
-ELICIT_TIMEOUT = float(os.environ.get("MARKET_MIRROR_ELICIT_TIMEOUT") or 600)
+ELICIT_TIMEOUT = _env_float("MARKET_MIRROR_ELICIT_TIMEOUT", 600)
 SERVER_INFO = {"name": "market-mirror", "version": "0.4.2"}
 INSTRUCTIONS = ("MarketMirror tests marketing and sales decisions on simulated buyers. Start with doctor; run setup if "
                 "the engine is missing; use market_test for everything; show the user the personas before approving "
