@@ -92,6 +92,22 @@ REPO_ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 TOKEN_ENV_KEYS = ("MM_API_AUTH_TOKEN", "API_AUTH_TOKEN")
 
 
+def _env_value(raw: str) -> str:
+    """One .env value as python-dotenv reads it: a quoted value ends at its closing quote (backslash escapes
+    the quote), an unquoted one at ' #'. A quote that never closes, or text after the closing quote, makes
+    python-dotenv skip the line, so the value is empty."""
+    raw = raw.strip()
+    m = re.fullmatch(r'"((?:\\.|[^"\\])*)"\s*(?:#.*)?', raw)
+    if m:
+        return re.sub(r"\\(.)", r"\1", m.group(1))
+    m = re.fullmatch(r"'((?:\\'|[^'])*)'\s*(?:#.*)?", raw)
+    if m:
+        return m.group(1).replace("\\'", "'")
+    if raw[:1] in ("'", '"'):
+        return ""
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
+
+
 def api_token(env_file: Optional[str] = None) -> str:
     """The backend API token: MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from the environment, else the repo .env.
 
@@ -113,7 +129,7 @@ def api_token(env_file: Optional[str] = None) -> str:
                     line = line[len("export "):].strip()
                 key, sep, value = line.partition("=")
                 if sep and key.strip() in TOKEN_ENV_KEYS:
-                    found[key.strip()] = value.strip().strip('"').strip("'")
+                    found[key.strip()] = _env_value(value)
     except OSError:
         return ""
     for key in TOKEN_ENV_KEYS:
