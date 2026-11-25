@@ -65,7 +65,7 @@
       <LoadingSkeleton v-if="loading && !runs.length" variant="cards" :lines="3" label="Loading saved experiments" />
       <div v-else-if="!runs.length" class="overview-empty"><FlaskConical :size="32" /><h3>Start with a decision you need to make.</h3><p>Describe your product, audience, and alternatives in chat. MarketMirror can help prepare a test, then show its saved results here.</p><RouterLink :to="{path:'/',query:{prompt:'Help me plan a market test. Ask about my product, target audience, and decision.'}}" class="ws-btn primary">Plan a test in chat<ArrowUpRight :size="15" /></RouterLink><RouterLink class="overview-link" to="/workspace/skills">Explore all skills</RouterLink></div>
       <template v-else-if="filteredRuns.length">
-        <div class="overview-table-wrap"><table class="overview-table"><thead><tr><th scope="col">Experiment</th><th scope="col">Decision</th><th scope="col">Participants</th><th scope="col">Files</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>
+        <div class="overview-table-wrap" tabindex="0" role="region" aria-label="Saved experiments table, scrolls sideways"><table class="overview-table"><thead><tr><th scope="col">Experiment</th><th scope="col">Decision</th><th scope="col">Participants</th><th scope="col">Files</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>
           <tr v-for="run in filteredRuns" :key="run.name">
             <td><button class="overview-run-title" :title="run.title || run.name" @click="$emit('select-run', run.name)"><span class="overview-run-icon"><FlaskConical :size="17" /></span><span><strong>{{ run.title || run.name }}</strong><small>{{ run.name }}</small></span></button></td>
             <td><span class="overview-decision-text" :class="decisionClass(run.decision)">{{ decisionLabel(run.decision) }}</span><small v-if="isActive(run)" class="overview-run-status">{{ state(run) }}</small></td>
@@ -98,7 +98,7 @@ import TrustPanel from './overview/TrustPanel.vue'
 import SpendPanel from './overview/SpendPanel.vue'
 import LiveNow from './overview/LiveNow.vue'
 import { api } from '../../workspace/api.js'
-import { namesOnDay, normalizeInsights, pollable } from '../../workspace/overviewInsights.js'
+import { namesOnDay, normalizeInsights, pollable, runSignature } from '../../workspace/overviewInsights.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['refresh', 'select-run'])
@@ -135,6 +135,11 @@ function selectDay(value) {
 }
 onMounted(() => { if (showInsights.value) loadInsights() })
 watch(showInsights, (on) => { if (on && !insightsLoaded.value) loadInsights() })
+// The run list polls in the background; a run started or finished elsewhere
+// must reach Live now and the cross-run panels without pressing Refresh.
+watch(() => runSignature(props.runs), (next, previous) => {
+  if (previous !== undefined && next !== previous && showInsights.value) loadInsights()
+})
 defineExpose({ geography })
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const number = value => new Intl.NumberFormat().format(value)

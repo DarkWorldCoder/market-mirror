@@ -55,26 +55,31 @@ function retry() { loadAccount().then(() => { if (!accountError.value) location.
   font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #000000;
-  background-color: #ffffff;
+  color: inherit;
+  background-color: transparent;
 }
 
-/* 滚动条样式 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Native selects, date pickers and the page scrollbar follow the theme instead
+   of staying light on a dark page. */
+html {
+  color-scheme: light;
 }
 
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
+html[data-theme='dark'] {
+  color-scheme: dark;
+  background-color: #161719;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #000000;
+.ws,
+.ws-overlay,
+.mm-auth {
+  color-scheme: light;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #333333;
+.ws[data-theme='dark'],
+.ws-overlay[data-theme='dark'],
+.mm-auth[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 /* 全局按钮样式 */

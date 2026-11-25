@@ -36,10 +36,11 @@
               <template v-if="state?.can_invite">
                 <form class="flex flex-wrap gap-2" @submit.prevent="invite">
                   <Input v-model.trim="email" type="email" placeholder="Email (optional)" aria-label="Teammate email" maxlength="320" class="h-8 min-w-40 flex-1" />
-                  <NativeSelect v-model="inviteRole" aria-label="Role" class="h-8 w-28"><option value="editor">editor</option><option value="viewer">viewer</option></NativeSelect>
+                  <NativeSelect v-model="inviteRole" aria-label="Role" class="h-8 w-28"><option value="editor">{{ roleLabel('editor') }}</option><option value="viewer">{{ roleLabel('viewer') }}</option></NativeSelect>
                   <Button size="sm" :disabled="busy"><Link2 aria-hidden="true" />Create link</Button>
                 </form>
                 <div v-if="link" class="flex gap-2"><Input :model-value="link" readonly aria-label="Invitation link" class="h-8" @focus="$event.target.select()" /><Button variant="secondary" size="sm" @click="copy"><component :is="copied ? Check : Copy" aria-hidden="true" />{{ copied ? 'Copied' : 'Copy' }}</Button></div>
+                <p class="text-muted-foreground text-xs">{{ roleHint(inviteRole) }}</p>
                 <p class="text-muted-foreground text-xs">No email is sent; share the link yourself. It works once.</p>
               </template>
               <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. Teams need MarketMirror running on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
@@ -71,6 +72,7 @@ import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { NativeSelect } from '../ui/native-select'
+import { roleHint, roleLabel } from '../../workspace/roles.js'
 import { api } from '../../workspace/api.js'
 import { isOwner } from '../../workspace/account.js'
 
