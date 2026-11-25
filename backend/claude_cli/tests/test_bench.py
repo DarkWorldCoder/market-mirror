@@ -395,7 +395,8 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0, err.getvalue())
         self.assertIn("--run-dir", err.getvalue())
         res = json.loads(out.getvalue())
-        self.assertIn("skipped", res["methods"]) if "skipped" in res["methods"] else None
+        self.assertTrue(res["dry_run"])
+        self.assertIn("persona_panel", res["methods"])
 
 
 if __name__ == "__main__":
