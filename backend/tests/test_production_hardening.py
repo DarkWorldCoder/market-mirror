@@ -542,3 +542,27 @@ def test_request_id_is_validated(given, kept):
     rid = r.headers["X-Request-ID"]
     assert (rid == given) is kept
     assert len(rid) <= 64
+
+
+def test_cli_token_lookup_ignores_inline_comments(monkeypatch, tmp_path):
+    from claude_cli import mirofish
+
+    monkeypatch.delenv("MM_API_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    env_file = tmp_path / ".env"
+    cases = {
+        "MM_API_AUTH_TOKEN=abc123 # prod": "abc123",
+        "MM_API_AUTH_TOKEN=abc123\t# prod": "abc123",
+        "MM_API_AUTH_TOKEN=\"abc123\" # prod": "abc123",
+        "MM_API_AUTH_TOKEN='abc#123' # prod": "abc#123",
+        'MM_API_AUTH_TOKEN="abc # 123"': "abc # 123",
+        "MM_API_AUTH_TOKEN=abc#123": "abc#123",        # no space before #: part of the value, as in python-dotenv
+        "export MM_API_AUTH_TOKEN=abc123   ": "abc123",
+        'MM_API_AUTH_TOKEN="ab\\"c" # prod': 'ab"c',
+        "MM_API_AUTH_TOKEN='ab\\'c'": "ab'c",
+        'MM_API_AUTH_TOKEN="abc123': "",               # unclosed quote: python-dotenv skips the line
+        'MM_API_AUTH_TOKEN="abc"123': "",              # text after the closing quote: skipped too
+    }
+    for line, expected in cases.items():
+        env_file.write_text(line + "\n")
+        assert mirofish.api_token(str(env_file)) == expected, line
