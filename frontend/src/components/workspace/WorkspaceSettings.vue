@@ -10,6 +10,7 @@ import ModelCards from './ModelCards.vue'
 import './modal-controls.css'
 import { api } from '../../workspace/api'
 import { connectionsSummary, connectorStatus } from '../../workspace/connections.js'
+import { changedSections } from '../../workspace/settingsChanges.js'
 
 const props = defineProps({ open: Boolean, theme: { type: String, default: 'light' }, initialTab: { type: String, default: 'models' }, initialProvider: { type: String, default: '' } })
 const emit = defineEmits(['update:open', 'saved', 'connectors', 'models'])
@@ -74,6 +75,12 @@ async function load() {
 }
 function choose(id) { tab.value = id; saved.value = false; error.value = ''; if (id === 'connections') loadConnections() }
 watch(() => props.open, value => { if (value) { choose(tabs.some(item => item.id === props.initialTab) ? props.initialTab : 'models'); load() } }, { immediate: true })
+// Models save from their own cards; the other sections are edited per tab and saved together.
+const unsaved = computed(() => changedSections({ models: { ...(state.value?.llm || {}), api_key: '' }, spending: spending.value, memory: memory.value, jev: jev.value }, state.value).filter(id => id !== 'models'))
+function requestClose(value) {
+  if (!value && unsaved.value.length && !confirm('Discard your unsaved settings changes?')) return
+  emit('update:open', value)
+}
 function modelsSaved(value) { hydrate(value); emit('saved', value) }
 function openConnections() { emit('update:open', false); emit('connectors'); router.push('/workspace/connectors') }
 async function save() {
@@ -84,7 +91,9 @@ async function save() {
       jev: { route: jev.value.route, model: jev.value.model, parallel: Number(jev.value.parallel), timeout: Number(jev.value.timeout), retries: Number(jev.value.retries), labels: jev.value.labels, ssr_engine: jev.value.ssr_engine, api_key: jev.value.api_key },
       spending: { process_limit_usd: Number(spending.value.process_limit_usd), input_price_usd_per_mtok: spending.value.input_price_usd_per_mtok === '' ? null : Number(spending.value.input_price_usd_per_mtok), output_price_usd_per_mtok: spending.value.output_price_usd_per_mtok === '' ? null : Number(spending.value.output_price_usd_per_mtok) },
     }
-    hydrate(await api('/api/workspace/settings', { method: 'PUT', body: { [tab.value]: bodies[tab.value] } }))
+    const changed = unsaved.value
+    if (!changed.length) { saved.value = true; return }
+    hydrate(await api('/api/workspace/settings', { method: 'PUT', body: Object.fromEntries(changed.map(id => [id, bodies[id]])) }))
     saved.value = true; emit('saved', state.value)
   } catch (err) { error.value = err.message }
   finally { saving.value = false }
@@ -92,7 +101,7 @@ async function save() {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
+  <Dialog :open="open" @update:open="requestClose">
     <DialogContent class="ws-overlay workspace-settings" :data-theme="theme">
       <DialogHeader class="settings-header">
         <DialogTitle>Settings</DialogTitle>
@@ -100,7 +109,7 @@ async function save() {
       </DialogHeader>
       <div class="settings-body">
       <div class="settings-tabs workspace-modal-tabs" role="tablist" aria-label="Settings sections" @keydown="onTabKeydown">
-        <button v-for="item in tabs" :key="item.id" :id="`settings-tab-${item.id}`" :data-settings-tab="item.id" type="button" role="tab" :class="{ active: tab === item.id }" :aria-selected="tab === item.id" :tabindex="tab === item.id ? 0 : -1" @click="choose(item.id)"><component :is="item.icon" :size="16" aria-hidden="true" />{{ item.label }}</button>
+        <button v-for="item in tabs" :key="item.id" :id="`settings-tab-${item.id}`" :data-settings-tab="item.id" type="button" role="tab" :class="{ active: tab === item.id }" :aria-selected="tab === item.id" :tabindex="tab === item.id ? 0 : -1" @click="choose(item.id)"><component :is="item.icon" :size="16" aria-hidden="true" />{{ item.label }}<span v-if="unsaved.includes(item.id)" class="settings-unsaved-dot" aria-label="Unsaved changes" /></button>
       </div>
       <label class="settings-tab-select"><span class="ws-sr-only">Settings section</span><select :value="tab" @change="choose($event.target.value)"><option v-for="item in tabs" :key="item.id" :value="item.id">{{ item.label }}</option></select><ChevronRight :size="15" aria-hidden="true" /></label>
       <div class="settings-main" role="tabpanel" :aria-labelledby="`settings-tab-${tab}`">
@@ -190,6 +199,7 @@ async function save() {
 .settings-tabs{display:flex;flex-direction:column;gap:4px;padding:18px 12px;border-right:1px solid var(--line);background:var(--panel-2)}
 .settings-tabs button{display:flex;align-items:center;gap:10px;padding:11px 12px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-size:13px;line-height:1.5;text-align:left;cursor:pointer}
 .settings-tab-select{display:none}
+.settings-unsaved-dot{width:6px;height:6px;margin-left:auto;border-radius:50%;background:var(--accent);flex-shrink:0}
 .settings-main{padding:24px 30px 28px;overflow:auto;min-width:0;overscroll-behavior:contain}
 .settings-intro{margin-bottom:18px}
 .settings-intro h3{margin:0 0 4px;font-size:17px;font-weight:600;letter-spacing:-.2px}
