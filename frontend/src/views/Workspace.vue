@@ -127,6 +127,7 @@ import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
+import { chooseTheme, storedTheme } from '../workspace/theme.js'
 import { cloudAccount } from '../workspace/cloud.js'
 import { account as accountRef, role, signedIn, teamMode } from '../workspace/account.js'
 import TeamPanel from '../components/workspace/TeamPanel.vue'
@@ -195,13 +196,12 @@ watch(menuOpen, (open) => {
   else nextTick(() => menuButton.value?.focus())
 })
 const hasToken = ref(true), loaded = ref(false)
-const theme = ref((() => {
-  try {
-    return localStorage.getItem('mm-theme') || 'light'
-  } catch {
-    return 'light'
-  }
-})())
+const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)')
+const theme = ref(chooseTheme(storedTheme(), systemTheme?.matches))
+function onSystemTheme(event) {
+  if (storedTheme()) return
+  theme.value = chooseTheme(null, event.matches)
+}
 
 const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
@@ -415,6 +415,7 @@ async function refresh() {
 }
 function refreshVisible() { if (!document.hidden) { document.title = document.title.replace(/^● /, ''); refresh() } }
 onMounted(() => {
+  systemTheme?.addEventListener?.('change', onSystemTheme)
   loadChats()
   if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
   window.addEventListener('mm-chats-updated', loadChats)
@@ -435,6 +436,7 @@ onMounted(() => {
   refreshTimer = setInterval(refreshVisible, 15000)
 })
 onUnmounted(() => {
+  systemTheme?.removeEventListener?.('change', onSystemTheme)
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
   window.removeEventListener('mm-run-finished', onRunFinished)
