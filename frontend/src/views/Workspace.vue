@@ -10,7 +10,7 @@
           <Search :size="16" aria-hidden="true" />
           <input ref="searchBox" v-model="search" type="search" placeholder="Search anything" aria-label="Search projects, chats and runs" aria-describedby="ws-search-count" @keydown="onSearchKeydown" />
           <button v-if="search" class="ws-clear-search" aria-label="Clear search" @click="search = ''; searchBox?.focus()"><X :size="14" /></button>
-          <kbd v-else>⌘ K</kbd>
+          <kbd v-else>{{ isMac ? '⌘ K' : 'Ctrl K' }}</kbd>
         </div>
       </div>
       <div class="ws-side-scroll" @keydown="onResultsKeydown">
@@ -26,7 +26,8 @@
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" @click="menuOpen = false">Projects</RouterLink><button aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
             <RouterLink v-for="p in filteredProjects" :key="p.id" :to="{path:'/',query:{project:p.id}}" :class="{active: route.query.project === p.id}" :title="p.name" @click="menuOpen = false"><FolderOpen :size="14" /><span>{{ p.name }}</span></RouterLink>
-            <button v-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
+            <p v-if="projectsError && !search.trim()" class="ws-side-empty" role="alert">{{ projectsError }} <button class="ws-retry" @click="loadProjects">Retry</button></p>
+            <button v-else-if="!projects.length && !search.trim()" class="ws-empty-project" @click="createProject"><Plus :size="14" />Create your first project</button>
           </div>
         </section>
         <section v-if="!search.trim() && pinnedRuns.length" class="ws-side-section" aria-label="Pinned runs">
@@ -74,10 +75,15 @@
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
         <TeamPanel v-else-if="view === 'team'" />
 
+        <div v-else-if="view === 'notfound'" class="ws-section" style="padding-top: 24px">
+          <div class="ws-project-empty"><Compass :size="30" /><h2>This page does not exist</h2><p>The link may be old or mistyped. Pick up where you left off instead.</p><div class="ws-notfound-actions"><RouterLink class="ws-project-create" to="/">Go to chat</RouterLink><RouterLink class="ws-project-create" to="/workspace">Open overview</RouterLink></div></div>
+        </div>
+
         <div v-else-if="view === 'projects'" class="ws-section" style="padding-top: 24px">
           <div class="ws-catalog-head"><div><h1>Projects</h1><p class="ws-note">Keep conversations, research and reports together.</p></div><button class="ws-project-create" @click="createProject"><Plus :size="16" />New project</button></div>
-          <div class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
-          <div v-if="!projects.length" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
+          <div class="ws-project-empty" v-if="projectsError" role="alert"><FolderOpen :size="30" /><h2>Projects could not load</h2><p>Check the connection and try again. Nothing was deleted.</p><button class="ws-project-create" @click="loadProjects">Retry</button></div>
+          <div v-else class="ws-cards"><RouterLink v-for="p in filteredProjects" :key="p.id" class="ws-card ws-project-card" :to="{path:'/',query:{project:p.id}}"><FolderOpen :size="23" /><b>{{ p.name }}</b><span>{{ p.description || 'Open this project to continue your work.' }}</span></RouterLink></div>
+          <div v-if="!projects.length && !projectsError" class="ws-project-empty"><FolderOpen :size="30" /><h2>A space for each idea</h2><p>Start a project to organize your conversations and findings.</p><button class="ws-project-create" @click="createProject"><Plus :size="16" />Create a project</button></div>
         </div>
 
         <div v-else-if="view === 'skills'" class="ws-section ws-skills-page" style="padding-top: 24px">
@@ -177,7 +183,7 @@ const router = useRouter()
 const skillSearch = ref(''), skillCategory = ref('all')
 const filteredSkills = computed(() => searchFeatures(skillSearch.value).filter(skill => skillCategory.value === 'all' || skill.group === skillCategory.value))
 function openRun(name) { router.push({path:'/',query:{run:name,show:'reports'}}) }
-const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), search = ref(''), idea = ref(''), copied = ref('')
+const runs = ref([]), root = ref('mirofish_runs'), error = ref(''), projectsError = ref(''), search = ref(''), idea = ref(''), copied = ref('')
 const provider = ref({ configured: false, models: [] }), menuOpen = ref(false), searchBox = ref(null)
 const menuButton = ref(null)
 function closeDrawer() { menuOpen.value = false }
@@ -205,9 +211,9 @@ function onSystemTheme(event) {
   theme.value = chooseTheme(null, event.matches)
 }
 
-const view = computed(() => (route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
+const view = computed(() => (route.name === 'NotFound' ? 'notfound' : route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare', notfound: 'Page not found' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
 const spend = ref({ spent: 0, limit: 0 })
@@ -252,10 +258,17 @@ const shortcuts = [
   { keys: ['/'], what: 'Find a skill from the chat box' },
   { keys: ['Alt', '1–4'], what: 'On a run page: switch between Results, Person, Report agent and Focus group' },
   { keys: ['↑', '↓'], what: 'Move through suggestions' },
+  { keys: ['N'], what: 'Start a new chat' },
+  { keys: ['G', 'then O / R / S'], what: 'Jump to Overview, Reports or Skills' },
   { keys: ['?'], what: 'Show these shortcuts' },
   { keys: ['Esc'], what: 'Close a menu or dialog' }
 ]
 const contextualTitle = computed(() => view.value === 'chat' ? (currentChat.value?.title || projects.value.find(p => p.id === route.query.project)?.name || 'New conversation') : crumb.value)
+// Keep the browser tab and history entry named after the page, chat or run, so
+// several open tabs are distinguishable and a rename shows up at once.
+watch(contextualTitle, (title) => {
+  document.title = title ? `${title} · MarketMirror` : 'MarketMirror'
+}, { immediate: true })
 const greeting = computed(() => {
   const hr = new Date().getHours()
   return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'
@@ -332,7 +345,7 @@ async function loadUserTheme() {
 function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUserTheme() }
 async function loadProjects() {
   if (!token() && !signedIn.value) return
-  try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
+  try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : []; projectsError.value = '' } catch { projectsError.value = 'Projects could not load.' }
 }
 function openChatMenu(chat) {
   activeChatMenu.value = chat.id
@@ -379,9 +392,29 @@ function onResultsKeydown(event) {
   const next = index < 0 ? items[0] : items[Math.min(items.length - 1, Math.max(0, index + step))]
   next?.focus()
 }
+let gPressedAt = 0
 function onSlash(e) {
-  if (e.key === 'Escape') menuOpen.value = false
+  if (e.key === 'Escape') { menuOpen.value = false; gPressedAt = 0 }
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
+  const dialogOpen = Boolean(document.querySelector('[role="dialog"]'))
+  if (!typing && !dialogOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const key = e.key.toLowerCase()
+    if (key === 'g') { gPressedAt = Date.now(); return }
+    if (Date.now() - gPressedAt < 1500) {
+      const target = { o: '/workspace', r: '/workspace/reports', s: '/workspace/skills' }[key]
+      if (target) {
+        e.preventDefault()
+        gPressedAt = 0
+        router.push(target)
+        return
+      }
+    }
+    if (key === 'n') {
+      e.preventDefault()
+      newChat()
+      return
+    }
+  }
   if (!typing && e.key === '?') {
     e.preventDefault()
     shortcutsOpen.value = true

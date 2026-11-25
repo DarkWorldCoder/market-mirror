@@ -537,3 +537,14 @@ button.ovi-cal-cell:hover { border-color: var(--text); }
 :is(.mm-mcp-dialog, .workspace-settings)[data-theme='dark'] [data-slot='button']:not([data-variant]) { color: var(--primary-foreground); }
 :is(.mm-conn-page, .mm-models, .mm-mcp-dialog, .workspace-settings) [data-slot='button']:not([data-variant]):hover:not(:disabled) { filter: brightness(1.08); }
 /* ==== end connections ==== */
+/* Touch screens have no hover, so the pin control must be visible on its own,
+   and the small row actions need a full-size tap target. */
+@media (hover: none) {
+  .ws .ws-side .ws-history > div > .ws-pin-run { opacity: 1; }
+}
+@media (max-width: 760px) {
+  .ws .ws-side .ws-history .ws-chat-move { width: 40px; height: 40px; flex-basis: 40px; }
+  .ws .ws-side .ws-history > div:not(.ws-chat-row) > a { padding-right: 44px; }
+  .ws .ws-side .ws-history > div:not(.ws-chat-row) > .ws-pin-run { top: 0; right: 0; }
+  .ws .ws-side .ws-run-shortcuts > a { min-height: 40px !important; }
+}

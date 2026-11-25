@@ -60,7 +60,10 @@ const routes = [
     name: 'Interaction',
     component: InteractionView,
     props: true
-  }
+  },
+  // An old bookmark or a mistyped address should land in the workspace shell
+  // with a way back, not on an empty page.
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: Workspace }
 ]
 
 const router = createRouter({

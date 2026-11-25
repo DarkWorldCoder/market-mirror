@@ -150,7 +150,17 @@ async function act(fn) {
 const rename = () => act(async () => { if (signedIn.value) await team.rename(workspaceName.value); else await api('/api/team/workspace', { method: 'PATCH', body: { name: workspaceName.value } }); window.dispatchEvent(new Event('mm-workspace-renamed')) })
 const switchTo = (id) => act(() => selectWorkspace(id))
 const newWorkspace = () => act(async () => { await createWorkspace(newName.value); newName.value = '' })
-const setRole = (m, r) => act(() => team.setRole(m.id, r))
+function setRole(m, r) {
+  const self = m.id === data.value.you
+  if (roleChangeNeedsConfirmation(m, r, data.value.you)) {
+    const who = self ? 'your own' : `${m.name || m.email}'s`
+    const message = self
+      ? `Change your own role to ${r}? You may lose access to owner actions.`
+      : `Demote ${who} role from owner to ${r}?`
+    if (!confirm(message)) return
+  }
+  act(() => team.setRole(m.id, r))
+}
 function remove(m, self) {
   if (!confirm(self ? `Leave ${data.value.workspace.name}? You lose access until someone invites you again.` : `Remove ${m.name || m.email} from this workspace?`)) return
   act(async () => { await team.remove(m.id); if (self) { const other = account.value.workspaces.find(w => w.id !== data.value.workspace.id); if (other) await selectWorkspace(other.id); router.replace('/') } })
