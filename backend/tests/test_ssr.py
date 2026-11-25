@@ -146,7 +146,7 @@ def test_ssr_api_route(monkeypatch):
     assert r.status_code == 503 and "unavailable" in r.get_json()["error"]
 
 
-@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity", "-1", "0", "0.01", "11", '"warm"', "true"])
+@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity", "-1", "0", "0.01", "11", '"warm"', "true", "1" + "0" * 400])
 def test_ssr_route_rejects_bad_temperature(monkeypatch, bad):
     from app import create_app
     app = create_app()

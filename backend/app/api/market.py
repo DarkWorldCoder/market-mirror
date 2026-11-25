@@ -747,7 +747,7 @@ def _ssr_temperature(raw: Any) -> float:
     low, high = SSR_TEMPERATURE_RANGE
     try:
         value = float(raw) if not isinstance(raw, bool) else float("nan")
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):   # OverflowError: an integer too large for a float
         value = float("nan")
     if not low <= value <= high:   # also false for NaN
         raise ValueError(f"temperature must be a number between {low} and {high}")
