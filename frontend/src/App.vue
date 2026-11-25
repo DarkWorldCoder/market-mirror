@@ -1,4 +1,8 @@
 <template>
+  <header v-if="legacy" class="mm-legacy-bar">
+    <RouterLink to="/" class="mm-legacy-brand">← MarketMirror workspace</RouterLink>
+    <span>Legacy view</span>
+  </header>
   <router-view />
   <div v-if="accountError" class="mm-server-down" role="alert">
     <h1>Cannot reach the server</h1>
@@ -8,8 +12,13 @@
 </template>
 
 <script setup>
-// 使用 Vue Router 来管理页面
+import { computed } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { accountError, loadAccount } from './workspace/account.js'
+// 使用 Vue Router 来管理页面
+const route = useRoute()
+const LEGACY_PAGES = new Set(['LegacyHome', 'Process', 'Simulation', 'SimulationRun', 'Report', 'Interaction'])
+const legacy = computed(() => LEGACY_PAGES.has(route.name))
 function retry() { loadAccount().then(() => { if (!accountError.value) location.reload() }) }
 </script>
 
@@ -21,6 +30,24 @@ function retry() { loadAccount().then(() => { if (!accountError.value) location.
     padding: 0;
     box-sizing: border-box;
   }
+}
+
+.mm-legacy-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #e6e6e1;
+  background: #f6f8f6;
+  color: #202623;
+  font: 13px/1.5 'Geist', ui-sans-serif, system-ui, sans-serif;
+}
+
+.mm-legacy-bar a {
+  color: inherit;
+  font-weight: 550;
+  text-underline-offset: 4px;
 }
 
 .mm-server-down {

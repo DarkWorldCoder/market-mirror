@@ -8,7 +8,7 @@
       <div v-if="tab === 'data'" class="connection-list">
         <label class="connection-search"><Search :size="16" /><input v-model="search" type="search" placeholder="Find analytics, ads or documents" aria-label="Search data sources" /></label>
         <div class="connection-row"><span class="connection-icon"><FolderOpen /></span><div><b>Saved experiments</b><p>{{ runs.length }} saved runs with reports, responses and persona activity.</p></div><Button variant="outline" size="sm" @click="$emit('choose-run');$emit('update:open',false)">Choose run</Button></div>
-        <div v-for="c in filteredSources" :key="c.name" class="connection-row"><span class="connection-icon" :style="{color:c.color,background:c.tint}"><BrandIcon v-if="c.brand" :brand="c.brand" :size="20" /><component v-else :is="c.icon" /></span><div><b>{{ c.name }}</b><p>{{ c.description }}</p></div><Button v-if="c.name === 'Meta Ads' || c.name === 'Google Analytics'" variant="ghost" size="sm" @click="preset(c.name)">Connect MCP</Button><Button variant="outline" size="sm" @click="attach">Add files</Button></div>
+        <div v-for="c in filteredSources" :key="c.name" class="connection-row"><span class="connection-icon" :style="{color:c.color,background:c.tint}"><BrandIcon v-if="c.brand" :brand="c.brand" :size="20" /><component v-else :is="c.icon" /></span><div><b>{{ c.name }}</b><p>{{ c.description }}</p><small class="connection-export">{{ c.export }}</small></div><Button v-if="c.name === 'Meta Ads' || c.name === 'Google Analytics'" variant="ghost" size="sm" @click="preset(c.name)">Connect MCP</Button><Button variant="outline" size="sm" @click="attach">Upload an export</Button></div>
         <p v-if="!filteredSources.length" class="connection-note">No matching sources. Try analytics, ads or documents.</p>
         <p class="connection-note">Add CSV, JSON or text exports as conversation context. Choose several files to compare sources together.</p>
       </div>
@@ -68,12 +68,12 @@ function navigateTabs(event) {
 }
 const tab=ref('data'),state=ref({}),loading=ref(false),error=ref(''),notice=ref(''),connecting=ref('')
 const sources=[
- {name:'Google Analytics',brand:'googleanalytics',icon:ChartNoAxesCombined,color:'#b96a0b',tint:'#fff5e6',description:'Explore traffic, acquisition and conversion data from GA4 exports.'},
- {name:'Google Ads',brand:'googleads',icon:MousePointerClick,color:'#4774ba',tint:'#edf3ff',description:'Compare campaign spend, clicks, conversions and search terms.'},
- {name:'Meta Ads',brand:'meta',icon:Megaphone,color:'#5966bf',tint:'#f0f0ff',description:'Review ad creative, audiences, performance and delivery exports.'},
- {name:'PostHog and product analytics',brand:'posthog',icon:Database,color:'#ab6140',tint:'#fff1e9',description:'Understand product events, funnels and retention from your exports.'},
- {name:'Product documents',icon:FileText,color:'#6c62a1',tint:'#f4f0ff',description:'Add a product brief, research notes or a text document.'},
- {name:'Customer feedback',icon:ContactRound,color:'#3d816a',tint:'#eaf7f0',description:'Ground your decisions in reviews, survey exports and interview notes.'}
+ {name:'Google Analytics',brand:'googleanalytics',icon:ChartNoAxesCombined,color:'#b96a0b',tint:'#fff5e6',description:'Explore traffic, acquisition and conversion data from GA4 exports.',export:'GA4 → Reports → Download CSV.'},
+ {name:'Google Ads',brand:'googleads',icon:MousePointerClick,color:'#4774ba',tint:'#edf3ff',description:'Compare campaign spend, clicks, conversions and search terms.',export:'Google Ads → Reports → Download .csv.'},
+ {name:'Meta Ads',brand:'meta',icon:Megaphone,color:'#5966bf',tint:'#f0f0ff',description:'Review ad creative, audiences, performance and delivery exports.',export:'Ads Manager → Reports → Export .csv.'},
+ {name:'PostHog and product analytics',brand:'posthog',icon:Database,color:'#ab6140',tint:'#fff1e9',description:'Understand product events, funnels and retention from your exports.',export:'PostHog → Data → Export CSV or JSON.'},
+ {name:'Product documents',icon:FileText,color:'#6c62a1',tint:'#f4f0ff',description:'Add a product brief, research notes or a text document.',export:'Markdown or plain text.'},
+ {name:'Customer feedback',icon:ContactRound,color:'#3d816a',tint:'#eaf7f0',description:'Ground your decisions in reviews, survey exports and interview notes.',export:'CSV, JSON or text export from your survey tool.'}
 ]
 const filteredSources=computed(()=>sources.filter(c=>`${c.name} ${c.description}`.toLowerCase().includes(search.value.trim().toLowerCase())))
 async function load(){loading.value=true;error.value='';try{const results=await Promise.allSettled([api('/api/setup/state')]);if(results[0].status==='fulfilled')state.value=results[0].value;else error.value=results[0].reason.message}catch(e){error.value=e.message}finally{loading.value=false}}

@@ -188,7 +188,7 @@ def _model_connected() -> bool:
 
 @workspace_data_bp.route("/api/workspace/onboarding", methods=["GET", "PUT"])
 def onboarding():
-    denied = auth.require("viewer" if request.method == "GET" else "editor")
+    denied = auth.require("viewer")
     if denied:
         return denied
     scope = g.mm_scope
@@ -197,6 +197,10 @@ def onboarding():
             steps = _body().get("steps")
             if not isinstance(steps, dict) or set(steps) - _STEPS or any(not isinstance(v, bool) for v in steps.values()):
                 raise ValueError("Steps are workspace, model, invite, demo and dismissed, each true or false")
+            # A viewer cannot change the checklist, but must be able to dismiss it for
+            # themselves; the other steps stay editor-only.
+            if not scope.can("editor") and (set(steps) != {"dismissed"} or steps.get("dismissed") is not True):
+                return jsonify(success=False, error="A viewer can only dismiss the setup checklist.", code="role"), 403
             repo.set_onboarding(conn, scope.workspace_id, steps)
         space = repo.workspace(conn, scope.workspace_id)
         people = len(repo.members(conn, scope.workspace_id))

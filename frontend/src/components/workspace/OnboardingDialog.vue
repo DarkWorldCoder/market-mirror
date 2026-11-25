@@ -4,11 +4,11 @@
     <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme">
       <DialogHeader>
         <DialogTitle>Set up {{ state?.workspace.name || 'your workspace' }}</DialogTitle>
-        <DialogDescription>Four short steps. Skip any of them; Workspace and team has them all later.</DialogDescription>
+        <DialogDescription>A few short steps. Skip any of them; open Setup checklist at the bottom of the sidebar to return.</DialogDescription>
       </DialogHeader>
       <div class="grid gap-2">
-        <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
-        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" aria-label="Setup progress" :aria-valuenow="doneCount" :aria-valuetext="`${doneCount} of 4 steps done`" aria-valuemin="0" aria-valuemax="4"><div class="bg-primary h-full rounded-full transition-all motion-reduce:transition-none" :style="{ width: `${doneCount * 25}%` }"></div></div>
+        <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of {{ stepList.length }} done</span><span v-if="allDone">All set</span></div>
+        <div class="bg-muted h-1.5 overflow-hidden rounded-full" role="progressbar" aria-label="Setup progress" :aria-valuenow="doneCount" :aria-valuetext="`${doneCount} of ${stepList.length} steps done`" aria-valuemin="0" :aria-valuemax="stepList.length"><div class="bg-primary h-full rounded-full transition-all motion-reduce:transition-none" :style="{ width: `${stepList.length ? (doneCount * 100) / stepList.length : 0}%` }"></div></div>
       </div>
 
       <ol class="grid gap-3">
@@ -74,18 +74,25 @@ import { Input } from '../ui/input'
 import { NativeSelect } from '../ui/native-select'
 import { roleHint, roleLabel } from '../../workspace/roles.js'
 import { api } from '../../workspace/api.js'
-import { isOwner } from '../../workspace/account.js'
+import { canEdit, isOwner } from '../../workspace/account.js'
 
 const props = defineProps({ open: Boolean, theme: { type: String, default: 'light' }, latestRun: { type: String, default: '' } })
 const emit = defineEmits(['update:open', 'settings'])
 const router = useRouter()
 const state = ref(null), error = ref(''), busy = ref(false)
 const name = ref(''), email = ref(''), inviteRole = ref('editor'), link = ref(''), copied = ref(false)
-const stepList = [{ id: 'workspace', title: 'Name your workspace' }, { id: 'model', title: 'Connect a model' }, { id: 'invite', title: 'Invite teammates' }, { id: 'demo', title: 'Try the saved demo' }]
+// Only show steps the person can actually do: renaming needs an owner, inviting
+// needs an owner too, and a viewer can only dismiss the checklist.
+const stepList = computed(() => [
+  ...(isOwner.value ? [{ id: 'workspace', title: 'Name your workspace' }] : []),
+  { id: 'model', title: 'Connect a model' },
+  ...(state.value?.can_invite ? [{ id: 'invite', title: 'Invite teammates' }] : []),
+  { id: 'demo', title: 'Try the saved demo' }
+])
 const steps = computed(() => state.value?.steps || {})
 const isDone = (id) => !!steps.value[id] || (id === 'model' && !!state.value?.model_connected)
-const doneCount = computed(() => stepList.filter(s => isDone(s.id)).length)
-const allDone = computed(() => doneCount.value === 4)
+const doneCount = computed(() => stepList.value.filter(s => isDone(s.id)).length)
+const allDone = computed(() => doneCount.value === stepList.value.length)
 const canRename = computed(() => isOwner.value)
 const modelText = computed(() => state.value?.model_connected
   ? 'A model is connected. Simulated buyers answer through it, and you approve any spending before a run.'
@@ -97,6 +104,7 @@ async function load() {
   try { state.value = await api('/api/workspace/onboarding'); name.value = state.value.workspace.name } catch (err) { error.value = err.message }
 }
 async function mark(step, value = true) {
+  if (!canEdit.value && step !== 'dismissed') return
   try { state.value = await api('/api/workspace/onboarding', { method: 'PUT', body: { steps: { [step]: value } } }) }
   catch (err) { error.value = err.message }
 }
