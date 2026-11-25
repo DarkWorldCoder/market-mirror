@@ -75,6 +75,9 @@
             <button v-for="c in choices" :key="c.name" type="button" @click="compareWith(c.name)"><span>{{ c.title }}</span><small v-if="c.decision" class="dw-decision" :class="decisionTone(c.decision)">{{ decisionText(c.decision) }}</small></button>
           </PopoverContent>
         </Popover>
+        <button type="button" @click="copyLink"><Link2 :size="15" aria-hidden="true" />{{ copiedLink ? 'Link copied' : 'Copy link' }}</button>
+        <button v-if="signedIn && canEdit && inWorkspace === false" type="button" :disabled="indexBusy" @click="addToWorkspace">Add to this workspace</button>
+        <button v-else-if="signedIn && canEdit && inWorkspace" type="button" :disabled="indexBusy" @click="removeFromWorkspace">Remove from this workspace</button>
         <RouterLink :to="{ path: `/workspace/runs/${name}`, query: fullPageTab(tab) === 'results' ? {} : { view: fullPageTab(tab) } }"><ExternalLink :size="15" aria-hidden="true" />Open full page</RouterLink>
         <button v-if="downloadFile" type="button" :disabled="downloading" @click="save"><Download :size="15" aria-hidden="true" />{{ downloading ? 'Downloading…' : 'Download report' }}</button>
       </footer>
@@ -83,13 +86,14 @@
   </section>
 </template>
 <script setup>
-import { computed, defineAsyncComponent, nextTick, reactive, ref, useId, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, useId, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Download, ExternalLink, FileChartColumn, GitCompare, MessageCircleQuestion, UsersRound } from 'lucide-vue-next'
+import { Download, ExternalLink, FileChartColumn, GitCompare, Link2, MessageCircleQuestion, UsersRound } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import ReadableReport from './ReadableReport.vue'
 import { api, download } from '../../workspace/api.js'
+import { canEdit, signedIn } from '../../workspace/account.js'
 import { presentReport } from '../../workspace/reportPresentation.js'
 import { decisionText, decisionTone } from '../../workspace/compareRuns.js'
 import { brainRows } from '../../workspace/brainResponse.js'
@@ -103,6 +107,40 @@ const BuyerResponses = defineAsyncComponent(() => import('./BuyerResponses.vue')
 const RunActivity = defineAsyncComponent(() => import('./RunActivity.vue'))
 const BrainResponseSection = defineAsyncComponent(() => import('./BrainResponseSection.vue'))
 
+const copiedLink = ref(false)
+const inWorkspace = ref(null)
+const indexBusy = ref(false)
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText(new URL(`/workspace/runs/${encodeURIComponent(props.name)}`, location.origin).toString())
+    copiedLink.value = true
+    setTimeout(() => { copiedLink.value = false }, 2000)
+  } catch { /* the browser refused the clipboard */ }
+}
+async function loadIndex() {
+  if (!signedIn.value) return
+  try {
+    const data = await api('/api/workspace/runs-index')
+    inWorkspace.value = (data.runs || []).some(run => (typeof run === 'string' ? run : run.name) === props.name)
+  } catch { /* membership is a hint; the buttons stay hidden */ }
+}
+async function addToWorkspace() {
+  indexBusy.value = true
+  try {
+    await api('/api/workspace/runs-index', { method: 'POST', body: { name: props.name } })
+    inWorkspace.value = true
+    window.dispatchEvent(new Event('mm-runs-updated'))
+  } catch { /* the server explains in the shell's error banner */ } finally { indexBusy.value = false }
+}
+async function removeFromWorkspace() {
+  indexBusy.value = true
+  try {
+    await api(`/api/workspace/runs-index/${encodeURIComponent(props.name)}`, { method: 'DELETE' })
+    inWorkspace.value = false
+    window.dispatchEvent(new Event('mm-runs-updated'))
+  } catch { /* keep the current state */ } finally { indexBusy.value = false }
+}
+onMounted(loadIndex)
 const props = defineProps({
   name: { type: String, required: true },
   initialTab: { type: String, default: 'results' },
