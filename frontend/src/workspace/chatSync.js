@@ -80,6 +80,21 @@ async function saveOne(chat) {
   }
 }
 
+// A short line for the shell: what happened to the last save, and why.
+export function syncStatusText(state, error) {
+  if (state === 'read-only') return error || 'Read only. Your edits stay in this browser.'
+  if (state === 'offline') return error || 'Saved in this browser only.'
+  if (state === 'syncing') return 'Saving chats…'
+  return ''
+}
+
+// Retry after the server comes back without restarting the app.
+export function retryChatSync() {
+  if (!request || chatSyncState.value === 'read-only') return Promise.resolve()
+  chatSyncState.value = 'syncing'
+  return pull(lastPull).then(() => pushChats()).catch(() => {})
+}
+
 export function pushChats() {
   if (!request || chatSyncState.value === 'read-only') return Promise.resolve()
   if (saving) { again = true; return saving }

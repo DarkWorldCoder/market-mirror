@@ -7,7 +7,7 @@
         <li v-for="(row, i) in rows" :key="row.segment">
           <div class="ovi-bar-top"><strong>{{ row.segment }}</strong><span>{{ row.rate == null ? 'No survey rate' : `${pct(row.rate)} said yes` }}</span></div>
           <div class="ovi-bar" aria-hidden="true"><span :style="{ width: widths[i] + '%' }"></span></div>
-          <small class="ovi-bar-meta">In {{ row.runs }} {{ row.runs === 1 ? 'run' : 'runs' }} · {{ number(row.people) }} simulated {{ row.people === 1 ? 'person' : 'people' }}</small>
+          <small class="ovi-bar-meta">In {{ row.runs }} {{ plural(row.runs, { one: 'run', other: 'runs' }) }} · {{ number(row.people) }} simulated {{ plural(row.people, { one: 'person', other: 'people' }) }}</small>
         </li>
       </ol>
       <p class="ovi-note">Bars show how many runs included the group. Rates are simulated and weighted by group size.</p>
@@ -19,6 +19,7 @@
 import { computed } from 'vue'
 import { UsersRound } from 'lucide-vue-next'
 import { barWidths, pct } from '../../../workspace/overviewInsights.js'
+import { plural } from '../../../workspace/plural.js'
 
 const props = defineProps({ segments: { type: Array, default: () => [] } })
 const rows = computed(() => props.segments.filter((s) => s && s.segment).slice(0, 8))

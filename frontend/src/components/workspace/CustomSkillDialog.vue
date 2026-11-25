@@ -20,6 +20,7 @@ async function save() {
 }
 async function remove() {
  if (!props.skill) return
+ if (!confirm(`Delete ${props.skill.label}? Its instructions are deleted and cannot be recovered.`)) return
  saving.value = true; error.value = ''
  try { await api(`/api/workspace/skills/${encodeURIComponent(props.skill.skillId)}`,{method:'DELETE'}); await loadCustomSkills(true); emit('deleted',props.skill.skillId); emit('update:open',false) } catch (err) { error.value = err.message } finally { saving.value = false }
 }

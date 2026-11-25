@@ -46,6 +46,19 @@ def connector(connector_id):
     return jsonify(success=True, data=service.save(request.get_json(silent=True), connector_id))
 
 
+@workspace_connectors_bp.post("/api/workspace/connectors/test")
+def test_draft():
+    """Check a server before saving it. With ?connector=<id>, a blank token reuses that connector's saved token."""
+    return jsonify(success=True, data=service.test_draft(request.get_json(silent=True), request.args.get("connector") or None))
+
+
+@workspace_connectors_bp.get("/api/workspace/mcp-setup")
+def mcp_setup():
+    """Copy-ready settings for adding MarketMirror's own MCP server to other AI apps. Paths only, no secrets."""
+    from ..services.workspace_mcp_setup import snippets
+    return jsonify(success=True, data=snippets())
+
+
 @workspace_connectors_bp.post("/api/workspace/connectors/<connector_id>/discover")
 def discover(connector_id):
     return jsonify(success=True, data=service.discover(connector_id))
