@@ -126,8 +126,12 @@ def api_token(env_file: Optional[str] = None) -> str:
 def check_base_url(base_url: str) -> str:
     """The backend URL without a trailing slash; CLIError unless it has an http(s) scheme and a host."""
     url = (base_url or "").strip()
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
+    try:
+        parts = urlsplit(url)
+        ok = parts.scheme in ("http", "https") and bool(parts.hostname)
+    except ValueError:   # e.g. an unclosed IPv6 bracket: http://[::1
+        ok = False
+    if not ok:
         raise CLIError(f"invalid base URL {url!r}: it needs an http:// or https:// scheme and a host, "
                        f"for example http://localhost:5001 (set with --base-url or MIROFISH_URL)")
     return url.rstrip("/")
