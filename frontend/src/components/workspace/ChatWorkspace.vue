@@ -181,6 +181,7 @@ import { cloudAccount, cloudSyncError, retryCloudSync, postTeamNote } from '../.
 import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
 import { chatFilename } from '../../workspace/chatFilename.js'
+import { useChatCopyFeedback } from '../../workspace/chatCopyFeedback.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 import { CHAT_VIEWS, localViewIntent, slashView, splitSlash, viewIntro, viewTab } from '../../workspace/chatViews.js'
@@ -195,7 +196,9 @@ const connectionsTab = ref('data')
 const composer = ref(null), runPicker = ref(null), connectionsOpen = ref(false), modelOptions = ref([]), selectedModel = ref(''), modelsLoading = ref(false)
 const selectedPage = ref(null)
 const selectedRunReview = ref(null)
-const copiedMessage = ref('')
+const { copiedMessage, copyMessage } = useChatCopyFeedback(() => {
+  error.value = 'Could not copy this response. Select the text to copy it.'
+})
 const retainedContext = computed(() => buildConversationContext(messages.value, context.value, undefined, selectedPage.value))
 const lastAssistantId = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant')?.id)
 const lastMessageId = computed(() => messages.value.at(-1)?.id)
@@ -269,9 +272,6 @@ function exportChat() {
   const a = Object.assign(document.createElement('a'), { href: url, download: chatFilename(String(title)) })
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
-}
-async function copyMessage(message) {
- try { await navigator.clipboard.writeText(message.content); copiedMessage.value = message.id } catch { error.value = 'Could not copy this response. Select the text to copy it.' }
 }
 const webPreviewOpen = ref(false), webPreviewUrl = ref(''), webPreviewError = ref('')
 function webAddress(value) {
