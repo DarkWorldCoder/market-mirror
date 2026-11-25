@@ -128,7 +128,7 @@ The people keep a memory for the whole run: someone who hid your ad or ignored y
 
 **Ads in realistic feeds (the feed test).** Each person scrolls a feed for each platform you test (Facebook, Instagram, Reddit, TikTok, LinkedIn, X): a handful of local organic posts with one of your ads placed where that platform puts its sponsored posts. When you test several ads, each person sees exactly one, assigned at random, so the comparison is a split test. For every post they report what they did: scrolled past, stopped and for how long, watched, reacted, commented, shared, saved, clicked or hid it, plus a one-line thought. Platform playbooks hold typical base rates (most people scroll past most ads), which keeps simulated people from being unrealistically positive. You get ads-manager numbers per ad and per audience (thumb-stop rate, CTR, what happened after the click), and with `--seeds 3` a range instead of one number.
 
-**Social rounds.** The people then live on Reddit- and X-like platforms for a few rounds, powered by the [OASIS](https://github.com/camel-ai/oasis) engine with its recommendation feed. Your brand posts and your launch calendar (a price drop on day 3, an influencer post on day 5) arrive in the round you schedule them, and you can push live news into a running simulation ("a competitor just cut its price"). People post, reply, like, follow and argue in their own voices. The dashboard's **Social feed** shows every post by round, audience and country, with the replies to your brand posts and their sentiment.
+**Social rounds.** The people then live on Reddit- and X-like platforms for a few rounds, powered by the [OASIS](https://github.com/camel-ai/oasis) engine with its recommendation feed. Your brand posts and your launch calendar (a price drop on day 3, an influencer post on day 5) arrive in the round you schedule them, and you can push live news into a running simulation ("a competitor just cut its price"). People post, reply, like, follow and argue in their own voices. The dashboard's **Social feed** shows every post by round, audience and country, with the replies to your brand posts and their sentiment. On feed-style posts, the share count includes both reposts and quotes.
 
 ### 4. Ask them
 
@@ -650,15 +650,18 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 ## Documentation
 
 - [Local installation, providers, and agent setup](LOCAL_AGENTS.md)
+- [Local decision workspace (no API key)](LOCAL-APP.md)
+- [Workspace configuration: projects and settings](workspace-configuration.md) · [Browser observations](workspace-browser.md) · [Remote MCP connections](workspace-connectors.md) · [Workspace design](WORKSPACE_DESIGN.md)
 - [Providers, mixed markets and large runs: gateways, usage limits, lanes, depth, API costs, Jev](PROVIDERS_AND_SCALE.md)
-- [Persona, creative, and experiment input formats](INPUT_FORMATS.md)
-- [Real product URL testing: carts, signup, and browser evidence](WEBSITE_TESTING.md)
-- [Agent plugin](../plugin/README.md) · [Codex setup](../codex/README.md)
+- [Persona, creative, and experiment input formats](INPUT_FORMATS.md) · [Ad patterns](ad-patterns.md)
+- [Real product URL testing: carts, signup, and browser evidence](WEBSITE_TESTING.md) · [First real test template](guides/first-real-test/experiment-template.md) · [Launch patterns](launch-patterns.md)
+- [Accounts](ACCOUNTS.md) · [Jobs](JOBS.md)
+- [Agent plugin](../plugin/README.md) · [Codex setup](../codex/README.md) · [Publishing](PUBLISHING.md)
 - [REST API](API.md) · [OpenAPI schema](openapi.json) · [Python SDK](../sdk/README.md)
-- [Human-behavior research and proposed improvements](HUMAN_BEHAVIOR_RESEARCH.md)
-- [Speed research: what large simulators do and what we borrowed](SPEED_RESEARCH.md)
-- [Publishing](PUBLISHING.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Changelog](../CHANGELOG.md)
-
+- [Human-behavior research and proposed improvements](HUMAN_BEHAVIOR_RESEARCH.md) · [Emotion research](research/emotion-research-2026-10.md) · [Feature research](research/feature-research-2026-10.md) · [Realism and trust](research/realism-and-trust-2026-11.md) · [Verdict thresholds](research/verdict-thresholds-2026-11.md)
+- [Speed research: what large simulators do and what we borrowed](SPEED_RESEARCH.md) · [ESOMAR-20](ESOMAR-20.md) · [Predicted brain response](brain-response.md)
+- [Original MiroFish README](MIROFISH-UPSTREAM.md)
+- [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Changelog](../CHANGELOG.md)
 ## Credits and license
 
 MarketMirror is released under [AGPL-3.0](../LICENSE). It builds on [MiroFish](https://github.com/666ghj/MiroFish) and [OASIS](https://github.com/camel-ai/oasis). The dashboard embeds [Apache ECharts](https://echarts.apache.org); third-party notices are in [the vendor directory](../backend/claude_cli/vendor/README.md). The [original MiroFish README](MIROFISH-UPSTREAM.md) is preserved.
