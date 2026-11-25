@@ -19,7 +19,7 @@
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
+          <RouterLink v-if="!signedIn" :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
         </div>
         <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
@@ -47,7 +47,8 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
-        <button @click="openSettings"><Settings2 class="ico" />Settings</button>
+        <p v-if="signedIn" class="ws-side-empty">Engine settings belong to the computer running MarketMirror. Ask whoever set it up.</p>
+        <button v-if="!signedIn" @click="openSettings"><Settings2 class="ico" />Settings</button>
         <button class="ws-theme-toggle" @click="toggleTheme"><component :is="theme === 'dark' ? Sun : Moon" class="ico" />{{ theme === 'dark' ? 'Light appearance' : 'Dark appearance' }}</button>
       </div>
     </nav>
@@ -58,7 +59,7 @@
           <button class="ws-btn ws-menu-btn" aria-label="Open navigation" aria-controls="ws-navigation" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Menu :size="20" /></button>
           <div v-if="currentChat" class="ws-inline-title"><input :value="currentChat.title" class="ws-page-title ws-chat-title-input" aria-label="Chat name" maxlength="120" @change="renameInPlace(currentChat,$event)" @keydown.enter="$event.target.blur()" @keydown.esc="$event.target.value=currentChat.title; $event.target.blur()" /><span v-if="inlineRenameError" role="alert">{{ inlineRenameError }}</span></div><b v-else class="ws-page-title">{{ contextualTitle }}</b>
         </div>
-        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
+        <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button v-if="!signedIn" class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
       </header>
       <p v-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-retry" @click="refresh">Retry</button></p>
 
@@ -137,7 +138,7 @@ function onResize() { isMobile.value = window.innerWidth <= 760 }
 const projects = ref([])
 const chats = ref([])
 const customSkillOpen = ref(false), customSkillEditing = ref(null)
-const canManageSkills = computed(() => !cloudAccount.value || cloudAccount.value.workspace?.role === 'owner')
+const canManageSkills = computed(() => !signedIn.value && (!cloudAccount.value || cloudAccount.value.workspace?.role === 'owner'))
 function openCustomSkill(skill = null) { customSkillEditing.value = skill; customSkillOpen.value = true }
 function reloadCustomSkills() { loadCustomSkills().catch(() => {}) }
 const workingChats = ref(new Set())
