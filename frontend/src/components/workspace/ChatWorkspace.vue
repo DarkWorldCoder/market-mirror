@@ -424,7 +424,7 @@ function editProject() { if (!activeProject.value) return; editingProject.value 
 async function loadProject() {
  const id = route.query.project || stored().find(chat => chat.id === route.query.chat)?.project
  if (!id) { activeProject.value = null; return }
- try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = project.preferred_model } }
+ try { const project = await api(`/api/workspace/projects/${encodeURIComponent(id)}`); if ((route.query.project || stored().find(chat => chat.id === route.query.chat)?.project) === id) { activeProject.value = project; const chat = stored().find(row => row.id === route.query.chat); if (project.preferred_model && !chat?.model) selectedModel.value = resolveModel(project.preferred_model) } }
  catch (err) { activeProject.value = null; error.value = err.message }
 }
 watch(() => [route.query.project, route.query.chat], loadProject)
@@ -445,10 +445,16 @@ async function saveProject() {
   await router.replace({ path: route.path, query: { ...(conversationId.value ? { chat: conversationId.value } : {}), project: activeProject.value.id } })
  } catch (err) { projectError.value = err.message } finally { projectSaving.value = false }
 }
+let defaultModelId = null
+function resolveModel(id) {
+ if (defaultModelId === null) return id
+ const available = modelOptions.value.filter(model => model.available !== false)
+ return (available.find(model => model.id === id) || available.find(model => model.id === defaultModelId) || available[0])?.id || ''
+}
 async function loadModels() {
  if (!connected.value) return
  modelsLoading.value = true
- try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); if (!modelOptions.value.some(m => m.id === selectedModel.value && m.available !== false)) selectedModel.value = data.default_id || modelOptions.value.find(m => m.available !== false)?.id || '' }
+ try { if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) { try { await api('/api/workspace/local-models') } catch { /* Local discovery is optional; configured cloud models remain available. */ } } const data = await api('/api/workspace/models'); modelOptions.value = (data.models || []).map(m => ({...m,name:m.name === 'claude' ? 'Claude (default)' : m.name})); defaultModelId = data.default_id || ''; selectedModel.value = resolveModel(selectedModel.value) }
  catch(e) { error.value = e.message } finally { modelsLoading.value = false }
 }
 function changeModel(id) { const model = modelOptions.value.find(m => m.id === id); if (busy.value || !model) return; if (model.available === false) { connectionsTab.value = 'models'; connectionsOpen.value = true; return } selectedModel.value = id; persist() }
@@ -557,7 +563,7 @@ function openConversation() {
  teamAgents.value = Array.isArray(chat?.teamAgents) ? chat.teamAgents : ['market-analyst','critical-reviewer']; teamModels.value = chat?.teamModels && typeof chat.teamModels === 'object' ? chat.teamModels : {}
  answerMode.value = ['team', ...(cloudAccount.value ? ['note'] : [])].includes(chat?.answerMode) ? chat.answerMode : 'standard'
  connectorTools.value = Array.isArray(chat?.connectorTools) ? chat.connectorTools : null
- conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = chat?.model || selectedModel.value
+ conversationId.value = chat?.id || ''; messages.value = Array.isArray(chat?.messages) ? chat.messages : []; selectedRun.value = chat?.run || ''; selectedModel.value = resolveModel(chat?.model || selectedModel.value)
  loadArtifacts(); scrollBottom()
 }
 watch(() => [route.query.chat, route.query.new], openConversation, { immediate: true })
