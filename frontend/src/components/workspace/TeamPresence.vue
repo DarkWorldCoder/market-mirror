@@ -1,5 +1,6 @@
 <template>
-  <div v-if="others.length" class="team-presence" role="status" aria-live="polite" :aria-label="description">
+  <div v-if="others.length" class="team-presence" :aria-label="description">
+    <span class="sr-only" role="status" aria-live="polite">{{ announcement }}</span>
     <span class="team-presence-faces" aria-hidden="true">
       <span v-for="person in others.slice(0, 3)" :key="person.id" class="team-presence-face" :style="{ background: tint(person.id) }" :title="`${name(person)} · ${person.status}`">{{ initials(person) }}</span>
       <span v-if="others.length > 3" class="team-presence-more">+{{ others.length - 3 }}</span>
@@ -14,6 +15,8 @@ import { cloudAccount } from '../../workspace/cloud.js'
 
 const props = defineProps({ chatId: { type: String, default: '' }, busy: Boolean })
 const people = ref([])
+const announcement = ref('')
+let known = null
 const others = computed(() => people.value.filter(person => person.id !== cloudAccount.value?.account?.id))
 const name = person => person.name || person.email?.split('@')[0] || 'Teammate'
 const initials = person => name(person).split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase()
@@ -49,6 +52,20 @@ async function heartbeat() {
 }
 function reset() { generation++; controller?.abort(); pending = false; people.value = []; heartbeat() }
 function visible() { if (!document.hidden) { people.value = []; heartbeat() } }
+// Announce only joins and leaves; the caption changing on every heartbeat is
+// not something a screen reader should read out.
+watch(others, (list) => {
+  const ids = list.map(person => person.id)
+  if (known) {
+    const joined = list.filter(person => !known.has(person.id))
+    const left = [...known].filter(id => !ids.includes(id))
+    const parts = []
+    if (joined.length) parts.push(`${joined.map(name).join(', ')} joined`)
+    if (left.length) parts.push(left.length === 1 ? 'A teammate left' : `${left.length} teammates left`)
+    if (parts.length) announcement.value = parts.join('. ')
+  }
+  known = new Set(ids)
+}, { deep: true })
 watch(() => [props.chatId, cloudAccount.value?.workspace?.id], reset)
 watch(() => props.busy, heartbeat)
 onMounted(() => { heartbeat(); timer = setInterval(heartbeat, 15000); document.addEventListener('visibilitychange', visible) })
