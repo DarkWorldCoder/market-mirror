@@ -62,6 +62,7 @@
         <div class="ws-top-actions"><button class="ws-top-project" aria-label="Create project" @click="createProject"><Plus :size="15" /><span>New project</span></button><button v-if="!signedIn" class="ws-top-settings" aria-label="Open settings" title="Settings" @click="openSettings"><Settings2 :size="17" /></button></div>
       </header>
       <p v-if="error" class="ws-error" role="alert">{{ error }} <button class="ws-retry" @click="refresh">Retry</button></p>
+      <p v-if="finishedToast" class="ws-toast" role="status"><b>{{ finishedToast.title }}</b> finished. <RouterLink :to="{path:'/',query:{run:finishedToast.name,show:'reports'}}" @click="finishedToast = null">Open</RouterLink><button v-if="canEnableNotifications" class="ws-retry" @click="enableRunNotifications">Enable browser notifications</button><button class="ws-retry" @click="finishedToast = null">Dismiss</button></p>
 
       <section class="ws-canvas">
         <WorkspaceOverview v-if="view === 'dashboard' || view === 'reports'" :runs="runs" :projects="projects" :mode="view" :provider="provider" :loading="!loaded" :theme="theme" @refresh="refresh" @select-run="openRun" />
@@ -188,6 +189,24 @@ const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.na
   : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
+const finishedToast = ref(null)
+const notificationsAvailable = ref(typeof Notification !== 'undefined' && Notification.permission === 'default')
+const canEnableNotifications = computed(() => notificationsAvailable.value && !runNotificationsOn())
+function runNotificationsOn() { try { return localStorage.getItem('mm-run-notify') === '1' } catch { return false } }
+function onRunFinished(event) {
+  const detail = event.detail || {}
+  finishedToast.value = detail
+  if (document.hidden) document.title = `● ${document.title.replace(/^● /, '')}`
+  if (runNotificationsOn() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(`${detail.title || 'A run'} finished`, { body: 'Open MarketMirror to see the result.' })
+  }
+}
+async function enableRunNotifications() {
+  if (typeof Notification === 'undefined') return
+  const permission = await Notification.requestPermission()
+  notificationsAvailable.value = permission === 'default'
+  if (permission === 'granted') { try { localStorage.setItem('mm-run-notify', '1') } catch { /* this tab only */ } }
+}
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '')
 const shortcuts = [
   { keys: [isMac ? '⌘' : 'Ctrl', 'K'], what: 'Search projects, chats, runs and skills' },
@@ -337,7 +356,7 @@ async function refresh() {
     refreshing.value = false
   }
 }
-function refreshVisible() { if (!document.hidden) refresh() }
+function refreshVisible() { if (!document.hidden) { document.title = document.title.replace(/^● /, ''); refresh() } }
 onMounted(() => {
   loadChats()
   if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
@@ -351,6 +370,7 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refreshVisible)
   window.addEventListener('mm-account-changed', onAccountChanged)
   window.addEventListener('mm-workspace-renamed', onAccountChanged)
+  window.addEventListener('mm-run-finished', onRunFinished)
   refresh()
   loadOnboarding()
   loadUserTheme()
@@ -359,6 +379,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mm-account-changed', onAccountChanged)
   window.removeEventListener('mm-workspace-renamed', onAccountChanged)
+  window.removeEventListener('mm-run-finished', onRunFinished)
   window.removeEventListener('mm-chats-updated', loadChats)
   window.removeEventListener('mm-chats-loaded', loadChats)
   window.removeEventListener('mm-chat-status', onChatStatus)
