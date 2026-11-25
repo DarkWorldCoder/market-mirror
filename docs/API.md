@@ -344,7 +344,7 @@ Returns: safe connector
 
 ### `PATCH /api/workspace/connectors/{connector_id}`
 
-Update connector settings, enabled state and explicit read-only tool allowlist.
+Update connector settings, enabled state and explicit read-only tool allowlist; a new url with a saved token also needs a new token or clear_token (400 otherwise).
 
 Request body:
 
@@ -370,6 +370,47 @@ Returns: {id,deleted:true}
 Actually initialize a saved MCP server and list tools with bounded JSON/SSE parsing; no business tool execution.
 
 Returns: safe connector with status, tools, checked_at, error
+
+### `POST /api/workspace/connectors/test`
+
+Check an MCP server before saving it: initialize and list tools, save nothing; ?connector=<id> reuses that connector's saved token only for its saved address.
+
+Query parameters:
+
+- `connector`: Saved connector id (mcp_ plus 12 hex characters). With a blank token, that connector's saved token is reused, and only when url equals its saved address; a different address returns 400.
+
+Request body:
+
+```json
+{
+  "url": "https://mcp.example.com/mcp",
+  "token": "write-only",
+  "protocol_version": "2025-11-25"
+}
+```
+
+Returns: {status,error,tools,tools_truncated,checked_at}
+
+### `GET /api/workspace/mcp-setup`
+
+Copy-ready settings for adding MarketMirror's own MCP server to Claude Desktop, Claude Code, Cursor, VS Code, Codex and other apps; real paths, no secrets.
+
+Returns: {server_path,server_found,home,python,clients:[{id,label,format,where,steps,snippet}],http}
+
+### `POST /api/workspace/settings/test`
+
+Check a provider key with its free models list; a one-token call only with allow_call=true; a saved key goes only to its own provider.
+
+Request body:
+
+```json
+{
+  "provider": "openai",
+  "api_key": "write-only"
+}
+```
+
+Returns: {ok,status,method,models,message}
 
 ### `GET /api/workspace/session`
 

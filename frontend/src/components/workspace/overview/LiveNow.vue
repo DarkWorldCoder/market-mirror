@@ -33,7 +33,11 @@ async function poll() {
     await Promise.all(props.runs.map(async (run) => {
       try {
         const s = await api(`/api/runs/${encodeURIComponent(run.name)}/status`)
+        const before = statuses[run.name]
         statuses[run.name] = s
+        if (before && stillRunning(before) && !stillRunning(s)) {
+          window.dispatchEvent(new CustomEvent('mm-run-finished', { detail: { name: run.name, title: run.title || run.name } }))
+        }
         if (!stillRunning(s)) finished = true
       } catch { /* keep the last known stage; the next poll retries */ }
     }))
