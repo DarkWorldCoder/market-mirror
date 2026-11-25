@@ -45,12 +45,11 @@ def list_jobs():
     status = args.get("status") or None
     if status and status not in (*jobs.ACTIVE, *jobs.TERMINAL):
         return jsonify({"success": False, "error": f"unknown status {status}"}), 400
+    from .setup import _guard
+    hide_workflow = _guard(write=False) is not None   # without the setup token, workflow jobs are left out in SQL
     rows = jobs.store().list(status=status, kind=args.get("kind") or None, workspace=args.get("workspace") or None,
-                             subject=args.get("subject") or None, limit=limit)
-    if any(str(j["kind"]).startswith("workflow_") for j in rows):
-        from .setup import _guard
-        if _guard(write=False) is not None:   # without the setup token, workflow jobs are left out
-            rows = [j for j in rows if not str(j["kind"]).startswith("workflow_")]
+                             subject=args.get("subject") or None, limit=limit,
+                             exclude_kind_prefix="workflow_" if hide_workflow else None)
     return jsonify({"success": True, "data": [_public(j) for j in rows]})
 
 
