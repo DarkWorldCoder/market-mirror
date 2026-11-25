@@ -1,10 +1,10 @@
 <template>
   <!-- Pattern from shadcn.io's onboarding blocks: progress, numbered steps that tick off, one action each. -->
-  <Dialog :open="open" @update:open="(v) => { if (!v) finish() }">
-    <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme">
+  <Dialog :open="open" @update:open="(v) => { if (!v) emit('update:open', false) }">
+    <DialogContent class="ws-overlay mm-onboard gap-5 sm:max-w-xl" :data-theme="theme" @escape-key-down="onEscape">
       <DialogHeader>
         <DialogTitle>Set up {{ state?.workspace.name || 'your workspace' }}</DialogTitle>
-        <DialogDescription>Four short steps. Skip any of them; Workspace and team has them all later.</DialogDescription>
+        <DialogDescription>Four short steps. Skip any of them; open Setup checklist at the bottom of the sidebar to return.</DialogDescription>
       </DialogHeader>
       <div class="grid gap-2">
         <div class="text-muted-foreground flex justify-between text-xs"><span>{{ doneCount }} of 4 done</span><span v-if="allDone">All set</span></div>
@@ -36,10 +36,11 @@
               <template v-if="state?.can_invite">
                 <form class="flex flex-wrap gap-2" @submit.prevent="invite">
                   <Input v-model.trim="email" type="email" placeholder="Email (optional)" aria-label="Teammate email" maxlength="320" class="h-8 min-w-40 flex-1" />
-                  <NativeSelect v-model="inviteRole" aria-label="Role" class="h-8 w-28"><option value="editor">editor</option><option value="viewer">viewer</option></NativeSelect>
+                  <NativeSelect v-model="inviteRole" aria-label="Role" class="h-8 w-28"><option value="editor">{{ roleLabel('editor') }}</option><option value="viewer">{{ roleLabel('viewer') }}</option></NativeSelect>
                   <Button size="sm" :disabled="busy"><Link2 aria-hidden="true" />Create link</Button>
                 </form>
                 <div v-if="link" class="flex gap-2"><Input :model-value="link" readonly aria-label="Invitation link" class="h-8" @focus="$event.target.select()" /><Button variant="secondary" size="sm" @click="copy"><component :is="copied ? Check : Copy" aria-hidden="true" />{{ copied ? 'Copied' : 'Copy' }}</Button></div>
+                <p class="text-muted-foreground text-xs">{{ roleHint(inviteRole) }}</p>
                 <p class="text-muted-foreground text-xs">No email is sent; share the link yourself. It works once.</p>
               </template>
               <p v-else-if="state?.mode === 'local'" class="text-muted-foreground text-sm">This app is just for you on this computer. Teams need MarketMirror running on a shared server. Ask whoever set it up, or read the <a class="underline underline-offset-4" href="https://github.com/DarkWorldCoder/market-mirror/blob/main/docs/ACCOUNTS.md" target="_blank" rel="noopener noreferrer">team guide</a>.</p>
@@ -71,6 +72,7 @@ import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { NativeSelect } from '../ui/native-select'
+import { roleHint, roleLabel } from '../../workspace/roles.js'
 import { api } from '../../workspace/api.js'
 import { isOwner } from '../../workspace/account.js'
 
@@ -110,6 +112,7 @@ async function invite() {
 }
 async function copy() { try { await navigator.clipboard.writeText(link.value); copied.value = true } catch { error.value = 'Select the link and copy it by hand.' } }
 async function openLatest() { await mark('demo'); finish(); router.push({ path: '/', query: { run: props.latestRun, show: 'reports' } }) }
+function onEscape(event) { event.preventDefault(); emit('update:open', false) }
 async function finish() { if (state.value && !steps.value.dismissed) await mark('dismissed'); emit('update:open', false) }
 
 watch(() => props.open, (value) => { if (value) load() }, { immediate: true })

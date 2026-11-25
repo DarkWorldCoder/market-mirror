@@ -1,3 +1,4 @@
+import { plural } from './plural.js'
 function pageSource(page) {
   if (typeof page?.url !== 'string' || typeof page.text !== 'string' || !page.text.trim()) return null
   return { name: `Page: ${page.url}`, text: page.text }
@@ -29,5 +30,5 @@ export function buildConversationContext(messages = [], pending = null, maximum 
     if (length + cost > maximum) { omitted++; continue }
     files.push({ name: file.name, text: file.text }); length += cost
   }
-  return { name: files.length === 1 ? files[0].name.slice(0,200) : `${files.length} conversation sources`, text: files.map(file => `## ${file.name}\n${file.text}`).join('\n\n'), files, omitted }
+  return { name: plural(files.length, { one: () => files[0].name.slice(0,200), other: `${files.length} conversation sources` }), text: files.map(file => `## ${file.name}\n${file.text}`).join('\n\n'), files, omitted }
 }
