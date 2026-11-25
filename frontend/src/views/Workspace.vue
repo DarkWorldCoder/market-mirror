@@ -217,8 +217,8 @@ const skillTints = ['rgba(142, 128, 220, .16)', 'rgba(77, 157, 147, .16)', 'rgba
 const runDestinations = [{ view: 'market', label: '3D world & audience' }, { view: 'results', label: 'Reports & decisions' }, { view: 'activity', label: 'Recorded agents' }, { view: 'thinking', label: 'Buyer responses' }, { view: 'feed', label: 'Social feed' }]
 const matchingSkillGroups = computed(() => featureGroups.filter(group => filteredSkills.value.some(skill => skill.group === group)))
 const searchedSkills = computed(() => search.value.trim() ? searchFeatures(search.value) : [])
-const categoryIcons = { Workspace: FolderOpen, 'Buyer research': UsersRound, Advertising: Megaphone, Strategy: Compass, 'Go to market': Sparkles, Validation: ChartNoAxesCombined }
-const categoryDescriptions = { Workspace: 'Your projects, saved evidence, and configuration.', 'Buyer research': 'Understand audiences through source evidence and simulated conversations.', Advertising: 'Explore creative performance and compare alternatives.', Strategy: 'Prepare campaigns and tests around a clear decision.', 'Go to market': 'Work through positioning, sales, pricing, and buyer journeys.', Validation: 'Check simulated conclusions against real outcomes.', 'Custom skills': 'Reusable instructions saved by this workspace.' }
+const categoryIcons = { Workspace: FolderOpen, 'Show in chat': MessageSquare, 'Buyer research': UsersRound, Advertising: Megaphone, Strategy: Compass, 'Go to market': Sparkles, Validation: ChartNoAxesCombined }
+const categoryDescriptions = { 'Show in chat': 'Every page and panel of the app, opened inline in the chat. Free: read from saved files, no model call.', Workspace: 'Your projects, saved evidence, and configuration.', 'Buyer research': 'Understand audiences through source evidence and simulated conversations.', Advertising: 'Explore creative performance and compare alternatives.', Strategy: 'Prepare campaigns and tests around a clear decision.', 'Go to market': 'Work through positioning, sales, pricing, and buyer journeys.', Validation: 'Check simulated conclusions against real outcomes.', 'Custom skills': 'Reusable instructions saved by this workspace.' }
 const skillIcons = {
  project: FolderOpen, runs: Layers, settings: Settings2, models: Cpu, connectors: Plug, search: Search, health: ShieldCheck, report: FileText, simulation: Workflow,
  'seed-check': BookOpen, 'market-test': FlaskConical, research: Search, intake: Database, analytics: ChartNoAxesCombined, personas: UsersRound, ask: MessageSquare, 'focus-group': UsersRound, survey: ClipboardList, questionnaire: ClipboardList, 'choice-test': Scale, context: Brain, thoughts: Brain,
@@ -227,7 +227,7 @@ const skillIcons = {
  committee: Network, creative: Image, battlecard: ShieldCheck, journey: Route, pricing: Tag, competitors: GitCompare, teardown: Globe, roleplay: Mic, whatif: Split, personalize: Target, geo: Globe, voc: MessageSquare, cascade: Network, 'gtm-suite': Compass,
  predict: ChartNoAxesCombined, forecast: Clock, study: Layers, calibrate: Scale, holdout: Split, split: Split, benchmark: Scale, compare: GitCompare, spend: Wallet,
 }
-function skillLink(skill) { return { path: '/', query: skill.custom ? { skill: skill.skillId } : skill.action ? { action: skill.action } : { prompt: skill.prompt } } }
+function skillLink(skill) { return { path: '/', query: skill.custom ? { skill: skill.skillId } : skill.view ? { open: skill.id } : skill.action ? { action: skill.action } : { prompt: skill.prompt } } }
 async function moveChat(chatId) {
   activeChatMenu.value = ''
   menuOpen.value = false

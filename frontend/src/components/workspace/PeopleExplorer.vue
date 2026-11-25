@@ -182,7 +182,7 @@ import { SEGMENT_COLORS } from '../../workspace/geoPlace.js'
 import { feedEdges } from '../../workspace/runActivity.js'
 import {
   FACETS, MAX_COMPARE, SORTS, VERDICT_LABEL, activeFilterCount, buildPeople, compareRows, csvFileName, decisionCard, emptyFilters,
-  facetOptions, filterPeople, peopleCsv, peopleSummary, sortPeople, toggleCompare, toggleValue
+  facetOptions, filterPeople, peopleCsv, peopleSummary, seedFilters, sortPeople, toggleCompare, toggleValue
 } from '../../workspace/peopleExplorer.js'
 
 const props = defineProps({
@@ -195,7 +195,9 @@ const props = defineProps({
   config: { type: Object, default: null },
   survey: { type: Object, default: null },
   stats: { type: [Array, Object], default: null },
-  story: { type: Object, default: null }
+  story: { type: Object, default: null },
+  // filters asked for from the chat ("the people in Kenya"): applied once the people load, then freely changeable
+  initialFilters: { type: Object, default: null }
 })
 const emit = defineEmits(['ask'])
 const uid = useId()
@@ -250,6 +252,15 @@ const activeCount = computed(() => activeFilterCount({ ...filters.value, query: 
 const chipCount = computed(() => activeFilterCount(filters.value))
 function toggle(facet, value) { filters.value = { ...filters.value, [facet]: toggleValue(filters.value[facet], value) } }
 function clearFilters() { filters.value = emptyFilters(); query.value = '' }
+let seeded = false
+watch(() => rows.value.length, (n) => {
+  if (seeded || !n || !props.initialFilters || !Object.keys(props.initialFilters).length) return
+  seeded = true
+  const { query: q, ...facets } = seedFilters(rows.value, props.initialFilters)
+  filters.value = { ...emptyFilters(), ...facets }
+  query.value = q
+  if (activeFilterCount(facets)) filtersOpen.value = true
+}, { immediate: true })
 const summary = computed(() => peopleSummary(filtered.value))
 
 // pages: 1,000+ people would be too many cards at once

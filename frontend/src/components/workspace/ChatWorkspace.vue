@@ -23,7 +23,8 @@
           <MarkdownText v-if="m.role === 'assistant'" :text="m.content" /><div v-else class="direct-message-text">{{ m.content }}</div>
           <p v-if="m.kind === 'comment' || (m.role === 'user' && m.author && m.author.id !== cloudAccount?.account.id)" class="direct-author">{{ m.author?.email || 'You' }}{{ m.kind === 'comment' ? ' · Team note' : '' }}</p>
           <UploadedContext v-if="m.attachedFiles?.length" :files="m.attachedFiles" :theme="theme" />
-          <RunChatCard v-if="m.run_card" :name="m.run_card.run" :initial-tab="m.run_card.tab" :initial-verdict="m.run_card.verdict || ''" :runs="runs" :theme="theme" @action="runCardAction" @loaded="rememberRun" @update:tab="(t) => { m.run_card.tab = t; persist() }" />
+          <RunChatCard v-if="m.run_card" :name="m.run_card.run" :initial-tab="m.run_card.tab" :initial-verdict="m.run_card.verdict || ''" :filters="m.run_card.filters || null" :runs="runs" :theme="theme" @action="runCardAction" @loaded="rememberRun" @update:tab="(t) => { m.run_card.tab = t; persist() }" />
+          <ChatViewCard v-if="m.view_card" :spec="m.view_card" :runs="runs" :theme="theme" @panel="openPanel" @feature="selectFeature" @open-run="(run) => openEvidenceInChat(run, 'results')" />
           <CompareRuns v-if="m.compare" embedded :runs="runs" :theme="theme" :a="m.compare.a" :b="m.compare.b" @pick="(p) => updateCompare(m, p)" />
           <!-- [agent-chat] chat agent cards: tools, approvals, forms, audience table (components/workspace/agent) -->
           <AgentTurn v-if="m.agent" :turn="m.agent" :runs="runs" :theme="theme" :busy="busy" @run-action="runCardAction" @run-loaded="rememberRun" @resume="(r) => resumeAgent(m, r)" @action="agentAction" @open-run="(run) => openEvidenceInChat(run, 'reports')" />
@@ -78,7 +79,7 @@
       <div v-if="context" class="direct-context"><FileText /><span>{{ context.name }}</span><button aria-label="Remove attached context" @click="context = null"><X /></button></div>
       <UploadedContext v-if="context?.files?.length" :files="context.files" :theme="theme" />
       <div class="direct-input-region" @keydown.capture="composerKey">
-        <SkillPalette ref="skillPalette" :theme="theme" :open="skillsOpen" :query="draft" class="direct-skills" @select="selectFeature" @close="dismissSkills" />
+        <SkillPalette ref="skillPalette" :theme="theme" :open="skillsOpen" :query="draft" class="direct-skills" @select="pickFeature" @close="dismissSkills" />
         <div class="direct-composer-wrap">
         <LibraryComposer ref="composer" v-model="draft" :key="conversationId || 'new'" :busy="busy" :disabled="(!connected && answerMode !== 'note') || uploading" :models="modelOptions" :selected-model="selectedModel" :changing="modelsLoading" placeholder="Ask MarketMirror, or type / for tools…" @send="send" @stop="stop" @attach="fileInput?.click()" @connectors="connectionsTab = 'data'; connectionsOpen = true" @choose-run="runPicker?.openPicker()" @skills="openSkills" @browser="openWebPreview" @settings="settingsOpen = true" @model-change="changeModel" />
         <div class="direct-composer-options"><ChatModePicker v-model="answerMode" v-model:agents="teamAgents" v-model:agentModels="teamModels" :can-comment="!!cloudAccount" :models="modelOptions" :theme="theme" :disabled="busy" @use-brief="addTeamBrief" /><ChatToolPicker v-model="connectorTools" :theme="theme" :disabled="busy" @configure="router.push('/workspace/connectors')" /><RunContextPicker ref="runPicker" v-model="selectedRun" :runs="runs" :disabled="busy" :theme="theme" /></div>
@@ -157,6 +158,7 @@ const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue
 const RunChatCard = defineAsyncComponent(() => import('./RunChatCard.vue'))
 import LoadingSkeleton from './LoadingSkeleton.vue'
 const CompareRuns = defineAsyncComponent(() => import('./CompareRuns.vue'))
+const ChatViewCard = defineAsyncComponent(() => import('./ChatViewCard.vue'))
 const ExperimentSetup = defineAsyncComponent(() => import('../../views/Home.vue'))
 import ChatConnections from './ChatConnections.vue'
 import SkillPalette from './SkillPalette.vue'
@@ -180,6 +182,7 @@ import { streamChat } from '../../workspace/chatStream'
 import { api, authHeaders, token } from '../../workspace/api.js'
 import { canEdit, signedIn } from '../../workspace/account.js'
 import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
+import { CHAT_VIEWS, localViewIntent, slashView, splitSlash, viewIntro, viewTab } from '../../workspace/chatViews.js'
 import { evidencePrompt, localRunIntent, messageRun, nextStepChips, objectionAnswer, runCardIntro, segmentAnswer, shownChips, tabForView } from '../../workspace/runCard.js'
 import { continueEntries, decisionText, decisionTone, displayTitle, evidenceTitle, findEvidenceChat, isCompareRequest, pickCompareRuns, shortText as shortTitle } from '../../workspace/compareRuns.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
@@ -219,7 +222,11 @@ function useChip(chip) {
 }
 // actions from an in-chat run card: asking people and focus groups go to the chat agent, which shows the cost
 // on the approval card before anything runs; comparing is read from saved files
-function runCardAction({ type, run, other, title, person, prompt } = {}) {
+function runCardAction({ type, run, other, title, person, prompt, panel, feature } = {}) {
+  // from a workspace view card shown by the agent: open a full panel, use a skill, or open a run
+  if (type === 'open-panel') { openPanel(panel); return }
+  if (type === 'feature' && feature) { selectFeature(feature); return }
+  if (type === 'open-run' && run) { openEvidenceInChat(run, 'results'); return }
   if (busy.value || !run) return
   const label = shortTitle(displayTitle(title || runLabel(run)), 48)
   if (type === 'compare') { compareInChat(run, other); return }
@@ -391,9 +398,16 @@ function openSkills() { skillsDismissed.value = false; setDraft('/') }
 function dismissSkills() { skillsDismissed.value = true }
 function composerKey(event) { if (skillPalette.value?.handleKey(event)) event.stopPropagation() }
 async function openModelPicker() { await loadModels(); await nextTick(); if (modelOptions.value.length) document.querySelector('.library-composer .an-model-trigger')?.click(); else connectionsOpen.value = true }
-function selectFeature(feature) {
+// from the / menu: "/people Kenya" keeps the words after the command as the view's filters
+function pickFeature(feature) {
+  const slash = splitSlash(draft.value)
+  const typed = slash && (feature.command === slash.command || feature.aliases?.some(alias => `/${alias}` === slash.command))
+  selectFeature(feature, typed && feature.view ? slash.rest : '')
+}
+function selectFeature(feature, rest = '') {
   setDraft(''); skillsDismissed.value = true
-  if (feature.action === 'settings') settingsOpen.value = true
+  if (feature.view) showView(slashView(feature.view, rest, { runs: props.runs, run: selectedRun.value }), rest ? `${feature.command} ${rest}` : feature.command)
+  else if (feature.action === 'settings') settingsOpen.value = true
   else if (feature.action === 'connectors') connectionsOpen.value = true
   else if (feature.action === 'models') openModelPicker()
   else if (feature.action === 'project') createProject()
@@ -402,6 +416,45 @@ function selectFeature(feature) {
   else if (feature.action === 'runs') send('Show my saved runs and reports.')
   else setDraft(feature.prompt)
 }
+// The full Settings or Connections panel, from a view card's link (their internals stay on their own pages).
+function openPanel(panel) {
+  if (panel === 'connectors') router.push('/workspace/connectors')
+  else if (panel === 'settings' || panel === 'spending') { settingsTab.value = panel === 'spending' ? 'spending' : 'models'; settingsProvider.value = ''; settingsOpen.value = true }
+}
+// Everything from the chat: a view (any page, tab or panel of the app) as an assistant message, read from saved files
+// with no model call. Run views become the run card at the matching tab with the filters; workspace views their card.
+function viewMessage(spec) {
+  const base = { id: uid(), role: 'assistant' }
+  if (!spec || spec.needsRun) return { ...base, content: 'There are no saved runs yet, so there is nothing to show. Tell me about your product and the decision you want to test.' }
+  const kind = CHAT_VIEWS[spec.view]?.kind
+  if (kind === 'run') {
+    selectedRun.value = spec.run
+    const tab = viewTab(spec.view)
+    return { ...base, content: viewIntro(spec, runLabel(spec.run)), run_card: { run: spec.run, tab, ...(spec.filters ? { filters: spec.filters } : {}), ...(spec.filters?.verdict ? { verdict: spec.filters.verdict } : {}) } }
+  }
+  if (kind === 'compare') {
+    if (props.runs.length < 2) return { ...base, content: props.runs.length ? 'There is only one saved experiment so far. Run a second one, then compare them.' : 'There are no saved experiments to compare yet.' }
+    const picks = spec.runs ? { a: spec.runs[0], b: spec.runs[1] } : pickCompareRuns('compare my last two experiments', props.runs, selectedRun.value)
+    return { ...base, content: compareContent(picks.a, picks.b), compare: picks }
+  }
+  return { ...base, content: viewIntro(spec), view_card: spec }
+}
+// a slash command or a view card link: your words, then the view, in this chat
+async function showView(spec, label) {
+  if (busy.value || !spec) return
+  if (!conversationId.value) { conversationId.value = uid(); await router.replace({ path: route.path, query: { chat: conversationId.value, ...(activeProject.value ? { project: activeProject.value.id } : {}) } }) }
+  messages.value.push({ id: uid(), role: 'user', content: label || CHAT_VIEWS[spec.view]?.label || spec.view })
+  messages.value.push(viewMessage(spec))
+  persist(); scrollBottom()
+}
+// /workspace/skills links a view as ?open=<command id>
+watch(() => route.query.open, async (id) => {
+  if (typeof id !== 'string' || !id) return
+  const feature = featureCatalog.find((item) => item.id === id)
+  const query = { ...route.query }; delete query.open
+  await router.replace({ path: route.path, query })
+  if (feature) { await nextTick(); selectFeature(feature) }
+}, { immediate: true })
 // A new experiment is set up inside the conversation, as one step of the chat, not on a separate page.
 async function startExperiment() {
   if (!conversationId.value) {
@@ -585,7 +638,15 @@ async function send(text, options = {}) {
   text = `Analyze this website: ${url.href}`
   options = { ...options, inspectUrl: url.href }
  }
- if (text.startsWith('/')) { const feature = featureCatalog.find(item => item.command === text || item.aliases?.some(alias => `/${alias}` === text)); if (feature) { selectFeature(feature); return } }
+ if (text.startsWith('/')) {
+  const slash = splitSlash(text)
+  const named = (command) => featureCatalog.find(item => item.command === command || item.aliases?.some(alias => `/${alias}` === command))
+  // "/people kenya": a view with filters; other commands only match on their own
+  const viewFeature = slash?.rest && named(slash.command)?.view ? named(slash.command) : null
+  if (viewFeature) { selectFeature(viewFeature, slash.rest); return }
+  const feature = named(text)
+  if (feature) { selectFeature(feature); return }
+ }
  const retried = options.retryId ? messages.value.at(-1) : null
  if (options.retryId && (retried?.id !== options.retryId || retried.role !== 'user')) return
  const previewUrl = retried?.previewUrl || options.previewUrl
@@ -594,7 +655,7 @@ async function send(text, options = {}) {
  const pinnedReview = answerMode.value === 'team' && !previewUrl && !inspectUrl && !evidenceRun
   ? selectedRunReview.value : null
  const reviewRun = retried ? retried.reviewRun : pinnedReview?.name
- const runName = evidenceRun || reviewRun || selectedRun.value
+ const runName = evidenceRun || reviewRun || selectedRun.value || (!options.chip && localRunIntent(text) ? props.runs[0]?.name || '' : '')
  const teamNote = !previewUrl && !inspectUrl && !evidenceRun && !retried && answerMode.value === 'note' && cloudAccount.value
  if (!connected.value && !teamNote) { error.value = signedIn.value && !canEdit.value ? 'You can read this workspace. Ask an owner to make you an editor to start conversations.' : 'Connect your local workspace before starting a conversation.'; return }
  if (text.length > 12000) { error.value = 'Keep your message under 12,000 characters. Use Add context for a document.'; return }
@@ -647,6 +708,11 @@ async function send(text, options = {}) {
    const picks = pickCompareRuns(text, props.runs, selectedRun.value)
    messages.value.push({ id: uid(), role: 'assistant', content: compareContent(picks.a, picks.b), compare: picks })
    return
+  }
+  // Common free requests ("show the people in Kenya", "what's my spend") open the view from saved files, no model call.
+  if (!page && !inspectUrl && !reviewRun && !evidenceRun && options.chip?.kind !== 'agent') {
+   const view = localViewIntent(text, { runs: props.runs, run: selectedRun.value })
+   if (view) { messages.value.push(viewMessage(view)); return }
   }
   // Opening saved evidence is deterministic and does not need a provider call.
   if (!page && !runName && /show (my )?(saved )?(runs|reports)|show my saved runs/i.test(text)) {

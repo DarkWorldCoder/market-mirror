@@ -157,6 +157,32 @@ export function facetOptions(rows) {
 
 export const emptyFilters = () => ({ query: '', segment: [], country: [], verdict: [], gender: [], ageBand: [] })
 
+/**
+ * Filters asked for from the chat ({ country, segment, verdict, gender, query }) as explorer filters, matched to the
+ * run's own values without regard to case. A country that is really a segment (or the other way round) still lands;
+ * a word that matches no value becomes a search, so nothing asked for is silently dropped.
+ */
+export function seedFilters(rows, wanted = {}) {
+  const out = emptyFilters()
+  const options = facetOptions(rows || [])
+  const searches = []
+  const find = (facet, value) => (options[facet] || []).find((o) => [o.value, o.label].some((x) => String(x).toLowerCase() === value.toLowerCase()))
+  for (const [key, raw] of Object.entries(wanted || {})) {
+    const value = text(raw)
+    if (!value || key === 'query') continue
+    if (key === 'verdict') {
+      if (VERDICTS.includes(value.toLowerCase())) out.verdict = [value.toLowerCase()]
+      continue
+    }
+    const order = key === 'country' ? ['country', 'segment'] : key === 'segment' ? ['segment', 'country'] : FACETS.some((f) => f.id === key) ? [key] : []
+    const facet = order.find((f) => find(f, value))
+    if (facet) out[facet] = [find(facet, value).value]
+    else searches.push(value)
+  }
+  out.query = [text(wanted?.query), ...searches].filter(Boolean).join(' ')
+  return out
+}
+
 export function activeFilterCount(filters) {
   return (text(filters?.query) ? 1 : 0) + FACETS.reduce((n, f) => n + ((filters?.[f.id] || []).length ? 1 : 0), 0)
 }
