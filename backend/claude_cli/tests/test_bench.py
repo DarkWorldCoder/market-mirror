@@ -386,17 +386,27 @@ class CLI(unittest.TestCase):
         self.assertIn("--fetch", err.getvalue())
 
     def test_panel_without_run_dir_logs_warning(self):
+        from unittest import mock
+
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)
         out = io.StringIO()
         err = io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = mirofish.main(["bench", "--suite", "upworthy", "--data", CSV, "--out", d, "--methods", "persona_panel"])
+        with (
+            mock.patch.object(mirofish, "_bench_complete", return_value=fake(reader)),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            code = mirofish.main([
+                "bench", "--suite", "upworthy", "--data", CSV, "--out", d,
+                "--methods", "persona_panel", "--approve-spend",
+            ])
         self.assertEqual(code, 0, err.getvalue())
         self.assertIn("--run-dir", err.getvalue())
         res = json.loads(out.getvalue())
-        self.assertTrue(res["dry_run"])
-        self.assertIn("persona_panel", res["methods"])
+        with open(res["bench"], encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertIn("skipped", saved["methods"]["persona_panel"])
 
 
 if __name__ == "__main__":
