@@ -30,8 +30,17 @@ export async function runAgentTurn({ message, body, signal, onChange }) {
     return done
   } catch (error) {
     if (message.agent.status !== 'error') {
+      let explanation = error.message || 'Could not complete this response.'
+      if (error.name === 'AbortError') {
+        explanation = 'Stopped waiting for this response. Jobs already started keep running.'
+      } else if (error instanceof TypeError && (
+        error.message === 'Failed to fetch' ||
+        error.message === 'NetworkError when attempting to fetch resource.'
+      )) {
+        explanation = 'The connection was interrupted. Try again.'
+      }
       message.agent.status = 'error'
-      message.agent.error = { message: error.name === 'AbortError' ? 'Stopped waiting for this response. Jobs already started keep running.' : error.message || 'Could not complete this response.', actions: error.actions || [] }
+      message.agent.error = { message: explanation, actions: error.actions || [] }
     }
     return null
   } finally {
