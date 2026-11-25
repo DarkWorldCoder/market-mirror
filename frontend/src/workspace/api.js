@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { accountHeaders, loadAccount, signedIn } from './account.js'
+import { accountHeaders, endSession, loadAccount, signedIn } from './account.js'
 const sessionVersion = ref(0)
 // Token-aware calls for the workspace. The local app stores the setup token in this tab's session storage
 // (see Home.vue); every /api/runs and /api/workflows call needs it. Other engine routes are loopback-only.
@@ -48,7 +48,8 @@ export async function api(path, options = {}) {
   if (signedIn.value && (response.status === 401 || response.status === 409)) {
     // Signed out elsewhere, or removed from this workspace: refresh who we are so the app can react.
     const code = response.headers.get('Content-Type')?.includes('json') ? (await response.clone().json()).code : ''
-    if (response.status === 401 || code === 'workspace_changed') loadAccount()
+    if (response.status === 401) endSession()
+    else if (code === 'workspace_changed') loadAccount()
   }
   const type = response.headers.get('Content-Type') || ''
   const data = type.includes('json') ? await response.json() : await response.text()

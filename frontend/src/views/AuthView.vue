@@ -8,6 +8,7 @@
         <CardHeader class="text-center">
           <CardTitle class="text-xl">{{ heading }}</CardTitle>
           <CardDescription>{{ subheading }}</CardDescription>
+          <p v-if="route.query.expired === '1'" class="text-muted-foreground text-center text-xs" role="status">Your session ended. Sign in to continue.</p>
         </CardHeader>
         <CardContent class="grid gap-6">
           <div v-if="invite" class="bg-muted/60 flex items-center gap-3 rounded-lg border p-3">
