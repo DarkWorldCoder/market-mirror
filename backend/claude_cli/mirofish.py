@@ -35,6 +35,7 @@ import tempfile
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -122,6 +123,16 @@ def api_token(env_file: Optional[str] = None) -> str:
     return ""
 
 
+def check_base_url(base_url: str) -> str:
+    """The backend URL without a trailing slash; CLIError unless it has an http(s) scheme and a host."""
+    url = (base_url or "").strip()
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise CLIError(f"invalid base URL {url!r}: it needs an http:// or https:// scheme and a host, "
+                       f"for example http://localhost:5001 (set with --base-url or MIROFISH_URL)")
+    return url.rstrip("/")
+
+
 class Client:
     def __init__(self, base_url: str, timeout: float = 60, lang: str = "en", token: Optional[str] = None):
         try:
@@ -130,7 +141,7 @@ class Client:
             raise CLIError("The 'requests' package is required (run via `cd backend && uv run --no-sync python ...`)") from e
         import requests
         self.requests = requests
-        self.base = base_url.rstrip("/")
+        self.base = check_base_url(base_url)
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers["Accept-Language"] = lang
@@ -166,6 +177,8 @@ class Client:
                 last = e
                 if attempt < retries - 1:
                     time.sleep(2 * (attempt + 1))
+            except self.requests.RequestException as e:   # bad URL, redirect loop, invalid header: retrying will not help
+                raise CLIError(f"{method} {path}: request to {self.base} failed ({e})") from e
         raise CLIError(f"{method} {path}: cannot reach MiroFish backend at {self.base} ({last}). "
                        "Start it with backend/claude_cli/start_server.sh")
 
