@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  EVIDENCE_PROMPTS, RUN_CARD_TABS, actionMix, evidencePrompt, localRunIntent, messageRun, objectionAnswer, segmentAnswer, shownChips, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, nextStepChips, reportDownloadFile,
+  EVIDENCE_PROMPTS, RUN_CARD_TABS, cardTabs, fullPageTab, actionMix, evidencePrompt, localRunIntent, messageRun, objectionAnswer, segmentAnswer, shownChips, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, nextStepChips, reportDownloadFile,
   resultsFile, runCardIntro, runCardStats, tabForView, topActors, verdictCounts
 } from '../runCard.js'
 
@@ -20,9 +20,20 @@ const summary = {
   }
 }
 
-test('card tabs match the run page tabs and their order', () => {
-  assert.deepEqual(RUN_CARD_TABS.map((t) => t.id), ['results', 'market', 'people', 'thinking', 'activity', 'feed'])
-  assert.deepEqual(RUN_CARD_TABS.map((t) => t.label), ['Results', 'Audience & world', 'People', 'Buyer responses', 'Activity', 'Social feed'])
+test('card tabs match the run page tabs and their order, then the sections the run page keeps in Results', () => {
+  assert.deepEqual(RUN_CARD_TABS.map((t) => t.id), ['results', 'market', 'people', 'thinking', 'activity', 'feed', 'landing', 'brain'])
+  assert.deepEqual(RUN_CARD_TABS.map((t) => t.label), ['Results', 'Audience & world', 'People', 'Buyer responses', 'Activity', 'Social feed', 'Landing page', 'Brain response'])
+  // "Open full page" lands on Results for the two sections the run page shows there
+  assert.equal(fullPageTab('landing'), 'results')
+  assert.equal(fullPageTab('brain'), 'results')
+  assert.equal(fullPageTab('people'), 'people')
+})
+
+test('the brain tab shows only for runs that saved one, or when it was asked for', () => {
+  assert.ok(!cardTabs(['summary.json']).some((t) => t.id === 'brain'))
+  assert.ok(cardTabs(['summary.json', 'brain_response.json']).some((t) => t.id === 'brain'))
+  assert.ok(cardTabs(['summary.json'], 'brain').some((t) => t.id === 'brain'))
+  assert.equal(cardTabs([]).length, RUN_CARD_TABS.length - 1)
 })
 
 test('views from links, the agent and evidence labels map to card tabs', () => {
@@ -36,16 +47,19 @@ test('views from links, the agent and evidence labels map to card tabs', () => {
   assert.equal(tabForView('Thinking'), 'thinking')
   assert.equal(tabForView('activity'), 'activity')
   assert.equal(tabForView('Buyer responses'), 'thinking')
+  assert.equal(tabForView('landing'), 'landing')
+  assert.equal(tabForView('landing_page'), 'landing')
+  assert.equal(tabForView('brain_response'), 'brain')
   assert.equal(tabForView(''), 'results')
   assert.equal(tabForView('nonsense'), 'results')
 })
 
 test('arrow keys wrap, Home and End jump, other keys do nothing', () => {
   assert.equal(moveTab(RUN_CARD_TABS, 'results', 'ArrowRight'), 'market')
-  assert.equal(moveTab(RUN_CARD_TABS, 'results', 'ArrowLeft'), 'feed')
-  assert.equal(moveTab(RUN_CARD_TABS, 'feed', 'ArrowRight'), 'results')
+  assert.equal(moveTab(RUN_CARD_TABS, 'results', 'ArrowLeft'), 'brain')
+  assert.equal(moveTab(RUN_CARD_TABS, 'brain', 'ArrowRight'), 'results')
   assert.equal(moveTab(RUN_CARD_TABS, 'activity', 'Home'), 'results')
-  assert.equal(moveTab(RUN_CARD_TABS, 'market', 'End'), 'feed')
+  assert.equal(moveTab(RUN_CARD_TABS, 'market', 'End'), 'brain')
   assert.equal(moveTab(RUN_CARD_TABS, 'market', 'Enter'), null)
   assert.equal(moveTab([], 'market', 'ArrowRight'), null)
 })
