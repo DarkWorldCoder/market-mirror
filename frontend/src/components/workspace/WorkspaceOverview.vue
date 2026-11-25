@@ -43,7 +43,7 @@
       <SpendPanel :spend="insights.spend" />
     </div>
 
-    <h2 v-if="activeRuns.length" id="active-heading" class="overview-section-title">{{ activeRuns.length }} {{ activeRuns.length === 1 ? 'run' : 'runs' }} didn’t record a finish</h2>
+    <h2 v-if="activeRuns.length" id="active-heading" class="overview-section-title">{{ activeRuns.length }} {{ plural(activeRuns.length, { one: 'run', other: 'runs' }) }} didn’t record a finish</h2>
     <details v-if="activeRuns.length" class="overview-active">
       <summary>Show runs</summary>
       <p class="overview-live">Their last saved status still said running. Open one to see what was saved.</p>
@@ -101,6 +101,7 @@ import SpendPanel from './overview/SpendPanel.vue'
 import LiveNow from './overview/LiveNow.vue'
 import { api } from '../../workspace/api.js'
 import { namesOnDay, normalizeInsights, pollable, runSignature } from '../../workspace/overviewInsights.js'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, projects: { type: Array, default: () => [] }, mode: { type: String, default: 'dashboard' }, provider: { type: Object, default: () => ({}) }, loading: Boolean, theme: { type: String, default: 'light' } })
 const emit = defineEmits(['refresh', 'select-run'])

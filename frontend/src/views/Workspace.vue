@@ -21,7 +21,7 @@
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" :aria-current="view === 'skills' ? 'page' : undefined" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
           <RouterLink v-if="!signedIn" to="/workspace/connectors" :class="{ active: view === 'connectors' }" :aria-current="view === 'connectors' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connections</RouterLink>
         </div>
-        <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
+        <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ plural(searchResultCount, { one: 'result', other: 'results' }) }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
           <div class="ws-section-heading"><RouterLink to="/workspace/projects" :class="{ active: view === 'projects' }" :aria-current="view === 'projects' ? 'page' : undefined" @click="menuOpen = false">Projects</RouterLink><button v-if="canEdit" aria-label="Create project" title="Create project" @click="createProject"><Plus :size="15" /></button></div>
           <div class="ws-history">
@@ -131,6 +131,7 @@ import CompareRuns from '../components/workspace/CompareRuns.vue'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Pin, PinOff } from 'lucide-vue-next'
 import { pins, togglePin } from '../workspace/pins'
+import { plural } from '../workspace/plural.js'
 import { chatSyncError, chatSyncState, retryChatSync, syncStatusText } from '../workspace/chatSync.js'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'

@@ -8,7 +8,7 @@
         <h1>{{ activeProject ? activeProject.name : 'What do you want to explore?' }}</h1>
         <p class="dw-sub">{{ activeProject?.description || 'Ask a question, test an idea, or explore your results.' }}</p>
         <p v-if="!activeProject && latestRun" class="dw-context">
-          {{ runs.length }} saved {{ runs.length === 1 ? 'experiment' : 'experiments' }} · latest:
+          {{ runs.length }} saved {{ plural(runs.length, { one: 'experiment', other: 'experiments' }) }} · latest:
           <RouterLink :to="{ path: '/', query: { run: latestRun.name, show: 'reports' } }" :title="latestRun.title || latestRun.name">{{ shortTitle(latestRun.title || latestRun.name, 48) }}</RouterLink>
           <span v-if="latestRun.decision" class="dw-decision" :class="decisionTone(latestRun.decision)">Simulated verdict: {{ decisionText(latestRun.decision) }}</span>
         </p>
@@ -186,6 +186,7 @@ import { reportTitle, savedReportFor } from '../../workspace/resultRouting.js'
 import { CHAT_VIEWS, localViewIntent, slashView, splitSlash, viewIntro, viewTab } from '../../workspace/chatViews.js'
 import { evidencePrompt, localRunIntent, messageRun, nextStepChips, objectionAnswer, runCardIntro, segmentAnswer, shownChips, tabForView } from '../../workspace/runCard.js'
 import { continueEntries, decisionText, decisionTone, displayTitle, evidenceTitle, findEvidenceChat, isCompareRequest, pickCompareRuns, shortText as shortTitle } from '../../workspace/compareRuns.js'
+import { plural } from '../../workspace/plural.js'
 const props = defineProps({ runs: { type: Array, default: () => [] }, provider: { type: Object, default: () => ({}) }, theme: { default: 'light' } })
 const route = useRoute(), router = useRouter(), messages = ref([]), conversationId = ref(''), busy = ref(false), error = ref(''), selectedRun = ref(''), artifactFiles = ref({}), scrollArea = ref(null), context = ref(null), fileInput = ref(null), uploading = ref(false)
 watch(busy, value => window.dispatchEvent(new CustomEvent('mm-chat-status', { detail: { id: conversationId.value, status: value ? 'working' : 'idle' } })))

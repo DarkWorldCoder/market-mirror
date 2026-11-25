@@ -12,6 +12,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { cloudAccount } from '../../workspace/cloud.js'
+import { plural } from '../../workspace/plural.js'
 
 const props = defineProps({ chatId: { type: String, default: '' }, busy: Boolean })
 const people = ref([])
@@ -24,8 +25,8 @@ const tint = id => ['#e6e8ff', '#e4f3ed', '#fbefcf'][[...String(id)].reduce((sum
 const description = computed(() => others.value.map(person => `${person.email || name(person)} ${person.status === 'responding' ? 'is responding' : 'is viewing this conversation'}`).join(', '))
 const caption = computed(() => {
   const responding = others.value.filter(person => person.status === 'responding')
-  if (responding.length) return responding.length === 1 ? `${name(responding[0])} is responding` : `${responding.length} teammates responding`
-  return others.value.length === 1 ? `${name(others.value[0])} is viewing` : `${others.value.length} teammates viewing`
+  if (responding.length) return plural(responding.length, { one: `${name(responding[0])} is responding`, other: `${responding.length} teammates responding` })
+  return plural(others.value.length, { one: `${name(others.value[0])} is viewing`, other: `${others.value.length} teammates viewing` })
 })
 let timer, controller, generation = 0, pending = false
 async function heartbeat() {
