@@ -4,6 +4,8 @@ import { computed, ref } from 'vue'
 
 const empty = { mode: 'unknown', account: null, workspace: null, workspaces: [], csrf: '', signups: 'closed', first_account: false }
 export const account = ref({ ...empty })
+// A session check that fails for any reason other than "no accounts here".
+export const accountError = ref('')
 export const teamMode = computed(() => account.value.mode === 'accounts')
 export const signedIn = computed(() => teamMode.value && !!account.value.account)
 export const role = computed(() => (signedIn.value ? account.value.workspace?.role || 'viewer' : 'owner'))
@@ -36,8 +38,14 @@ async function call(path, { method = 'GET', body } = {}) {
 function apply(data) { account.value = { ...empty, ...data }; window.dispatchEvent(new Event('mm-account-changed')); return account.value }
 
 export async function loadAccount() {
+  accountError.value = ''
   try { return apply(await call('/api/auth/session')) }
-  catch { return apply({ mode: 'local' }) } // an older backend without accounts: behave as before
+  catch (error) {
+    // Only a missing auth route means an older backend without accounts.
+    if (error instanceof AccountError && error.status === 404) return apply({ mode: 'local' })
+    accountError.value = 'Cannot reach the server. Check that MarketMirror is running, then retry.'
+    return account.value
+  }
 }
 
 export const signUp = (values) => call('/api/auth/signup', { method: 'POST', body: values }).then(apply)

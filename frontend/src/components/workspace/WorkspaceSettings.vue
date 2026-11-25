@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Brain, SlidersHorizontal, LoaderCircle, Check, ChevronRight, Cpu, Wallet, Plug } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog'
 import { Button } from '../ui/button'
@@ -29,6 +29,21 @@ async function discoverLocalModels(){discovering.value=true;error.value='';try{l
 function chooseLocalModel(event){const selected=localModels.value?.models.find((item,index)=>String(index)===event.target.value);if(selected)llm.value={...llm.value,provider:selected.provider==='ollama'?'ollama':'custom',base_url:selected.base_url,model:selected.id,api_key:''}}
 const spending = ref({ process_limit_usd: 0, input_price_usd_per_mtok: '', output_price_usd_per_mtok: '' })
 const tabs = [{ id: 'models', label: 'Models', icon: Cpu }, { id: 'spending', label: 'Spending', icon: Wallet }, { id: 'memory', label: 'Memory', icon: Brain }, { id: 'jev', label: 'Decision engine', icon: SlidersHorizontal }, { id: 'connections', label: 'Connections', icon: Plug }]
+function selectTab(id) {
+  tab.value = id
+  saved.value = false
+  error.value = ''
+}
+function onTabKeydown(event) {
+  const keys = ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End']
+  if (!keys.includes(event.key)) return
+  event.preventDefault()
+  const index = tabs.findIndex(item => item.id === tab.value)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  selectTab(tabs[next].id)
+  nextTick(() => document.querySelector(`[data-settings-tab="${tabs[next].id}"]`)?.focus())
+}
 function changeProvider() {
   const selected = state.value?.llm?.providers.find(item => item.id === llm.value.provider)
   if (selected) llm.value = { ...llm.value, model: selected.model, base_url: selected.base_url, api_key: '' }
@@ -77,10 +92,10 @@ async function save() {
         <DialogDescription>Models, spending and memory.</DialogDescription>
       </DialogHeader>
       <div class="settings-body">
-      <nav class="settings-tabs workspace-modal-tabs" aria-label="Settings sections">
-        <button v-for="item in tabs" :key="item.id" type="button" :class="{ active: tab === item.id }" :aria-pressed="tab === item.id" @click="tab = item.id; saved = false; error = ''"><component :is="item.icon" :size="16" />{{ item.label }}</button>
-      </nav>
-      <div class="settings-main">
+      <div class="settings-tabs workspace-modal-tabs" role="tablist" aria-label="Settings sections" @keydown="onTabKeydown">
+        <button v-for="item in tabs" :key="item.id" :id="`settings-tab-${item.id}`" :data-settings-tab="item.id" type="button" role="tab" :class="{ active: tab === item.id }" :aria-selected="tab === item.id" :tabindex="tab === item.id ? 0 : -1" @click="selectTab(item.id)"><component :is="item.icon" :size="16" />{{ item.label }}</button>
+      </div>
+      <div class="settings-main" role="tabpanel" :aria-labelledby="`settings-tab-${tab}`">
       <LoadingSkeleton v-if="loading" class="ws-dialog-skeleton" :lines="4" label="Loading your configuration" />
       <form v-else-if="state" class="settings-form" @submit.prevent="save">
         <div v-if="tab === 'connections'" class="settings-fields">
