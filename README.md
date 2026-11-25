@@ -817,15 +817,24 @@ Tests mock model calls and do not need a live model key. CI also checks generate
 | You want to… | Read this |
 |---|---|
 | Install MarketMirror and connect an assistant | [Local installation and agent setup](docs/LOCAL_AGENTS.md) |
+| Try the local decision workspace without an API key | [Local decision workspace](docs/LOCAL-APP.md) |
 | Keep a separate copy of the detailed setup and reference | [Technical guide](docs/TECHNICAL_GUIDE.md) |
+| Set up projects, browser observations and remote MCP connectors | [Workspace configuration](docs/workspace-configuration.md) · [Browser observations](docs/workspace-browser.md) · [Remote MCP connections](docs/workspace-connectors.md) |
+| Understand how the local workspace is built | [Workspace design](docs/WORKSPACE_DESIGN.md) |
 | Choose AI providers or run a larger audience | [Providers and scale](docs/PROVIDERS_AND_SCALE.md) |
 | Prepare buyer specifications, ads, and test files | [Input formats](docs/INPUT_FORMATS.md) |
+| Label real ads and map your own creatives onto the same patterns | [Ad patterns](docs/ad-patterns.md) |
 | Test an actual product website | [Website testing](docs/WEBSITE_TESTING.md) |
+| Turn one real objection into a first test | [First real test template](docs/guides/first-real-test/experiment-template.md) |
+| Use benchmark priors for launch decisions | [Launch patterns](docs/launch-patterns.md) |
 | Install the agent plugin | [Plugin guide](plugin/README.md) · [Codex setup](codex/README.md) |
+| Distribute the plugin to local agents | [Publishing](docs/PUBLISHING.md) |
 | Build an integration | [REST API](docs/API.md) · [OpenAPI schema](docs/openapi.json) · [Python SDK](sdk/README.md) |
-| Understand the research and proposed improvements | [Human-behavior research](docs/HUMAN_BEHAVIOR_RESEARCH.md) |
+| Review accounts and background jobs | [Accounts](docs/ACCOUNTS.md) · [Jobs](docs/JOBS.md) |
+| See the opt-in predicted brain-response view | [Brain response](docs/brain-response.md) |
+| Understand the research and proposed improvements | [Human-behavior research](docs/HUMAN_BEHAVIOR_RESEARCH.md) · [Emotion research](docs/research/emotion-research-2026-10.md) · [Feature research](docs/research/feature-research-2026-10.md) · [Realism and trust](docs/research/realism-and-trust-2026-11.md) · [Verdict thresholds](docs/research/verdict-thresholds-2026-11.md) · [Speed research](docs/SPEED_RESEARCH.md) · [ESOMAR-20](docs/ESOMAR-20.md) |
+| Keep the upstream MiroFish reference | [Original MiroFish README](docs/MIROFISH-UPSTREAM.md) |
 | Contribute or report a problem | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) |
-
 ## Support the project
 
 <img src="docs/images/marketmirror-star.svg" width="100%" alt="Support the project: a star outline draws itself and fills yellow, a cursor presses the Star button and it turns to Starred. If MarketMirror saves you one bad launch, a star helps other people find it; tell us what you tested, every issue gets an answer." />
