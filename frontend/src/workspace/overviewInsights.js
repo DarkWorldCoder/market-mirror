@@ -174,3 +174,9 @@ export function liveProgress(status, fallback = {}) {
   const p = finite(v) ? v : obj(fallback).progress_percent
   return finite(p) ? Math.min(100, Math.max(0, p)) : null
 }
+
+// A stable signature of the run list: a new run or a changed status makes the
+// cross-run insights reload once, without reacting to array identity.
+export function runSignature(runs) {
+  return (runs || []).map((run) => `${run.name}:${run.status || ''}`).join('|')
+}
