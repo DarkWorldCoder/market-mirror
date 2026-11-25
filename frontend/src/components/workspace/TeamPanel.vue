@@ -127,6 +127,7 @@ import { NativeSelect } from '../ui/native-select'
 import { account as accountState, changePassword, createWorkspace, isOwner, role, selectWorkspace, signedIn, signOut, team } from '../../workspace/account.js'
 import { ROLES, roleHint, roleLabel } from '../../workspace/roles.js'
 import { api } from '../../workspace/api.js'
+import { formatDate } from '../../workspace/format.js'
 
 const router = useRouter()
 const account = computed(() => accountState.value)
@@ -136,7 +137,7 @@ const workspaceName = ref(''), newName = ref('')
 const inviteEmail = ref(''), inviteRole = ref('editor'), inviteDays = ref(7), link = ref(''), copied = ref(false)
 const currentPassword = ref(''), newPassword = ref(''), passwordChanged = ref(false)
 const roleText = (r) => ({ owner: 'an owner', editor: 'an editor', viewer: 'a viewer' })[r] || r
-const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+const when = (iso) => formatDate(iso, { day: 'numeric', month: 'short' })
 const intro = computed(() => signedIn.value ? "Everyone here shares this workspace's chats, projects and saved runs." : 'Single-user mode on this computer.')
 
 async function load() {

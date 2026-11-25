@@ -9,6 +9,7 @@ import LoadingSkeleton from './LoadingSkeleton.vue'
 import ModelCards from './ModelCards.vue'
 import './modal-controls.css'
 import { api } from '../../workspace/api'
+import { formatMoney } from '../../workspace/format.js'
 import { connectionsSummary, connectorStatus } from '../../workspace/connections.js'
 import { changedSections } from '../../workspace/settingsChanges.js'
 
@@ -45,7 +46,7 @@ function onTabKeydown(event) {
   choose(tabs[next].id)
   nextTick(() => document.querySelector(`[data-settings-tab="${tabs[next].id}"]`)?.focus())
 }
-const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(value || 0)
+const money = value => formatMoney(value)
 const memory = ref({ backend: 'local', embeddings: false, extract_activity: false, cognee_url: '', zep_api_key: '' })
 const jev = ref({ route: 'typesafe', model: '', parallel: 4, timeout: 60, retries: 3, labels: 'auto', ssr_engine: 'embeddings', api_key: '' })
 const connectors = ref([]), models = ref([]), connectionsLoading = ref(false)
