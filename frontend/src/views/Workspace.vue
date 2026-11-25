@@ -19,7 +19,7 @@
           <RouterLink to="/workspace/reports" :class="{ active: view === 'reports' }" @click="menuOpen = false"><ChartNoAxesCombined class="ico" />Reports</RouterLink>
           <RouterLink to="/workspace/compare" :class="{ active: view === 'compare' }" :aria-current="view === 'compare' ? 'page' : undefined" @click="menuOpen = false"><GitCompare class="ico" />Compare</RouterLink>
           <RouterLink to="/workspace/skills" :class="{ active: view === 'skills' }" @click="menuOpen = false"><Shapes class="ico" />Skills</RouterLink>
-          <RouterLink v-if="!signedIn" :to="{path:'/',query:{connectors:'1'}}" :class="{ active: route.query.connectors === '1' }" @click="menuOpen = false"><Plug class="ico" />Connectors</RouterLink>
+          <RouterLink v-if="!signedIn" to="/workspace/connectors" :class="{ active: view === 'connectors' }" :aria-current="view === 'connectors' ? 'page' : undefined" @click="menuOpen = false"><Plug class="ico" />Connections</RouterLink>
         </div>
         <p v-else-if="searchResultCount" id="ws-search-count" class="ws-search-caption" role="status" aria-live="polite">{{ searchResultCount }} {{ searchResultCount === 1 ? 'result' : 'results' }}</p>
         <section v-if="!search.trim() || filteredProjects.length" class="ws-side-section" aria-label="Projects">
@@ -70,7 +70,8 @@
         <WorkspaceOverview v-if="view === 'dashboard' || view === 'reports'" :runs="runs" :projects="projects" :mode="view" :provider="provider" :loading="!loaded" :theme="theme" @refresh="refresh" @select-run="openRun" />
         <RunView v-else-if="view === 'run'" :key="route.params.run" :name="route.params.run" :theme="theme" />
 
-        <ChatWorkspace v-else-if="view === 'chat' || view === 'connectors'" :runs="runs" :provider="provider" :theme="theme" />
+        <ChatWorkspace v-else-if="view === 'chat'" :runs="runs" :provider="provider" :theme="theme" />
+        <ConnectionsPage v-else-if="view === 'connectors'" :runs="runs" :theme="theme" />
         <CompareRuns v-else-if="view === 'compare'" :runs="runs" :theme="theme" />
         <TeamPanel v-else-if="view === 'team'" />
 
@@ -130,6 +131,7 @@ import { Pin, PinOff } from 'lucide-vue-next'
 import { pins, togglePin } from '../workspace/pins'
 import MarketMirrorLogo from '../components/MarketMirrorLogo.vue'
 import ChatWorkspace from '../components/workspace/ChatWorkspace.vue'
+import ConnectionsPage from '../components/workspace/ConnectionsPage.vue'
 import WorkspaceOverview from '../components/workspace/WorkspaceOverview.vue'
 import RunView from '../components/workspace/RunView.vue'
 import { api, token, ensureSession } from '../workspace/api.js'
@@ -211,7 +213,7 @@ function onSystemTheme(event) {
 
 const view = computed(() => (route.name === 'NotFound' ? 'notfound' : route.params.run ? 'run' : route.params.page || (route.path === '/' ? 'chat' : 'dashboard')))
 const crumb = computed(() => (view.value === 'run' ? runs.value.find((r) => r.name === route.params.run)?.title || route.params.run
-  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connectors', compare: 'Compare', notfound: 'Page not found' }[view.value] || 'Chat'))
+  : { dashboard: 'Overview', team: 'Workspace and team', chat: 'Chat', reports: 'Reports', projects: 'Projects', skills: 'Skills', connectors: 'Connections', compare: 'Compare', notfound: 'Page not found' }[view.value] || 'Chat'))
 const pinnedRuns = computed(() => pins.value.map((name) => runs.value.find((r) => r.name === name)).filter(Boolean))
 const shortcutsOpen = ref(false)
 const spend = ref({ spent: 0, limit: 0 })
@@ -284,8 +286,8 @@ const skillTints = ['rgba(142, 128, 220, .16)', 'rgba(77, 157, 147, .16)', 'rgba
 const runDestinations = [{ view: 'market', label: '3D world & audience' }, { view: 'results', label: 'Reports & decisions' }, { view: 'activity', label: 'Recorded agents' }, { view: 'thinking', label: 'Buyer responses' }, { view: 'feed', label: 'Social feed' }]
 const matchingSkillGroups = computed(() => featureGroups.filter(group => filteredSkills.value.some(skill => skill.group === group)))
 const searchedSkills = computed(() => search.value.trim() ? searchFeatures(search.value) : [])
-const categoryIcons = { Workspace: FolderOpen, 'Buyer research': UsersRound, Advertising: Megaphone, Strategy: Compass, 'Go to market': Sparkles, Validation: ChartNoAxesCombined }
-const categoryDescriptions = { Workspace: 'Your projects, saved evidence, and configuration.', 'Buyer research': 'Understand audiences through source evidence and simulated conversations.', Advertising: 'Explore creative performance and compare alternatives.', Strategy: 'Prepare campaigns and tests around a clear decision.', 'Go to market': 'Work through positioning, sales, pricing, and buyer journeys.', Validation: 'Check simulated conclusions against real outcomes.', 'Custom skills': 'Reusable instructions saved by this workspace.' }
+const categoryIcons = { Workspace: FolderOpen, 'Show in chat': MessageSquare, 'Buyer research': UsersRound, Advertising: Megaphone, Strategy: Compass, 'Go to market': Sparkles, Validation: ChartNoAxesCombined }
+const categoryDescriptions = { 'Show in chat': 'Every page and panel of the app, opened inline in the chat. Free: read from saved files, no model call.', Workspace: 'Your projects, saved evidence, and configuration.', 'Buyer research': 'Understand audiences through source evidence and simulated conversations.', Advertising: 'Explore creative performance and compare alternatives.', Strategy: 'Prepare campaigns and tests around a clear decision.', 'Go to market': 'Work through positioning, sales, pricing, and buyer journeys.', Validation: 'Check simulated conclusions against real outcomes.', 'Custom skills': 'Reusable instructions saved by this workspace.' }
 const skillIcons = {
  project: FolderOpen, runs: Layers, settings: Settings2, models: Cpu, connectors: Plug, search: Search, health: ShieldCheck, report: FileText, simulation: Workflow,
  'seed-check': BookOpen, 'market-test': FlaskConical, research: Search, intake: Database, analytics: ChartNoAxesCombined, personas: UsersRound, ask: MessageSquare, 'focus-group': UsersRound, survey: ClipboardList, questionnaire: ClipboardList, 'choice-test': Scale, context: Brain, thoughts: Brain,
@@ -294,7 +296,7 @@ const skillIcons = {
  committee: Network, creative: Image, battlecard: ShieldCheck, journey: Route, pricing: Tag, competitors: GitCompare, teardown: Globe, roleplay: Mic, whatif: Split, personalize: Target, geo: Globe, voc: MessageSquare, cascade: Network, 'gtm-suite': Compass,
  predict: ChartNoAxesCombined, forecast: Clock, study: Layers, calibrate: Scale, holdout: Split, split: Split, benchmark: Scale, compare: GitCompare, spend: Wallet,
 }
-function skillLink(skill) { return { path: '/', query: skill.custom ? { skill: skill.skillId } : skill.action ? { action: skill.action } : { prompt: skill.prompt } } }
+function skillLink(skill) { return { path: '/', query: skill.custom ? { skill: skill.skillId } : skill.view ? { open: skill.id } : skill.action ? { action: skill.action } : { prompt: skill.prompt } } }
 async function moveChat(chatId) {
   activeChatMenu.value = ''
   menuOpen.value = false
@@ -450,7 +452,6 @@ function refreshVisible() { if (!document.hidden) { document.title = document.ti
 onMounted(() => {
   systemTheme?.addEventListener?.('change', onSystemTheme)
   loadChats()
-  if (route.params.page === 'connectors') router.replace({ path: '/', query: { connectors: '1' } })
   window.addEventListener('mm-chats-updated', loadChats)
   window.addEventListener('mm-chats-loaded', loadChats)
   window.addEventListener('mm-chat-status', onChatStatus)

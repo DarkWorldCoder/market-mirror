@@ -2,15 +2,42 @@ import { reactive, ref } from 'vue'
 import { api } from './api.js'
 // Discovery describes real engine capabilities. Selecting a feature prepares a request;
 // it never implies that an experiment has run or a data account is connected.
-const feature = (id, label, group, description, prompt, extra = {}) => ({ id, command: `/${id}`, label, group, description, prompt, mode: 'model', ...extra })
+// `cost` is the badge in the slash menu: 'free' answers from saved files or opens a local page with no model call;
+// 'approval' goes to the chat agent (one chat-model reply), and anything that runs simulated buyers shows its cost on
+// an approval card first.
+const FREE_ACTIONS = new Set(['settings', 'models', 'connectors', 'project', 'runs'])
+const feature = (id, label, group, description, prompt, extra = {}) => ({
+  id, command: `/${id}`, label, group, description, prompt, mode: 'model', ...extra,
+  cost: extra.cost || (extra.view || FREE_ACTIONS.has(extra.action) ? 'free' : 'approval')
+})
+// Every view the app has, opened inline in the chat (the same names as the chat agent's open_view). Free.
+const view = (id, label, description, viewName, aliases = [], extra = {}) =>
+  feature(id, label, 'Show in chat', description, '', { view: viewName, mode: 'read-only', aliases, ...extra })
 export const featureCatalog = reactive([
-  feature('experiment', 'New experiment', 'Workspace', 'Open guided setup for a marketing experiment.', '', { action: 'experiment', mode: 'configuration', aliases: ['new-experiment'] }),
+  view('people', 'People', 'Every simulated person in a run. Add words to filter: /people Kenya, /people no.', 'people', ['personas-list', 'persons']),
+  view('responses', 'Buyer responses', 'What each buyer said. Add yes, maybe, no or price to filter.', 'buyer_responses', ['buyer-responses', 'answers', 'said']),
+  view('results', 'Run results', 'The simulated verdict, key numbers and the plain-language report.', 'results', ['highlights']),
+  view('activity', 'Activity', 'What happened in each social round and the analyst panel.', 'activity', ['timeline', 'rounds']),
+  view('feed', 'Social feed', 'Simulated posts, replies and likes by platform.', 'social_feed', ['social', 'posts']),
+  view('map', 'World map', 'The run’s people on a map, with who talked to whom.', 'world_map', ['world', 'globe', 'audience-map']),
+  view('landing', 'Landing page analysis', 'Where simulated visitors dropped off and the fixes to test.', 'landing', ['landing-page', 'teardown']),
+  view('brain', 'Brain response', 'Predicted brain response to the ads (research model).', 'brain_response', ['brain-response', 'tribe']),
+  view('compare', 'Compare runs', 'Two saved runs side by side.', 'compare', ['compare-runs']),
+  view('dashboard', 'Dashboard', 'Audience map and insights across every saved run.', 'insights', ['overview', 'insights-all']),
+  view('dashboard-map', 'Audience map across runs', 'Where the people of all your runs live.', 'dashboard_map', ['geo', 'all-audiences']),
+  view('insights', 'Insights panel', 'One dashboard panel: /insights objections, intent, audiences, trust, spend, calendar or live.', 'insights', ['panel']),
+  view('projects', 'Projects', 'Your projects, each with its own chats and context.', 'projects', ['project-list']),
+  view('skills', 'Skills', 'Everything you can do from this chat.', 'skills', ['catalog', 'tools']),
+  view('connectors', 'Connector status', 'Which connectors and models are set up. Manage them on the full page.', 'connectors', ['connector-status']),
+  view('settings', 'Settings summary', 'Model, memory and spending limit at a glance. Change them in Settings.', 'settings_summary', ['settings-summary', 'model-settings']),
+  view('spend', 'Model spend', 'What model calls cost so far, the spending limit and the run caps.', 'spend', ['spend-cap', 'cost', 'budget']),
+  feature('new-experiment', 'New experiment', 'Workspace', 'Set up a marketing experiment in this chat. Nothing spends until you approve it.', '', { action: 'experiment', mode: 'configuration', aliases: ['experiment'] }),
   feature('analyze', 'Analyze a website', 'Workspace', 'Capture a page and analyze it with your chosen model or team.', '', { action: 'analyze', mode: 'model', aliases: ['browser', 'web-analysis'] }),
   feature('project', 'Create a project', 'Workspace', 'Turn a brief into a saved project.', 'Help me create a project. Ask for its name, product, audience, and decision.', { action: 'project', mode: 'configuration', aliases: ['upload', 'understand'] }),
   feature('runs', 'Find saved reports', 'Workspace', 'Search previous runs and their artifacts.', 'Show my saved runs and reports.', { action: 'runs', mode: 'read-only', aliases: ['list', 'results', 'export'] }),
-  feature('settings', 'Workspace settings', 'Workspace', 'Configure persona memory and the Jev decision engine.', '', { action: 'settings', mode: 'configuration', aliases: ['memory', 'jev', 'configure'] }),
+  feature('open-settings', 'Open workspace settings', 'Workspace', 'Configure persona memory and the Jev decision engine.', '', { action: 'settings', mode: 'configuration', aliases: ['memory', 'jev', 'configure'] }),
   feature('models', 'Choose a model', 'Workspace', 'See available providers and change the chat model.', '', { action: 'models', mode: 'configuration', aliases: ['provider', 'setup'] }),
-  feature('connectors', 'Connect data and tools', 'Workspace', 'Add evidence, analytics exports, and model providers.', '', { action: 'connectors', mode: 'configuration', aliases: ['connections', 'integrations'] }),
+  feature('connect', 'Connect data and tools', 'Workspace', 'Add evidence, analytics exports, and model providers.', '', { action: 'connectors', mode: 'configuration', aliases: ['connections', 'integrations'] }),
   feature('search', 'Search run evidence', 'Workspace', 'Find local evidence with ranked text search.', 'Search the selected run for evidence about ', { mode: 'read-only' }),
   feature('health', 'Check local connection', 'Workspace', 'Inspect backend and provider readiness.', 'Check the local service and provider status.', { mode: 'read-only', aliases: ['doctor', 'status'] }),
   feature('report', 'Explore the market report', 'Workspace', 'Read saved findings, decisions, and downloadable artifacts.', 'Summarize the selected run’s saved market report, cite the evidence, and show available artifacts.', { mode: 'read-only', aliases: ['market-report', 'chat', 'export'] }),
@@ -21,8 +48,8 @@ export const featureCatalog = reactive([
   feature('intake', 'Build personas from evidence', 'Buyer research', 'Use CRM, reviews, interviews, or transcripts.', 'Help me build evidence-grounded personas from my customer files. Ask me to attach the evidence.'),
   feature('analytics', 'Analyze GA4 or PostHog audiences', 'Buyer research', 'Use aggregate analytics exports to ground personas.', 'Help me analyze an aggregate GA4 or PostHog export and build an audience brief. Ask for a CSV or JSON export and preserve its provenance.', { aliases: ['ga4', 'posthog', 'analytics-audience'] }),
   feature('personas', 'Inspect buyer personas', 'Buyer research', 'Review profiles and their evidence.', 'Show the personas and evidence available in the selected run.', { mode: 'read-only', aliases: ['profiles'] }),
-  feature('ask', 'Ask the buyers', 'Buyer research', 'Question saved personas after a run.', 'Ask the saved buyer personas this question: ', { aliases: ['ask_buyers', 'interview'] }),
-  feature('focus-group', 'Run a focus group', 'Buyer research', 'Moderated discussion between simulated buyers.', 'Help me prepare a focus group with the selected personas. The topic is '),
+  feature('ask', 'Ask a person', 'Buyer research', 'Ask one simulated buyer a question. One model call, after you approve it.', 'Ask the saved buyer personas this question: ', { aliases: ['ask_buyers', 'interview'] }),
+  feature('focus-group', 'Run a focus group', 'Buyer research', 'Moderated discussion between simulated buyers. Shows the cost before it runs.', 'Help me prepare a focus group with the selected personas. The topic is '),
   feature('survey', 'Survey the audience', 'Buyer research', 'Structured reactions and response estimates.', 'Help me design a buyer survey for ', { aliases: ['survey-estimate', 'ssr', 'affect-ssr'] }),
   feature('questionnaire', 'Create a questionnaire', 'Buyer research', 'Reusable questions with structured responses.', 'Help me create a questionnaire for this research question: '),
   feature('choice-test', 'Compare preferences and pricing', 'Buyer research', 'MaxDiff, conjoint, and Gabor–Granger studies.', 'Help me choose and design a MaxDiff, conjoint, or Gabor–Granger study for '),
@@ -66,8 +93,7 @@ export const featureCatalog = reactive([
   feature('holdout', 'Evaluate held-out experiments', 'Validation', 'Compare against a training-mean baseline.', 'Help me design a held-out backtest with independent experiments and a training-mean baseline.', { aliases: ['holdout-backtest'] }),
   feature('split', 'Create a real-data holdout', 'Validation', 'Separate training and evaluation evidence.', 'Help me split real evidence into training and holdout partitions before testing.', { aliases: ['real-split'] }),
   feature('benchmark', 'Run a human-data benchmark', 'Validation', 'Compare against supported open datasets.', 'Help me choose a supported human-data benchmark and explain what it can validate.', { aliases: ['bench'] }),
-  feature('compare', 'Compare model providers', 'Validation', 'Evaluate the same task across available providers.', 'Help me design a fair comparison across my configured model providers.'),
-  feature('spend', 'Review the simulation spend cap', 'Validation', 'Inspect or configure run spending limits.', 'Show the current simulation spend cap and explain any proposed changes before applying them.', { aliases: ['spend-cap'], mode: 'configuration' }),
+  feature('compare-models', 'Compare model providers', 'Validation', 'Evaluate the same task across available providers.', 'Help me design a fair comparison across my configured model providers.'),
 ])
 
 const builtInFeatures = [...featureCatalog]
@@ -94,5 +120,10 @@ export function loadCustomSkills(force = false) {
 }
 export function searchFeatures(query = '') {
   const words = query.replace(/^\//, '').trim().toLowerCase().split(/\s+/).filter(Boolean)
-  return featureCatalog.filter(item => words.every(word => [item.id, item.command, item.label, item.group, item.description, ...(item.aliases || [])].join(' ').toLowerCase().includes(word)))
+  const hits = featureCatalog.filter(item => words.every(word => [item.id, item.command, item.label, item.group, item.description, ...(item.aliases || [])].join(' ').toLowerCase().includes(word)))
+  // "/spend" lists /spend before the commands that only mention spend in their description
+  const typed = words.length === 1 ? `/${words[0]}` : ''
+  if (!typed) return hits
+  const rank = item => (item.command === typed ? 0 : item.command.startsWith(typed) ? 1 : (item.aliases || []).some(a => `/${a}`.startsWith(typed)) ? 2 : 3)
+  return hits.map((item, i) => [rank(item), i, item]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , item]) => item)
 }

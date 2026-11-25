@@ -17,10 +17,10 @@
       </ul>
 
       <div class="rcc-tabs workspace-modal-tabs" role="tablist" :aria-label="`Views of ${stats.title || name}`" @keydown="onTabKey">
-        <button v-for="t in RUN_CARD_TABS" :id="`${uid}-tab-${t.id}`" :key="t.id" type="button" role="tab" :aria-selected="tab === t.id" :aria-controls="`${uid}-panel-${t.id}`" :tabindex="tab === t.id ? 0 : -1" @click="select(t.id)">{{ t.label }}</button>
+        <button v-for="t in tabs" :id="`${uid}-tab-${t.id}`" :key="t.id" type="button" role="tab" :aria-selected="tab === t.id" :aria-controls="`${uid}-panel-${t.id}`" :tabindex="tab === t.id ? 0 : -1" @click="select(t.id)">{{ t.label }}</button>
       </div>
 
-      <template v-for="t in RUN_CARD_TABS" :key="t.id">
+      <template v-for="t in tabs" :key="t.id">
         <div v-if="visited.has(t.id)" v-show="tab === t.id" :id="`${uid}-panel-${t.id}`" class="rcc-panel" role="tabpanel" :aria-labelledby="`${uid}-tab-${t.id}`" tabindex="0">
           <template v-if="t.id === 'results'">
             <LoadingSkeleton v-if="results.loading" variant="cards" :lines="4" label="Loading the results" />
@@ -35,55 +35,33 @@
 
           <RunAudienceCard v-else-if="t.id === 'market'" class="rcc-audience" :name="name" :theme="theme" />
 
+          <PeopleExplorer v-else-if="t.id === 'people'" compact :name="name" :theme="theme" :initial-filters="peopleFilters" @ask="(p) => act('ask', p)" />
+
           <template v-else-if="t.id === 'thinking'">
             <LoadingSkeleton v-if="buyers.loading" :lines="5" label="Loading what the buyers said" />
             <p v-else-if="buyers.error" class="rcc-error" role="alert">{{ buyers.error }} <button type="button" class="rcc-link" @click="loadBuyers">Try again</button></p>
-            <p v-else-if="!buyers.survey" class="rcc-empty">No buyer survey in this run.</p>
-            <template v-else>
-              <div class="rcc-filter" role="group" aria-label="Show answers by verdict">
-                <button v-for="f in verdictFilters" :key="f.id" type="button" :aria-pressed="verdict === f.id" @click="verdict = f.id; shown = 8">{{ f.label }} <span>{{ formatCount(f.count) }}</span></button>
-              </div>
-              <ol v-if="responses.length" class="rcc-responses">
-                <li v-for="r in responses.slice(0, shown)" :key="r.id">
-                  <header><b>{{ r.who }}</b><span v-if="r.verdict" class="rcc-said" :class="r.verdict">{{ verdictWord[r.verdict] }}</span></header>
-                  <p v-if="r.said" class="rcc-quote">“{{ r.said }}”</p>
-                  <p v-if="r.objection" class="rcc-why"><span>Holding back:</span> {{ r.objection }}</p>
-                  <p v-if="r.change" class="rcc-why"><span>Would change their mind:</span> {{ r.change }}</p>
-                </li>
-              </ol>
-              <p v-else class="rcc-empty">No answers with words for this verdict.</p>
-              <button v-if="responses.length > shown" type="button" class="rcc-link rcc-show-more" @click="shown += 8">Show 8 more of {{ formatCount(responses.length - shown) }}</button>
-              <p class="rcc-note">Written by a model playing each invented person. Simulated.</p>
-            </template>
+            <p v-else-if="buyers.loaded && !buyers.survey && !buyers.feed && !buyers.stream" class="rcc-empty">No buyer survey or saved thoughts in this run.</p>
+            <BuyerResponses v-else-if="buyers.loaded" :survey="buyers.survey" :feed="buyers.feed" :stream="buyers.stream" :index="buyers.index" :initial-filters="responseFilters" @ask="askById" />
           </template>
 
           <template v-else-if="t.id === 'activity'">
             <LoadingSkeleton v-if="activity.loading" :lines="6" label="Loading the recorded activity" />
-            <p v-else-if="!rounds.length && !actors.length" class="rcc-empty">No activity was saved in this run.</p>
-            <template v-else>
-              <ul v-if="mix.length" class="rcc-mix" aria-label="Actions recorded, simulated">
-                <li v-for="m in mix.slice(0, 6)" :key="m.key"><b>{{ formatCount(m.count) }}</b> {{ m.label }}</li>
-              </ul>
-              <section v-if="rounds.length" class="rcc-rounds" aria-label="Actions by round">
-                <h4>Actions by round</h4>
-                <ol>
-                  <li v-for="r in rounds" :key="r.round">
-                    <span>Round {{ r.round }}</span>
-                    <span class="rcc-bar" aria-hidden="true"><i :style="{ width: `${Math.max(2, r.share)}%` }"></i></span>
-                    <b>{{ formatCount(r.total) }}</b>
-                  </li>
-                </ol>
-              </section>
-              <section v-if="actors.length" class="rcc-actors" aria-label="Most active people">
-                <h4>Most active people</h4>
-                <ol><li v-for="a in actors" :key="a.id"><b>{{ a.who }}</b><span>{{ a.detail }}</span></li></ol>
-              </section>
+            <template v-else-if="activity.loaded">
+              <RunActivity :timeline="activity.timeline" :panel="activity.panel" :agents="activity.agents" :theme="theme" />
               <p class="rcc-note">Recorded actions from the simulation. Saved results do not mean anything is running now.</p>
             </template>
           </template>
 
           <SocialFeedPlatform v-else-if="t.id === 'feed' && feedReady" :name="name" :files="detail.files || []" />
           <p v-else-if="t.id === 'feed'" class="rcc-empty">No social posts were saved in this run.</p>
+
+          <LandingAnalysis v-else-if="t.id === 'landing'" :name="name" :files="detail.files || []" :title="stats.title || name" :level="4" @prompt="landingPrompt" />
+
+          <template v-else-if="t.id === 'brain'">
+            <LoadingSkeleton v-if="brain.loading" :lines="4" label="Loading the brain response" />
+            <BrainResponseSection v-else-if="brainReady" :brain="brain.data" :feed="brain.feed" :theme="theme" />
+            <p v-else-if="brain.loaded" class="rcc-empty">This run saved no brain response. It is an optional research add-on (TRIBE v2) that runs on your own server.</p>
+          </template>
         </div>
       </template>
 
@@ -97,7 +75,7 @@
             <button v-for="c in choices" :key="c.name" type="button" @click="compareWith(c.name)"><span>{{ c.title }}</span><small v-if="c.decision" class="dw-decision" :class="decisionTone(c.decision)">{{ decisionText(c.decision) }}</small></button>
           </PopoverContent>
         </Popover>
-        <RouterLink :to="{ path: `/workspace/runs/${name}`, query: tab === 'results' ? {} : { view: tab } }"><ExternalLink :size="15" aria-hidden="true" />Open full page</RouterLink>
+        <RouterLink :to="{ path: `/workspace/runs/${name}`, query: fullPageTab(tab) === 'results' ? {} : { view: fullPageTab(tab) } }"><ExternalLink :size="15" aria-hidden="true" />Open full page</RouterLink>
         <button v-if="downloadFile" type="button" :disabled="downloading" @click="save"><Download :size="15" aria-hidden="true" />{{ downloading ? 'Downloading…' : 'Download report' }}</button>
       </footer>
       <p class="rcc-note rcc-foot">Asking a person and focus groups use model calls. You see the cost and approve it first.</p>
@@ -114,16 +92,23 @@ import ReadableReport from './ReadableReport.vue'
 import { api, download } from '../../workspace/api.js'
 import { presentReport } from '../../workspace/reportPresentation.js'
 import { decisionText, decisionTone } from '../../workspace/compareRuns.js'
-import { formatCount } from '../../workspace/numbers.js'
-import { RUN_CARD_TABS, actionMix, activityRounds, buyerResponses, compareChoices, hasFeed, moveTab, reportDownloadFile, resultsFile, runCardStats, tabForView, topActors, verdictCounts } from '../../workspace/runCard.js'
+import { brainRows } from '../../workspace/brainResponse.js'
+import { cardTabs, compareChoices, fullPageTab, hasFeed, moveTab, reportDownloadFile, resultsFile, runCardStats, tabForView } from '../../workspace/runCard.js'
 const RunAudienceCard = defineAsyncComponent(() => import('./RunAudienceCard.vue'))
+const PeopleExplorer = defineAsyncComponent(() => import('./PeopleExplorer.vue'))
 const SocialFeedPlatform = defineAsyncComponent(() => import('./SocialFeedPlatform.vue'))
 const ReportBrowser = defineAsyncComponent(() => import('./ReportBrowser.vue'))
+const LandingAnalysis = defineAsyncComponent(() => import('./LandingAnalysis.vue'))
+const BuyerResponses = defineAsyncComponent(() => import('./BuyerResponses.vue'))
+const RunActivity = defineAsyncComponent(() => import('./RunActivity.vue'))
+const BrainResponseSection = defineAsyncComponent(() => import('./BrainResponseSection.vue'))
 
 const props = defineProps({
   name: { type: String, required: true },
   initialTab: { type: String, default: 'results' },
   initialVerdict: { type: String, default: '' },
+  // filters from the chat for the People and Buyer responses tabs ({ country, segment, verdict, objection, query })
+  filters: { type: Object, default: null },
   runs: { type: Array, default: () => [] },
   theme: { type: String, default: 'light' }
 })
@@ -133,13 +118,24 @@ const detail = ref(null), loading = ref(true), error = ref('')
 const tab = ref(tabForView(props.initialTab)), visited = reactive(new Set([tab.value]))
 const allReports = ref(false), compareOpen = ref(false), downloading = ref(false)
 const results = reactive({ loading: false, error: '', report: null })
-const buyers = reactive({ loading: false, error: '', survey: null, loaded: false })
-const activity = reactive({ loading: false, loaded: false, timeline: [], stats: [] })
-const verdict = ref(['yes', 'maybe', 'no'].includes(props.initialVerdict) ? props.initialVerdict : ''), shown = ref(8)
-const verdictWord = { yes: 'Would buy', maybe: 'Maybe', no: 'Would not buy' }
+const buyers = reactive({ loading: false, error: '', survey: null, feed: null, stream: null, index: [], loaded: false })
+const activity = reactive({ loading: false, loaded: false, timeline: [], agents: [], panel: null })
+const brain = reactive({ loading: false, loaded: false, data: null, feed: null })
+const startVerdict = ['yes', 'maybe', 'no'].includes(props.initialVerdict) ? props.initialVerdict : ''
+const peopleFilters = computed(() => (props.filters && Object.keys(props.filters).length ? props.filters : null))
+// Buyer responses has no country chip: a country becomes a search over names and places
+const responseFilters = computed(() => {
+  const f = { ...(props.filters || {}) }
+  if (startVerdict && !f.verdict) f.verdict = startVerdict
+  if (f.country && !f.query) f.query = f.country
+  delete f.country; delete f.gender
+  return Object.keys(f).length ? f : null
+})
 const spendHint = 'Uses model calls. You see the cost and approve it first.'
 
 const stats = computed(() => runCardStats(detail.value))
+const tabs = computed(() => cardTabs(detail.value?.files, tab.value))
+const brainReady = computed(() => brainRows(brain.data, brain.feed).length > 0)
 const choices = computed(() => compareChoices(props.runs, props.name))
 const downloadFile = computed(() => reportDownloadFile(detail.value?.files))
 const feedReady = computed(() => hasFeed(detail.value?.files))
@@ -173,21 +169,32 @@ function withoutHeaderCards(report) {
   if (!report?.cards) return report
   return { ...report, cards: report.cards.filter((c) => !/^(decision|simulated people|people|would buy|maybe)$/i.test(String(c.label || '').trim())) }
 }
+// one read per saved file, shared by the tabs that need it
+const reads = new Map()
+function readFile(file) {
+  if (!(detail.value?.files || []).includes(file)) return Promise.resolve(null)
+  if (!reads.has(file)) reads.set(file, api(`/api/runs/${enc()}/files/${file}`).catch((e) => { reads.delete(file); throw e }))
+  return reads.get(file)
+}
 async function loadBuyers() {
-  buyers.error = ''
-  if (!(detail.value?.files || []).includes('survey.json')) { buyers.loaded = true; return }
-  buyers.loading = true
-  try { buyers.survey = await api(`/api/runs/${enc()}/files/survey.json`); buyers.loaded = true }
-  catch (e) { buyers.error = e.message } finally { buyers.loading = false }
+  buyers.error = ''; buyers.loading = true
+  try {
+    const [survey, feed, stream, config] = await Promise.all(['survey.json', 'feed_test.json', 'thought_stream.json', 'config.json'].map((f) => readFile(f).catch(() => null)))
+    Object.assign(buyers, { survey, feed, stream, index: Array.isArray(config?.persona_index) ? config.persona_index : [], loaded: true })
+  } catch (e) { buyers.error = e.message } finally { buyers.loading = false }
 }
 async function loadActivity() {
-  const files = new Set(detail.value?.files || [])
   activity.loading = true
-  const read = (f) => (files.has(f) ? api(`/api/runs/${enc()}/files/${f}`).catch(() => null) : Promise.resolve(null))
-  const [timeline, stats] = await Promise.all([read('timeline.json'), read('agent_stats.json')])
+  const [timeline, stats, panel] = await Promise.all(['timeline.json', 'agent_stats.json', 'analyst_panel.json'].map((f) => readFile(f).catch(() => null)))
   activity.timeline = Array.isArray(timeline) ? timeline : []
-  activity.stats = stats || []
+  activity.agents = Array.isArray(stats) ? stats : Array.isArray(stats?.agents) ? stats.agents : []
+  activity.panel = panel && typeof panel === 'object' ? panel : null
   activity.loaded = true; activity.loading = false
+}
+async function loadBrain() {
+  brain.loading = true
+  const [data, feed] = await Promise.all(['brain_response.json', 'feed_test.json'].map((f) => readFile(f).catch(() => null)))
+  Object.assign(brain, { data, feed, loaded: true, loading: false })
 }
 // each tab reads its own files the first time it opens
 function openTab(id) {
@@ -195,6 +202,7 @@ function openTab(id) {
   if (id === 'results' && !results.report && !results.loading) loadResults()
   if (id === 'thinking' && !buyers.loaded && !buyers.loading) loadBuyers()
   if (id === 'activity' && !activity.loaded && !activity.loading) loadActivity()
+  if (id === 'brain' && !brain.loaded && !brain.loading) loadBrain()
 }
 function select(id) {
   tab.value = id; visited.add(id); openTab(id); emit('update:tab', id)
@@ -211,27 +219,28 @@ function revealTab(id) {
   })
 }
 function onTabKey(event) {
-  const next = moveTab(RUN_CARD_TABS, tab.value, event.key)
+  const next = moveTab(tabs.value, tab.value, event.key)
   if (!next) return
   event.preventDefault()
   select(next)
   nextTick(() => document.getElementById(`${uid}-tab-${next}`)?.focus())
 }
-watch(() => props.name, () => { results.report = null; buyers.survey = null; buyers.loaded = false; activity.loaded = false; allReports.value = false; load() }, { immediate: true })
+watch(() => props.name, () => {
+  reads.clear(); results.report = null; allReports.value = false
+  Object.assign(buyers, { survey: null, feed: null, stream: null, index: [], loaded: false })
+  activity.loaded = false
+  Object.assign(brain, { loaded: false, data: null, feed: null })
+  load()
+}, { immediate: true })
 
-const counts = computed(() => verdictCounts(buyers.survey))
-const verdictFilters = computed(() => [
-  { id: '', label: 'All', count: counts.value.yes + counts.value.maybe + counts.value.no },
-  { id: 'yes', label: 'Would buy', count: counts.value.yes },
-  { id: 'maybe', label: 'Maybe', count: counts.value.maybe },
-  { id: 'no', label: 'Would not', count: counts.value.no }
-])
-const responses = computed(() => buyerResponses(buyers.survey, verdict.value))
-const rounds = computed(() => activityRounds(activity.timeline))
-const actors = computed(() => topActors(activity.stats))
-const mix = computed(() => actionMix(activity.timeline))
-
-function act(type) { emit('action', { type, run: props.name, title: stats.value.title || props.name }) }
+// Buyer responses gives a person id; the name comes from the saved persona index
+function askById(id) {
+  const p = buyers.index.find((x) => String(x.agent_id) === String(id))
+  act('ask', { id: String(id), name: p?.name || '' })
+}
+function act(type, person) { emit('action', { type, run: props.name, title: stats.value.title || props.name, ...(person ? { person } : {}) }) }
+// landing analysis: a fix goes to the chat agent (cost on its approval card first); "Test a landing page" only fills the box
+function landingPrompt({ text, send } = {}) { if (text) emit('action', { type: send ? 'agent-prompt' : 'draft', run: props.name, title: stats.value.title || props.name, prompt: text }) }
 function compareWith(other) { compareOpen.value = false; emit('action', { type: 'compare', run: props.name, other, title: stats.value.title || props.name }) }
 async function save() {
   if (!downloadFile.value) return
@@ -270,38 +279,6 @@ async function save() {
 .rcc-empty { margin: 0; padding: 18px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12.5px; line-height: 1.6; text-align: center; }
 .rcc-error { margin: 0; font-size: 12.5px; color: var(--text); }
 .rcc-note { margin: 12px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
-.rcc-filter { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
-.rcc-filter::-webkit-scrollbar { display: none; }
-.rcc-filter button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
-.rcc-filter button span { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11px; }
-.rcc-filter button[aria-pressed='true'] { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-2); color: var(--text); font-weight: 550; }
-.rcc-responses { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.rcc-responses li { padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); font-size: 12.5px; line-height: 1.6; min-width: 0; }
-.rcc-responses header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.rcc-responses header b { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rcc-said { flex-shrink: 0; font-size: 10.5px; font-weight: 600; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); line-height: 1.8; }
-.rcc-said.yes { color: var(--yes); border-color: color-mix(in srgb, var(--yes) 45%, var(--line)); }
-.rcc-said.maybe { color: var(--maybe); border-color: color-mix(in srgb, var(--maybe) 50%, var(--line)); }
-.rcc-said.no { color: var(--no); border-color: color-mix(in srgb, var(--no) 45%, var(--line)); }
-.rcc-quote { margin: 6px 0 0; font-size: 13px; overflow-wrap: anywhere; }
-.rcc-why { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-.rcc-why span { color: var(--text); font-weight: 550; }
-.rcc-show-more { margin-top: 10px; }
-.rcc-mix { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.rcc-mix li { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
-.rcc-mix b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
-.rcc-rounds h4, .rcc-actors h4 { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; }
-.rcc-rounds ol, .rcc-actors ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.rcc-rounds li { display: grid; grid-template-columns: 70px minmax(0, 1fr) 56px; align-items: center; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
-.rcc-rounds li > span:first-child { color: var(--muted); }
-.rcc-rounds li > b { text-align: right; font-weight: 600; }
-.rcc-bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
-.rcc-bar i { display: block; height: 100%; border-radius: inherit; background: var(--data); }
-.rcc-actors { margin-top: 16px; }
-.rcc-actors li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12px; }
-.rcc-actors li:first-child { border-top: 0; }
-.rcc-actors b { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rcc-actors span { color: var(--muted); text-align: right; flex-shrink: 0; max-width: 60%; }
 .rcc-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 18px 0; border-top: 1px solid var(--line); }
 .rcc-actions > button, .rcc-actions > a { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; text-decoration: none; cursor: pointer; white-space: nowrap; }
 .rcc-actions > button:hover:not(:disabled), .rcc-actions > a:hover { background: var(--panel-2); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
@@ -324,6 +301,5 @@ async function save() {
   .rcc-actions { padding: 12px 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rcc-actions > button, .rcc-actions > a { min-height: 44px; justify-content: center; white-space: normal; text-align: center; line-height: 1.3; }
   .rcc-foot { padding: 0 14px 14px; }
-  .rcc-rounds li { grid-template-columns: 62px minmax(0, 1fr) 48px; }
 }
 </style>
