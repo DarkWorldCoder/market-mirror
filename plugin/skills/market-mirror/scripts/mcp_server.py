@@ -1782,9 +1782,13 @@ def main() -> None:
             continue
         try:
             msg = json.loads(line)
-        except ValueError:
+        except ValueError as e:
+            print(f"mcp: invalid JSON on stdin: {e}", file=sys.stderr)
+            reply(None, error={"code": -32700, "message": "parse error"})
             continue
         if not isinstance(msg, dict):
+            print("mcp: stdin message is not a JSON object", file=sys.stderr)
+            reply(None, error={"code": -32600, "message": "invalid request"})
             continue
         if msg.get("method") in THREADED and msg.get("id") is not None:
             threading.Thread(target=handle, args=(msg,)).start()   # waits on the user or a job off the read loop
