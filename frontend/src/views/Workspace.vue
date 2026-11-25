@@ -35,7 +35,7 @@
         </section>
         <details v-if="!search.trim() || filteredChats.length" class="ws-side-section" open>
           <summary>Your chats<ChevronDown :size="13" /></summary>
-          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :aria-label="`Actions for ${c.title}`" title="Chat actions"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end"><button @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
+          <div class="ws-history"><div v-for="c in filteredChats" :key="c.id" class="ws-chat-row"><form v-if="editingChat === c.id" class="ws-chat-inline-form" @submit.prevent="finishInlineRename"><input v-model="renameTitle" data-inline-chat-name aria-label="Rename chat" maxlength="120" @blur="finishInlineRename" @keydown.esc="editingChat = ''" /><span v-if="renameError" role="alert">{{ renameError }}</span></form><RouterLink v-else :to="{path:'/',query:{chat:c.id,...(c.project ? {project:c.project} : {})}}" :class="{active:route.query.chat === c.id}" :aria-current="route.query.chat === c.id ? 'page' : undefined" :title="c.title" @click="menuOpen = false"><MessageSquare :size="14" /><span>{{ c.title }}</span><LoaderCircle v-if="workingChats.has(c.id)" class="ws-chat-working" :size="13" aria-label="Response in progress" /><i v-else-if="route.query.chat === c.id" class="ws-current-chat-dot" aria-label="Current chat"></i></RouterLink><Popover :open="activeChatMenu === c.id" @update:open="activeChatMenu = $event ? c.id : ''"><PopoverTrigger as-child><button class="ws-chat-move" :data-chat-menu="c.id" aria-haspopup="menu" :aria-expanded="activeChatMenu === c.id" :aria-label="`Actions for ${c.title}`" title="Chat actions" @keydown.down.prevent="openChatMenu(c)"><MoreHorizontal :size="15" /></button></PopoverTrigger><PopoverContent class="ws-overlay ws-chat-action-menu" :data-theme="theme" align="end" role="menu" aria-label="Chat actions" @keydown="onChatMenuKeydown"><button role="menuitem" @click="openRename(c)"><Pencil :size="14" />Rename chat</button><button role="menuitem" @click="moveChat(c.id)"><FolderOpen :size="14" />Move to project</button></PopoverContent></Popover></div><p v-if="!chats.length && !search.trim()" class="ws-side-empty">Your conversations appear here.</p></div>
         </details>
         <details v-if="!search.trim() || filteredRuns.length" class="ws-side-section" :open="!!search.trim()">
           <summary>Saved runs<ChevronDown :size="13" /></summary>
@@ -312,6 +312,26 @@ function onAccountChanged() { loadChats(); refresh(); loadOnboarding(); loadUser
 async function loadProjects() {
   if (!token() && !signedIn.value) return
   try { const data = await api('/api/workspace/projects'); projects.value = Array.isArray(data) ? data : [] } catch { /* Projects remain available through chat when the server reconnects. */ }
+}
+function openChatMenu(chat) {
+  activeChatMenu.value = chat.id
+  nextTick(() => document.querySelector(`[data-chat-menu="${chat.id}"]`)?.closest('.ws-chat-row')?.querySelector('[role="menuitem"]')?.focus())
+}
+function onChatMenuKeydown(event) {
+  const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')]
+  const index = items.indexOf(document.activeElement)
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    items[(index + step + items.length) % items.length]?.focus()
+  } else if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault()
+    items[event.key === 'Home' ? 0 : items.length - 1]?.focus()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    activeChatMenu.value = ''
+    event.currentTarget.closest('.ws-chat-row')?.querySelector('[data-chat-menu]')?.focus()
+  }
 }
 function searchResults() {
   return [...document.querySelectorAll('.ws-side-scroll a[href], .ws-side-scroll .ws-history button, .ws-side-scroll .ws-skill-card')]
