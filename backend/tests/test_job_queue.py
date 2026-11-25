@@ -269,7 +269,8 @@ def test_task_recovery_skips_job_backed_tasks(app_env):
     tm = TaskManager()
     plain = tm.create_task("plain")
     queued = tm.create_task("queued")
-    jobs.store().enqueue(queued, "t", handler="replay", payload={"path": "/x"})
+    # bound to another process, so this process's runner never claims it and moves the task to processing
+    jobs.store().enqueue(queued, "t", handler="replay", payload={"path": "/x"}, bound=True, owner="another-process")
     tm.release(plain)
     tm.release(queued)
     tm.recover_interrupted_tasks()
