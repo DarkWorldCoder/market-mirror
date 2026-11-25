@@ -48,6 +48,7 @@
       <div class="ws-foot ws-nav">
         <template v-if="cloudAccount"><a href="/team" @click="menuOpen = false"><UsersRound class="ico" />Team & workspaces</a><a href="/account" @click="menuOpen = false"><ShieldCheck class="ico" />{{ cloudAccount.account?.name || cloudAccount.account?.email || 'Your account' }}</a></template>
         <RouterLink v-else to="/workspace/team" :class="{ active: view === 'team' }" @click="menuOpen = false"><UsersRound class="ico" /><span class="ws-foot-workspace">{{ signedIn ? (accountState.workspace?.name || 'Workspace') : 'Workspace & team' }}<small v-if="signedIn">{{ accountState.account?.email }} · {{ role }}</small></span></RouterLink>
+        <button @click="onboardingOpen = true"><ClipboardList class="ico" />Setup checklist</button>
         <p v-if="syncStatus" class="ws-side-empty ws-sync" role="status">{{ syncStatus }} <button v-if="chatSyncState === 'offline'" class="ws-retry" @click="retryChatSync">Retry</button></p>
         <p v-if="signedIn && !canEdit" class="ws-side-empty">You can view this workspace. Ask an owner for edit access.</p>
         <button v-if="spendMeter && !signedIn" class="ws-spend-meter" @click="openSettings"><Wallet class="ico" /><span>Estimated spend {{ spendMeter }}<template v-if="spend.limit"> of {{ money(spend.limit) }}</template></span></button>
