@@ -1,5 +1,7 @@
 """Token-protected chat agent endpoints: a streamed agent turn, live audience estimates, job polling, the tool list."""
 import json
+import logging
+import os
 import queue
 import re
 import threading
@@ -13,6 +15,47 @@ from ..services.chat_agent.bridge import Executor
 chat_agent_bp = Blueprint("chat_agent", __name__)
 EVENTS = {"plan", "tool_start", "tool_progress", "approval_request", "tool_result", "artifact", "error", "done"}
 MAX_EVENT = 256000
+_log = logging.getLogger(__name__)
+
+
+def _turn_limit() -> int:
+    """Concurrent agent turns (each one is a model loop on its own thread). MM_AGENT_MAX_TURNS, default 2.
+    A value that is not a whole number falls back to the default instead of stopping the app at import."""
+    raw = (os.environ.get("MM_AGENT_MAX_TURNS") or "").strip()
+    if not raw:
+        return 2
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        _log.warning("MM_AGENT_MAX_TURNS=%r is not a whole number; using 2", raw)
+        return 2
+
+
+TURN_SLOTS = threading.BoundedSemaphore(_turn_limit())
+_ACTIVE_TURNS = 0
+_ACTIVE_LOCK = threading.Lock()
+
+
+def _take_slot() -> bool:
+    global _ACTIVE_TURNS
+    if not TURN_SLOTS.acquire(blocking=False):
+        return False
+    with _ACTIVE_LOCK:
+        _ACTIVE_TURNS += 1
+    return True
+
+
+def _free_slot() -> None:
+    global _ACTIVE_TURNS
+    with _ACTIVE_LOCK:
+        _ACTIVE_TURNS -= 1
+    TURN_SLOTS.release()
+
+
+def active_turns() -> int:
+    """Agent turns running in this process right now (for /metrics)."""
+    with _ACTIVE_LOCK:
+        return _ACTIVE_TURNS
 
 
 @chat_agent_bp.before_request
@@ -36,6 +79,10 @@ def stream():
         loop.validate(value)
     except (ValueError, TypeError) as error:
         return jsonify(success=False, error=str(error)), 400
+    if not _take_slot():
+        response = jsonify(success=False, error="Too many agent turns are running. Wait for one to finish, then try again.")
+        response.headers["Retry-After"] = "5"
+        return response, 429
     app = current_app._get_current_object()
     messages = queue.Queue(maxsize=256)
     disconnected = threading.Event()
@@ -56,17 +103,20 @@ def stream():
                 continue
 
     def work():
-        with app.app_context():
-            try:
-                loop.run_turn(value, emit, disconnected=disconnected.is_set)
-            except ValueError as error:
-                emit("error", {"message": str(error), "status": 400, "code": "request", "actions": []})
-            except loop.AgentError as error:
-                emit("error", error.body())
-            except Exception:  # noqa: BLE001 - private details never reach the browser
-                current_app.logger.exception("chat agent turn failed")
-                emit("error", {"message": "Could not complete this response. Try again.", "status": 500,
-                               "code": "server", "actions": []})
+        try:
+            with app.app_context():
+                try:
+                    loop.run_turn(value, emit, disconnected=disconnected.is_set)
+                except ValueError as error:
+                    emit("error", {"message": str(error), "status": 400, "code": "request", "actions": []})
+                except loop.AgentError as error:
+                    emit("error", error.body())
+                except Exception:  # noqa: BLE001 - private details never reach the browser
+                    current_app.logger.exception("chat agent turn failed")
+                    emit("error", {"message": "Could not complete this response. Try again.", "status": 500,
+                                   "code": "server", "actions": []})
+        finally:
+            _free_slot()
 
     @stream_with_context
     def events():
@@ -83,7 +133,11 @@ def stream():
         finally:
             disconnected.set()
 
-    threading.Thread(target=work, name="workspace-agent-turn", daemon=True).start()
+    try:
+        threading.Thread(target=work, name="workspace-agent-turn", daemon=True).start()
+    except Exception:
+        _free_slot()
+        raise
     response = Response(events(), content_type="text/event-stream; charset=utf-8")
     response.headers["Cache-Control"] = "no-store, no-transform"
     response.headers["X-Accel-Buffering"] = "no"

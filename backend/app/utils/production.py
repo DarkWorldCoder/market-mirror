@@ -325,6 +325,16 @@ def prometheus_metrics_text() -> str:
     ]
     for st in ("pending", "processing", "completed", "failed"):
         lines.append(f'marketmirror_tasks_count{{status="{st}"}} {tasks.get(st, 0)}')
+    try:
+        from ..api.chat_agent import active_turns
+        agent_turns = active_turns()
+    except Exception:  # noqa: BLE001 - telemetry only
+        agent_turns = 0
+    lines += [
+        "# HELP marketmirror_agent_turns_active Workspace agent turns running in this process",
+        "# TYPE marketmirror_agent_turns_active gauge",
+        f"marketmirror_agent_turns_active {agent_turns}",
+    ]
     return "\n".join(lines) + "\n"
 
 
