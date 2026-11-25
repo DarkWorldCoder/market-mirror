@@ -254,6 +254,11 @@ const shortcuts = [
   { keys: ['Esc'], what: 'Close a menu or dialog' }
 ]
 const contextualTitle = computed(() => view.value === 'chat' ? (currentChat.value?.title || projects.value.find(p => p.id === route.query.project)?.name || 'New conversation') : crumb.value)
+// Keep the browser tab and history entry named after the page, chat or run, so
+// several open tabs are distinguishable and a rename shows up at once.
+watch(contextualTitle, (title) => {
+  document.title = title ? `${title} · MarketMirror` : 'MarketMirror'
+}, { immediate: true })
 const greeting = computed(() => {
   const hr = new Date().getHours()
   return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'
