@@ -95,6 +95,85 @@ def test_real_loop_pauses_and_resumes_over_http(client, monkeypatch):
     assert [c[0] for c in ex.calls] == ["market_test"]
 
 
+def test_disconnected_turn_frees_its_slot(client, monkeypatch):
+    import threading
+    import time
+    from app.api import chat_agent
+    monkeypatch.setattr(chat_agent, "TURN_SLOTS", threading.BoundedSemaphore(1), raising=False)
+    seen = []
+
+    def waiting(value, emit, disconnected):
+        emit("plan", {"phase": "waiting"})
+        deadline = time.time() + 5
+        while not disconnected() and time.time() < deadline:
+            time.sleep(0.02)
+        seen.append(disconnected())
+    monkeypatch.setattr(loop, "run_turn", waiting)
+    first = client.post("/api/workspace/agent/stream", json=BODY, headers=H)
+    assert client.post("/api/workspace/agent/stream", json=BODY, headers=H).status_code == 429
+    first.close()
+    deadline = time.time() + 5
+    freed = chat_agent.TURN_SLOTS.acquire(blocking=False)
+    while not freed and time.time() < deadline:
+        time.sleep(0.02)
+        freed = chat_agent.TURN_SLOTS.acquire(blocking=False)
+    assert freed, "slot was not released after the browser disconnected"
+    chat_agent.TURN_SLOTS.release()
+    assert seen == [True]
+
+
+def test_turn_limit_ignores_a_bad_env_value(monkeypatch):
+    from app.api import chat_agent
+    monkeypatch.setenv("MM_AGENT_MAX_TURNS", "abc")
+    assert chat_agent._turn_limit() == 2
+    monkeypatch.setenv("MM_AGENT_MAX_TURNS", "4")
+    assert chat_agent._turn_limit() == 4
+    monkeypatch.delenv("MM_AGENT_MAX_TURNS")
+    assert chat_agent._turn_limit() == 2
+
+
 def test_job_ids_are_validated(client):
     assert client.get("/api/workspace/agent/jobs/../../etc", headers=H).status_code == 404
     assert client.get("/api/workspace/agent/jobs/notahexid!", headers=H).status_code == 404
+
+
+def test_turn_beyond_the_cap_gets_429_and_finished_turn_frees_its_slot(client, monkeypatch):
+    import threading
+    import time
+    from app.api import chat_agent
+    turn_slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(chat_agent, "TURN_SLOTS", turn_slots, raising=False)
+    release = threading.Event()
+
+    def held(value, emit, disconnected):
+        emit("plan", {"phase": "held"})
+        release.wait(5)
+        emit("done", {"status": "completed"})
+    monkeypatch.setattr(loop, "run_turn", held)
+    first = client.post("/api/workspace/agent/stream", json=BODY, headers=H)
+    second = client.post("/api/workspace/agent/stream", json=BODY, headers=H)
+    assert second.status_code == 429
+    assert "Too many agent turns" in second.get_json()["error"]
+    assert "marketmirror_agent_turns_active 1" in client.get("/metrics").get_data(as_text=True)
+    release.set()
+    first.get_data(as_text=True)
+    deadline = time.time() + 5
+    freed = turn_slots.acquire(blocking=False)
+    while not freed and time.time() < deadline:
+        time.sleep(0.02)
+        freed = turn_slots.acquire(blocking=False)
+    assert freed, "slot was not released after the turn finished"
+    turn_slots.release()
+    monkeypatch.setattr(loop, "run_turn", lambda value, emit, disconnected: emit("done", {"status": "completed"}))
+    third = client.post("/api/workspace/agent/stream", json=BODY, headers=H)
+    try:
+        assert third.status_code == 200
+        third.get_data(as_text=True)
+    finally:
+        deadline = time.time() + 5
+        freed = turn_slots.acquire(blocking=False)
+        while not freed and time.time() < deadline:
+            time.sleep(0.02)
+            freed = turn_slots.acquire(blocking=False)
+        assert freed, "slot was not released after the third turn finished"
+        turn_slots.release()
