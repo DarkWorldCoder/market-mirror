@@ -21,3 +21,4 @@ frontend/dist
 frontend/.vite
 
 backend/uploads
+backend/logs
