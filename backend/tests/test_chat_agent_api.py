@@ -141,7 +141,8 @@ def test_turn_beyond_the_cap_gets_429_and_finished_turn_frees_its_slot(client, m
     import threading
     import time
     from app.api import chat_agent
-    monkeypatch.setattr(chat_agent, "TURN_SLOTS", threading.BoundedSemaphore(1), raising=False)
+    turn_slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(chat_agent, "TURN_SLOTS", turn_slots, raising=False)
     release = threading.Event()
 
     def held(value, emit, disconnected):
@@ -157,13 +158,22 @@ def test_turn_beyond_the_cap_gets_429_and_finished_turn_frees_its_slot(client, m
     release.set()
     first.get_data(as_text=True)
     deadline = time.time() + 5
-    freed = chat_agent.TURN_SLOTS.acquire(blocking=False)
+    freed = turn_slots.acquire(blocking=False)
     while not freed and time.time() < deadline:
         time.sleep(0.02)
-        freed = chat_agent.TURN_SLOTS.acquire(blocking=False)
+        freed = turn_slots.acquire(blocking=False)
     assert freed, "slot was not released after the turn finished"
-    chat_agent.TURN_SLOTS.release()
+    turn_slots.release()
     monkeypatch.setattr(loop, "run_turn", lambda value, emit, disconnected: emit("done", {"status": "completed"}))
     third = client.post("/api/workspace/agent/stream", json=BODY, headers=H)
-    assert third.status_code == 200
-    third.get_data(as_text=True)
+    try:
+        assert third.status_code == 200
+        third.get_data(as_text=True)
+    finally:
+        deadline = time.time() + 5
+        freed = turn_slots.acquire(blocking=False)
+        while not freed and time.time() < deadline:
+            time.sleep(0.02)
+            freed = turn_slots.acquire(blocking=False)
+        assert freed, "slot was not released after the third turn finished"
+        turn_slots.release()
