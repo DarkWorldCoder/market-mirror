@@ -90,18 +90,40 @@ def progress_to(run_dir: Optional[str]) -> None:
 
 REPO_ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
 TOKEN_ENV_KEYS = ("MM_API_AUTH_TOKEN", "API_AUTH_TOKEN")
+CLI_ENV_FILE: Optional[str] = None   # --env-file: the settings file this call reads, set in main()
 
 
-def api_token(env_file: Optional[str] = None) -> str:
-    """The backend API token: MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from the environment, else the repo .env.
+def env_file_candidates(env_file: Optional[str] = None) -> List[str]:
+    """The settings files the CLI reads the token from, most specific first.
 
-    The value is only ever placed in the Authorization header; it is never logged or printed.
+    An explicit path (the --env-file option or api_token's argument) is used alone: a file the
+    caller chose never falls back to another source, so a staging file without a token cannot
+    send the production token. Otherwise MIROFISH_ENV_FILE comes before the repository .env,
+    the order the backend uses (app/config.py).
     """
-    for key in TOKEN_ENV_KEYS:
-        value = (os.environ.get(key) or "").strip()
-        if value:
-            return value
-    path = env_file or REPO_ENV_FILE
+    selected = env_file or CLI_ENV_FILE
+    if selected:
+        return [selected]
+    paths: List[str] = []
+    for path in (os.environ.get("MIROFISH_ENV_FILE"), REPO_ENV_FILE):
+        if path and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def dotenv_value(raw: str) -> str:
+    """The value python-dotenv reads: the text inside a matching quote, else the part before an unquoted #."""
+    text = raw.strip()
+    if text[:1] in ("'", '"'):
+        quote = text[0]
+        end = text.find(quote, 1)
+        return text[1:end] if end != -1 else text[1:]
+    comment_at = text.find("#")
+    return (text[:comment_at] if comment_at != -1 else text).strip()
+
+
+def token_from_env_file(path: str) -> str:
+    """MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from one env file, "" when the file has none."""
     found: Dict[str, str] = {}
     try:
         with open(path, encoding="utf-8") as f:
@@ -113,12 +135,29 @@ def api_token(env_file: Optional[str] = None) -> str:
                     line = line[len("export "):].strip()
                 key, sep, value = line.partition("=")
                 if sep and key.strip() in TOKEN_ENV_KEYS:
-                    found[key.strip()] = value.strip().strip('"').strip("'")
+                    found[key.strip()] = dotenv_value(value)
     except OSError:
         return ""
     for key in TOKEN_ENV_KEYS:
         if found.get(key):
             return found[key]
+    return ""
+
+
+def api_token(env_file: Optional[str] = None) -> str:
+    """The backend API token: MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from the environment, else the settings
+    file -- --env-file, then MIROFISH_ENV_FILE, then the repo .env.
+
+    The value is only ever placed in the Authorization header; it is never logged or printed.
+    """
+    for key in TOKEN_ENV_KEYS:
+        value = (os.environ.get(key) or "").strip()
+        if value:
+            return value
+    for path in env_file_candidates(env_file):
+        value = token_from_env_file(path)
+        if value:
+            return value
     return ""
 
 
@@ -2961,6 +3000,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mirofish", description="MarketMirror: test ads, messages, prices, launches and sales pitches on simulated buyers (MiroFish engine). Start with: quickstart.")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="backend URL (default %(default)s, env MIROFISH_URL)")
     p.add_argument("--pretty", action="store_true", help="indent JSON output")
+    p.add_argument("--env-file", default=None, metavar="FILE",
+                   help="settings file to read the API token from (default MIROFISH_ENV_FILE, then the repo .env)")
     p.add_argument("--lang", default=None, help="Accept-Language sent to the backend (en/zh), default en")
     p.add_argument("--emotions", choices=["off", "observe", "on"], default=None,
                    help="simulated feelings: observe (default) records them, on also lets them steer behaviour, off "
@@ -2969,6 +3010,7 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--base-url", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--pretty", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    common.add_argument("--env-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--lang", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--emotions", choices=["off", "observe", "on"], default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3834,7 +3876,9 @@ COMMANDS = {
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    global CLI_ENV_FILE
     a = build_parser().parse_args(argv)
+    CLI_ENV_FILE = os.path.expanduser(a.env_file) if getattr(a, "env_file", None) else None
     try:
         offline_export = a.cmd == "export" and a.run_dir and not (a.project or a.simulation or a.report)
         offline_live = a.cmd == "live" and a.offline
