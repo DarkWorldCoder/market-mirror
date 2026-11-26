@@ -54,7 +54,7 @@ MIROFISH_ENV_FILE=.env.mixed MIROFISH_URL=http://localhost:5011 ./mm cli market-
 MIROFISH_URL=http://localhost:5011 ./mm live --run-dir mirofish_runs/acme --port 5060   # watch it
 ```
 
-The CLI reads the API token from `MIROFISH_ENV_FILE`, then the repository `.env`, so a second backend needs no exported token. `--env-file` names one settings file for a single call and reads the token from that file alone.
+The CLI reads the API token from `MIROFISH_ENV_FILE`, then the repository `.env`, so a second backend needs no exported token. `--env-file` names one settings file for a single call and reads the token from that file alone. An exported `MM_API_AUTH_TOKEN` or `API_AUTH_TOKEN` wins over every file, so unset it before pointing a call at another backend.
 
 Use ports nothing else is using. If a gateway already runs on a port, `start` leaves it as it is; to change its workers or effort, stop it first.
 

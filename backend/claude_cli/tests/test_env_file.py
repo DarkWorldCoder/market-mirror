@@ -35,6 +35,10 @@ class TokenLookupTest(unittest.TestCase):
         self.missing_env = os.path.join(root, "missing.env")
         self.token_free_env = os.path.join(root, ".env.no-token")
         _write(self.token_free_env, "# no token in this file\nLLM_POOL=claude_code:sonnet\n")
+        self.commented_env = os.path.join(root, ".env.commented")
+        _write(self.commented_env, "MM_API_AUTH_TOKEN=inline-token # instance backend\n")
+        self.quoted_hash_env = os.path.join(root, ".env.quoted-hash")
+        _write(self.quoted_hash_env, 'MM_API_AUTH_TOKEN="tok#en" # trailing comment\n')
 
         self.saved_tokens = {key: os.environ.pop(key, None) for key in mirofish.TOKEN_ENV_KEYS}
         self.saved_mirofish = os.environ.pop("MIROFISH_ENV_FILE", None)
@@ -84,6 +88,15 @@ class TokenLookupTest(unittest.TestCase):
         self.assertEqual(mirofish.api_token(), "")
         client = mirofish.Client("http://127.0.0.1:1")
         self.assertNotIn("Authorization", client.session.headers)
+
+    def test_inline_comments_are_not_part_of_the_token(self):
+        mirofish.CLI_ENV_FILE = self.commented_env
+        self.assertEqual(mirofish.api_token(), "inline-token")
+        self.assertEqual(mirofish.api_token(self.commented_env), "inline-token")
+
+    def test_a_hash_inside_quotes_stays_part_of_the_token(self):
+        mirofish.CLI_ENV_FILE = self.quoted_hash_env
+        self.assertEqual(mirofish.api_token(), "tok#en")
 
     def test_the_environment_wins_over_every_file(self):
         os.environ["MIROFISH_ENV_FILE"] = self.instance_env

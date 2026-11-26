@@ -111,6 +111,17 @@ def env_file_candidates(env_file: Optional[str] = None) -> List[str]:
     return paths
 
 
+def dotenv_value(raw: str) -> str:
+    """The value python-dotenv reads: the text inside a matching quote, else the part before an unquoted #."""
+    text = raw.strip()
+    if text[:1] in ("'", '"'):
+        quote = text[0]
+        end = text.find(quote, 1)
+        return text[1:end] if end != -1 else text[1:]
+    comment_at = text.find("#")
+    return (text[:comment_at] if comment_at != -1 else text).strip()
+
+
 def token_from_env_file(path: str) -> str:
     """MM_API_AUTH_TOKEN (or API_AUTH_TOKEN) from one env file, "" when the file has none."""
     found: Dict[str, str] = {}
@@ -124,7 +135,7 @@ def token_from_env_file(path: str) -> str:
                     line = line[len("export "):].strip()
                 key, sep, value = line.partition("=")
                 if sep and key.strip() in TOKEN_ENV_KEYS:
-                    found[key.strip()] = value.strip().strip('"').strip("'")
+                    found[key.strip()] = dotenv_value(value)
     except OSError:
         return ""
     for key in TOKEN_ENV_KEYS:
