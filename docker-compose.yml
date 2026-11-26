@@ -1,5 +1,5 @@
 # Production: cp .env.production.example .env, fill in the secrets, then
-#   mkdir -p backend/uploads mirofish_runs scenarios && sudo chown -R 10001:10001 backend/uploads mirofish_runs scenarios
+#   mkdir -p backend/uploads backend/logs mirofish_runs scenarios && sudo chown -R 10001:10001 backend/uploads backend/logs mirofish_runs scenarios
 #   docker compose up -d --build
 # The backend binds 0.0.0.0 inside the container, so it refuses to start without
 # MM_API_AUTH_TOKEN, an explicit CORS_ORIGINS and a non-default SECRET_KEY (see .env.production.example).
@@ -14,6 +14,7 @@ services:
       - "127.0.0.1:5001:5001"          # loopback only; put a TLS reverse proxy in front for remote access
     volumes:
       - ./backend/uploads:/app/backend/uploads     # knowledge graph, simulations, task store, embedding model, calibration store
+      - ./backend/logs:/app/backend/logs           # file logs and local setup state
       - ./mirofish_runs:/app/mirofish_runs         # run folders with dashboards and reports
       - ./scenarios:/app/scenarios                 # your inputs
     restart: unless-stopped
