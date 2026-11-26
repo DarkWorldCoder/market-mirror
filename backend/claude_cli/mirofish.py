@@ -96,13 +96,16 @@ CLI_ENV_FILE: Optional[str] = None   # --env-file: the settings file this call r
 def env_file_candidates(env_file: Optional[str] = None) -> List[str]:
     """The settings files the CLI reads the token from, most specific first.
 
-    An explicit path (the --env-file option or api_token's argument) is used alone. Otherwise
-    MIROFISH_ENV_FILE comes before the repository .env, the order the backend uses (app/config.py).
+    An explicit path (the --env-file option or api_token's argument) is used alone: a file the
+    caller chose never falls back to another source, so a staging file without a token cannot
+    send the production token. Otherwise MIROFISH_ENV_FILE comes before the repository .env,
+    the order the backend uses (app/config.py).
     """
-    if env_file:
-        return [env_file]
+    selected = env_file or CLI_ENV_FILE
+    if selected:
+        return [selected]
     paths: List[str] = []
-    for path in (CLI_ENV_FILE, os.environ.get("MIROFISH_ENV_FILE"), REPO_ENV_FILE):
+    for path in (os.environ.get("MIROFISH_ENV_FILE"), REPO_ENV_FILE):
         if path and path not in paths:
             paths.append(path)
     return paths

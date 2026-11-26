@@ -51,11 +51,10 @@ ANTIGRAVITY_GATEWAY_KEY=...
 ```bash
 ./mm start --port 5011 --env-file .env.mixed
 MIROFISH_ENV_FILE=.env.mixed MIROFISH_URL=http://localhost:5011 ./mm cli market-test scenarios/acme/market_test.json
-MIROFISH_URL=http://localhost:5011 ./mm cli --env-file .env.mixed market-test scenarios/acme/market_test.json
 MIROFISH_URL=http://localhost:5011 ./mm live --run-dir mirofish_runs/acme --port 5060   # watch it
 ```
 
-The CLI reads the API token from `--env-file` first, then `MIROFISH_ENV_FILE`, then the repository `.env`, so a second backend needs no exported token.
+The CLI reads the API token from `MIROFISH_ENV_FILE`, then the repository `.env`, so a second backend needs no exported token. `--env-file` names one settings file for a single call and reads the token from that file alone.
 
 Use ports nothing else is using. If a gateway already runs on a port, `start` leaves it as it is; to change its workers or effort, stop it first.
 

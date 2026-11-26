@@ -1,4 +1,4 @@
-"""The CLI API token: --env-file, MIROFISH_ENV_FILE and the repository .env, in that order."""
+"""The CLI API token: an explicit --env-file is used alone; otherwise MIROFISH_ENV_FILE, then the repository .env."""
 
 import io
 import os
@@ -33,6 +33,8 @@ class TokenLookupTest(unittest.TestCase):
         self.explicit_env = os.path.join(root, ".env.explicit")
         _write(self.explicit_env, f"API_AUTH_TOKEN={TOKEN_EXPLICIT}\n")
         self.missing_env = os.path.join(root, "missing.env")
+        self.token_free_env = os.path.join(root, ".env.no-token")
+        _write(self.token_free_env, "# no token in this file\nLLM_POOL=claude_code:sonnet\n")
 
         self.saved_tokens = {key: os.environ.pop(key, None) for key in mirofish.TOKEN_ENV_KEYS}
         self.saved_mirofish = os.environ.pop("MIROFISH_ENV_FILE", None)
@@ -70,6 +72,18 @@ class TokenLookupTest(unittest.TestCase):
         self.assertEqual(mirofish.api_token(self.explicit_env), TOKEN_EXPLICIT)
         mirofish.CLI_ENV_FILE = self.explicit_env
         self.assertEqual(mirofish.api_token(), TOKEN_EXPLICIT)
+
+    def test_missing_cli_env_file_does_not_fall_back(self):
+        os.environ["MIROFISH_ENV_FILE"] = self.instance_env
+        mirofish.CLI_ENV_FILE = self.missing_env
+        self.assertEqual(mirofish.api_token(), "")
+
+    def test_token_free_cli_env_file_does_not_fall_back(self):
+        os.environ["MIROFISH_ENV_FILE"] = self.instance_env
+        mirofish.CLI_ENV_FILE = self.token_free_env
+        self.assertEqual(mirofish.api_token(), "")
+        client = mirofish.Client("http://127.0.0.1:1")
+        self.assertNotIn("Authorization", client.session.headers)
 
     def test_the_environment_wins_over_every_file(self):
         os.environ["MIROFISH_ENV_FILE"] = self.instance_env
