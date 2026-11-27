@@ -28,7 +28,8 @@ Built on [MiroFish](https://github.com/666ghj/MiroFish) and CAMEL-AI's [OASIS](h
 **Prefer a guided browser experience?** After installing the engine, run `./mm app`.
 Compare two ads or headlines, review the audience and model-call limit before each
 paid stage, and save a real-world test worksheet. Drafts and the saved demo need no
-model provider. The first UI build needs Node.js 20.19+ or 22.12+.
+model provider. The first UI build needs Node.js 20.19+ or 22.12+. The app opens
+into a chat with your saved runs ([screenshots](#the-workspace)).
 [Local app setup, recovery and use cases](docs/LOCAL-APP.md).
 
 ```bash
@@ -150,6 +151,7 @@ These recommendations summarize simulation signals. A “go” does not guarante
 - **A shareable report:** a saved HTML dashboard that opens without a server, works offline, and includes tables behind its charts.
 - **Downloadable results:** report and data exports in Markdown, JSON, CSV, and PDF.
 - **A live view:** watch progress, buyer activity, and social posts as a run happens.
+- **A local workspace:** `./mm app` opens a chat with your saved runs, slash commands, a People explorer, landing page analysis and a Connections page. See [The workspace](#the-workspace).
 
 The full screenshot gallery and detailed explanations follow below.
 
@@ -202,6 +204,55 @@ Each run produces one self-contained HTML dashboard: no server, no external requ
 </table>
 
 Fitloop, its audiences and its pilot figures are invented; every number in these screenshots is simulated, not observed campaign performance. Report generation checks numbers against the run's fact sheet and falls back to a data-only report if the model fails. Those checks establish consistency with saved outputs, not real-world accuracy. The report JSON includes a `number_guard` list of removed sentences (or study-report table cells), each with `text` and `unknown_numbers`, so you can inspect what the guard dropped. These entries are unverified model output, not report evidence; logs record only the removal count.
+
+## The workspace
+
+`./mm app` opens a local workspace in your browser. It starts in a chat. Saved runs open inside the conversation, and each view also has a full page. The screens below come from the Fitloop example: an invented app and AI-simulated buyers. Every number in them is simulated. Click an image for the full size.
+
+<table>
+<tr><td colspan="2"><b>Chat</b></td></tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-chat-slash.webp"><img src="docs/images/workspace/ws-chat-slash.webp" alt="The chat box with a slash typed and the menu open: People, Buyer responses, Run results, Activity and Social feed, each marked Free" /></a><br /><b>Slash commands.</b> Type <code>/</code> for the menu. Free views read saved files. Anything that spends asks first.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-chat-free-request.webp"><img src="docs/images/workspace/ws-chat-free-request.webp" alt="The request 'show the people in Kenya' answered in the chat: the People view filtered to the 198 simulated people in Kenya, read with no model call" /></a><br /><b>Plain requests, no model.</b> "show the people in Kenya" opens the People view, already filtered, from the saved run.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-chat-run-card.webp"><img src="docs/images/workspace/ws-chat-run-card.webp" alt="A saved run in the chat: simulated verdict Iterate, 1,008 simulated people, 6 segments, 1.1% would buy and 74.8% maybe, all simulated, and tabs from Results to Landing page" /></a><br /><b>A run in the chat.</b> The simulated verdict, key numbers and the same tabs as the run page.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-phone-chat.webp"><img src="docs/images/workspace/ws-phone-chat.webp" alt="The run card in the chat on a 390 pixel wide phone screen, with the key numbers in two columns and scrolling tabs" width="60%" /></a><br /><b>On a phone.</b> The same run card at 390 px wide.</td>
+</tr>
+<tr><td colspan="2"><b>Run page</b></td></tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-run-results.webp"><img src="docs/images/workspace/ws-run-results.webp" alt="Run page Results tab: the simulated verdict Iterate, key numbers marked simulated, people by country and expected click-through per ad" /></a><br /><b>Results.</b> The simulated verdict, the key numbers and the first charts.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-landing.webp"><img src="docs/images/workspace/ws-landing.webp" alt="Landing page analysis: a funnel from ad shown to converted, then where and why the simulated clickers left, grouped by reason with quotes" /></a><br /><b>Landing page analysis.</b> From the ad to the signup, then where and why simulated clickers left. With 11 simulated clicks, the page says to read it as stories, not rates.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-world-map.webp"><img src="docs/images/workspace/ws-world-map.webp" alt="Audience and world map around Pune with simulated people as dots, Yasmin Desai's card open with a maybe answer and her quote, and what people said afterwards" /></a><br /><b>Audience and world.</b> Each simulated person at the city in their profile. Search a name to open their card.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-buyer-responses.webp"><img src="docs/images/workspace/ws-buyer-responses.webp" alt="Buyer responses: the would buy, maybe and would not split of 1,001 simulated survey answers, filtered to would not, with filters for what held people back" /></a><br /><b>Buyer responses.</b> The yes, maybe and no split. Here it is filtered to "would not", with what held each person back.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-people.webp"><img src="docs/images/workspace/ws-people.webp" alt="People tab filtered to Kenya and would not buy: 46 of 1,008 simulated people, a summary of the people shown, person cards and three people picked to compare" /></a><br /><b>People.</b> Filter by segment, country, answer, gender and age, then pick people to compare.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-people-compare.webp"><img src="docs/images/workspace/ws-people-compare.webp" alt="Compare dialog with three simulated people side by side: segment, age, city, job, income, answer, main objection, what would change their mind and a quote" /></a><br /><b>Compare people.</b> Up to three simulated people side by side, from their answer to what would change their mind.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-activity.webp"><img src="docs/images/workspace/ws-activity.webp" alt="Activity tab: what people did in each social round, and the analyst panel with five simulated analysts, each with a verdict, how sure it is, best audience and best message" /></a><br /><b>Activity.</b> What people did in each social round, and what five simulated analysts concluded.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-run-dark.webp"><img src="docs/images/workspace/ws-run-dark.webp" alt="The run page Results tab in dark mode" /></a><br /><b>Dark mode.</b> The workspace follows your system theme.</td>
+</tr>
+<tr><td colspan="2"><b>Dashboard</b></td></tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-dashboard-map.webp"><img src="docs/images/workspace/ws-dashboard-map.webp" alt="Dashboard map: 5,778 simulated people across 17 experiments at their cities, with the busiest places listed beside it" /></a><br /><b>Where your simulated buyers live.</b> People from every saved run, city by city.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-dashboard-panels.webp"><img src="docs/images/workspace/ws-dashboard-panels.webp" alt="Dashboard panels: a calendar of runs, buying intent across runs with small samples marked, objections across all experiments and the audiences tested most" /></a><br /><b>Patterns across runs.</b> Buying intent with small samples marked, the objections that keep coming back and the audiences you test most.</td>
+</tr>
+<tr><td colspan="2"><b>Connections and settings</b></td></tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-connections.webp"><img src="docs/images/workspace/ws-connections.webp" alt="Connections page, MCP servers tab: counts of servers, chat tools and models, an Add MCP server button and a note on which chat modes call the tools" /></a><br /><b>Connections.</b> Add a remote MCP server, then choose which read-only tools the chat may use.</td>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-connections-apps.webp"><img src="docs/images/workspace/ws-connections-apps.webp" alt="Connections page, Use in your AI apps tab: setup for Claude Desktop, Claude Code, Cursor, VS Code, Codex and other apps, with a config block to copy" /></a><br /><b>Use in your AI apps.</b> A ready config for Claude Desktop, Claude Code, Cursor, VS Code and Codex. Paths are shortened here.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/workspace/ws-settings-models.webp"><img src="docs/images/workspace/ws-settings-models.webp" alt="Settings, Models tab: one card per way to reach models, logins on this computer and API providers, each with a status" /></a><br /><b>Settings: Models.</b> Pick a login on this computer or an API key. Each card shows its status.</td>
+<td width="50%" valign="top"></td>
+</tr>
+</table>
+
+See [Local decision workspace](docs/LOCAL-APP.md) for setup and [Workspace design](docs/WORKSPACE_DESIGN.md) for everything the chat can open.
 
 ## How it works
 
