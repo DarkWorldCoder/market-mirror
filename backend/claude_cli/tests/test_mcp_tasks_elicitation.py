@@ -437,5 +437,97 @@ class HttpElicitation(Base):
         self.assertIn("job_id", json.load(plain)["result"]["structuredContent"])
 
 
+
+
+class HttpSessionLifecycle(Base):
+    def _start_http(self, extra_env=None):
+        port = free_port()
+        token = "t" * 32
+        token_file = os.path.join(self.root, "mcp.token")
+        with open(token_file, "w", encoding="utf-8") as f:
+            f.write(token)
+        env = {**self.env, **(extra_env or {})}
+        proc = subprocess.Popen(
+            [sys.executable, MCP, "--http", "--port", str(port), "--token-file", token_file],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+        )
+        self.addCleanup(lambda: (proc.terminate(), proc.wait(timeout=5)))
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                   "Accept": "application/json, text/event-stream"}
+
+        def request(method, body=None, extra=None, use_auth=True):
+            req_headers = dict(headers) if use_auth else {"Content-Type": "application/json"}
+            if extra:
+                req_headers.update(extra)
+            payload = json.dumps(body) if body is not None else None
+            for _ in range(100):
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+                    conn.request(method, "/mcp", payload, req_headers)
+                    resp = conn.getresponse()
+                    data = resp.read()
+                    conn.close()
+                    return resp.status, resp.headers, data
+                except ConnectionRefusedError:
+                    time.sleep(0.05)
+            raise AssertionError("server did not start")
+
+        return request
+
+    def test_delete_ends_session_and_rejects_reuse(self):
+        req = self._start_http()
+        status, hdrs, data = req("POST", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                          "params": {"protocolVersion": "2025-11-25", "capabilities": {}}})
+        self.assertEqual(status, 200)
+        sid = hdrs.get("Mcp-Session-Id")
+        self.assertTrue(sid)
+
+        # Unauthenticated DELETE is rejected
+        self.assertEqual(req("DELETE", extra={"Mcp-Session-Id": sid}, use_auth=False)[0], 401)
+        # Missing Mcp-Session-Id gets 400
+        self.assertEqual(req("DELETE")[0], 400)
+        # Wrong protocol header on DELETE gets 400 and leaves session intact
+        self.assertEqual(req("DELETE", extra={"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-03-26"})[0], 400)
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 200)
+
+        # Valid DELETE ends the session; subsequent POST and DELETE get 404
+        self.assertEqual(req("DELETE", extra={"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 204)
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 404)
+        self.assertEqual(req("DELETE", extra={"Mcp-Session-Id": sid})[0], 404)
+
+    def test_idle_session_expires_after_timeout(self):
+        req = self._start_http({"MARKET_MIRROR_SESSION_TTL": "0.25"})
+        status, hdrs, _ = req("POST", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                       "params": {"protocolVersion": "2025-11-25", "capabilities": {}}})
+        self.assertEqual(status, 200)
+        sid = hdrs.get("Mcp-Session-Id")
+        self.assertTrue(sid)
+
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 200)
+        time.sleep(0.35)
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 404)
+
+    def test_wrong_protocol_header_returns_400(self):
+        req = self._start_http()
+        status, hdrs, _ = req("POST", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                       "params": {"protocolVersion": "2025-11-25", "capabilities": {}}})
+        self.assertEqual(status, 200)
+        sid = hdrs.get("Mcp-Session-Id")
+
+        # Mismatched header against negotiated session protocol -> 400
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-03-26"})[0], 400)
+        # Matching header -> 200
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                             {"Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"})[0], 200)
+        # Unsupported header without a session -> 400
+        self.assertEqual(req("POST", {"jsonrpc": "2.0", "id": 4, "method": "ping"},
+                             {"MCP-Protocol-Version": "1999-01-01"})[0], 400)
+
+
 if __name__ == "__main__":
     unittest.main()
