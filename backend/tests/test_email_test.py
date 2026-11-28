@@ -4,6 +4,8 @@ import json
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from app.services import email_test as et
 
 PEOPLE = [{"agent_id": i, "name": f"P{i}", "persona": "A careful buyer.", "age": 30 + i, "gender": "female" if i % 2 else "male",
@@ -58,6 +60,19 @@ def test_open_gate_is_deterministic_and_sensible():
     assert et.open_probability(emails[0], PEOPLE[0], tr, 20, 0.2) < p_good   # crowded inbox
     assert et.open_probability(emails[0], PEOPLE[0], tr, 8, 1.0) > p_good    # known sender
     assert et.open_probability(emails[0], PEOPLE[0], tr, 8, 0.2, step=3) < p_good   # later sequence steps fatigue
+
+
+@pytest.mark.parametrize("send_time,person,expected", [
+    ("morning", {"platform_habits": "checks mail on the commute"}, 1.15),
+    ("evening", {"platform_habits": "reads email after work"}, 1.15),
+    ("night", {"occupation": "night shift worker"}, 1.1),
+    ("morning", {"platform_habits": "checks mail at night"}, 1.0),
+    ("unknown", {"platform_habits": "checks mail on the commute"}, 0.9),
+])
+def test_day_phase_fit_uses_person_habits_and_stays_bounded(send_time, person, expected):
+    fit = et.day_phase_fit(send_time, person)
+    assert fit == expected
+    assert 0.6 <= fit <= 1.2
 
 
 def test_run_and_metrics():
